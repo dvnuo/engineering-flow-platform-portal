@@ -39,7 +39,6 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 @router.post("", response_model=RobotResponse)
 def create_robot(payload: RobotCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    base = payload.name.lower().replace(" ", "-")
     repo = RobotRepository(db)
     robot = repo.create(
         name=payload.name,
@@ -53,11 +52,17 @@ def create_robot(payload: RobotCreateRequest, user=Depends(get_current_user), db
         disk_size_gi=payload.disk_size_gi,
         mount_path="/data",
         namespace=settings.robots_namespace,
-        deployment_name=f"robot-{base}",
-        service_name=f"robot-{base}-svc",
-        pvc_name=f"robot-{base}-pvc",
-        endpoint_path=f"/r/{base}",
+        deployment_name="",
+        service_name="",
+        pvc_name="",
+        endpoint_path="",
     )
+
+    robot.deployment_name = f"robot-{robot.id}"
+    robot.service_name = f"robot-{robot.id}-svc"
+    robot.pvc_name = f"robot-{robot.id}-pvc"
+    robot.endpoint_path = f"/r/{robot.id}"
+    repo.save(robot)
 
     runtime = k8s_service.create_robot_runtime(robot)
     robot.status = runtime.status

@@ -18,6 +18,7 @@
 - ✅ 机器人 API（mine/public/create/detail/start/stop/share/unshare/delete/status）
 - ✅ 管理端 API（/api/admin/robots, /api/admin/audit-logs）
 - ✅ k8s_service 抽象与机器人生命周期接口接入（支持本地 no-op 模式）
+- ✅ `/r/{robot_id}` 反向代理访问入口（含权限与运行状态校验）
 - ✅ Dockerfile 与依赖清单
 
 ### 本地启动
