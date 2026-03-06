@@ -12,6 +12,12 @@ class RobotCreateRequest(BaseModel):
     description: str | None = None
 
 
+class RobotStatusResponse(BaseModel):
+    id: str
+    status: str
+    last_error: str | None = None
+
+
 class RobotResponse(BaseModel):
     id: str
     name: str
