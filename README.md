@@ -20,6 +20,7 @@
 - ✅ k8s_service 抽象与机器人生命周期接口接入（支持本地 no-op 模式）
 - ✅ `/r/{robot_id}` 反向代理访问入口（含权限与运行状态校验）
 - ✅ Dockerfile 与依赖清单
+- ✅ 简洁风格 Web UI（登录页 + 控制台，ChatGPT 风格）
 - ✅ 机器人状态流转约束（start/stop 按状态机校验）
 
 ### 本地启动
@@ -28,6 +29,8 @@
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
+
+访问 `http://localhost:8000/login` 进入界面。
 
 默认会在首次启动时创建管理员账号：
 
