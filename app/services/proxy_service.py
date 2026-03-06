@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 
 import httpx
+from typing import Optional
 
 
 class ProxyService:
@@ -13,7 +14,7 @@ class ProxyService:
         method: str,
         subpath: str,
         query_items: Iterable[tuple[str, str]],
-        body: bytes | None,
+        body: Optional[bytes],
         headers: dict[str, str],
     ) -> tuple[int, bytes, str]:
         base = self.build_robot_base_url(robot).rstrip("/")

@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 
 from app.config import get_settings
+from typing import Optional
 
 
 @dataclass
 class RuntimeStatus:
     status: str
-    message: str | None = None
+    message: Optional[str] = None
 
 
 class K8sService:

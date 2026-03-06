@@ -2,6 +2,7 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from passlib.context import CryptContext
 
 from app.config import get_settings
+from typing import Optional
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 settings = get_settings()
@@ -20,7 +21,7 @@ def issue_session_token(user_id: int) -> str:
     return serializer.dumps({"user_id": user_id})
 
 
-def parse_session_token(token: str) -> int | None:
+def parse_session_token(token: str) -> Optional[int]:
     try:
         payload = serializer.loads(token)
     except BadSignature:

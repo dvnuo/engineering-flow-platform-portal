@@ -1,15 +1,16 @@
 from datetime import datetime
 
 from pydantic import BaseModel
+from typing import Optional
 
 
 class RobotCreateRequest(BaseModel):
     name: str
     image: str
     disk_size_gi: int = 20
-    cpu: str | None = None
-    memory: str | None = None
-    description: str | None = None
+    cpu: Optional[str] = None
+    memory: Optional[str] = None
+    description: Optional[str] = None
 
 
 class RobotDeleteResponse(BaseModel):
@@ -20,7 +21,7 @@ class RobotDeleteResponse(BaseModel):
 class RobotStatusResponse(BaseModel):
     id: str
     status: str
-    last_error: str | None = None
+    last_error: Optional[str] = None
 
 
 class RobotResponse(BaseModel):
@@ -30,7 +31,7 @@ class RobotResponse(BaseModel):
     visibility: str
     image: str
     owner_user_id: int
-    last_error: str | None = None
+    last_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

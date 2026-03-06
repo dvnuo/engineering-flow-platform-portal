@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.robot import Robot
+from typing import Optional
 
 
 class RobotRepository:
@@ -28,7 +29,7 @@ class RobotRepository:
     def list_all(self) -> list[Robot]:
         return list(self.db.scalars(select(Robot).order_by(Robot.created_at.desc())).all())
 
-    def get_by_id(self, robot_id: str) -> Robot | None:
+    def get_by_id(self, robot_id: str) -> Optional[Robot]:
         return self.db.get(Robot, robot_id)
 
     def save(self, robot: Robot) -> Robot:

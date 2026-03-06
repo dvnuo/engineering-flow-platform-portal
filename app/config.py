@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -17,7 +18,7 @@ class Settings(BaseSettings):
     k8s_enabled: bool = False
     k8s_storage_class: str = "gp3"
     k8s_incluster: bool = True
-    k8s_kubeconfig: str | None = None
+    k8s_kubeconfig: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
