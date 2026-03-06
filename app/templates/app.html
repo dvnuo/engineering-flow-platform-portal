@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">Engineering Portal</div>
+    <div class="userbox">
+      <div class="avatar">{{ username[0]|upper }}</div>
+      <div>
+        <div class="username">{{ username }}</div>
+        <div class="muted tiny">role: {{ role }}</div>
+      </div>
+    </div>
+
+    <form id="create-form" class="stack panel">
+      <h3>创建机器人</h3>
+      <input name="name" placeholder="name" required />
+      <input name="image" placeholder="image" required value="your-registry/robot:latest" />
+      <input name="disk_size_gi" type="number" min="1" value="20" required />
+      <input name="cpu" placeholder="250m" />
+      <input name="memory" placeholder="512Mi" />
+      <button type="submit">Create</button>
+      <p id="create-msg" class="muted tiny"></p>
+    </form>
+
+    <button id="logout-btn" class="secondary">退出登录</button>
+  </aside>
+
+  <main class="content">
+    <section class="panel">
+      <div class="panel-title-row">
+        <h2>My Space</h2>
+        <button id="refresh-my" class="secondary">刷新</button>
+      </div>
+      <div id="mine-list" class="card-grid"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title-row">
+        <h2>Public Space</h2>
+        <button id="refresh-public" class="secondary">刷新</button>
+      </div>
+      <div id="public-list" class="card-grid"></div>
+    </section>
+  </main>
+</div>
+
+<script src="/static/js/app.js"></script>
+{% endblock %}
