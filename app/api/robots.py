@@ -6,16 +6,14 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.robot_repo import RobotRepository
-from app.schemas.robot import RobotCreateRequest, RobotResponse, RobotStatusResponse
+from app.schemas.robot import RobotCreateRequest, RobotDeleteResponse, RobotResponse, RobotStatusResponse
 from app.services.k8s_service import K8sService
 from app.utils.naming import runtime_names
+from app.utils.state_machine import can_transition, is_valid_status
 
 router = APIRouter(prefix="/api/robots", tags=["robots"])
 settings = get_settings()
 k8s_service = K8sService()
-
-VALID_STATUSES = {"creating", "running", "stopped", "deleting", "failed"}
-
 
 def _can_read(robot, user) -> bool:
     return user.role == "admin" or robot.owner_user_id == user.id or robot.visibility == "public"
@@ -123,6 +121,9 @@ def get_robot(robot_id: str, user=Depends(get_current_user), db: Session = Depen
 def start_robot(robot_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, robot = _load_writable_robot(robot_id, user, db)
 
+    if not can_transition(robot.status, "running"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Cannot start robot from status '{robot.status}'")
+
     runtime = k8s_service.start_robot(robot)
     robot.status = runtime.status
     robot.last_error = runtime.message
@@ -134,6 +135,9 @@ def start_robot(robot_id: str, user=Depends(get_current_user), db: Session = Dep
 @router.post("/{robot_id}/stop", response_model=RobotResponse)
 def stop_robot(robot_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, robot = _load_writable_robot(robot_id, user, db)
+
+    if not can_transition(robot.status, "stopped"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Cannot stop robot from status '{robot.status}'")
 
     runtime = k8s_service.stop_robot(robot)
     robot.status = runtime.status
@@ -161,7 +165,7 @@ def unshare_robot(robot_id: str, user=Depends(get_current_user), db: Session = D
     return RobotResponse.model_validate(robot)
 
 
-@router.delete("/{robot_id}")
+@router.delete("/{robot_id}", response_model=RobotDeleteResponse)
 def delete_robot(
     robot_id: str,
     destroy_data: bool = Query(False, description="If true, also destroy PVC/data"),
@@ -172,13 +176,13 @@ def delete_robot(
     return _delete_robot_with_mode(repo, robot, user, db, destroy_data=destroy_data)
 
 
-@router.post("/{robot_id}/delete-runtime")
+@router.post("/{robot_id}/delete-runtime", response_model=RobotDeleteResponse)
 def delete_robot_runtime(robot_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, robot = _load_writable_robot(robot_id, user, db)
     return _delete_robot_with_mode(repo, robot, user, db, destroy_data=False)
 
 
-@router.post("/{robot_id}/destroy")
+@router.post("/{robot_id}/destroy", response_model=RobotDeleteResponse)
 def destroy_robot(robot_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, robot = _load_writable_robot(robot_id, user, db)
     return _delete_robot_with_mode(repo, robot, user, db, destroy_data=True)
@@ -194,7 +198,7 @@ def robot_status(robot_id: str, user=Depends(get_current_user), db: Session = De
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     runtime = k8s_service.get_robot_runtime_status(robot)
-    robot.status = runtime.status if runtime.status in VALID_STATUSES else "failed"
+    robot.status = runtime.status if is_valid_status(runtime.status) else "failed"
     robot.last_error = runtime.message
     repo.save(robot)
     return RobotStatusResponse(id=robot.id, status=robot.status, last_error=robot.last_error)

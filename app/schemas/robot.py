@@ -12,6 +12,11 @@ class RobotCreateRequest(BaseModel):
     description: str | None = None
 
 
+class RobotDeleteResponse(BaseModel):
+    ok: bool
+    destroy_data: bool
+
+
 class RobotStatusResponse(BaseModel):
     id: str
     status: str
