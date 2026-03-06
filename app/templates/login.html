@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="login-shell">
+  <div class="login-card">
+    <h1>Portal</h1>
+    <p class="muted">登录以管理你的机器人运行环境</p>
+
+    <form id="login-form" class="stack">
+      <label>
+        Username
+        <input name="username" type="text" placeholder="admin" required />
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" placeholder="••••••••" required />
+      </label>
+      <button type="submit">登录</button>
+    </form>
+
+    <p id="login-error" class="error"></p>
+    <p class="muted tiny">默认开发账号可由环境变量覆盖。</p>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById("login-form");
+const err = document.getElementById("login-error");
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  err.textContent = "";
+  const fd = new FormData(form);
+  const payload = Object.fromEntries(fd.entries());
+
+  const resp = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    err.textContent = "登录失败，请检查账号密码";
+    return;
+  }
+  location.href = "/app";
+});
+</script>
+{% endblock %}
