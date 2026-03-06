@@ -15,10 +15,12 @@
 - ✅ SQLite + SQLAlchemy 模型（`users`/`robots`/`audit_logs`）
 - ✅ 基础认证 API（login/logout/me，cookie session）
 - ✅ 管理员用户 API（创建/列表/改密）
-- ✅ 机器人 API（mine/public/create/detail/start/stop/share/unshare/delete/status）
+- ✅ 机器人 API（mine/public/create/detail/start/stop/share/unshare/delete/status + delete-runtime/destroy）
 - ✅ 管理端 API（/api/admin/robots, /api/admin/audit-logs）
 - ✅ k8s_service 抽象与机器人生命周期接口接入（支持本地 no-op 模式）
+- ✅ `/r/{robot_id}` 反向代理访问入口（含权限与运行状态校验）
 - ✅ Dockerfile 与依赖清单
+- ✅ 机器人状态流转约束（start/stop 按状态机校验）
 
 ### 本地启动
 
@@ -29,8 +31,8 @@ uvicorn app.main:app --reload
 
 默认会在首次启动时创建管理员账号：
 
-- username: `admin`
-- password: `admin123`
+- username: `admin`（默认，可通过环境变量覆盖）
+- password: `admin123`（默认，仅限本地开发）
 
 
 ### Kubernetes 开关（开发/生产）
@@ -41,6 +43,8 @@ uvicorn app.main:app --reload
 - `K8S_ENABLED=true`（启用真实 K8s 调用）
 - `ROBOTS_NAMESPACE=robots`
 - `K8S_STORAGE_CLASS=gp3`
+- `BOOTSTRAP_ADMIN_USERNAME=admin`
+- `BOOTSTRAP_ADMIN_PASSWORD=admin123`
 
 ---
 
@@ -168,6 +172,8 @@ uvicorn app.main:app --reload
 - `POST /api/robots/{id}/share`
 - `POST /api/robots/{id}/unshare`
 - `DELETE /api/robots/{id}`
+- `POST /api/robots/{id}/delete-runtime`
+- `POST /api/robots/{id}/destroy`
 - `GET /api/robots/{id}/status`
 
 ### 管理端

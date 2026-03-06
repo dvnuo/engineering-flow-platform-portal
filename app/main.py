@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.proxy import router as proxy_router
 from app.api.robots import router as robots_router
 from app.api.users import router as users_router
 from app.config import get_settings
@@ -20,8 +21,12 @@ def on_startup() -> None:
     db = SessionLocal()
     try:
         repo = UserRepository(db)
-        if not repo.get_by_username("admin"):
-            repo.create("admin", hash_password("admin123"), role="admin")
+        if not repo.get_by_username(settings.bootstrap_admin_username):
+            repo.create(
+                settings.bootstrap_admin_username,
+                hash_password(settings.bootstrap_admin_password),
+                role="admin",
+            )
     finally:
         db.close()
 
@@ -35,3 +40,4 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(robots_router)
 app.include_router(admin_router)
+app.include_router(proxy_router)

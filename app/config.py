@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     session_cookie_name: str = "portal_session"
 
+    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_password: str = "admin123"
+
     robots_namespace: str = "robots"
     k8s_enabled: bool = False
     k8s_storage_class: str = "gp3"

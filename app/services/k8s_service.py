@@ -10,11 +10,7 @@ class RuntimeStatus:
 
 
 class K8sService:
-    """Minimal Kubernetes integration service for v1.
-
-    If `k8s_enabled=false`, all operations become no-op local transitions so
-    developers can run the portal without cluster access.
-    """
+    """Minimal Kubernetes integration service for v1 with local no-op fallback."""
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -39,7 +35,6 @@ class K8sService:
         if not self.enabled:
             return RuntimeStatus(status="running")
 
-        # v1 creates PVC/Deployment/Service; detailed templates can be expanded later.
         try:
             self._ensure_pvc(robot)
             self._ensure_deployment(robot)
@@ -103,6 +98,14 @@ class K8sService:
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
 
+    def _is_already_exists(self, exc: Exception) -> bool:
+        try:
+            from kubernetes.client.exceptions import ApiException
+
+            return isinstance(exc, ApiException) and exc.status == 409
+        except Exception:
+            return False
+
     def _ensure_pvc(self, robot) -> None:
         from kubernetes import client
 
@@ -118,7 +121,11 @@ class K8sService:
                 resources=client.V1VolumeResourceRequirements(requests={"storage": f"{robot.disk_size_gi}Gi"}),
             ),
         )
-        self.core_api.create_namespaced_persistent_volume_claim(namespace=robot.namespace, body=body)
+        try:
+            self.core_api.create_namespaced_persistent_volume_claim(namespace=robot.namespace, body=body)
+        except Exception as exc:
+            if not self._is_already_exists(exc):
+                raise
 
     def _ensure_deployment(self, robot) -> None:
         from kubernetes import client
@@ -150,7 +157,11 @@ class K8sService:
                 ),
             ),
         )
-        self.apps_api.create_namespaced_deployment(namespace=robot.namespace, body=body)
+        try:
+            self.apps_api.create_namespaced_deployment(namespace=robot.namespace, body=body)
+        except Exception as exc:
+            if not self._is_already_exists(exc):
+                raise
 
     def _ensure_service(self, robot) -> None:
         from kubernetes import client
@@ -163,4 +174,8 @@ class K8sService:
                 type="ClusterIP",
             ),
         )
-        self.core_api.create_namespaced_service(namespace=robot.namespace, body=body)
+        try:
+            self.core_api.create_namespaced_service(namespace=robot.namespace, body=body)
+        except Exception as exc:
+            if not self._is_already_exists(exc):
+                raise
