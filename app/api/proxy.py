@@ -28,18 +28,19 @@ async def proxy_robot(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Robot not found")
     if not _can_access(robot, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
     if robot.status != "running":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Robot is not running")
 
-    body = await request.body()
-    query = {k: v for k, v in request.query_params.multi_items()}
-    status_code, content, content_type = await proxy_service.forward(
-        robot=robot,
-        method=request.method,
-        subpath=subpath,
-        query_params=query,
-        body=body or None,
-        headers=dict(request.headers),
-    )
+    try:
+        status_code, content, content_type = await proxy_service.forward(
+            robot=robot,
+            method=request.method,
+            subpath=subpath,
+            query_items=request.query_params.multi_items(),
+            body=(await request.body()) or None,
+            headers=dict(request.headers),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Proxy upstream failure: {exc}") from exc
+
     return Response(status_code=status_code, content=content, media_type=content_type)

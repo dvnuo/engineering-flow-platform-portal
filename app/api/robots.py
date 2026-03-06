@@ -8,6 +8,7 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.robot_repo import RobotRepository
 from app.schemas.robot import RobotCreateRequest, RobotResponse
 from app.services.k8s_service import K8sService
+from app.utils.naming import runtime_names
 
 router = APIRouter(prefix="/api/robots", tags=["robots"])
 settings = get_settings()
@@ -58,10 +59,7 @@ def create_robot(payload: RobotCreateRequest, user=Depends(get_current_user), db
         endpoint_path="",
     )
 
-    robot.deployment_name = f"robot-{robot.id}"
-    robot.service_name = f"robot-{robot.id}-svc"
-    robot.pvc_name = f"robot-{robot.id}-pvc"
-    robot.endpoint_path = f"/r/{robot.id}"
+    robot.deployment_name, robot.service_name, robot.pvc_name, robot.endpoint_path = runtime_names(robot.id)
     repo.save(robot)
 
     runtime = k8s_service.create_robot_runtime(robot)

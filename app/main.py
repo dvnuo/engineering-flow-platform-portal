@@ -21,8 +21,12 @@ def on_startup() -> None:
     db = SessionLocal()
     try:
         repo = UserRepository(db)
-        if not repo.get_by_username("admin"):
-            repo.create("admin", hash_password("admin123"), role="admin")
+        if not repo.get_by_username(settings.bootstrap_admin_username):
+            repo.create(
+                settings.bootstrap_admin_username,
+                hash_password(settings.bootstrap_admin_password),
+                role="admin",
+            )
     finally:
         db.close()
 

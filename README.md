@@ -30,8 +30,8 @@ uvicorn app.main:app --reload
 
 默认会在首次启动时创建管理员账号：
 
-- username: `admin`
-- password: `admin123`
+- username: `admin`（默认，可通过环境变量覆盖）
+- password: `admin123`（默认，仅限本地开发）
 
 
 ### Kubernetes 开关（开发/生产）
@@ -42,6 +42,8 @@ uvicorn app.main:app --reload
 - `K8S_ENABLED=true`（启用真实 K8s 调用）
 - `ROBOTS_NAMESPACE=robots`
 - `K8S_STORAGE_CLASS=gp3`
+- `BOOTSTRAP_ADMIN_USERNAME=admin`
+- `BOOTSTRAP_ADMIN_PASSWORD=admin123`
 
 ---
 

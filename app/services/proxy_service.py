@@ -1,4 +1,4 @@
-from urllib.parse import urlencode
+from collections.abc import Iterable
 
 import httpx
 
@@ -12,22 +12,25 @@ class ProxyService:
         robot,
         method: str,
         subpath: str,
-        query_params: dict[str, str],
+        query_items: Iterable[tuple[str, str]],
         body: bytes | None,
         headers: dict[str, str],
     ) -> tuple[int, bytes, str]:
         base = self.build_robot_base_url(robot).rstrip("/")
         path = f"/{subpath}" if subpath else "/"
-        query = urlencode(query_params)
         url = f"{base}{path}"
-        if query:
-            url = f"{url}?{query}"
 
-        outbound_headers = {
-            "content-type": headers.get("content-type", "application/json"),
-        }
+        outbound_headers = {}
+        if headers.get("content-type"):
+            outbound_headers["content-type"] = headers["content-type"]
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.request(method=method, url=url, content=body, headers=outbound_headers)
+            resp = await client.request(
+                method=method,
+                url=url,
+                params=list(query_items),
+                content=body,
+                headers=outbound_headers,
+            )
         content_type = resp.headers.get("content-type", "application/octet-stream")
         return resp.status_code, resp.content, content_type
