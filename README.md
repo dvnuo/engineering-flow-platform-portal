@@ -14,8 +14,9 @@
 - ✅ FastAPI 应用骨架（`app/main.py`）
 - ✅ SQLite + SQLAlchemy 模型（`users`/`robots`/`audit_logs`）
 - ✅ 基础认证 API（login/logout/me，cookie session）
-- ✅ 管理员用户 API（创建/列表）
-- ✅ 机器人基础 API（mine/public/create）
+- ✅ 管理员用户 API（创建/列表/改密）
+- ✅ 机器人 API（mine/public/create/detail/start/stop/share/unshare/delete/status）
+- ✅ 管理端 API（/api/admin/robots, /api/admin/audit-logs）
 - ✅ Dockerfile 与依赖清单
 
 ### 本地启动

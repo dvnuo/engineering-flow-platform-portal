@@ -19,7 +19,9 @@ class RobotResponse(BaseModel):
     visibility: str
     image: str
     owner_user_id: int
+    last_error: str | None = None
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

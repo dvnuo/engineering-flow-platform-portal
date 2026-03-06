@@ -9,6 +9,10 @@ class UserCreateRequest(BaseModel):
     role: str = "user"
 
 
+class PasswordUpdateRequest(BaseModel):
+    password: str
+
+
 class UserResponse(BaseModel):
     id: int
     username: str

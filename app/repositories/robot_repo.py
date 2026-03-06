@@ -24,3 +24,19 @@ class RobotRepository:
         return list(
             self.db.scalars(select(Robot).where(Robot.visibility == "public").order_by(Robot.created_at.desc())).all()
         )
+
+    def list_all(self) -> list[Robot]:
+        return list(self.db.scalars(select(Robot).order_by(Robot.created_at.desc())).all())
+
+    def get_by_id(self, robot_id: str) -> Robot | None:
+        return self.db.get(Robot, robot_id)
+
+    def save(self, robot: Robot) -> Robot:
+        self.db.add(robot)
+        self.db.commit()
+        self.db.refresh(robot)
+        return robot
+
+    def delete(self, robot: Robot) -> None:
+        self.db.delete(robot)
+        self.db.commit()
