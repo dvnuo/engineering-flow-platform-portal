@@ -17,6 +17,7 @@
 - ✅ 管理员用户 API（创建/列表/改密）
 - ✅ 机器人 API（mine/public/create/detail/start/stop/share/unshare/delete/status）
 - ✅ 管理端 API（/api/admin/robots, /api/admin/audit-logs）
+- ✅ k8s_service 抽象与机器人生命周期接口接入（支持本地 no-op 模式）
 - ✅ Dockerfile 与依赖清单
 
 ### 本地启动
@@ -30,6 +31,16 @@ uvicorn app.main:app --reload
 
 - username: `admin`
 - password: `admin123`
+
+
+### Kubernetes 开关（开发/生产）
+
+可通过环境变量控制是否真实调用 Kubernetes API：
+
+- `K8S_ENABLED=false`（默认，本地 no-op）
+- `K8S_ENABLED=true`（启用真实 K8s 调用）
+- `ROBOTS_NAMESPACE=robots`
+- `K8S_STORAGE_CLASS=gp3`
 
 ---
 
