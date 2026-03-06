@@ -1,0 +1,26 @@
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.robot import Robot
+
+
+class RobotRepository:
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def create(self, **kwargs) -> Robot:
+        robot = Robot(**kwargs)
+        self.db.add(robot)
+        self.db.commit()
+        self.db.refresh(robot)
+        return robot
+
+    def list_by_owner(self, owner_user_id: int) -> list[Robot]:
+        return list(
+            self.db.scalars(select(Robot).where(Robot.owner_user_id == owner_user_id).order_by(Robot.created_at.desc())).all()
+        )
+
+    def list_public(self) -> list[Robot]:
+        return list(
+            self.db.scalars(select(Robot).where(Robot.visibility == "public").order_by(Robot.created_at.desc())).all()
+        )

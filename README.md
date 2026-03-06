@@ -9,6 +9,29 @@
 
 ---
 
+## 当前实现进度（已落地）
+
+- ✅ FastAPI 应用骨架（`app/main.py`）
+- ✅ SQLite + SQLAlchemy 模型（`users`/`robots`/`audit_logs`）
+- ✅ 基础认证 API（login/logout/me，cookie session）
+- ✅ 管理员用户 API（创建/列表）
+- ✅ 机器人基础 API（mine/public/create）
+- ✅ Dockerfile 与依赖清单
+
+### 本地启动
+
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+默认会在首次启动时创建管理员账号：
+
+- username: `admin`
+- password: `admin123`
+
+---
+
 ## 1. v1 范围
 
 ### 包含
