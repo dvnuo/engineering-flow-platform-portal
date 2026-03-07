@@ -335,4 +335,6 @@ document.getElementById("logout-btn")?.addEventListener("click", async () => {
   location.href = "/login";
 });
 
+initTheme();
+themeToggle?.addEventListener("click", toggleTheme);
 refreshAll();
