@@ -2,10 +2,43 @@ const mineList = document.getElementById("mine-list");
 const publicList = document.getElementById("public-list");
 const createForm = document.getElementById("create-form");
 const createMsg = document.getElementById("create-msg");
-const embedPanel = document.getElementById("robot-embed-panel");
 const embedFrame = document.getElementById("robot-embed-frame");
 const embedTitle = document.getElementById("embed-title");
-const embedClose = document.getElementById("embed-close");
+const selectedStatus = document.getElementById("selected-status");
+const centerPlaceholder = document.getElementById("center-placeholder");
+const robotMeta = document.getElementById("robot-meta");
+const robotActions = document.getElementById("robot-actions");
+const refreshAllBtn = document.getElementById("refresh-all");
+
+const themeToggle = document.getElementById("theme-toggle");
+const THEME_STORAGE_KEY = "portal-theme";
+
+let currentUser = null;
+let mineRobots = [];
+let publicRobots = [];
+let robotStatus = new Map();
+let selectedRobotId = null;
+
+function applyTheme(theme) {
+  const nextTheme = theme === "light" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", nextTheme);
+  if (themeToggle) {
+    themeToggle.textContent = nextTheme === "dark" ? "Switch to Light" : "Switch to Dark";
+  }
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_STORAGE_KEY);
+  const defaultTheme = "dark";
+  applyTheme(saved || defaultTheme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  const next = current === "dark" ? "light" : "dark";
+  localStorage.setItem(THEME_STORAGE_KEY, next);
+  applyTheme(next);
+}
 
 async function api(path, options = {}) {
   const resp = await fetch(path, {
@@ -27,6 +60,18 @@ function formatDate(iso) {
   return d.toLocaleString();
 }
 
+function getStatusClass(status) {
+  return `status status-${status || "stopped"}`;
+}
+
+function isMine(robot) {
+  return currentUser && robot.owner_user_id === currentUser.id;
+}
+
+function getSelectedRobot() {
+  return [...mineRobots, ...publicRobots].find((r) => r.id === selectedRobotId) || null;
+}
+
 function buttonDisabledByStatus(label, status) {
   if (label === "Start") return !(status === "stopped" || status === "failed");
   if (label === "Stop") return status !== "running";
@@ -34,85 +79,52 @@ function buttonDisabledByStatus(label, status) {
   return false;
 }
 
-async function robotCard(robot, mine = true) {
-  let statusInfo = { status: robot.status, cpu_usage: "N/A", memory_usage: "N/A", last_error: robot.last_error || null };
-  try {
-    statusInfo = await api(`/api/robots/${robot.id}/status`);
-  } catch (_) {
-    // keep fallback values
-  }
-
-  const box = document.createElement("div");
-  box.className = "robot-card";
-  box.innerHTML = `
-    <div class="row-between">
-      <strong>${robot.name}</strong>
-      <span class="status status-${statusInfo.status}">${statusInfo.status}</span>
-    </div>
-    <p class="muted tiny">Image: ${robot.image}</p>
-    <p class="muted tiny">Created: ${formatDate(robot.created_at)}</p>
-    <p class="muted tiny">CPU request: ${robot.cpu || "N/A"} | Mem request: ${robot.memory || "N/A"}</p>
-    <p class="muted tiny">CPU usage: ${statusInfo.cpu_usage || "N/A"} | Mem usage: ${statusInfo.memory_usage || "N/A"}</p>
-    ${statusInfo.last_error ? `<p class="error tiny">Error: ${statusInfo.last_error}</p>` : ""}
-    <div class="btn-row"></div>
-  `;
-  const row = box.querySelector(".btn-row");
-
-  if (mine) {
-    row.append(actionBtn("Start", `/api/robots/${robot.id}/start`, statusInfo.status));
-    row.append(actionBtn("Stop", `/api/robots/${robot.id}/stop`, statusInfo.status));
-    row.append(actionBtn("Open", () => openEmbeddedRobot(robot), statusInfo.status, "secondary"));
-    row.append(btn(robot.visibility === "public" ? "Unshare" : "Share", () =>
-      action(`/api/robots/${robot.id}/${robot.visibility === "public" ? "unshare" : "share"}`)
-    ));
-    row.append(btn("Delete Runtime", () => action(`/api/robots/${robot.id}/delete-runtime`, "POST", true), "secondary"));
-    row.append(btn("Destroy", () => action(`/api/robots/${robot.id}/destroy`, "POST", true), "danger"));
-  } else {
-    row.append(actionBtn("Open", () => openEmbeddedRobot(robot), statusInfo.status, "secondary"));
-  }
-  return box;
-}
-
-
-function openEmbeddedRobot(robot) {
-  if (!embedPanel || !embedFrame) {
-    window.open(`/r/${robot.id}`, "_blank");
-    return;
-  }
-  embedTitle.textContent = `Robot Preview: ${robot.name}`;
-  embedFrame.src = `/r/${robot.id}`;
-  embedPanel.classList.remove("hidden");
-  embedPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function closeEmbeddedRobot() {
-  if (!embedPanel || !embedFrame) return;
-  embedFrame.src = "about:blank";
-  embedPanel.classList.add("hidden");
-}
-
-function actionBtn(label, pathOrHandler, status, kind = "") {
-  const onClick = typeof pathOrHandler === "string" ? () => action(pathOrHandler) : pathOrHandler;
-  const b = btn(label, onClick, kind);
-  const disabled = buttonDisabledByStatus(label, status);
-  b.disabled = disabled;
-  if (disabled) {
-    b.classList.add("disabled");
-    b.title = label === "Start"
-      ? "Start is available only when robot is stopped/failed."
-      : label === "Stop"
-        ? "Stop is available only when robot is running."
-        : "Open is available only when robot is running.";
-  }
-  return b;
-}
-
-function btn(label, onClick, kind = "") {
+function button(label, onClick, kind = "") {
   const b = document.createElement("button");
+  b.type = "button";
   b.className = kind;
   b.textContent = label;
   b.onclick = onClick;
   return b;
+}
+
+async function openEditDialog(robot) {
+  const name = prompt("Robot name", robot.name);
+  if (name === null) return;
+  const image = prompt("Container image", robot.image);
+  if (image === null) return;
+  const diskInput = prompt("Disk size (Gi)", String(robot.disk_size_gi || 20));
+  if (diskInput === null) return;
+  const cpu = prompt("CPU request", robot.cpu || "");
+  if (cpu === null) return;
+  const memory = prompt("Memory request", robot.memory || "");
+  if (memory === null) return;
+  const description = prompt("Description", robot.description || "");
+  if (description === null) return;
+
+  const diskSize = Number(diskInput);
+  if (!Number.isFinite(diskSize) || diskSize < 1) {
+    alert("Disk size must be at least 1 Gi.");
+    return;
+  }
+
+  try {
+    await api(`/api/robots/${robot.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: name.trim(),
+        image: image.trim(),
+        disk_size_gi: Math.trunc(diskSize),
+        cpu: cpu.trim() || null,
+        memory: memory.trim() || null,
+        description: description.trim() || null,
+      }),
+    });
+    await refreshAll();
+    selectRobotById(robot.id);
+  } catch (e) {
+    alert(`Update failed: ${e.message}`);
+  }
 }
 
 async function action(path, method = "POST", confirmAction = false) {
@@ -120,29 +132,146 @@ async function action(path, method = "POST", confirmAction = false) {
   try {
     await api(path, { method });
     await refreshAll();
+    if (selectedRobotId) selectRobotById(selectedRobotId);
   } catch (e) {
     alert(`Operation failed: ${e.message}`);
   }
 }
 
-async function loadMine() {
-  mineList.innerHTML = "";
-  const data = await api("/api/robots/mine");
-  const cards = await Promise.all(data.map((r) => robotCard(r, true)));
-  cards.forEach((c) => mineList.append(c));
-  if (data.length === 0) mineList.innerHTML = '<p class="muted">No robots yet.</p>';
+function renderRobotList(container, robots) {
+  container.innerHTML = "";
+  if (robots.length === 0) {
+    container.innerHTML = '<p class="muted tiny">No robots.</p>';
+    return;
+  }
+
+  robots.forEach((robot) => {
+    const status = robotStatus.get(robot.id)?.status || robot.status;
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `robot-list-item ${selectedRobotId === robot.id ? "active" : ""}`;
+    item.innerHTML = `
+      <span class="robot-avatar">${robot.name[0]?.toUpperCase() || "R"}</span>
+      <span class="robot-name">${robot.name}</span>
+      <span class="status-dot status-${status}"></span>
+    `;
+    item.onclick = () => selectRobotById(robot.id);
+    container.append(item);
+  });
 }
 
-async function loadPublic() {
-  publicList.innerHTML = "";
-  const data = await api("/api/robots/public");
-  const cards = await Promise.all(data.map((r) => robotCard(r, false)));
-  cards.forEach((c) => publicList.append(c));
-  if (data.length === 0) publicList.innerHTML = '<p class="muted">No public robots yet.</p>';
+function renderDetails(robot) {
+  if (!robot) {
+    robotMeta.textContent = "No robot selected.";
+    robotActions.innerHTML = "";
+    embedTitle.textContent = "Select a robot from the left";
+    selectedStatus.className = "status";
+    selectedStatus.textContent = "idle";
+    embedFrame.src = "about:blank";
+    embedFrame.classList.add("hidden");
+    centerPlaceholder.classList.remove("hidden");
+    return;
+  }
+
+  const statusInfo = robotStatus.get(robot.id) || { status: robot.status };
+  const status = statusInfo.status || "stopped";
+
+  embedTitle.textContent = robot.name;
+  selectedStatus.className = getStatusClass(status);
+  selectedStatus.textContent = status;
+
+  robotMeta.innerHTML = `
+    <p><strong>Image:</strong> ${robot.image}</p>
+    <p><strong>Created:</strong> ${formatDate(robot.created_at)}</p>
+    <p><strong>CPU:</strong> ${robot.cpu || "N/A"}</p>
+    <p><strong>Memory:</strong> ${robot.memory || "N/A"}</p>
+    <p><strong>Disk:</strong> ${robot.disk_size_gi || "N/A"}Gi</p>
+    <p><strong>Description:</strong> ${robot.description || "-"}</p>
+    ${statusInfo.last_error ? `<p class="error tiny">Error: ${statusInfo.last_error}</p>` : ""}
+  `;
+
+  if (status === "running") {
+    centerPlaceholder.classList.add("hidden");
+    embedFrame.classList.remove("hidden");
+    if (!embedFrame.src.endsWith(`/r/${robot.id}`)) {
+      embedFrame.src = `/r/${robot.id}`;
+    }
+  } else {
+    embedFrame.src = "about:blank";
+    embedFrame.classList.add("hidden");
+    centerPlaceholder.classList.remove("hidden");
+    centerPlaceholder.innerHTML = `
+      <h3>${robot.name} is ${status}</h3>
+      <p class="muted">Start this robot to open it in the center chat area.</p>
+    `;
+  }
+
+  robotActions.innerHTML = "";
+  const canWrite = isMine(robot);
+
+  if (canWrite) {
+    const startBtn = button("Start", () => action(`/api/robots/${robot.id}/start`));
+    startBtn.disabled = buttonDisabledByStatus("Start", status);
+
+    const stopBtn = button("Stop", () => action(`/api/robots/${robot.id}/stop`));
+    stopBtn.disabled = buttonDisabledByStatus("Stop", status);
+
+    const shareBtn = button(robot.visibility === "public" ? "Unshare" : "Share", () =>
+      action(`/api/robots/${robot.id}/${robot.visibility === "public" ? "unshare" : "share"}`), "secondary");
+
+    const editBtn = button("Edit Config", () => openEditDialog(robot), "secondary");
+    const deleteRuntimeBtn = button("Delete Runtime", () => action(`/api/robots/${robot.id}/delete-runtime`, "POST", true), "secondary");
+    const destroyBtn = button("Destroy", () => action(`/api/robots/${robot.id}/destroy`, "POST", true), "danger");
+
+    robotActions.append(startBtn, stopBtn, shareBtn, editBtn, deleteRuntimeBtn, destroyBtn);
+  } else {
+    const openBtn = button("Open in New Tab", () => window.open(`/r/${robot.id}`, "_blank"), "secondary");
+    openBtn.disabled = buttonDisabledByStatus("Open", status);
+    robotActions.append(openBtn);
+  }
+}
+
+function selectRobotById(robotId) {
+  selectedRobotId = robotId;
+  renderRobotList(mineList, mineRobots);
+  renderRobotList(publicList, publicRobots);
+  renderDetails(getSelectedRobot());
+}
+
+async function loadStatusForRobots(robots) {
+  const pairs = await Promise.all(
+    robots.map(async (robot) => {
+      try {
+        const status = await api(`/api/robots/${robot.id}/status`);
+        return [robot.id, status];
+      } catch (_) {
+        return [robot.id, { status: robot.status, last_error: robot.last_error || null }];
+      }
+    }),
+  );
+  pairs.forEach(([id, status]) => robotStatus.set(id, status));
 }
 
 async function refreshAll() {
-  await Promise.all([loadMine(), loadPublic()]);
+  const [me, mine, pub] = await Promise.all([
+    api("/api/auth/me"),
+    api("/api/robots/mine"),
+    api("/api/robots/public"),
+  ]);
+  currentUser = me;
+  mineRobots = mine;
+  publicRobots = pub.filter((r) => !mine.some((m) => m.id === r.id));
+  robotStatus = new Map();
+  await loadStatusForRobots([...mineRobots, ...publicRobots]);
+
+  if (!selectedRobotId && mineRobots[0]) selectedRobotId = mineRobots[0].id;
+  if (selectedRobotId && ![...mineRobots, ...publicRobots].some((r) => r.id === selectedRobotId)) {
+    selectedRobotId = mineRobots[0]?.id || publicRobots[0]?.id || null;
+  }
+
+  renderRobotList(mineList, mineRobots);
+  renderRobotList(publicList, publicRobots);
+  renderDetails(getSelectedRobot());
 }
 
 createForm?.addEventListener("submit", async (e) => {
@@ -153,22 +282,22 @@ createForm?.addEventListener("submit", async (e) => {
   payload.disk_size_gi = Number(payload.disk_size_gi || 20);
 
   try {
-    await api("/api/robots", { method: "POST", body: JSON.stringify(payload) });
-    createForm.reset();
+    const created = await api("/api/robots", { method: "POST", body: JSON.stringify(payload) });
     createMsg.textContent = "Robot created.";
+    createForm.reset();
     await refreshAll();
+    selectRobotById(created.id);
   } catch (e) {
     createMsg.textContent = `Create failed: ${e.message}`;
   }
 });
 
-document.getElementById("refresh-my")?.addEventListener("click", loadMine);
-document.getElementById("refresh-public")?.addEventListener("click", loadPublic);
+refreshAllBtn?.addEventListener("click", refreshAll);
 document.getElementById("logout-btn")?.addEventListener("click", async () => {
   await fetch("/api/auth/logout", { method: "POST" });
   location.href = "/login";
 });
 
+initTheme();
+themeToggle?.addEventListener("click", toggleTheme);
 refreshAll();
-
-embedClose?.addEventListener("click", closeEmbeddedRobot);
