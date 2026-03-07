@@ -38,7 +38,7 @@ class ProxyService:
             self._node_ip = os.environ.get('NODE_IP', '192.168.8.237')
         return self._node_ip
 
-    def _get_service_url(self, robot) -> Optional[str]:
+    def _get_service_url(self, robot) -> str:
         """Get the service URL, trying NodePort first then internal DNS."""
         if not self.core_api:
             return f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local"
@@ -54,20 +54,8 @@ class ProxyService:
                 for port in svc.spec.ports:
                     if port.node_port:
                         url = f"http://{self.node_ip}:{port.node_port}"
-                        # Quick health check
-                        try:
-                            import socket
-                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            sock.settimeout(2)
-                            result = sock.connect_ex((self.node_ip, port.node_port))
-                            sock.close()
-                            if result == 0:
-                                logger.info(f"NodePort connection successful: {url}")
-                                return url
-                            else:
-                                logger.warning(f"NodePort not reachable: {url}")
-                        except Exception as e:
-                            logger.warning(f"Health check failed for {url}: {e}")
+                        logger.info(f"Using NodePort URL: {url}")
+                        return url
             
             # Fallback to internal DNS
             logger.info(f"Falling back to internal DNS for {robot.service_name}")
@@ -78,8 +66,7 @@ class ProxyService:
             return f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local"
 
     def build_robot_base_url(self, robot) -> str:
-        url = self._get_service_url(robot)
-        return url if url else f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local"
+        return self._get_service_url(robot)
 
     async def forward(
         self,
@@ -92,7 +79,7 @@ class ProxyService:
     ) -> tuple[int, bytes, str]:
         base = self.build_robot_base_url(robot).rstrip("/")
         path = f"/{subpath}" if subpath else "/"
-        url = f"{base}${path}"
+        url = f"{base}{path}"
 
         outbound_headers = {}
         if headers.get("content-type"):
@@ -115,7 +102,8 @@ class ProxyService:
         except httpx.ConnectError as e:
             logger.error(f"Connection error to {url}: {e}")
             # Try fallback URL
-            fallback_url = f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local}${path}"
+            fallback_base = f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local"
+            fallback_url = fallback_base + path
             logger.info(f"Trying fallback: {fallback_url}")
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
