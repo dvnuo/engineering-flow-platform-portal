@@ -145,7 +145,7 @@ class K8sService:
                                 name="robot",
                                 image=robot.image,
                                 ports=[client.V1ContainerPort(container_port=80)], image_pull_policy="Never",
-                                volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path), client.V1VolumeMount(name="efp-config", mount_path="/root/.efp", read_only=False)], env=[client.V1EnvVar(name="PORT", value="80")],
+                                volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path), client.V1VolumeMount(name="efp-config", mount_path="/data/efp-config", read_only=False)], env=[client.V1EnvVar(name="PORT", value="80"), client.V1EnvVar(name="EFP_CONFIG_PATH", value="/data/efp-config/config.yaml")]
                             )
                         ],
                         volumes=[
