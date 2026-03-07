@@ -143,7 +143,7 @@ class K8sService:
                         containers=[
                             client.V1Container(
                                 name="robot",
-                                image=robot.image,
+                                image="busybox",
                                 ports=[client.V1ContainerPort(container_port=80)], image_pull_policy="Never",
                                 volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path)], env=[client.V1EnvVar(name="PORT", value="80"), client.V1EnvVar(name="EFP_CONFIG_PATH", value="/data/efp-config/config.yaml")]
                             )
@@ -151,9 +151,9 @@ class K8sService:
                         init_containers=[
                             client.V1Container(
                                 name="init-config",
-                                image=robot.image,
+                                image="busybox",
                                 command=["sh", "-c"],
-                                args=["cp /config/config.yaml /data/config.yaml"],
+                                args=["sh", "-c", "cp /config/config.yaml /data/config.yaml , || echo no config"],
                                 volume_mounts=[
                                     client.V1VolumeMount(name="robot-data", mount_path="/data"),
                                     client.V1VolumeMount(name="efp-config", mount_path="/config", read_only=True),
