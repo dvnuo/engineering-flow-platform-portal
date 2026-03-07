@@ -1,55 +1,85 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="layout">
-  <aside class="sidebar">
-    <div class="brand">Engineering Portal</div>
-    <div class="userbox">
-      <div class="avatar">{{ username[0]|upper }}</div>
-      <div>
-        <div class="username">{{ username }}</div>
-        <div class="muted tiny">role: {{ role }}</div>
+<div class="app-layout">
+  <aside class="conversation-list panel">
+    <div class="channel-header">
+      <h2>🤖 Robots</h2>
+      <div class="icon-row">
+        <button id="refresh-all" class="icon-btn" type="button" title="Refresh">↻</button>
+        <button id="open-create-modal" class="icon-btn primary" type="button" title="Create Robot">＋</button>
+        <button id="theme-toggle" class="icon-btn" type="button" title="Toggle Theme">☾</button>
       </div>
     </div>
 
-    <form id="create-form" class="stack panel">
-      <h3>Create Robot</h3>
+    <div class="channel-group">
+      <h3>🧩 My Space</h3>
+      <div id="mine-list" class="robot-list"></div>
+    </div>
+
+    <div class="channel-group">
+      <h3>🌐 Public Space</h3>
+      <div id="public-list" class="robot-list"></div>
+    </div>
+
+    <div class="user-dock">
+      <div class="user-pill">
+        <div class="avatar">{{ username[0]|upper }}</div>
+        <div>
+          <div class="user-name">{{ username }}</div>
+          <div class="muted tiny">{{ role }}</div>
+        </div>
+      </div>
+      <button id="logout-btn" class="icon-btn danger" type="button" title="Sign Out">⎋</button>
+    </div>
+  </aside>
+
+  <main class="chat-center panel">
+    <div class="chat-header">
+      <div>
+        <p class="tiny muted">Active Robot</p>
+        <h2 id="embed-title">Select a robot from left list</h2>
+      </div>
+      <div class="icon-row">
+        <span id="selected-status" class="status">idle</span>
+        <button id="detail-toggle" class="icon-btn" type="button" title="Toggle Details">☰</button>
+      </div>
+    </div>
+
+    <div id="center-placeholder" class="center-placeholder">
+      <h3>Start a robot conversation</h3>
+      <p class="muted">Select a robot in the left column. Running robots open here automatically.</p>
+    </div>
+
+    <iframe id="robot-embed-frame" title="Robot Embedded View" class="hidden"></iframe>
+  </main>
+
+  <aside id="detail-panel" class="detail-panel panel collapsed">
+    <button id="detail-toggle-side" class="icon-btn" type="button" title="Expand Details">◀</button>
+    <div class="detail-content">
+      <h3>📝 Robot Details</h3>
+      <div id="robot-meta" class="meta-box muted">No robot selected.</div>
+      <div id="robot-actions" class="stack"></div>
+    </div>
+  </aside>
+</div>
+
+<div id="create-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-card panel">
+    <div class="modal-head">
+      <h3>✨ Create Robot</h3>
+      <button id="close-create-modal" class="icon-btn" type="button" title="Close">✕</button>
+    </div>
+
+    <form id="create-form" class="stack">
       <input name="name" placeholder="Robot name" required />
       <input name="image" placeholder="Container image" required value="your-registry/robot:latest" />
       <input name="disk_size_gi" type="number" min="1" value="20" required />
       <input name="cpu" placeholder="CPU request (e.g. 250m)" />
       <input name="memory" placeholder="Memory request (e.g. 512Mi)" />
-      <button type="submit">Create</button>
+      <button type="submit">🚀 Create</button>
       <p id="create-msg" class="muted tiny"></p>
     </form>
-
-    <button id="logout-btn" class="secondary">Sign Out</button>
-  </aside>
-
-  <main class="content">
-    <section class="panel">
-      <div class="panel-title-row">
-        <h2>My Space</h2>
-        <button id="refresh-my" class="secondary">Refresh</button>
-      </div>
-      <div id="mine-list" class="card-grid"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-title-row">
-        <h2>Public Space</h2>
-        <button id="refresh-public" class="secondary">Refresh</button>
-      </div>
-      <div id="public-list" class="card-grid"></div>
-    </section>
-
-    <section id="robot-embed-panel" class="panel robot-embed-panel hidden">
-      <div class="panel-title-row">
-        <h2 id="embed-title">Robot Preview</h2>
-        <button id="embed-close" class="secondary">Close</button>
-      </div>
-      <iframe id="robot-embed-frame" title="Robot Embedded View"></iframe>
-    </section>
-  </main>
+  </div>
 </div>
 
 <script src="/static/js/app.js"></script>

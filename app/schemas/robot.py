@@ -13,6 +13,15 @@ class RobotCreateRequest(BaseModel):
     description: Optional[str] = None
 
 
+class RobotUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    image: Optional[str] = None
+    disk_size_gi: Optional[int] = None
+    cpu: Optional[str] = None
+    memory: Optional[str] = None
+    description: Optional[str] = None
+
+
 class RobotDeleteResponse(BaseModel):
     ok: bool
     destroy_data: bool
@@ -35,6 +44,8 @@ class RobotResponse(BaseModel):
     owner_user_id: int
     cpu: Optional[str] = None
     memory: Optional[str] = None
+    disk_size_gi: int
+    description: Optional[str] = None
     last_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime

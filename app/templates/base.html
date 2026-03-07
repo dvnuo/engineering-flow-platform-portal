@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{ title }}</title>
     <link rel="stylesheet" href="/static/css/app.css" />
+    <script>
+      (function () {
+        const key = "portal-theme";
+        const saved = localStorage.getItem(key);
+        const defaultTheme = "dark";
+        document.documentElement.setAttribute("data-theme", saved || defaultTheme);
+      })();
+    </script>
   </head>
   <body>
     {% block content %}{% endblock %}
