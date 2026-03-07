@@ -9,8 +9,8 @@
       (function () {
         const key = "portal-theme";
         const saved = localStorage.getItem(key);
-        const preferred = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-        document.documentElement.setAttribute("data-theme", saved || preferred);
+        const defaultTheme = "dark";
+        document.documentElement.setAttribute("data-theme", saved || defaultTheme);
       })();
     </script>
   </head>
