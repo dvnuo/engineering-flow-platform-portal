@@ -47,10 +47,47 @@
 
     <div id="center-placeholder" class="center-placeholder">
       <h3>Start a robot conversation</h3>
-      <p class="muted">Select a robot in the left column. Running robots open here automatically.</p>
+      <p class="muted">Select a robot in the left column. Running robots can be chatted here directly.</p>
     </div>
 
-    <iframe id="robot-embed-frame" title="Robot Embedded View" class="hidden"></iframe>
+    <section id="robot-chat-shell" class="robot-chat-shell hidden" aria-label="Robot chat shell">
+      <aside class="chat-nav panel-soft">
+        <div class="chat-nav-block">
+          <p class="chat-nav-title">Chat</p>
+          <button id="new-chat-btn" class="secondary" type="button">💬 New Chat</button>
+        </div>
+
+        <div class="chat-nav-block grow">
+          <div class="chat-nav-row">
+            <p class="chat-nav-title">Recent</p>
+            <button id="refresh-recents-btn" class="icon-btn" type="button" title="Refresh recents">↻</button>
+          </div>
+          <div id="recent-sessions" class="recent-list muted tiny">No recent sessions</div>
+        </div>
+
+        <div class="chat-nav-block">
+          <p class="chat-nav-title">Tools</p>
+          <div class="stack">
+            <button id="open-server-files" class="secondary" type="button">📁 Server Files</button>
+            <button id="open-my-uploads" class="secondary" type="button">⤴ My Uploads</button>
+            <button id="open-terminal" class="secondary" type="button">⌨ Terminal</button>
+          </div>
+        </div>
+
+        <button id="open-chat-settings" class="secondary" type="button">⚙ Settings</button>
+      </aside>
+
+      <div class="chat-main panel-soft">
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="composer-wrap">
+          <label class="upload-chip" for="chat-upload-input">📎 上传文件</label>
+          <input id="chat-upload-input" type="file" class="hidden" multiple />
+          <textarea id="chat-input" rows="2" placeholder="Type a message or / for skills..."></textarea>
+          <button id="chat-send-btn" type="button">Send</button>
+        </div>
+        <p id="chat-status" class="tiny muted">Ready</p>
+      </div>
+    </section>
   </main>
 
   <aside id="detail-panel" class="detail-panel panel collapsed">
@@ -61,6 +98,16 @@
       <div id="robot-actions" class="stack"></div>
     </div>
   </aside>
+</div>
+
+<div id="chat-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-card panel chat-modal-card">
+    <div class="modal-head">
+      <h3 id="chat-modal-title">Details</h3>
+      <button id="close-chat-modal" class="icon-btn" type="button" title="Close">✕</button>
+    </div>
+    <div id="chat-modal-content" class="chat-modal-content muted tiny"></div>
+  </div>
 </div>
 
 <div id="create-modal" class="modal hidden" aria-hidden="true">

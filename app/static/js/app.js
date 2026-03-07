@@ -6,7 +6,6 @@ const createModal = document.getElementById("create-modal");
 const openCreateModalBtn = document.getElementById("open-create-modal");
 const closeCreateModalBtn = document.getElementById("close-create-modal");
 
-const embedFrame = document.getElementById("robot-embed-frame");
 const embedTitle = document.getElementById("embed-title");
 const selectedStatus = document.getElementById("selected-status");
 const centerPlaceholder = document.getElementById("center-placeholder");
@@ -21,12 +20,35 @@ const detailToggleSide = document.getElementById("detail-toggle-side");
 const themeToggle = document.getElementById("theme-toggle");
 const THEME_STORAGE_KEY = "portal-theme";
 
+const robotChatShell = document.getElementById("robot-chat-shell");
+const chatMessages = document.getElementById("chat-messages");
+const chatInput = document.getElementById("chat-input");
+const chatSendBtn = document.getElementById("chat-send-btn");
+const chatStatus = document.getElementById("chat-status");
+const newChatBtn = document.getElementById("new-chat-btn");
+const refreshRecentsBtn = document.getElementById("refresh-recents-btn");
+const recentSessions = document.getElementById("recent-sessions");
+const uploadInput = document.getElementById("chat-upload-input");
+const openServerFilesBtn = document.getElementById("open-server-files");
+const openMyUploadsBtn = document.getElementById("open-my-uploads");
+const openChatSettingsBtn = document.getElementById("open-chat-settings");
+const openTerminalBtn = document.getElementById("open-terminal");
+const chatModal = document.getElementById("chat-modal");
+const closeChatModalBtn = document.getElementById("close-chat-modal");
+const chatModalTitle = document.getElementById("chat-modal-title");
+const chatModalContent = document.getElementById("chat-modal-content");
+
 let currentUser = null;
 let mineRobots = [];
 let publicRobots = [];
 let robotStatus = new Map();
 let selectedRobotId = null;
 let detailsCollapsed = true;
+
+const chatState = {
+  histories: new Map(),
+  sessionIds: new Map(),
+};
 
 function applyTheme(theme) {
   const nextTheme = theme === "light" ? "light" : "dark";
@@ -67,6 +89,19 @@ function closeCreateModal() {
   createModal?.setAttribute("aria-hidden", "true");
 }
 
+function openChatModal(title, body) {
+  if (!chatModal) return;
+  chatModalTitle.textContent = title;
+  chatModalContent.textContent = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+  chatModal.classList.remove("hidden");
+  chatModal.setAttribute("aria-hidden", "false");
+}
+
+function closeChatModal() {
+  chatModal?.classList.add("hidden");
+  chatModal?.setAttribute("aria-hidden", "true");
+}
+
 async function api(path, options = {}) {
   const resp = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -78,6 +113,29 @@ async function api(path, options = {}) {
   }
   const ct = resp.headers.get("content-type") || "";
   return ct.includes("application/json") ? resp.json() : resp.text();
+}
+
+async function proxyApi(robotId, path, options = {}) {
+  const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+  const resp = await fetch(`/r/${robotId}/${cleanPath}`, options);
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || `HTTP ${resp.status}`);
+  }
+  const ct = resp.headers.get("content-type") || "";
+  return ct.includes("application/json") ? resp.json() : resp.text();
+}
+
+async function tryProxyApi(robotId, paths, options = {}) {
+  let lastErr = null;
+  for (const path of paths) {
+    try {
+      return await proxyApi(robotId, path, options);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("No available proxy endpoint");
 }
 
 function formatDate(iso) {
@@ -113,6 +171,52 @@ function button(label, onClick, kind = "") {
   b.textContent = label;
   b.onclick = onClick;
   return b;
+}
+
+function getHistory(robotId) {
+  return chatState.histories.get(robotId) || [];
+}
+
+function setHistory(robotId, history) {
+  chatState.histories.set(robotId, history);
+}
+
+function appendMessage(role, text) {
+  const node = document.createElement("article");
+  node.className = `chat-message ${role === "user" ? "from-user" : "from-assistant"}`;
+  node.innerHTML = `<p class="tiny muted">${role === "user" ? "You" : "Assistant"}</p><div>${String(text || "").replace(/</g, "&lt;")}</div>`;
+  chatMessages?.append(node);
+  if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function normalizeSessionList(data) {
+  if (Array.isArray(data)) return data;
+  return data?.sessions || data?.items || data?.data || [];
+}
+
+function normalizeSessionMessages(data) {
+  const messages = Array.isArray(data) ? data : (data?.messages || data?.history || data?.items || []);
+  return messages
+    .map((item) => ({
+      role: item.role || (item.type === "human" ? "user" : "assistant"),
+      content: item.content || item.text || item.message || "",
+    }))
+    .filter((item) => item.content);
+}
+
+function getSessionId(item) {
+  return item?.id || item?.session_id || item?.sessionId || null;
+}
+
+function renderHistory(robot) {
+  if (!chatMessages || !robot) return;
+  const history = getHistory(robot.id);
+  chatMessages.innerHTML = "";
+  if (!history.length) {
+    chatMessages.innerHTML = '<div class="welcome-box">👋 Welcome! I\'m your AI assistant. How can I help you today?</div>';
+    return;
+  }
+  history.forEach((m) => appendMessage(m.role, m.content));
 }
 
 async function openEditDialog(robot) {
@@ -194,8 +298,7 @@ function renderDetails(robot) {
     embedTitle.textContent = "Select a robot from left list";
     selectedStatus.className = "status";
     selectedStatus.textContent = "idle";
-    embedFrame.src = "about:blank";
-    embedFrame.classList.add("hidden");
+    robotChatShell?.classList.add("hidden");
     centerPlaceholder.classList.remove("hidden");
     return;
   }
@@ -219,15 +322,15 @@ function renderDetails(robot) {
 
   if (status === "running") {
     centerPlaceholder.classList.add("hidden");
-    embedFrame.classList.remove("hidden");
-    if (!embedFrame.src.endsWith(`/r/${robot.id}`)) embedFrame.src = `/r/${robot.id}`;
+    robotChatShell?.classList.remove("hidden");
+    renderHistory(robot);
+    refreshRecents();
   } else {
-    embedFrame.src = "about:blank";
-    embedFrame.classList.add("hidden");
+    robotChatShell?.classList.add("hidden");
     centerPlaceholder.classList.remove("hidden");
     centerPlaceholder.innerHTML = `
       <h3>${robot.name} is ${status}</h3>
-      <p class="muted">Start this robot to open it in the center view.</p>
+      <p class="muted">Start this robot to chat here.</p>
     `;
   }
 
@@ -296,6 +399,144 @@ async function refreshAll() {
   renderDetails(getSelectedRobot());
 }
 
+async function sendChat() {
+  const robot = getSelectedRobot();
+  if (!robot || !chatInput || !chatInput.value.trim()) return;
+  const text = chatInput.value.trim();
+  chatInput.value = "";
+
+  const history = getHistory(robot.id);
+  const sessionId = chatState.sessionIds.get(robot.id);
+  history.push({ role: "user", content: text });
+  setHistory(robot.id, history);
+  renderHistory(robot);
+  chatStatus.textContent = "Sending...";
+
+  try {
+    const payload = { message: text };
+    if (sessionId) payload.session_id = sessionId;
+    const resp = await tryProxyApi(robot.id, ["api/chat", "api/v1/chat", "api/chat/send"], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const answer = resp.reply || resp.response || resp.message || JSON.stringify(resp);
+    history.push({ role: "assistant", content: answer });
+    setHistory(robot.id, history);
+    if (resp.session_id) chatState.sessionIds.set(robot.id, resp.session_id);
+    renderHistory(robot);
+    chatStatus.textContent = "Ready";
+  } catch (err) {
+    appendMessage("assistant", `请求失败：${err.message}`);
+    chatStatus.textContent = "Request failed";
+  }
+}
+
+async function refreshRecents() {
+  const robot = getSelectedRobot();
+  if (!robot || !recentSessions) return;
+  recentSessions.textContent = "Loading...";
+
+  try {
+    const data = await tryProxyApi(robot.id, ["api/sessions", "api/chat/sessions", "api/recent", "api/recent-sessions"]);
+    const items = normalizeSessionList(data);
+    if (!items.length) {
+      recentSessions.textContent = "No recent sessions";
+      return;
+    }
+    recentSessions.innerHTML = "";
+    items.slice(0, 8).forEach((item) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "recent-item secondary";
+      const sessionId = getSessionId(item);
+      row.textContent = item.title || item.name || sessionId || "session";
+      row.onclick = async () => {
+        if (!sessionId) {
+          chatStatus.textContent = "Session selected";
+          return;
+        }
+        chatState.sessionIds.set(robot.id, sessionId);
+        chatStatus.textContent = `Loading session ${sessionId}...`;
+        try {
+          const historyResp = await tryProxyApi(robot.id, [
+            `api/sessions/${encodeURIComponent(sessionId)}`,
+            `api/chat/sessions/${encodeURIComponent(sessionId)}`,
+            `api/recent/${encodeURIComponent(sessionId)}`,
+          ]);
+          const history = normalizeSessionMessages(historyResp);
+          setHistory(robot.id, history);
+          renderHistory(robot);
+          chatStatus.textContent = `Session: ${sessionId}`;
+        } catch (_) {
+          setHistory(robot.id, []);
+          renderHistory(robot);
+          chatStatus.textContent = `Session: ${sessionId}`;
+        }
+      };
+      recentSessions.append(row);
+    });
+  } catch (_) {
+    recentSessions.textContent = "Recents API unavailable";
+  }
+}
+
+async function handleUploadFiles() {
+  const robot = getSelectedRobot();
+  if (!robot || !uploadInput?.files?.length) return;
+  const form = new FormData();
+  [...uploadInput.files].forEach((f) => {
+    form.append("files", f);
+    form.append("file", f);
+  });
+  chatStatus.textContent = "Uploading files...";
+
+  try {
+    await tryProxyApi(robot.id, ["api/files/upload", "api/upload", "api/uploads"], { method: "POST", body: form });
+    chatStatus.textContent = `Uploaded ${uploadInput.files.length} file(s)`;
+  } catch (err) {
+    chatStatus.textContent = `Upload failed: ${err.message}`;
+  } finally {
+    uploadInput.value = "";
+  }
+}
+
+function bindToolButtons() {
+  openServerFilesBtn?.addEventListener("click", async () => {
+    const robot = getSelectedRobot();
+    if (!robot) return;
+    try {
+      const files = await tryProxyApi(robot.id, ["api/files?path=.", "api/server-files", "api/files/server", "api/files"]);
+      openChatModal("Server Files", JSON.stringify(files, null, 2));
+    } catch (err) {
+      openChatModal("Server Files", `接口暂不可用: ${err.message}`);
+    }
+  });
+
+  openMyUploadsBtn?.addEventListener("click", async () => {
+    const robot = getSelectedRobot();
+    if (!robot) return;
+    try {
+      const uploads = await tryProxyApi(robot.id, ["api/files/list", "api/my-uploads", "api/uploads", "api/files/my"]);
+      openChatModal("My Uploads", JSON.stringify(uploads, null, 2));
+    } catch (err) {
+      openChatModal("My Uploads", `接口暂不可用: ${err.message}`);
+    }
+  });
+
+  openChatSettingsBtn?.addEventListener("click", async () => {
+    const robot = getSelectedRobot();
+    if (!robot) return;
+    try {
+      const settings = await tryProxyApi(robot.id, ["api/settings", "api/chat/settings", "api/config"]);
+      openChatModal("Settings", JSON.stringify(settings, null, 2));
+    } catch (err) {
+      openChatModal("Settings", `接口暂不可用: ${err.message}`);
+    }
+  });
+}
+
 createForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   createMsg.textContent = "";
@@ -323,18 +564,59 @@ closeCreateModalBtn?.addEventListener("click", closeCreateModal);
 createModal?.addEventListener("click", (e) => {
   if (e.target === createModal) closeCreateModal();
 });
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeCreateModal();
+
+chatSendBtn?.addEventListener("click", sendChat);
+chatInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendChat();
+  }
 });
 
-initTheme();
-setDetailsCollapsed(true);
-themeToggle?.addEventListener("click", toggleTheme);
+newChatBtn?.addEventListener("click", async () => {
+  const robot = getSelectedRobot();
+  if (!robot) return;
+  try {
+    const data = await tryProxyApi(robot.id, ["api/chat/new", "api/new-chat", "api/sessions/new"], { method: "POST" });
+    const sid = data?.session_id || data?.id || null;
+    if (sid) chatState.sessionIds.set(robot.id, sid);
+  } catch (_) {
+    // graceful fallback to local-only reset
+  }
+  setHistory(robot.id, []);
+  if (!chatState.sessionIds.get(robot.id)) {
+    chatState.sessionIds.delete(robot.id);
+  }
+  renderHistory(robot);
+  chatStatus.textContent = "New chat started";
+});
+refreshRecentsBtn?.addEventListener("click", refreshRecents);
+uploadInput?.addEventListener("change", handleUploadFiles);
+closeChatModalBtn?.addEventListener("click", closeChatModal);
+chatModal?.addEventListener("click", (e) => {
+  if (e.target === chatModal) closeChatModal();
+});
+openTerminalBtn?.addEventListener("click", () => {
+  const robot = getSelectedRobot();
+  if (!robot) return;
+  window.open(`/r/${robot.id}/terminal`, "_blank");
+});
+bindToolButtons();
+
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeCreateModal();
+    closeChatModal();
+  }
+});
+
 document.getElementById("logout-btn")?.addEventListener("click", async () => {
   await fetch("/api/auth/logout", { method: "POST" });
   location.href = "/login";
 });
 
 initTheme();
+setDetailsCollapsed(true);
 themeToggle?.addEventListener("click", toggleTheme);
 refreshAll();
