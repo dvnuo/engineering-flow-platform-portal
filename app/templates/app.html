@@ -1,55 +1,60 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="layout">
-  <aside class="sidebar">
-    <div class="brand">Engineering Portal</div>
-    <div class="userbox">
-      <div class="avatar">{{ username[0]|upper }}</div>
-      <div>
-        <div class="username">{{ username }}</div>
-        <div class="muted tiny">role: {{ role }}</div>
-      </div>
+<div class="discord-layout">
+  <aside class="server-rail panel">
+    <div class="server-logo">E</div>
+    <button id="theme-toggle" class="secondary" type="button">Switch to Light</button>
+    <button id="logout-btn" class="secondary" type="button">Sign Out</button>
+  </aside>
+
+  <aside class="conversation-list panel">
+    <div class="channel-header">
+      <h2>Robots</h2>
+      <button id="refresh-all" class="secondary" type="button">Refresh</button>
     </div>
 
-    <form id="create-form" class="stack panel">
-      <h3>Create Robot</h3>
+    <form id="create-form" class="stack create-inline-form">
       <input name="name" placeholder="Robot name" required />
       <input name="image" placeholder="Container image" required value="your-registry/robot:latest" />
       <input name="disk_size_gi" type="number" min="1" value="20" required />
-      <input name="cpu" placeholder="CPU request (e.g. 250m)" />
-      <input name="memory" placeholder="Memory request (e.g. 512Mi)" />
-      <button type="submit">Create</button>
+      <button type="submit">Create Robot</button>
       <p id="create-msg" class="muted tiny"></p>
     </form>
 
-    <button id="logout-btn" class="secondary">Sign Out</button>
+    <div class="channel-group">
+      <h3>My Space</h3>
+      <div id="mine-list" class="robot-list"></div>
+    </div>
+
+    <div class="channel-group">
+      <h3>Public Space</h3>
+      <div id="public-list" class="robot-list"></div>
+    </div>
   </aside>
 
-  <main class="content">
-    <section class="panel">
-      <div class="panel-title-row">
-        <h2>My Space</h2>
-        <button id="refresh-my" class="secondary">Refresh</button>
+  <main class="chat-center panel">
+    <div class="chat-header">
+      <div>
+        <p class="tiny muted">Active Robot</p>
+        <h2 id="embed-title">Select a robot from the left</h2>
       </div>
-      <div id="mine-list" class="card-grid"></div>
-    </section>
+      <span id="selected-status" class="status">idle</span>
+    </div>
 
-    <section class="panel">
-      <div class="panel-title-row">
-        <h2>Public Space</h2>
-        <button id="refresh-public" class="secondary">Refresh</button>
-      </div>
-      <div id="public-list" class="card-grid"></div>
-    </section>
+    <div id="center-placeholder" class="center-placeholder">
+      <h3>Choose a robot conversation</h3>
+      <p class="muted">Click any robot in the left list to open it here automatically.</p>
+    </div>
 
-    <section id="robot-embed-panel" class="panel robot-embed-panel hidden">
-      <div class="panel-title-row">
-        <h2 id="embed-title">Robot Preview</h2>
-        <button id="embed-close" class="secondary">Close</button>
-      </div>
-      <iframe id="robot-embed-frame" title="Robot Embedded View"></iframe>
-    </section>
+    <iframe id="robot-embed-frame" title="Robot Embedded View" class="hidden"></iframe>
   </main>
+
+  <aside class="detail-panel panel">
+    <h3>Robot Details</h3>
+    <div id="robot-meta" class="meta-box muted">No robot selected.</div>
+
+    <div id="robot-actions" class="stack"></div>
+  </aside>
 </div>
 
 <script src="/static/js/app.js"></script>
