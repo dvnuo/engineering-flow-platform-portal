@@ -49,12 +49,12 @@ class ProxyService:
                     # Find the NodePort
                     for port in svc.spec.ports:
                         if port.node_port:
-                            return f"http://{self.node_ip}:{port.node_port}
+                            return fhttp://{self.node_ip}:{port.node_port}
             except Exception:
                 pass
         
         # Fallback to internal DNS (for ClusterIP)
-        return f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local
+        return fhttp://{robot.service_name}.{robot.namespace}.svc.cluster.local
 
     async def forward(
         self,
