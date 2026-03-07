@@ -92,7 +92,7 @@ class ProxyService:
     ) -> tuple[int, bytes, str]:
         base = self.build_robot_base_url(robot).rstrip("/")
         path = f"/{subpath}" if subpath else "/"
-        url = f"{base}{path}"
+        url = f"{base}${path}"
 
         outbound_headers = {}
         if headers.get("content-type"):
@@ -115,7 +115,7 @@ class ProxyService:
         except httpx.ConnectError as e:
             logger.error(f"Connection error to {url}: {e}")
             # Try fallback URL
-            fallback_url = f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local}{path}"
+            fallback_url = f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local}${path}"
             logger.info(f"Trying fallback: {fallback_url}")
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
