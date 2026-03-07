@@ -144,7 +144,7 @@ class K8sService:
                             client.V1Container(
                                 name="robot",
                                 image=robot.image,
-                                ports=[client.V1ContainerPort(container_port=80)],
+                                ports=[client.V1ContainerPort(container_port=80)], image_pull_policy="Never",
                                 volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path)],
                             )
                         ],
