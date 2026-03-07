@@ -144,7 +144,7 @@ class K8sService:
                             client.V1Container(
                                 name="robot",
                                 image=robot.image,
-                                ports=[client.V1ContainerPort(container_port=8000)],
+                                ports=[client.V1ContainerPort(container_port=80)],
                                 volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path)],
                             )
                         ],
@@ -171,8 +171,8 @@ class K8sService:
             metadata=client.V1ObjectMeta(name=robot.service_name, namespace=robot.namespace),
             spec=client.V1ServiceSpec(
                 selector={"app": "robot", "robot-id": robot.id},
-                ports=[client.V1ServicePort(port=80, target_port=8000)],
-                type="ClusterIP",
+                ports=[client.V1ServicePort(port=80, target_port=80)],
+                type="NodePort",
             ),
         )
         try:
