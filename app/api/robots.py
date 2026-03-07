@@ -6,7 +6,13 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.robot_repo import RobotRepository
-from app.schemas.robot import RobotCreateRequest, RobotDeleteResponse, RobotResponse, RobotStatusResponse
+from app.schemas.robot import (
+    RobotCreateRequest,
+    RobotDeleteResponse,
+    RobotResponse,
+    RobotStatusResponse,
+    RobotUpdateRequest,
+)
 from app.services.k8s_service import K8sService
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
@@ -14,6 +20,7 @@ from app.utils.state_machine import can_transition, is_valid_status
 router = APIRouter(prefix="/api/robots", tags=["robots"])
 settings = get_settings()
 k8s_service = K8sService()
+
 
 def _can_read(robot, user) -> bool:
     return user.role == "admin" or robot.owner_user_id == user.id or robot.visibility == "public"
@@ -103,6 +110,28 @@ def create_robot(payload: RobotCreateRequest, user=Depends(get_current_user), db
         target_id=robot.id,
         user_id=user.id,
         details={"name": robot.name, "image": robot.image, "status": robot.status},
+    )
+    return RobotResponse.model_validate(robot)
+
+
+@router.patch("/{robot_id}", response_model=RobotResponse)
+def update_robot(robot_id: str, payload: RobotUpdateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    repo, robot = _load_writable_robot(robot_id, user, db)
+
+    changes = payload.model_dump(exclude_unset=True)
+    if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="disk_size_gi must be >= 1")
+
+    for field, value in changes.items():
+        setattr(robot, field, value)
+
+    repo.save(robot)
+    AuditRepository(db).create(
+        action="update_robot",
+        target_type="robot",
+        target_id=robot.id,
+        user_id=user.id,
+        details=changes,
     )
     return RobotResponse.model_validate(robot)
 
