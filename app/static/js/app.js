@@ -2,6 +2,10 @@ const mineList = document.getElementById("mine-list");
 const publicList = document.getElementById("public-list");
 const createForm = document.getElementById("create-form");
 const createMsg = document.getElementById("create-msg");
+const embedPanel = document.getElementById("robot-embed-panel");
+const embedFrame = document.getElementById("robot-embed-frame");
+const embedTitle = document.getElementById("embed-title");
+const embedClose = document.getElementById("embed-close");
 
 async function api(path, options = {}) {
   const resp = await fetch(path, {
@@ -26,6 +30,7 @@ function formatDate(iso) {
 function buttonDisabledByStatus(label, status) {
   if (label === "Start") return !(status === "stopped" || status === "failed");
   if (label === "Stop") return status !== "running";
+  if (label === "Open") return status !== "running";
   return false;
 }
 
@@ -56,24 +61,48 @@ async function robotCard(robot, mine = true) {
   if (mine) {
     row.append(actionBtn("Start", `/api/robots/${robot.id}/start`, statusInfo.status));
     row.append(actionBtn("Stop", `/api/robots/${robot.id}/stop`, statusInfo.status));
+    row.append(actionBtn("Open", () => openEmbeddedRobot(robot), statusInfo.status, "secondary"));
     row.append(btn(robot.visibility === "public" ? "Unshare" : "Share", () =>
       action(`/api/robots/${robot.id}/${robot.visibility === "public" ? "unshare" : "share"}`)
     ));
     row.append(btn("Delete Runtime", () => action(`/api/robots/${robot.id}/delete-runtime`, "POST", true), "secondary"));
     row.append(btn("Destroy", () => action(`/api/robots/${robot.id}/destroy`, "POST", true), "danger"));
   } else {
-    row.append(btn("Open", () => window.open(`/r/${robot.id}`, "_blank"), "secondary"));
+    row.append(actionBtn("Open", () => openEmbeddedRobot(robot), statusInfo.status, "secondary"));
   }
   return box;
 }
 
-function actionBtn(label, path, status) {
-  const b = btn(label, () => action(path));
+
+function openEmbeddedRobot(robot) {
+  if (!embedPanel || !embedFrame) {
+    window.open(`/r/${robot.id}`, "_blank");
+    return;
+  }
+  embedTitle.textContent = `Robot Preview: ${robot.name}`;
+  embedFrame.src = `/r/${robot.id}`;
+  embedPanel.classList.remove("hidden");
+  embedPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeEmbeddedRobot() {
+  if (!embedPanel || !embedFrame) return;
+  embedFrame.src = "about:blank";
+  embedPanel.classList.add("hidden");
+}
+
+function actionBtn(label, pathOrHandler, status, kind = "") {
+  const onClick = typeof pathOrHandler === "string" ? () => action(pathOrHandler) : pathOrHandler;
+  const b = btn(label, onClick, kind);
   const disabled = buttonDisabledByStatus(label, status);
   b.disabled = disabled;
   if (disabled) {
     b.classList.add("disabled");
-    b.title = label === "Start" ? "Start is available only when robot is stopped/failed." : "Stop is available only when robot is running.";
+    b.title = label === "Start"
+      ? "Start is available only when robot is stopped/failed."
+      : label === "Stop"
+        ? "Stop is available only when robot is running."
+        : "Open is available only when robot is running.";
   }
   return b;
 }
@@ -141,3 +170,5 @@ document.getElementById("logout-btn")?.addEventListener("click", async () => {
 });
 
 refreshAll();
+
+embedClose?.addEventListener("click", closeEmbeddedRobot);

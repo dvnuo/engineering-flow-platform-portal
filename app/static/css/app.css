@@ -93,3 +93,14 @@ button.disabled, button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+
+.hidden { display: none; }
+
+.robot-embed-panel iframe {
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
