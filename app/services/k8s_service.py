@@ -143,31 +143,15 @@ class K8sService:
                         containers=[
                             client.V1Container(
                                 name="robot",
-                                image="busybox",
+                                image=robot.image,
                                 ports=[client.V1ContainerPort(container_port=80)], image_pull_policy="Never",
-                                volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path)], env=[client.V1EnvVar(name="PORT", value="80"), client.V1EnvVar(name="EFP_CONFIG_PATH", value="/data/efp-config/config.yaml")]
+                                volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path)],
                             )
-                        ],
-                        init_containers=[
-                            client.V1Container(
-                                name="init-config",
-                                image="busybox",
-                                command=["sh", "-c"],
-                                args=["sh", "-c", "cp /config/config.yaml /data/config.yaml , || echo no config"],
-                                volume_mounts=[
-                                    client.V1VolumeMount(name="robot-data", mount_path="/data"),
-                                    client.V1VolumeMount(name="efp-config", mount_path="/config", read_only=True),
-                                ],
-                            ),
                         ],
                         volumes=[
                             client.V1Volume(
                                 name="robot-data",
                                 persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=robot.pvc_name),
-                            ),
-                            client.V1Volume(
-                                name="efp-config",
-                                config_map=client.V1ConfigMapVolumeSource(name="efp-config") 
                             )
                         ],
                     ),
