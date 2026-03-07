@@ -1,13 +1,15 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from app.config import get_settings
-from typing import Optional
 
 
 @dataclass
 class RuntimeStatus:
     status: str
     message: Optional[str] = None
+    cpu_usage: Optional[str] = None
+    memory_usage: Optional[str] = None
 
 
 class K8sService:
@@ -85,19 +87,24 @@ class K8sService:
 
     def get_robot_runtime_status(self, robot) -> RuntimeStatus:
         if not self.enabled:
-            return RuntimeStatus(status=robot.status, message=robot.last_error)
+            return RuntimeStatus(
+                status=robot.status,
+                message=robot.last_error,
+                cpu_usage="N/A (metrics disabled)",
+                memory_usage="N/A (metrics disabled)",
+            )
 
         try:
             deploy = self.apps_api.read_namespaced_deployment_status(name=robot.deployment_name, namespace=robot.namespace)
             replicas = deploy.status.replicas or 0
             available = deploy.status.available_replicas or 0
             if replicas == 0:
-                return RuntimeStatus(status="stopped")
+                return RuntimeStatus(status="stopped", cpu_usage="0", memory_usage="0")
             if available > 0:
-                return RuntimeStatus(status="running")
-            return RuntimeStatus(status="creating")
+                return RuntimeStatus(status="running", cpu_usage="N/A", memory_usage="N/A")
+            return RuntimeStatus(status="creating", cpu_usage="N/A", memory_usage="N/A")
         except Exception as exc:
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=str(exc), cpu_usage="N/A", memory_usage="N/A")
 
     def _is_already_exists(self, exc: Exception) -> bool:
         try:
@@ -144,7 +151,7 @@ class K8sService:
                             client.V1Container(
                                 name="robot",
                                 image=robot.image,
-                                ports=[client.V1ContainerPort(container_port=80)], image_pull_policy="Never",
+                                ports=[client.V1ContainerPort(container_port=8000)],
                                 volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path)],
                             )
                         ],
@@ -171,8 +178,8 @@ class K8sService:
             metadata=client.V1ObjectMeta(name=robot.service_name, namespace=robot.namespace),
             spec=client.V1ServiceSpec(
                 selector={"app": "robot", "robot-id": robot.id},
-                ports=[client.V1ServicePort(port=80, target_port=80)],
-                type="NodePort",
+                ports=[client.V1ServicePort(port=80, target_port=8000)],
+                type="ClusterIP",
             ),
         )
         try:

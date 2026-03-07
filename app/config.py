@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     robots_namespace: str = "robots"
     k8s_enabled: bool = False
-    k8s_storage_class: str = "local-path"
+    k8s_storage_class: str = "gp3"
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = None
 

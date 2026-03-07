@@ -201,4 +201,10 @@ def robot_status(robot_id: str, user=Depends(get_current_user), db: Session = De
     robot.status = runtime.status if is_valid_status(runtime.status) else "failed"
     robot.last_error = runtime.message
     repo.save(robot)
-    return RobotStatusResponse(id=robot.id, status=robot.status, last_error=robot.last_error)
+    return RobotStatusResponse(
+        id=robot.id,
+        status=robot.status,
+        cpu_usage=runtime.cpu_usage,
+        memory_usage=runtime.memory_usage,
+        last_error=robot.last_error,
+    )

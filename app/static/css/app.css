@@ -88,3 +88,8 @@ button.danger { background: var(--danger); color: #fff; }
   .layout { grid-template-columns: 1fr; }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
 }
+
+button.disabled, button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -16,23 +16,46 @@ async function api(path, options = {}) {
   return ct.includes("application/json") ? resp.json() : resp.text();
 }
 
-function robotCard(robot, mine = true) {
+function formatDate(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
+}
+
+function buttonDisabledByStatus(label, status) {
+  if (label === "Start") return !(status === "stopped" || status === "failed");
+  if (label === "Stop") return status !== "running";
+  return false;
+}
+
+async function robotCard(robot, mine = true) {
+  let statusInfo = { status: robot.status, cpu_usage: "N/A", memory_usage: "N/A", last_error: robot.last_error || null };
+  try {
+    statusInfo = await api(`/api/robots/${robot.id}/status`);
+  } catch (_) {
+    // keep fallback values
+  }
+
   const box = document.createElement("div");
   box.className = "robot-card";
   box.innerHTML = `
     <div class="row-between">
       <strong>${robot.name}</strong>
-      <span class="status status-${robot.status}">${robot.status}</span>
+      <span class="status status-${statusInfo.status}">${statusInfo.status}</span>
     </div>
-    <p class="muted tiny">${robot.image}</p>
-    <p class="muted tiny">id: ${robot.id}</p>
+    <p class="muted tiny">Image: ${robot.image}</p>
+    <p class="muted tiny">Created: ${formatDate(robot.created_at)}</p>
+    <p class="muted tiny">CPU request: ${robot.cpu || "N/A"} | Mem request: ${robot.memory || "N/A"}</p>
+    <p class="muted tiny">CPU usage: ${statusInfo.cpu_usage || "N/A"} | Mem usage: ${statusInfo.memory_usage || "N/A"}</p>
+    ${statusInfo.last_error ? `<p class="error tiny">Error: ${statusInfo.last_error}</p>` : ""}
     <div class="btn-row"></div>
   `;
   const row = box.querySelector(".btn-row");
 
   if (mine) {
-    row.append(btn("Start", () => action(`/api/robots/${robot.id}/start`)));
-    row.append(btn("Stop", () => action(`/api/robots/${robot.id}/stop`)));
+    row.append(actionBtn("Start", `/api/robots/${robot.id}/start`, statusInfo.status));
+    row.append(actionBtn("Stop", `/api/robots/${robot.id}/stop`, statusInfo.status));
     row.append(btn(robot.visibility === "public" ? "Unshare" : "Share", () =>
       action(`/api/robots/${robot.id}/${robot.visibility === "public" ? "unshare" : "share"}`)
     ));
@@ -44,6 +67,17 @@ function robotCard(robot, mine = true) {
   return box;
 }
 
+function actionBtn(label, path, status) {
+  const b = btn(label, () => action(path));
+  const disabled = buttonDisabledByStatus(label, status);
+  b.disabled = disabled;
+  if (disabled) {
+    b.classList.add("disabled");
+    b.title = label === "Start" ? "Start is available only when robot is stopped/failed." : "Stop is available only when robot is running.";
+  }
+  return b;
+}
+
 function btn(label, onClick, kind = "") {
   const b = document.createElement("button");
   b.className = kind;
@@ -53,27 +87,29 @@ function btn(label, onClick, kind = "") {
 }
 
 async function action(path, method = "POST", confirmAction = false) {
-  if (confirmAction && !confirm("确认执行该操作？")) return;
+  if (confirmAction && !confirm("Please confirm this action.")) return;
   try {
     await api(path, { method });
     await refreshAll();
   } catch (e) {
-    alert(`操作失败: ${e.message}`);
+    alert(`Operation failed: ${e.message}`);
   }
 }
 
 async function loadMine() {
   mineList.innerHTML = "";
   const data = await api("/api/robots/mine");
-  data.forEach((r) => mineList.append(robotCard(r, true)));
-  if (data.length === 0) mineList.innerHTML = '<p class="muted">暂无机器人</p>';
+  const cards = await Promise.all(data.map((r) => robotCard(r, true)));
+  cards.forEach((c) => mineList.append(c));
+  if (data.length === 0) mineList.innerHTML = '<p class="muted">No robots yet.</p>';
 }
 
 async function loadPublic() {
   publicList.innerHTML = "";
   const data = await api("/api/robots/public");
-  data.forEach((r) => publicList.append(robotCard(r, false)));
-  if (data.length === 0) publicList.innerHTML = '<p class="muted">暂无公开机器人</p>';
+  const cards = await Promise.all(data.map((r) => robotCard(r, false)));
+  cards.forEach((c) => publicList.append(c));
+  if (data.length === 0) publicList.innerHTML = '<p class="muted">No public robots yet.</p>';
 }
 
 async function refreshAll() {
@@ -90,10 +126,10 @@ createForm?.addEventListener("submit", async (e) => {
   try {
     await api("/api/robots", { method: "POST", body: JSON.stringify(payload) });
     createForm.reset();
-    createMsg.textContent = "创建成功";
+    createMsg.textContent = "Robot created.";
     await refreshAll();
   } catch (e) {
-    createMsg.textContent = `创建失败: ${e.message}`;
+    createMsg.textContent = `Create failed: ${e.message}`;
   }
 });
 

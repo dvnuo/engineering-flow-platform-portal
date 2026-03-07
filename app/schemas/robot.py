@@ -21,6 +21,8 @@ class RobotDeleteResponse(BaseModel):
 class RobotStatusResponse(BaseModel):
     id: str
     status: str
+    cpu_usage: Optional[str] = None
+    memory_usage: Optional[str] = None
     last_error: Optional[str] = None
 
 
@@ -31,6 +33,8 @@ class RobotResponse(BaseModel):
     visibility: str
     image: str
     owner_user_id: int
+    cpu: Optional[str] = None
+    memory: Optional[str] = None
     last_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime

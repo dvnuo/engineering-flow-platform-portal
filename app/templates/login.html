@@ -2,8 +2,8 @@
 {% block content %}
 <div class="login-shell">
   <div class="login-card">
-    <h1>Portal</h1>
-    <p class="muted">登录以管理你的机器人运行环境</p>
+    <h1>Engineering Portal</h1>
+    <p class="muted">Sign in to manage your robot runtimes.</p>
 
     <form id="login-form" class="stack">
       <label>
@@ -14,11 +14,11 @@
         Password
         <input name="password" type="password" placeholder="••••••••" required />
       </label>
-      <button type="submit">登录</button>
+      <button type="submit">Sign In</button>
     </form>
 
     <p id="login-error" class="error"></p>
-    <p class="muted tiny">默认开发账号可由环境变量覆盖。</p>
+    <p class="muted tiny">Default admin credentials are for local development only.</p>
   </div>
 </div>
 
@@ -39,7 +39,7 @@ form.addEventListener("submit", async (e) => {
   });
 
   if (!resp.ok) {
-    err.textContent = "登录失败，请检查账号密码";
+    err.textContent = "Sign-in failed. Please verify your username and password.";
     return;
   }
   location.href = "/app";
