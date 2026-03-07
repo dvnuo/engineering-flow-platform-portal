@@ -3,7 +3,6 @@ from collections.abc import Iterable
 import httpx
 from typing import Optional
 
-# Import K8s client for service lookup
 from kubernetes import client
 from app.config import get_settings
 
@@ -32,29 +31,24 @@ class ProxyService:
     @property
     def node_ip(self):
         if self._node_ip is None:
-            # Use the node IP where portal is running (hostNetwork)
             import os
             self._node_ip = os.environ.get('NODE_IP', '192.168.8.237')
         return self._node_ip
 
     def build_robot_base_url(self, robot) -> str:
-        # Try to get NodePort from K8s service
         if self.core_api:
             try:
                 svc = self.core_api.read_namespaced_service(
                     name=robot.service_name,
                     namespace=robot.namespace
                 )
-                if svc.spec.type == NodePort:
-                    # Find the NodePort
+                if svc.spec.type == "NodePort":
                     for port in svc.spec.ports:
                         if port.node_port:
-                            return fhttp://{self.node_ip}:{port.node_port}
+                            return f"http://{self.node_ip}:{port.node_port}"
             except Exception:
                 pass
-        
-        # Fallback to internal DNS (for ClusterIP)
-        return fhttp://{robot.service_name}.{robot.namespace}.svc.cluster.local
+        return f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local"
 
     async def forward(
         self,
@@ -65,13 +59,13 @@ class ProxyService:
         body: Optional[bytes],
         headers: dict[str, str],
     ) -> tuple[int, bytes, str]:
-        base = self.build_robot_base_url(robot).rstrip(/)
-        path = f/{subpath} if subpath else /
-        url = f{base}{path}
+        base = self.build_robot_base_url(robot).rstrip("/")
+        path = f"/{subpath}" if subpath else "/"
+        url = f"{base}{path}"
 
         outbound_headers = {}
-        if headers.get(content-type):
-            outbound_headers[content-type] = headers[content-type]
+        if headers.get("content-type"):
+            outbound_headers["content-type"] = headers["content-type"]
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.request(
@@ -81,5 +75,5 @@ class ProxyService:
                 content=body,
                 headers=outbound_headers,
             )
-        content_type = resp.headers.get(content-type, application/octet-stream)
+        content_type = resp.headers.get("content-type", "application/octet-stream")
         return resp.status_code, resp.content, content_type
