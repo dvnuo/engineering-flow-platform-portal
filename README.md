@@ -361,3 +361,12 @@ Portal 的 ServiceAccount 只授予 `robots` namespace 的必要权限：
 - 删除运行时不会误删数据（默认保留 PVC）
 - 审计日志可追踪关键动作
 - 在 EKS 单副本部署可稳定运行
+## 12. GitHub Actions 自动构建镜像
+
+仓库已提供 `.github/workflows/docker-image.yml`：
+
+- 在 `main` 分支 push、`v*` tag push、手动触发时构建并推送镜像到 `ghcr.io/<owner>/<repo>`。
+- 在对 `main` 的 Pull Request 上仅执行构建校验，不推送镜像。
+- 使用 Buildx + GHA cache 来加速后续构建。
+
+如需使用该工作流，请确保仓库已启用 `GITHUB_TOKEN` 的 packages 写权限。
