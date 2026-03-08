@@ -1,0 +1,84 @@
+<div class="space-y-3">
+  {% set period_days = usage.period_days if usage is mapping else 30 %}
+  {% set global = usage.global if usage is mapping and usage.global is mapping else {} %}
+  {% set by_provider = usage.by_provider if usage is mapping and usage.by_provider is mapping else {} %}
+  {% set by_model = usage.by_model if usage is mapping and usage.by_model is mapping else {} %}
+  {% set recent_rows = usage.recent if usage is mapping and usage.recent is sequence else [] %}
+  {% if not recent_rows and usage is mapping and usage.daily is sequence %}
+    {% set recent_rows = usage.daily %}
+  {% endif %}
+
+  <div class="flex items-center justify-between">
+    <h5 class="text-sm font-semibold text-slate-200">Usage</h5>
+    <span class="text-xs text-slate-400">Last {{ period_days or 30 }} days</span>
+  </div>
+
+  {% set has_global = global.request_count or global.total_cost_usd or global.total_cost or global.total_input_tokens or global.total_output_tokens or global.total_input or global.total_output %}
+  {% set has_provider = by_provider|length > 0 %}
+  {% set has_model = by_model|length > 0 %}
+  {% set has_recent = recent_rows|length > 0 %}
+
+  {% if not has_global and not has_provider and not has_model and not has_recent %}
+    <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-3 text-xs text-slate-400">
+      No usage data yet.
+    </div>
+  {% else %}
+    <div class="grid grid-cols-2 gap-2 text-xs">
+      <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2">
+        <div class="text-slate-400">Requests</div>
+        <div class="mt-1 text-slate-100 font-semibold">{{ global.request_count or 0 }}</div>
+      </div>
+      <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2">
+        <div class="text-slate-400">Total Cost</div>
+        <div class="mt-1 text-slate-100 font-semibold">${{ '%.4f'|format((global.total_cost_usd or global.total_cost or 0)|float) }}</div>
+      </div>
+      <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2">
+        <div class="text-slate-400">Input Tokens</div>
+        <div class="mt-1 text-slate-100 font-semibold">{{ global.total_input_tokens or global.total_input or 0 }}</div>
+      </div>
+      <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2">
+        <div class="text-slate-400">Output Tokens</div>
+        <div class="mt-1 text-slate-100 font-semibold">{{ global.total_output_tokens or global.total_output or 0 }}</div>
+      </div>
+    </div>
+
+    {% if has_provider %}
+      <div class="space-y-1">
+        <h6 class="text-xs uppercase tracking-wide text-slate-400">By Provider</h6>
+        {% for provider, stats in by_provider.items() %}
+          <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2 text-xs">
+            <div class="font-medium text-slate-100">{{ provider }}</div>
+            <div class="text-slate-300">${{ '%.4f'|format((stats.cost or 0)|float) }} · {{ stats.requests or 0 }} requests</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if has_model %}
+      <div class="space-y-1">
+        <h6 class="text-xs uppercase tracking-wide text-slate-400">By Model</h6>
+        {% for model, stats in by_model.items() %}
+          <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2 text-xs">
+            <div class="font-medium text-slate-100">{{ model }}</div>
+            <div class="text-slate-300">${{ '%.4f'|format((stats.cost or 0)|float) }}</div>
+            <div class="text-slate-400">{{ stats.input_tokens or 0 }} in / {{ stats.output_tokens or 0 }} out</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if has_recent %}
+      <div class="space-y-1">
+        <h6 class="text-xs uppercase tracking-wide text-slate-400">Recent</h6>
+        <div class="space-y-1">
+          {% for row in recent_rows %}
+            <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2 text-xs">
+              <div class="text-slate-100">{{ row.date or row.day or row.label or 'Recent' }}</div>
+              <div class="text-slate-400">{{ row.requests or row.request_count or 0 }} req · ${{ '%.4f'|format((row.cost or row.total_cost or 0)|float) }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  {% endif %}
+</div>

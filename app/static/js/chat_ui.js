@@ -38,6 +38,7 @@ const dom = {
   topServerFiles: document.getElementById("top-server-files"),
   topMyUploads: document.getElementById("top-my-uploads"),
   topSkills: document.getElementById("top-skills"),
+  topUsage: document.getElementById("top-usage"),
   topSessions: document.getElementById("top-sessions"),
   topSettings: document.getElementById("top-settings"),
   topClearChat: document.getElementById("top-clear-chat"),
@@ -544,6 +545,24 @@ async function openSkillsPanel() {
   }
 }
 
+
+async function openUsagePanel() {
+  if (!state.selectedAgentId) return;
+
+  setDetailOpen(true);
+  setToolPanel("Usage", '<div class="text-xs text-slate-400">Loading usage…</div>');
+
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML",
+    });
+  } catch (error) {
+    setToolPanel("Usage", `Failed: ${safe(error.message)}`);
+  }
+}
+
+
 async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
@@ -728,6 +747,7 @@ function bindEvents() {
   dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
   dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
   dom.topSkills?.addEventListener("click", openSkillsPanel);
+  dom.topUsage?.addEventListener("click", openUsagePanel);
   dom.topSessions?.addEventListener("click", openSessionsPanel);
   dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
   dom.topClearChat?.addEventListener("click", clearChat);
