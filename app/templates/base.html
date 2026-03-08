@@ -4,17 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{ title }}</title>
-    <link rel="stylesheet" href="/static/css/app.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              chatbg: "#0b1020",
+              chatsurface: "#111827",
+              chatsoft: "#1f2937",
+              chataccent: "#2563eb",
+            },
+          },
+        },
+      };
       (function () {
         const key = "portal-theme";
         const saved = localStorage.getItem(key);
-        const defaultTheme = "dark";
-        document.documentElement.setAttribute("data-theme", saved || defaultTheme);
+        document.documentElement.setAttribute("data-theme", saved || "dark");
       })();
     </script>
+    <link rel="stylesheet" href="/static/css/app.css" />
   </head>
-  <body>
+  <body class="min-h-screen bg-chatbg text-slate-100">
     {% block content %}{% endblock %}
   </body>
 </html>

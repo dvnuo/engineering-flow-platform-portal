@@ -58,3 +58,18 @@ def app_page(request: Request):
             "role": user.role,
         },
     )
+
+
+@router.get("/partials/tools/{tool_name}")
+def tool_partial(request: Request, tool_name: str):
+    if not _current_user_from_cookie(request):
+        return RedirectResponse(url="/login", status_code=302)
+
+    mapping = {
+        "empty": "partials/tool_empty.html",
+        "server-files": "partials/tool_server_files.html",
+        "uploads": "partials/tool_uploads.html",
+        "settings": "partials/tool_settings.html",
+    }
+    template = mapping.get(tool_name, "partials/tool_empty.html")
+    return templates.TemplateResponse(template, {"request": request, "title": "tool"})
