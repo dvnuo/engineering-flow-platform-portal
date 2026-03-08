@@ -11,6 +11,7 @@ function chatApp() {
 
 // ===== DOM refs =====
 const dom = {
+  appRoot: document.getElementById("app-root"),
   mineList: document.getElementById("mine-list"),
   embedTitle: document.getElementById("embed-title"),
   selectedStatus: document.getElementById("selected-status"),
@@ -44,6 +45,7 @@ const dom = {
   topSettings: document.getElementById("top-settings"),
   topClearChat: document.getElementById("top-clear-chat"),
   logoutBtn: document.getElementById("logout-btn"),
+  themeToggle: document.getElementById("theme-toggle"),
 };
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
@@ -63,6 +65,8 @@ const state = {
   agentSessionIds: new Map(),
   isSubmittingChat: false,
   pendingMessage: "",
+  currentUserId: Number(dom.appRoot?.dataset.userId || 0),
+  currentUserRole: String(dom.appRoot?.dataset.role || "user"),
 };
 
 const md = window.markdownit({
@@ -95,6 +99,39 @@ function toSkillSuggestion(item) {
     command,
     desc: typeof item === "string" ? "Skill" : (item?.description || "Skill"),
   };
+}
+
+function canWriteAgent(agent) {
+  if (!agent) return false;
+  return state.currentUserRole === "admin" || Number(agent.owner_user_id) === state.currentUserId;
+}
+
+function buildUserMessageArticle(text) {
+  return `<article class="ml-auto max-w-3xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4" data-local-user="1"><p class="text-xs uppercase tracking-wide text-blue-200 mb-2">You</p><div class="whitespace-pre-wrap text-slate-100">${safe(text)}</div></article>`;
+}
+
+function buildPendingAssistantArticle() {
+  return '<article class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/70 p-4" data-pending-assistant="1"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
+}
+
+function removePendingAssistantPlaceholder() {
+  if (!dom.messageList) return;
+  dom.messageList.querySelectorAll('[data-pending-assistant="1"]').forEach((el) => el.remove());
+}
+
+function applyTheme(theme) {
+  const normalized = theme === "light" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", normalized);
+  localStorage.setItem("portal-theme", normalized);
+  if (dom.themeToggle) dom.themeToggle.innerHTML = normalized === "light"
+    ? '<i data-lucide="sun"></i>'
+    : '<i data-lucide="moon"></i>';
+  renderIcons();
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  applyTheme(current === "dark" ? "light" : "dark");
 }
 
 function setChatStatus(text) {
@@ -190,18 +227,34 @@ function renderAgentList() {
     return;
   }
 
-  state.mineAgents.forEach((agent) => {
-    const status = state.agentStatus.get(agent.id)?.status || agent.status;
-    const activeClass = state.selectedAgentId === agent.id
-      ? "border-blue-500 bg-blue-500/10"
-      : "border-slate-700 bg-slate-800/40";
+  const mine = state.mineAgents.filter((agent) => Number(agent.owner_user_id) === state.currentUserId);
+  const shared = state.mineAgents.filter((agent) => Number(agent.owner_user_id) !== state.currentUserId);
 
-    const button = document.createElement("button");
-    button.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
-    button.innerHTML = `<div class="flex items-center justify-between"><span class="font-medium">${safe(agent.name)}</span><span class="h-2.5 w-2.5 rounded-full ${status === "running" ? "bg-emerald-400" : "bg-slate-500"}"></span></div>`;
-    button.addEventListener("click", () => selectAgentById(agent.id));
-    dom.mineList.append(button);
-  });
+  const renderSection = (title, agents) => {
+    if (!agents.length) return;
+    const section = document.createElement("div");
+    section.className = "space-y-2";
+    section.innerHTML = `<div class="text-xs uppercase tracking-wide text-slate-400 mt-2">${safe(title)}</div>`;
+
+    agents.forEach((agent) => {
+      const status = state.agentStatus.get(agent.id)?.status || agent.status;
+      const activeClass = state.selectedAgentId === agent.id
+        ? "border-blue-500 bg-blue-500/10"
+        : "border-slate-700 bg-slate-800/40";
+      const badge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">shared</span>';
+
+      const button = document.createElement("button");
+      button.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
+      button.innerHTML = `<div class="flex items-center justify-between"><span class="font-medium">${safe(agent.name)}${badge}</span><span class="h-2.5 w-2.5 rounded-full ${status === "running" ? "bg-emerald-400" : "bg-slate-500"}"></span></div>`;
+      button.addEventListener("click", () => selectAgentById(agent.id));
+      section.append(button);
+    });
+
+    dom.mineList.append(section);
+  };
+
+  renderSection("My Space", mine);
+  renderSection("Shared", shared);
 }
 
 function renderAgentMeta(agent) {
@@ -221,34 +274,46 @@ function renderAgentActions(agent, status) {
   if (!dom.agentActions) return;
 
   dom.agentActions.innerHTML = "";
-  const buildButton = (label, classes, onClick) => {
+  const writable = canWriteAgent(agent);
+
+  const container = document.createElement("div");
+  container.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
+
+  const grid = document.createElement("div");
+  grid.className = "grid grid-cols-3 gap-1.5";
+
+  const buildIconBtn = ({ label, icon, classes, onClick, disabled = false }) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = classes;
-    button.textContent = label;
+    button.title = label;
+    button.className = `h-9 rounded-lg border text-slate-100 inline-flex items-center justify-center ${classes}`;
+    button.innerHTML = `<i data-lucide="${icon}"></i>`;
+    button.disabled = disabled;
     button.addEventListener("click", onClick);
     return button;
   };
 
-  const primary = document.createElement("div");
-  primary.className = "space-y-1.5 rounded-xl border border-slate-700 bg-slate-800/40 p-1.5";
-  const secondary = document.createElement("div");
-  secondary.className = "space-y-1.5 rounded-xl border border-slate-700 bg-slate-800/40 p-1.5";
+  const actions = [
+    { label: "Start", icon: "play", classes: "border-emerald-600/60 bg-emerald-600/20 hover:bg-emerald-600/35", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
+    { label: "Stop", icon: "square", classes: "border-amber-500/60 bg-amber-500/20 hover:bg-amber-500/35", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
+    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
+    { label: "Edit", icon: "pencil", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: "Delete Runtime", icon: "trash-2", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true) },
+    { label: "Destroy", icon: "flame", classes: "border-rose-600/70 bg-rose-600/25 hover:bg-rose-600/40", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
+  ];
 
-  const startButton = buildButton("Start", "w-full rounded-lg bg-emerald-600/80 px-2.5 py-1.5 text-sm font-semibold", () => action(`/api/agents/${agent.id}/start`));
-  const stopButton = buildButton("Stop", "w-full rounded-lg bg-amber-500/90 px-2.5 py-1.5 text-sm font-semibold", () => action(`/api/agents/${agent.id}/stop`));
-  startButton.disabled = !(status === "stopped" || status === "failed");
-  stopButton.disabled = status !== "running";
+  actions.forEach((cfg) => grid.append(buildIconBtn(cfg)));
+  container.append(grid);
 
-  primary.append(startButton, stopButton);
-  secondary.append(
-    buildButton(agent.visibility === "public" ? "Unshare" : "Share", "w-full rounded-lg bg-slate-700 px-2.5 py-1.5 text-sm", () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`)),
-    buildButton("Edit", "w-full rounded-lg bg-slate-700 px-2.5 py-1.5 text-sm", () => openEditDialog(agent)),
-    buildButton("Delete Runtime", "w-full rounded-lg bg-slate-700 px-2.5 py-1.5 text-sm", () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true)),
-    buildButton("Destroy", "w-full rounded-lg bg-rose-600/90 px-2.5 py-1.5 text-sm font-semibold", () => action(`/api/agents/${agent.id}/destroy`, "POST", true)),
-  );
+  if (!writable) {
+    const note = document.createElement("div");
+    note.className = "text-xs text-slate-400";
+    note.textContent = "Read-only for shared agent.";
+    container.append(note);
+  }
 
-  dom.agentActions.append(primary, secondary);
+  dom.agentActions.append(container);
+  renderIcons();
 }
 
 async function selectAgentById(agentId) {
@@ -293,8 +358,14 @@ async function syncSelectedAgentState() {
 }
 
 async function refreshAll() {
-  const mine = await api("/api/agents/mine");
-  state.mineAgents = mine;
+  const [mine, publicAgents] = await Promise.all([
+    api("/api/agents/mine"),
+    api("/api/agents/public"),
+  ]);
+
+  const allById = new Map();
+  [...mine, ...publicAgents].forEach((agent) => allById.set(agent.id, agent));
+  state.mineAgents = Array.from(allById.values());
 
   const pairs = await Promise.all(state.mineAgents.map(async (agent) => {
     try {
@@ -328,7 +399,13 @@ function handleChatBeforeRequest(event) {
   setChatSubmitting(true);
   state.pendingMessage = dom.chatInput?.value || "";
   removeWelcomeMessageIfPresent();
+  removePendingAssistantPlaceholder();
   hideSuggest();
+  if (dom.messageList && state.pendingMessage.trim()) {
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage));
+    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+    scrollToBottom();
+  }
   if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Sending...");
 }
@@ -336,6 +413,7 @@ function handleChatBeforeRequest(event) {
 function handleChatResponseError(event) {
   if (event.target?.id !== "chat-form") return;
 
+  removePendingAssistantPlaceholder();
   setChatSubmitting(false);
   if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
   state.pendingMessage = "";
@@ -352,6 +430,8 @@ function handleChatAfterRequest(event) {
 
 function handleChatAfterSwap(target) {
   if (target?.id !== "message-list") return;
+
+  removePendingAssistantPlaceholder();
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
   const sessionFromInput = dom.chatSessionId?.value || "";
@@ -852,6 +932,8 @@ function bindEvents() {
     }
   });
 
+  dom.themeToggle?.addEventListener("click", toggleTheme);
+
   dom.logoutBtn?.addEventListener("click", async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     location.href = "/login";
@@ -859,6 +941,9 @@ function bindEvents() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const initialTheme = localStorage.getItem("portal-theme") || (document.documentElement.getAttribute("data-theme") || "dark");
+  applyTheme(initialTheme);
+
   bindEvents();
   initializeRenderLifecycle();
   await refreshAll();

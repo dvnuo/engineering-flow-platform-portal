@@ -105,6 +105,7 @@ def app_page(request: Request):
             "request": request,
             "title": "Engineering Portal",
             "username": user.username,
+            "user_id": user.id,
             "role": user.role,
         },
     )
