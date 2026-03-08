@@ -51,7 +51,9 @@ const state = {
   detailOpen: false,
   cachedSkills: [],
   cachedMentionFiles: [],
-  agentSessionIds: new Map(), // agent_id -> current session_id
+  // UI-only state: portal stores current selected session id per agent.
+  // Runtime remains source-of-truth for full session history/messages.
+  agentSessionIds: new Map(),
 };
 
 const md = window.markdownit({
@@ -482,40 +484,51 @@ async function openMyUploads() {
   }
 }
 
-async function openSettings() {
-  try {
-    const data = await agentApi("/api/config");
-    setToolPanel("Settings", `<pre class="whitespace-pre-wrap">${safe(JSON.stringify(data.config || {}, null, 2))}</pre>`);
-  } catch (error) {
-    setToolPanel("Settings", `Failed: ${safe(error.message)}`);
-  }
+function openSettings() {
+  // Settings migration is intentionally deferred in this phase.
+  setDetailOpen(true);
+  setToolPanel("Settings", '<div class="text-xs text-slate-400">Settings migration not implemented yet.</div>');
 }
 
 async function uploadFile() {
   const file = dom.uploadInput?.files?.[0];
   if (!file) return;
 
-  const formData = new FormData();
-  formData.append("file", file);
-  await fetch(`/a/${state.selectedAgentId}/api/files/upload`, { method: "POST", body: formData });
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`/a/${state.selectedAgentId}/api/files/upload`, { method: "POST", body: formData });
 
-  setChatStatus(`Uploaded ${file.name}`);
-  dom.uploadInput.value = "";
-  state.cachedMentionFiles = [];
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+
+    setChatStatus(`Uploaded ${file.name}`);
+    state.cachedMentionFiles = [];
+  } catch (error) {
+    setChatStatus(`Upload failed: ${safe(error.message)}`);
+  } finally {
+    dom.uploadInput.value = "";
+  }
 }
 
 async function clearChat() {
-  if (dom.messageList) dom.messageList.innerHTML = "";
+  try {
+    if (dom.chatSessionId?.value) {
+      await agentApi("/api/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: dom.chatSessionId.value }),
+      });
+    }
 
-  if (dom.chatSessionId?.value) {
-    await agentApi("/api/clear", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: dom.chatSessionId.value }),
-    });
+    updateSelectedAgentSession("");
+    clearMessageListToWelcome();
+    setChatStatus("Chat cleared");
+  } catch (error) {
+    setChatStatus(`Clear failed: ${safe(error.message)}`);
   }
-
-  updateSelectedAgentSession("");
 }
 
 async function startNewChatForSelectedAgent() {
