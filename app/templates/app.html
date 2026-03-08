@@ -61,7 +61,18 @@
       <p class="muted">Select an agent in the left column. Running agents open here automatically.</p>
     </div>
 
-    <iframe id="agent-embed-frame" title="Agent Embedded View" class="hidden"></iframe>
+    <section id="agent-chat-app" class="agent-chat-app hidden" aria-label="Agent chat workspace">
+      <div class="agent-chat-main">
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-composer">
+          <textarea id="chat-input" rows="2" placeholder="Type a message..."></textarea>
+          <div class="chat-composer-actions">
+            <button id="send-chat-btn" type="button">Send</button>
+          </div>
+          <div id="chat-status" class="muted tiny">Ready</div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <aside id="detail-panel" class="detail-panel panel collapsed">
@@ -70,6 +81,30 @@
       <h3>Agent Details</h3>
       <div id="agent-meta" class="meta-box muted">No agent selected.</div>
       <div id="agent-actions" class="stack"></div>
+      <section id="runtime-tools" class="runtime-tools hidden">
+        <h4>Workspace</h4>
+        <div class="stack">
+          <button id="new-chat-btn" class="secondary" type="button">New Chat</button>
+          <input id="upload-input" type="file" class="hidden" />
+          <button id="upload-btn" class="secondary" type="button">Upload File</button>
+          <button id="clear-chat-btn" class="secondary" type="button">Clear Chat</button>
+        </div>
+        <div class="agent-chat-group-title">Recent</div>
+        <div id="recent-sessions" class="mini-list muted tiny">Loading...</div>
+        <div class="agent-chat-group-title">Tools</div>
+        <div class="stack">
+          <button id="open-server-files" class="secondary" type="button">Server Files</button>
+          <button id="open-my-uploads" class="secondary" type="button">My Uploads</button>
+          <button id="open-settings" class="secondary" type="button">Settings</button>
+        </div>
+        <section id="tool-panel" class="tool-panel hidden">
+          <div class="tool-panel-head">
+            <h4 id="tool-panel-title">Panel</h4>
+            <button id="close-tool-panel" class="icon-btn" type="button"><svg class="hi"><use href="#hi-x-mark"></use></svg></button>
+          </div>
+          <div id="tool-panel-body" class="tool-panel-body muted tiny">Select tool to view data.</div>
+        </section>
+      </section>
     </div>
   </aside>
 </div>
