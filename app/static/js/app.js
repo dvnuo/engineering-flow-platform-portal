@@ -6,7 +6,6 @@ const createModal = document.getElementById("create-modal");
 const openCreateModalBtn = document.getElementById("open-create-modal");
 const closeCreateModalBtn = document.getElementById("close-create-modal");
 
-const embedFrame = document.getElementById("agent-embed-frame");
 const embedTitle = document.getElementById("embed-title");
 const selectedStatus = document.getElementById("selected-status");
 const centerPlaceholder = document.getElementById("center-placeholder");
@@ -16,10 +15,28 @@ const refreshAllBtn = document.getElementById("refresh-all");
 
 const detailPanel = document.getElementById("detail-panel");
 const detailToggle = document.getElementById("detail-toggle");
-const detailToggleSide = document.getElementById("detail-toggle-side");
 
 const themeToggle = document.getElementById("theme-toggle");
 const THEME_STORAGE_KEY = "portal-theme";
+
+const agentChatApp = document.getElementById("agent-chat-app");
+const chatMessages = document.getElementById("chat-messages");
+const chatInput = document.getElementById("chat-input");
+const sendChatBtn = document.getElementById("send-chat-btn");
+const clearChatBtn = document.getElementById("clear-chat-btn");
+const uploadInput = document.getElementById("upload-input");
+const uploadBtn = document.getElementById("upload-btn");
+const chatStatus = document.getElementById("chat-status");
+const recentSessions = document.getElementById("recent-sessions");
+const newChatBtn = document.getElementById("new-chat-btn");
+const openServerFilesBtn = document.getElementById("open-server-files");
+const openMyUploadsBtn = document.getElementById("open-my-uploads");
+const openSettingsBtn = document.getElementById("open-settings");
+const runtimeTools = document.getElementById("runtime-tools");
+const toolPanel = document.getElementById("tool-panel");
+const toolPanelTitle = document.getElementById("tool-panel-title");
+const toolPanelBody = document.getElementById("tool-panel-body");
+const closeToolPanelBtn = document.getElementById("close-tool-panel");
 
 let currentUser = null;
 let mineAgents = [];
@@ -27,9 +44,17 @@ let publicAgents = [];
 let agentStatus = new Map();
 let selectedAgentId = null;
 let detailsCollapsed = true;
+let activeSessionId = null;
 
 function heroIcon(id) {
   return `<svg class="hi" aria-hidden="true"><use href="#${id}"></use></svg>`;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function applyTheme(theme) {
@@ -54,7 +79,6 @@ function setDetailsCollapsed(collapsed) {
   detailsCollapsed = collapsed;
   detailPanel?.classList.toggle("collapsed", collapsed);
   if (detailToggle) detailToggle.innerHTML = heroIcon("hi-bars");
-  if (detailToggleSide) detailToggleSide.innerHTML = heroIcon(collapsed ? "hi-chevron-left" : "hi-chevron-right");
 }
 
 function toggleDetails() {
@@ -80,6 +104,18 @@ async function api(path, options = {}) {
     const text = await resp.text();
     throw new Error(text || `HTTP ${resp.status}`);
   }
+  const ct = resp.headers.get("content-type") || "";
+  return ct.includes("application/json") ? resp.json() : resp.text();
+}
+
+async function agentApi(path, options = {}, parseJson = true) {
+  if (!selectedAgentId) throw new Error("No selected agent");
+  const resp = await fetch(`/a/${selectedAgentId}${path}`, options);
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || `HTTP ${resp.status}`);
+  }
+  if (!parseJson) return resp;
   const ct = resp.headers.get("content-type") || "";
   return ct.includes("application/json") ? resp.json() : resp.text();
 }
@@ -117,6 +153,188 @@ function button(label, onClick, kind = "", iconId = null) {
   b.innerHTML = iconId ? `${heroIcon(iconId)}<span>${label}</span>` : label;
   b.onclick = onClick;
   return b;
+}
+
+function setChatStatus(text) {
+  if (chatStatus) chatStatus.textContent = text;
+}
+
+function addChatMessage(role, content) {
+  const item = document.createElement("div");
+  item.className = `chat-msg ${role}`;
+  item.innerHTML = `<div class="chat-msg-role">${role === "assistant" ? "Agent" : "You"}</div><div class="chat-msg-content">${escapeHtml(content || "")}</div>`;
+  chatMessages?.append(item);
+  chatMessages?.scrollTo({ top: chatMessages.scrollHeight, behavior: "smooth" });
+}
+
+function clearChatMessages() {
+  if (chatMessages) {
+    chatMessages.innerHTML = "";
+    addChatMessage("assistant", "👋 Welcome! Ask me anything.");
+  }
+}
+
+async function loadRecentSessions() {
+  if (!recentSessions || !selectedAgentId) return;
+  recentSessions.textContent = "Loading...";
+  try {
+    const data = await agentApi("/api/sessions?limit=12");
+    const sessions = data.sessions || [];
+    if (sessions.length === 0) {
+      recentSessions.innerHTML = '<span class="muted tiny">No recent sessions.</span>';
+      return;
+    }
+    recentSessions.innerHTML = "";
+    sessions.forEach((session) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `session-item ${activeSessionId === session.session_id ? "active" : ""}`;
+      b.innerHTML = `<strong>${escapeHtml(session.name || "New Chat")}</strong><span>${escapeHtml(session.last_message || "")}</span>`;
+      b.onclick = () => openSession(session.session_id);
+      recentSessions.append(b);
+    });
+  } catch (e) {
+    recentSessions.textContent = `Failed: ${e.message}`;
+  }
+}
+
+async function openSession(sessionId) {
+  activeSessionId = sessionId;
+  clearChatMessages();
+  try {
+    const data = await agentApi(`/api/sessions/${encodeURIComponent(sessionId)}`);
+    (data.messages || []).forEach((message) => {
+      if (message.role === "user" || message.role === "assistant") {
+        addChatMessage(message.role, message.content || "");
+      }
+    });
+    await loadRecentSessions();
+    setChatStatus(`Loaded session ${sessionId}`);
+  } catch (e) {
+    setChatStatus(`Load session failed: ${e.message}`);
+  }
+}
+
+function setToolPanel(title, html) {
+  if (!toolPanel) return;
+  toolPanel.classList.remove("hidden");
+  toolPanelTitle.textContent = title;
+  toolPanelBody.innerHTML = html;
+}
+
+async function openServerFiles() {
+  try {
+    const data = await agentApi("/api/files");
+    const rows = (data.items || []).map((it) => `<li><strong>${escapeHtml(it.name)}</strong> <span class="muted">${it.type}</span></li>`).join("");
+    setToolPanel("Server Files", rows ? `<ul class="tool-list">${rows}</ul>` : "No files.");
+  } catch (e) {
+    setToolPanel("Server Files", `Failed: ${escapeHtml(e.message)}`);
+  }
+}
+
+async function openMyUploads() {
+  try {
+    const data = await agentApi("/api/files/list");
+    const files = data.files || [];
+    const rows = files.map((it) => `<li><strong>${escapeHtml(it.filename)}</strong> <button type="button" data-delete="${it.file_id}">Delete</button></li>`).join("");
+    setToolPanel("My Uploads", rows ? `<ul class="tool-list">${rows}</ul>` : "No uploads.");
+    toolPanelBody.querySelectorAll("[data-delete]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await agentApi(`/api/files/${btn.dataset.delete}`, { method: "DELETE" });
+          openMyUploads();
+        } catch (e) {
+          alert(`Delete failed: ${e.message}`);
+        }
+      });
+    });
+  } catch (e) {
+    setToolPanel("My Uploads", `Failed: ${escapeHtml(e.message)}`);
+  }
+}
+
+async function openSettings() {
+  try {
+    const data = await agentApi("/api/config");
+    const config = data.config || {};
+    setToolPanel(
+      "Settings",
+      `<textarea id="settings-editor" class="settings-editor">${escapeHtml(JSON.stringify(config, null, 2))}</textarea>
+      <button id="save-settings-btn" type="button">Save Settings</button>`
+    );
+    document.getElementById("save-settings-btn")?.addEventListener("click", async () => {
+      const val = document.getElementById("settings-editor")?.value || "{}";
+      try {
+        const parsed = JSON.parse(val);
+        await agentApi("/api/config/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(parsed),
+        });
+        setChatStatus("Settings saved");
+      } catch (e) {
+        alert(`Save settings failed: ${e.message}`);
+      }
+    });
+  } catch (e) {
+    setToolPanel("Settings", `Failed: ${escapeHtml(e.message)}`);
+  }
+}
+
+async function sendChat() {
+  const msg = chatInput?.value?.trim();
+  if (!msg) return;
+  addChatMessage("user", msg);
+  chatInput.value = "";
+  setChatStatus("Sending...");
+  try {
+    const payload = { message: msg };
+    if (activeSessionId) payload.session_id = activeSessionId;
+    const data = await agentApi("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    activeSessionId = data.session_id || activeSessionId;
+    addChatMessage("assistant", data.response || "(empty response)");
+    setChatStatus("Ready");
+    await loadRecentSessions();
+  } catch (e) {
+    setChatStatus(`Send failed: ${e.message}`);
+  }
+}
+
+async function clearChat() {
+  clearChatMessages();
+  if (!activeSessionId) return;
+  try {
+    await agentApi("/api/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: activeSessionId }),
+    });
+    setChatStatus("Cleared");
+    activeSessionId = null;
+    await loadRecentSessions();
+  } catch (e) {
+    setChatStatus(`Clear failed: ${e.message}`);
+  }
+}
+
+async function uploadFile() {
+  const file = uploadInput?.files?.[0];
+  if (!file) return;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    setChatStatus("Uploading...");
+    await agentApi("/api/files/upload", { method: "POST", body: form }, true);
+    setChatStatus(`Uploaded ${file.name}`);
+    uploadInput.value = "";
+    openMyUploads();
+  } catch (e) {
+    setChatStatus(`Upload failed: ${e.message}`);
+  }
 }
 
 async function openEditDialog(agent) {
@@ -198,9 +416,9 @@ function renderDetails(agent) {
     embedTitle.textContent = "Select an agent from left list";
     selectedStatus.className = "status";
     selectedStatus.textContent = "idle";
-    embedFrame.src = "about:blank";
-    embedFrame.classList.add("hidden");
     centerPlaceholder.classList.remove("hidden");
+    agentChatApp.classList.add("hidden");
+    runtimeTools?.classList.add("hidden");
     return;
   }
 
@@ -223,15 +441,17 @@ function renderDetails(agent) {
 
   if (status === "running") {
     centerPlaceholder.classList.add("hidden");
-    embedFrame.classList.remove("hidden");
-    if (!embedFrame.src.endsWith(`/a/${agent.id}`)) embedFrame.src = `/a/${agent.id}`;
+    agentChatApp.classList.remove("hidden");
+    runtimeTools?.classList.remove("hidden");
+    if (!chatMessages?.children?.length) clearChatMessages();
+    loadRecentSessions();
   } else {
-    embedFrame.src = "about:blank";
-    embedFrame.classList.add("hidden");
+    agentChatApp.classList.add("hidden");
+    runtimeTools?.classList.add("hidden");
     centerPlaceholder.classList.remove("hidden");
     centerPlaceholder.innerHTML = `
       <h3>${agent.name} is ${status}</h3>
-      <p class="muted">Start this agent to open it in the center view.</p>
+      <p class="muted">Start this agent to use chat and tools.</p>
     `;
   }
 
@@ -260,6 +480,8 @@ function renderDetails(agent) {
 
 function selectAgentById(agentId) {
   selectedAgentId = agentId;
+  activeSessionId = null;
+  clearChatMessages();
   renderAgentList(mineList, mineAgents);
   renderAgentList(publicList, publicAgents);
   renderDetails(getSelectedAgent());
@@ -321,7 +543,6 @@ createForm?.addEventListener("submit", async (e) => {
 
 refreshAllBtn?.addEventListener("click", refreshAll);
 detailToggle?.addEventListener("click", toggleDetails);
-detailToggleSide?.addEventListener("click", toggleDetails);
 openCreateModalBtn?.addEventListener("click", openCreateModal);
 closeCreateModalBtn?.addEventListener("click", closeCreateModal);
 createModal?.addEventListener("click", (e) => {
@@ -329,7 +550,22 @@ createModal?.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeCreateModal();
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendChat();
 });
+
+sendChatBtn?.addEventListener("click", sendChat);
+clearChatBtn?.addEventListener("click", clearChat);
+newChatBtn?.addEventListener("click", () => {
+  activeSessionId = null;
+  clearChatMessages();
+  setChatStatus("New chat started");
+});
+openServerFilesBtn?.addEventListener("click", openServerFiles);
+openMyUploadsBtn?.addEventListener("click", openMyUploads);
+openSettingsBtn?.addEventListener("click", openSettings);
+closeToolPanelBtn?.addEventListener("click", () => toolPanel?.classList.add("hidden"));
+uploadBtn?.addEventListener("click", () => uploadInput?.click());
+uploadInput?.addEventListener("change", uploadFile);
 
 initTheme();
 setDetailsCollapsed(true);
