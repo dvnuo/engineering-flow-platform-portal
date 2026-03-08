@@ -7,19 +7,22 @@
   {% if skills %}
     <div class="space-y-2" id="skills-list">
       {% for skill in skills %}
-        {% set skill_name = skill.name if skill is mapping else skill %}
+        {% set skill_name = ((skill.name if skill is mapping else skill) or '')|trim %}
+        {% set normalized_skill_name = skill_name.lstrip('/') %}
         {% set skill_desc = (skill.description if skill is mapping else '') or '' %}
+        {% if normalized_skill_name %}
         <button
           type="button"
           class="w-full rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2 text-left hover:border-blue-500"
-          data-skill-command="/{{ skill_name }}"
-          title="Insert /{{ skill_name }}"
+          data-skill-command="/{{ normalized_skill_name }}"
+          title="Insert /{{ normalized_skill_name }}"
         >
-          <div class="text-sm font-medium">/{{ skill_name }}</div>
+          <div class="text-sm font-medium">/{{ normalized_skill_name }}</div>
           {% if skill_desc %}
             <div class="text-xs text-slate-400 line-clamp-2">{{ skill_desc }}</div>
           {% endif %}
         </button>
+        {% endif %}
       {% endfor %}
     </div>
   {% else %}

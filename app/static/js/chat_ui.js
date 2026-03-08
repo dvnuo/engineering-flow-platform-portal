@@ -76,6 +76,21 @@ function safe(value) {
   return String(value || "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function normalizeSkillCommand(raw) {
+  const skillName = String(raw || "").trim().replace(/^\/+/, "");
+  return skillName ? `/${skillName}` : "";
+}
+
+function toSkillSuggestion(item) {
+  const name = typeof item === "string" ? item : (item?.name || "");
+  const command = normalizeSkillCommand(name);
+  return {
+    label: command,
+    command,
+    desc: typeof item === "string" ? "Skill" : (item?.description || "Skill"),
+  };
+}
+
 function setChatStatus(text) {
   if (dom.chatStatus) dom.chatStatus.textContent = text;
 }
@@ -326,7 +341,7 @@ function showSuggest(items, onPick) {
   }
 
   dom.chatSuggest.innerHTML = items.map((item, index) => (
-    `<button type="button" data-i="${index}" class="w-full text-left rounded-lg px-2 py-1 hover:bg-slate-700"><div class="font-medium">${safe(item.title)}</div><div class="text-xs text-slate-400">${safe(item.desc || "")}</div></button>`
+    `<button type="button" data-i="${index}" class="w-full text-left rounded-lg px-2 py-1 hover:bg-slate-700"><div class="font-medium">${safe(item.label || item.title || "")}</div><div class="text-xs text-slate-400">${safe(item.desc || "")}</div></button>`
   )).join("");
   dom.chatSuggest.classList.remove("hidden");
   state.selectedSuggestionIndex = 0;
@@ -381,10 +396,7 @@ async function maybeShowSuggest() {
     if (!state.cachedSkills.length) {
       try {
         const data = await agentApi("/api/skills");
-        state.cachedSkills = (data.skills || []).map((item) => {
-          if (typeof item === "string") return { title: `/${item}`, desc: "Skill" };
-          return { title: `/${item.name || ""}`, desc: item.description || "Skill" };
-        }).filter((i) => i.title !== "/");
+        state.cachedSkills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
         if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, state.cachedSkills);
       } catch {
         state.cachedSkills = [];
@@ -392,7 +404,9 @@ async function maybeShowSuggest() {
     }
 
     showSuggest(state.cachedSkills, (item) => {
-      dom.chatInput.setRangeText(`${item.title} `, cursor - slash[2].length, cursor, "end");
+      const command = normalizeSkillCommand(item.command || item.label || item.title);
+      if (!command) return;
+      dom.chatInput.setRangeText(`${command} `, cursor - slash[2].length, cursor, "end");
       hideSuggest();
     });
     return;
@@ -521,10 +535,7 @@ async function openSkillsPanel() {
 
     if (!state.cachedSkillsByAgent.has(state.selectedAgentId)) {
       const data = await agentApi("/api/skills");
-      const mapped = (data.skills || []).map((item) => {
-        if (typeof item === "string") return { title: `/${item}`, desc: "Skill" };
-        return { title: `/${item.name || ""}`, desc: item.description || "Skill" };
-      }).filter((i) => i.title !== "/");
+      const mapped = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
       state.cachedSkillsByAgent.set(state.selectedAgentId, mapped);
       state.cachedSkills = mapped;
     }
@@ -747,9 +758,11 @@ function bindEvents() {
     const skillBtn = event.target.closest("[data-skill-command]");
     if (skillBtn) {
       event.preventDefault();
-      dom.chatInput.setRangeText(`${skillBtn.dataset.skillCommand || ""} `, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
+      const command = normalizeSkillCommand(skillBtn.dataset.skillCommand);
+      if (!command) return;
+      dom.chatInput.setRangeText(`${command} `, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
       dom.chatInput.focus();
-      setChatStatus(`Inserted ${skillBtn.dataset.skillCommand || "skill command"}`);
+      setChatStatus(`Inserted ${command}`);
       return;
     }
 
