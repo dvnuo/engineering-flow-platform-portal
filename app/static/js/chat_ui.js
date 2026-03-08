@@ -301,6 +301,7 @@ function initializeRenderLifecycle() {
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
     handleChatAfterSwap(event.target);
+    if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
     renderIcons();
   });
   document.addEventListener("htmx:responseError", handleChatResponseError);
@@ -490,6 +491,49 @@ async function openMyUploads() {
   }
 }
 
+
+function normalizeInstanceInputs(group) {
+  const container = dom.toolPanelBody?.querySelector(`[data-instance-container="${group}"]`);
+  const countInput = dom.toolPanelBody?.querySelector(`[data-instance-count="${group}"]`);
+  if (!container || !countInput) return;
+
+  const items = Array.from(container.querySelectorAll(`[data-instance-item="${group}"]`));
+  items.forEach((item, idx) => {
+    const title = item.querySelector("span");
+    if (title) title.textContent = `Instance ${idx + 1}`;
+    item.querySelectorAll("input[data-field]").forEach((input) => {
+      const field = input.dataset.field;
+      input.name = `${group}_instances_${idx}_${field}`;
+    });
+  });
+  countInput.value = String(items.length);
+}
+
+function addInstanceRow(group) {
+  const container = dom.toolPanelBody?.querySelector(`[data-instance-container="${group}"]`);
+  if (!container) return;
+
+  const fields = group === "jira"
+    ? ["name", "url", "username", "password", "token", "project"]
+    : ["name", "url", "username", "password", "token", "space"];
+
+  const div = document.createElement("div");
+  div.className = "rounded border border-slate-700 p-2 space-y-1";
+  div.dataset.instanceItem = group;
+  div.innerHTML = `
+    <div class="flex justify-between items-center"><span class="text-xs text-slate-400">Instance</span><button type="button" class="text-xs text-rose-300" data-action="remove-instance" data-group="${group}">Remove</button></div>
+    ${fields.map((f) => `<input type="${f === "password" || f === "token" ? "password" : "text"}" data-field="${f}" placeholder="${f[0].toUpperCase()}${f.slice(1)}" class="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs" />`).join("")}
+  `;
+  container.append(div);
+  normalizeInstanceInputs(group);
+}
+
+function initializeSettingsPanel() {
+  if (!dom.toolPanelBody?.querySelector("#settings-form")) return;
+  normalizeInstanceInputs("jira");
+  normalizeInstanceInputs("confluence");
+}
+
 async function openSettings() {
   if (!state.selectedAgentId) return;
 
@@ -501,6 +545,7 @@ async function openSettings() {
       target: "#tool-panel-body",
       swap: "innerHTML",
     });
+    initializeSettingsPanel();
   } catch (error) {
     setToolPanel("Settings", `Failed: ${safe(error.message)}`);
   }
@@ -623,6 +668,22 @@ function bindEvents() {
       event.preventDefault();
       insertFileReference(fileBtn.dataset.fileRef || "");
       setChatStatus(`Inserted ${fileBtn.dataset.fileRef || "file reference"}`);
+      return;
+    }
+
+    const addBtn = event.target.closest('[data-action="add-instance"]');
+    if (addBtn) {
+      event.preventDefault();
+      addInstanceRow(addBtn.dataset.group || "jira");
+      return;
+    }
+
+    const removeBtn = event.target.closest('[data-action="remove-instance"]');
+    if (removeBtn) {
+      event.preventDefault();
+      const group = removeBtn.dataset.group || "jira";
+      removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
+      normalizeInstanceInputs(group);
     }
   });
 
