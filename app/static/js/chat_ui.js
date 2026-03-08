@@ -1,11 +1,11 @@
 /**
- * Portal-native chat UI
- * Runtime is source-of-truth for chat/session/file APIs under /a/{agent_id}/api/...
- * Portal only handles browser UI state + HTMX partial rendering.
+ * Portal-native chat UI.
+ * Runtime remains source-of-truth for chat/session/file APIs under /a/{agent_id}/api/...
+ * Portal is responsible for browser-side state + HTMX partial rendering.
  */
 
 function chatApp() {
-  // Alpine.js: lightweight page-level state marker only.
+  // Alpine.js is kept lightweight; main behavior stays in small explicit functions below.
   return { initialized: true };
 }
 
@@ -17,7 +17,6 @@ const dom = {
   centerPlaceholder: document.getElementById("center-placeholder"),
   agentChatApp: document.getElementById("agent-chat-app"),
   messageList: document.getElementById("message-list"),
-  chatForm: document.getElementById("chat-form"),
   chatInput: document.getElementById("chat-input"),
   chatSuggest: document.getElementById("chat-suggest"),
   chatAgentId: document.getElementById("chat-agent-id"),
@@ -38,6 +37,7 @@ const dom = {
   topUpload: document.getElementById("top-upload"),
   topServerFiles: document.getElementById("top-server-files"),
   topMyUploads: document.getElementById("top-my-uploads"),
+  topSessions: document.getElementById("top-sessions"),
   topSettings: document.getElementById("top-settings"),
   topClearChat: document.getElementById("top-clear-chat"),
   logoutBtn: document.getElementById("logout-btn"),
@@ -51,6 +51,7 @@ const state = {
   detailOpen: false,
   cachedSkills: [],
   cachedMentionFiles: [],
+  agentSessionIds: new Map(), // agent_id -> current session_id
 };
 
 const md = window.markdownit({
@@ -82,7 +83,6 @@ function renderMarkdown(scope = document) {
   scope.querySelectorAll(".md-render").forEach((el) => {
     el.innerHTML = md.render(el.dataset.md || "");
   });
-
   scope.querySelectorAll("pre code").forEach((el) => hljs.highlightElement(el));
 }
 
@@ -114,6 +114,29 @@ async function agentApi(path, options = {}) {
 
 function defaultWelcomeMessage() {
   return '<article class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
+}
+
+function clearMessageListToWelcome() {
+  if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
+  renderMarkdown(dom.messageList);
+  scrollToBottom();
+}
+
+function currentSessionIdForSelectedAgent() {
+  return state.agentSessionIds.get(state.selectedAgentId) || "";
+}
+
+function syncHiddenSessionInputFromState() {
+  if (dom.chatSessionId) dom.chatSessionId.value = currentSessionIdForSelectedAgent();
+}
+
+function updateSelectedAgentSession(sessionId) {
+  if (!state.selectedAgentId) return;
+
+  const value = (sessionId || "").trim();
+  if (value) state.agentSessionIds.set(state.selectedAgentId, value);
+  else state.agentSessionIds.delete(state.selectedAgentId);
+  syncHiddenSessionInputFromState();
 }
 
 // ===== selected agent state sync =====
@@ -157,7 +180,6 @@ function renderAgentActions(agent, status) {
   if (!dom.agentActions) return;
 
   dom.agentActions.innerHTML = "";
-
   const buildButton = (label, classes, onClick) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -193,9 +215,9 @@ async function selectAgentById(agentId) {
   state.cachedSkills = [];
   state.cachedMentionFiles = [];
 
-  if (dom.chatSessionId) dom.chatSessionId.value = "";
   if (dom.chatAgentId) dom.chatAgentId.value = agentId || "";
-  if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
+  syncHiddenSessionInputFromState();
+  clearMessageListToWelcome();
 
   renderAgentList();
   await syncSelectedAgentState();
@@ -215,7 +237,9 @@ async function syncSelectedAgentState() {
   const status = state.agentStatus.get(agent.id)?.status || agent.status;
   dom.embedTitle.textContent = agent.name;
   dom.selectedStatus.textContent = status;
+
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
+  syncHiddenSessionInputFromState();
 
   renderAgentMeta(agent);
   renderAgentActions(agent, status);
@@ -245,10 +269,23 @@ async function refreshAll() {
 }
 
 // ===== chat submit lifecycle (HTMX) =====
+function handleChatBeforeRequest(event) {
+  if (event.target?.id !== "chat-form") return;
+  setChatStatus("Thinking...");
+}
+
+function handleChatResponseError(event) {
+  if (event.target?.id !== "chat-form") return;
+  setChatStatus("Send failed");
+}
+
 function handleChatAfterSwap(target) {
   if (target?.id !== "message-list") return;
 
-  // HTMX appends server-rendered partial; OOB hidden session_id input updates in-place.
+  // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
+  const sessionFromInput = dom.chatSessionId?.value || "";
+  updateSelectedAgentSession(sessionFromInput);
+
   renderMarkdown(dom.messageList);
   renderIcons();
   scrollToBottom();
@@ -257,23 +294,27 @@ function handleChatAfterSwap(target) {
   setChatStatus("Ready");
 }
 
-function handleChatResponseError(event) {
-  if (event.target?.id !== "chat-form") return;
-  setChatStatus("Send failed");
-}
-
-function handleChatBeforeRequest(event) {
-  if (event.target?.id !== "chat-form") return;
-  setChatStatus("Thinking...");
+// ===== markdown + icons lifecycle =====
+function initializeRenderLifecycle() {
+  document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
+  document.addEventListener("htmx:afterSwap", (event) => {
+    handleChatAfterSwap(event.target);
+    renderIcons();
+  });
+  document.addEventListener("htmx:responseError", handleChatResponseError);
 }
 
 // ===== suggestion popup hooks =====
+function hideSuggest() {
+  if (!dom.chatSuggest) return;
+  dom.chatSuggest.classList.add("hidden");
+  dom.chatSuggest.innerHTML = "";
+}
+
 function showSuggest(items, onPick) {
   if (!dom.chatSuggest) return;
-
   if (!items.length) {
-    dom.chatSuggest.classList.add("hidden");
-    dom.chatSuggest.innerHTML = "";
+    hideSuggest();
     return;
   }
 
@@ -308,7 +349,7 @@ async function maybeShowSuggest() {
 
     showSuggest(state.cachedSkills, (item) => {
       dom.chatInput.setRangeText(`${item.title} `, cursor - slash[2].length, cursor, "end");
-      dom.chatSuggest.classList.add("hidden");
+      hideSuggest();
     });
     return;
   }
@@ -329,12 +370,12 @@ async function maybeShowSuggest() {
 
     showSuggest(state.cachedMentionFiles, (item) => {
       dom.chatInput.setRangeText(`${item.full} `, cursor - at[2].length, cursor, "end");
-      dom.chatSuggest.classList.add("hidden");
+      hideSuggest();
     });
     return;
   }
 
-  dom.chatSuggest?.classList.add("hidden");
+  hideSuggest();
 }
 
 // ===== toolbar actions =====
@@ -343,6 +384,71 @@ function setToolPanel(title, contentHtml) {
   dom.toolPanelTitle.textContent = title;
   dom.toolPanelBody.innerHTML = contentHtml;
   dom.toolPanel.classList.remove("hidden");
+}
+
+async function openSessionsPanel() {
+  if (!state.selectedAgentId) return;
+
+  setDetailOpen(true);
+  setToolPanel("Sessions", '<div class="text-xs text-slate-400">Loading sessions…</div>');
+
+  await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
+    target: "#tool-panel-body",
+    swap: "innerHTML",
+  });
+}
+
+function renderChatHistory(messages) {
+  if (!dom.messageList) return;
+
+  if (!messages.length) {
+    clearMessageListToWelcome();
+    return;
+  }
+
+  dom.messageList.innerHTML = "";
+  messages.forEach((message) => {
+    if (message.role !== "user" && message.role !== "assistant") return;
+
+    const article = document.createElement("article");
+    const roleLabel = document.createElement("p");
+    roleLabel.className = "text-xs uppercase tracking-wide mb-2";
+
+    if (message.role === "user") {
+      article.className = "ml-auto max-w-3xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
+      roleLabel.classList.add("text-blue-200");
+      roleLabel.textContent = "You";
+      const content = document.createElement("div");
+      content.className = "whitespace-pre-wrap text-slate-100";
+      content.textContent = message.content || "";
+      article.append(roleLabel, content);
+    } else {
+      article.className = "max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4";
+      roleLabel.classList.add("text-slate-400");
+      roleLabel.textContent = "Assistant";
+      const content = document.createElement("div");
+      content.className = "md-render prose prose-invert max-w-none";
+      content.dataset.md = message.content || "";
+      article.append(roleLabel, content);
+    }
+
+    dom.messageList.append(article);
+  });
+
+  renderMarkdown(dom.messageList);
+  scrollToBottom();
+}
+
+async function loadSession(sessionId) {
+  const normalized = (sessionId || "").trim();
+  if (!normalized) return;
+
+  const data = await agentApi(`/api/sessions/${encodeURIComponent(normalized)}`);
+  updateSelectedAgentSession(normalized);
+  renderChatHistory(data.messages || []);
+
+  setChatStatus(`Loaded session ${normalized}`);
+  await openSessionsPanel();
 }
 
 async function openServerFiles() {
@@ -409,7 +515,17 @@ async function clearChat() {
     });
   }
 
-  if (dom.chatSessionId) dom.chatSessionId.value = "";
+  updateSelectedAgentSession("");
+}
+
+async function startNewChatForSelectedAgent() {
+  updateSelectedAgentSession("");
+  clearMessageListToWelcome();
+  setChatStatus("New chat started");
+
+  if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "Sessions") {
+    await openSessionsPanel();
+  }
 }
 
 // ===== misc actions =====
@@ -447,32 +563,38 @@ function bindEvents() {
 
   dom.uploadInput?.addEventListener("change", uploadFile);
 
-  dom.topNewChat?.addEventListener("click", () => {
-    if (dom.chatSessionId) dom.chatSessionId.value = "";
-    if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
-    scrollToBottom();
-  });
+  dom.topNewChat?.addEventListener("click", startNewChatForSelectedAgent);
   dom.topUpload?.addEventListener("click", () => dom.uploadInput.click());
   dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
   dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
+  dom.topSessions?.addEventListener("click", openSessionsPanel);
   dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
   dom.topClearChat?.addEventListener("click", clearChat);
+
+  dom.toolPanelBody?.addEventListener("click", async (event) => {
+    const newChatBtn = event.target.closest("#sessions-new-chat-btn");
+    if (newChatBtn) {
+      event.preventDefault();
+      await startNewChatForSelectedAgent();
+      return;
+    }
+
+    const sessionBtn = event.target.closest("[data-session-id]");
+    if (sessionBtn) {
+      event.preventDefault();
+      await loadSession(sessionBtn.dataset.sessionId || "");
+    }
+  });
 
   dom.logoutBtn?.addEventListener("click", async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     location.href = "/login";
   });
-
-  document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
-  document.addEventListener("htmx:afterSwap", (event) => {
-    handleChatAfterSwap(event.target);
-    renderIcons();
-  });
-  document.addEventListener("htmx:responseError", handleChatResponseError);
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
+  initializeRenderLifecycle();
   await refreshAll();
   renderMarkdown(document);
   renderIcons();
