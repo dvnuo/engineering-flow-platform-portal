@@ -156,6 +156,44 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
 
 
 
+@router.get("/app/agents/{agent_id}/skills/panel")
+async def app_agent_skills_panel(request: Request, agent_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/skills",
+            query_items=[],
+            body=None,
+            headers={},
+        )
+
+        if status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+
+        payload = json.loads(content.decode("utf-8"))
+        return templates.TemplateResponse(
+            "partials/skills_panel.html",
+            {
+                "request": request,
+                "skills": payload.get("skills") or [],
+            },
+        )
+    finally:
+        db.close()
+
+
 @router.get("/app/agents/{agent_id}/files/panel")
 async def app_agent_files_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)

@@ -37,6 +37,7 @@ const dom = {
   topUpload: document.getElementById("top-upload"),
   topServerFiles: document.getElementById("top-server-files"),
   topMyUploads: document.getElementById("top-my-uploads"),
+  topSkills: document.getElementById("top-skills"),
   topSessions: document.getElementById("top-sessions"),
   topSettings: document.getElementById("top-settings"),
   topClearChat: document.getElementById("top-clear-chat"),
@@ -50,7 +51,9 @@ const state = {
   agentStatus: new Map(),
   detailOpen: false,
   cachedSkills: [],
+  cachedSkillsByAgent: new Map(),
   cachedMentionFiles: [],
+  selectedSuggestionIndex: -1,
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
   agentSessionIds: new Map(),
@@ -214,8 +217,9 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
-  state.cachedSkills = [];
+  state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.cachedMentionFiles = [];
+  state.selectedSuggestionIndex = -1;
 
   if (dom.chatAgentId) dom.chatAgentId.value = agentId || "";
   syncHiddenSessionInputFromState();
@@ -325,10 +329,34 @@ function showSuggest(items, onPick) {
     `<button type="button" data-i="${index}" class="w-full text-left rounded-lg px-2 py-1 hover:bg-slate-700"><div class="font-medium">${safe(item.title)}</div><div class="text-xs text-slate-400">${safe(item.desc || "")}</div></button>`
   )).join("");
   dom.chatSuggest.classList.remove("hidden");
+  state.selectedSuggestionIndex = 0;
 
-  dom.chatSuggest.querySelectorAll("button").forEach((button) => {
+  const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
+  buttons.forEach((button) => {
     button.addEventListener("click", () => onPick(items[Number(button.dataset.i)]));
   });
+  buttons[0]?.classList.add("bg-slate-700");
+}
+
+function moveSuggestionSelection(direction) {
+  if (!dom.chatSuggest || dom.chatSuggest.classList.contains("hidden")) return;
+  const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
+  if (!buttons.length) return;
+
+  buttons.forEach((b) => b.classList.remove("bg-slate-700"));
+  state.selectedSuggestionIndex = (state.selectedSuggestionIndex + direction + buttons.length) % buttons.length;
+  const selected = buttons[state.selectedSuggestionIndex];
+  selected.classList.add("bg-slate-700");
+  selected.scrollIntoView({ block: "nearest" });
+}
+
+function pickCurrentSuggestion() {
+  if (!dom.chatSuggest || dom.chatSuggest.classList.contains("hidden")) return false;
+  const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
+  if (!buttons.length) return false;
+  const idx = Math.max(0, Math.min(state.selectedSuggestionIndex, buttons.length - 1));
+  buttons[idx].click();
+  return true;
 }
 
 function insertFileReference(fileRef) {
@@ -353,7 +381,11 @@ async function maybeShowSuggest() {
     if (!state.cachedSkills.length) {
       try {
         const data = await agentApi("/api/skills");
-        state.cachedSkills = (data.skills || []).map((item) => ({ title: `/${item}`, desc: "Skill" }));
+        state.cachedSkills = (data.skills || []).map((item) => {
+          if (typeof item === "string") return { title: `/${item}`, desc: "Skill" };
+          return { title: `/${item.name || ""}`, desc: item.description || "Skill" };
+        }).filter((i) => i.title !== "/");
+        if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, state.cachedSkills);
       } catch {
         state.cachedSkills = [];
       }
@@ -472,6 +504,32 @@ async function openServerFiles() {
     setToolPanel("Server Files", `<div class="space-y-2">${rows || "No files"}</div>`);
   } catch (error) {
     setToolPanel("Server Files", `Failed: ${safe(error.message)}`);
+  }
+}
+
+async function openSkillsPanel() {
+  if (!state.selectedAgentId) return;
+
+  setDetailOpen(true);
+  setToolPanel("Skills", '<div class="text-xs text-slate-400">Loading skills…</div>');
+
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML",
+    });
+
+    if (!state.cachedSkillsByAgent.has(state.selectedAgentId)) {
+      const data = await agentApi("/api/skills");
+      const mapped = (data.skills || []).map((item) => {
+        if (typeof item === "string") return { title: `/${item}`, desc: "Skill" };
+        return { title: `/${item.name || ""}`, desc: item.description || "Skill" };
+      }).filter((i) => i.title !== "/");
+      state.cachedSkillsByAgent.set(state.selectedAgentId, mapped);
+      state.cachedSkills = mapped;
+    }
+  } catch (error) {
+    setToolPanel("Skills", `Failed: ${safe(error.message)}`);
   }
 }
 
@@ -632,6 +690,20 @@ function bindEvents() {
 
   dom.chatInput?.addEventListener("input", maybeShowSuggest);
   dom.chatInput?.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" && !dom.chatSuggest?.classList.contains("hidden")) {
+      event.preventDefault();
+      moveSuggestionSelection(1);
+      return;
+    }
+    if (event.key === "ArrowUp" && !dom.chatSuggest?.classList.contains("hidden")) {
+      event.preventDefault();
+      moveSuggestionSelection(-1);
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && !dom.chatSuggest?.classList.contains("hidden")) {
+      event.preventDefault();
+      if (pickCurrentSuggestion()) return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       htmx.trigger("#chat-form", "submit");
@@ -644,6 +716,7 @@ function bindEvents() {
   dom.topUpload?.addEventListener("click", () => dom.uploadInput.click());
   dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
   dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
+  dom.topSkills?.addEventListener("click", openSkillsPanel);
   dom.topSessions?.addEventListener("click", openSessionsPanel);
   dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
   dom.topClearChat?.addEventListener("click", clearChat);
@@ -668,6 +741,15 @@ function bindEvents() {
       event.preventDefault();
       insertFileReference(fileBtn.dataset.fileRef || "");
       setChatStatus(`Inserted ${fileBtn.dataset.fileRef || "file reference"}`);
+      return;
+    }
+
+    const skillBtn = event.target.closest("[data-skill-command]");
+    if (skillBtn) {
+      event.preventDefault();
+      dom.chatInput.setRangeText(`${skillBtn.dataset.skillCommand || ""} `, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
+      dom.chatInput.focus();
+      setChatStatus(`Inserted ${skillBtn.dataset.skillCommand || "skill command"}`);
       return;
     }
 

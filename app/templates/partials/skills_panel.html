@@ -1,0 +1,30 @@
+<div class="space-y-3">
+  <div class="flex items-center justify-between">
+    <h5 class="text-sm font-semibold text-slate-200">Skills</h5>
+    <span class="text-xs text-slate-400">{{ skills|length }} available</span>
+  </div>
+
+  {% if skills %}
+    <div class="space-y-2" id="skills-list">
+      {% for skill in skills %}
+        {% set skill_name = skill.name if skill is mapping else skill %}
+        {% set skill_desc = (skill.description if skill is mapping else '') or '' %}
+        <button
+          type="button"
+          class="w-full rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2 text-left hover:border-blue-500"
+          data-skill-command="/{{ skill_name }}"
+          title="Insert /{{ skill_name }}"
+        >
+          <div class="text-sm font-medium">/{{ skill_name }}</div>
+          {% if skill_desc %}
+            <div class="text-xs text-slate-400 line-clamp-2">{{ skill_desc }}</div>
+          {% endif %}
+        </button>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-3 text-xs text-slate-400">
+      No skills available.
+    </div>
+  {% endif %}
+</div>
