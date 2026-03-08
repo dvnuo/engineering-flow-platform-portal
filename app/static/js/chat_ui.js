@@ -490,10 +490,20 @@ async function openMyUploads() {
   }
 }
 
-function openSettings() {
-  // Settings migration is intentionally deferred in this phase.
+async function openSettings() {
+  if (!state.selectedAgentId) return;
+
   setDetailOpen(true);
-  setToolPanel("Settings", '<div class="text-xs text-slate-400">Settings migration not implemented yet.</div>');
+  setToolPanel("Settings", '<div class="text-xs text-slate-400">Loading settings…</div>');
+
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/settings/panel`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML",
+    });
+  } catch (error) {
+    setToolPanel("Settings", `Failed: ${safe(error.message)}`);
+  }
 }
 
 async function uploadFile() {
