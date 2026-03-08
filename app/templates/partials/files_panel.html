@@ -1,0 +1,32 @@
+<div class="space-y-3">
+  <div class="flex items-center justify-between">
+    <h5 class="text-sm font-semibold text-slate-200">My Uploads</h5>
+    <span class="text-xs text-slate-400">{{ files|length }} files</span>
+  </div>
+
+  {% if files %}
+    <div id="uploads-list" class="space-y-2">
+      {% for file in files %}
+        {% set file_ref = '@file_' ~ (file.file_id[:8]) %}
+        <button
+          type="button"
+          class="w-full rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-2 text-left hover:border-blue-500"
+          data-file-id="{{ file.file_id }}"
+          data-file-ref="{{ file_ref }}"
+          title="Insert {{ file_ref }}"
+        >
+          <div class="truncate text-sm font-medium">{{ file.filename }}</div>
+          <div class="truncate text-xs text-slate-400">
+            {{ file_ref }}
+            {% if file.content_type %} · {{ file.content_type }}{% endif %}
+            {% if file.size is not none %} · {{ file.size }} B{% endif %}
+          </div>
+        </button>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="rounded-lg border border-slate-700 bg-slate-900/40 px-2 py-3 text-xs text-slate-400">
+      No uploaded files.
+    </div>
+  {% endif %}
+</div>

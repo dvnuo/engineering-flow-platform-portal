@@ -330,6 +330,15 @@ function showSuggest(items, onPick) {
   });
 }
 
+function insertFileReference(fileRef) {
+  // Runtime expects @file_<short_or_full_id>; using short id mirrors runtime webchat behavior.
+  if (!dom.chatInput || !fileRef) return;
+
+  const reference = `${fileRef} `;
+  dom.chatInput.setRangeText(reference, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
+  dom.chatInput.focus();
+}
+
 async function maybeShowSuggest() {
   if (!dom.chatInput) return;
 
@@ -466,18 +475,15 @@ async function openServerFiles() {
 }
 
 async function openMyUploads() {
-  try {
-    const data = await agentApi("/api/files/list");
-    const rows = (data.files || []).map((file) => (
-      `<div class="rounded-lg border border-slate-700 px-2 py-1 flex items-center justify-between gap-2"><span class="truncate">${safe(file.filename)}</span><button class="rounded bg-slate-700 px-2 py-1 text-xs" data-cite="${file.file_id}">@file_${file.file_id.slice(0, 8)}</button></div>`
-    )).join("");
+  if (!state.selectedAgentId) return;
 
-    setToolPanel("My Uploads", `<div class="space-y-2">${rows || "No uploads"}</div>`);
-    dom.toolPanelBody.querySelectorAll("[data-cite]").forEach((button) => {
-      button.addEventListener("click", () => {
-        dom.chatInput.setRangeText(`@file_${button.dataset.cite} `, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
-        dom.chatInput.focus();
-      });
+  setDetailOpen(true);
+  setToolPanel("My Uploads", '<div class="text-xs text-slate-400">Loading files…</div>');
+
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML",
     });
   } catch (error) {
     setToolPanel("My Uploads", `Failed: ${safe(error.message)}`);
@@ -506,6 +512,9 @@ async function uploadFile() {
 
     setChatStatus(`Uploaded ${file.name}`);
     state.cachedMentionFiles = [];
+    if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "My Uploads") {
+      await openMyUploads();
+    }
   } catch (error) {
     setChatStatus(`Upload failed: ${safe(error.message)}`);
   } finally {
@@ -596,6 +605,14 @@ function bindEvents() {
     if (sessionBtn) {
       event.preventDefault();
       await loadSession(sessionBtn.dataset.sessionId || "");
+      return;
+    }
+
+    const fileBtn = event.target.closest("[data-file-ref]");
+    if (fileBtn) {
+      event.preventDefault();
+      insertFileReference(fileBtn.dataset.fileRef || "");
+      setChatStatus(`Inserted ${fileBtn.dataset.fileRef || "file reference"}`);
     }
   });
 
