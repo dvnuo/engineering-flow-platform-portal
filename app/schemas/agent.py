@@ -8,6 +8,7 @@ class AgentCreateRequest(BaseModel):
     name: str
     image: str
     disk_size_gi: int = 20
+    mount_path: str = "/root/.efp"
     cpu: Optional[str] = None
     memory: Optional[str] = None
     description: Optional[str] = None
