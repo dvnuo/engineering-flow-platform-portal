@@ -34,68 +34,68 @@ class K8sService:
             except Exception:
                 self.enabled = False
 
-    def create_robot_runtime(self, robot) -> RuntimeStatus:
+    def create_agent_runtime(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="running")
 
         try:
-            self._ensure_pvc(robot)
-            self._ensure_deployment(robot)
-            self._ensure_service(robot)
+            self._ensure_pvc(agent)
+            self._ensure_deployment(agent)
+            self._ensure_service(agent)
             return RuntimeStatus(status="running")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
 
-    def start_robot(self, robot) -> RuntimeStatus:
+    def start_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="running")
         try:
             self.apps_api.patch_namespaced_deployment_scale(
-                name=robot.deployment_name,
-                namespace=robot.namespace,
+                name=agent.deployment_name,
+                namespace=agent.namespace,
                 body={"spec": {"replicas": 1}},
             )
             return RuntimeStatus(status="running")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
 
-    def stop_robot(self, robot) -> RuntimeStatus:
+    def stop_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="stopped")
         try:
             self.apps_api.patch_namespaced_deployment_scale(
-                name=robot.deployment_name,
-                namespace=robot.namespace,
+                name=agent.deployment_name,
+                namespace=agent.namespace,
                 body={"spec": {"replicas": 0}},
             )
             return RuntimeStatus(status="stopped")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
 
-    def delete_robot_runtime(self, robot, destroy_data: bool = False) -> RuntimeStatus:
+    def delete_agent_runtime(self, agent, destroy_data: bool = False) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="deleted")
 
         try:
-            self.apps_api.delete_namespaced_deployment(name=robot.deployment_name, namespace=robot.namespace)
-            self.core_api.delete_namespaced_service(name=robot.service_name, namespace=robot.namespace)
+            self.apps_api.delete_namespaced_deployment(name=agent.deployment_name, namespace=agent.namespace)
+            self.core_api.delete_namespaced_service(name=agent.service_name, namespace=agent.namespace)
             if destroy_data:
-                self.core_api.delete_namespaced_persistent_volume_claim(name=robot.pvc_name, namespace=robot.namespace)
+                self.core_api.delete_namespaced_persistent_volume_claim(name=agent.pvc_name, namespace=agent.namespace)
             return RuntimeStatus(status="deleted")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
 
-    def get_robot_runtime_status(self, robot) -> RuntimeStatus:
+    def get_agent_runtime_status(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(
-                status=robot.status,
-                message=robot.last_error,
+                status=agent.status,
+                message=agent.last_error,
                 cpu_usage="N/A (metrics disabled)",
                 memory_usage="N/A (metrics disabled)",
             )
 
         try:
-            deploy = self.apps_api.read_namespaced_deployment_status(name=robot.deployment_name, namespace=robot.namespace)
+            deploy = self.apps_api.read_namespaced_deployment_status(name=agent.deployment_name, namespace=agent.namespace)
             replicas = deploy.status.replicas or 0
             available = deploy.status.available_replicas or 0
             if replicas == 0:
@@ -114,51 +114,51 @@ class K8sService:
         except Exception:
             return False
 
-    def _ensure_pvc(self, robot) -> None:
+    def _ensure_pvc(self, agent) -> None:
         from kubernetes import client
 
         body = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
-                name=robot.pvc_name,
-                namespace=robot.namespace,
-                labels={"app": "robot", "robot-id": robot.id, "owner-id": str(robot.owner_user_id)},
+                name=agent.pvc_name,
+                namespace=agent.namespace,
+                labels={"app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id)},
             ),
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 storage_class_name=self.settings.k8s_storage_class,
-                resources=client.V1VolumeResourceRequirements(requests={"storage": f"{robot.disk_size_gi}Gi"}),
+                resources=client.V1VolumeResourceRequirements(requests={"storage": f"{agent.disk_size_gi}Gi"}),
             ),
         )
         try:
-            self.core_api.create_namespaced_persistent_volume_claim(namespace=robot.namespace, body=body)
+            self.core_api.create_namespaced_persistent_volume_claim(namespace=agent.namespace, body=body)
         except Exception as exc:
             if not self._is_already_exists(exc):
                 raise
 
-    def _ensure_deployment(self, robot) -> None:
+    def _ensure_deployment(self, agent) -> None:
         from kubernetes import client
 
-        labels = {"app": "robot", "robot-id": robot.id, "owner-id": str(robot.owner_user_id)}
+        labels = {"app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id)}
         body = client.V1Deployment(
-            metadata=client.V1ObjectMeta(name=robot.deployment_name, namespace=robot.namespace, labels=labels),
+            metadata=client.V1ObjectMeta(name=agent.deployment_name, namespace=agent.namespace, labels=labels),
             spec=client.V1DeploymentSpec(
                 replicas=1,
-                selector=client.V1LabelSelector(match_labels={"app": "robot", "robot-id": robot.id}),
+                selector=client.V1LabelSelector(match_labels={"app": "agent", "agent-id": agent.id}),
                 template=client.V1PodTemplateSpec(
                     metadata=client.V1ObjectMeta(labels=labels),
                     spec=client.V1PodSpec(
                         containers=[
                             client.V1Container(
-                                name="robot",
-                                image=robot.image,
+                                name="agent",
+                                image=agent.image,
                                 ports=[client.V1ContainerPort(container_port=8000)],
-                                volume_mounts=[client.V1VolumeMount(name="robot-data", mount_path=robot.mount_path)],
+                                volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path)],
                             )
                         ],
                         volumes=[
                             client.V1Volume(
-                                name="robot-data",
-                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=robot.pvc_name),
+                                name="agent-data",
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=agent.pvc_name),
                             )
                         ],
                     ),
@@ -166,24 +166,24 @@ class K8sService:
             ),
         )
         try:
-            self.apps_api.create_namespaced_deployment(namespace=robot.namespace, body=body)
+            self.apps_api.create_namespaced_deployment(namespace=agent.namespace, body=body)
         except Exception as exc:
             if not self._is_already_exists(exc):
                 raise
 
-    def _ensure_service(self, robot) -> None:
+    def _ensure_service(self, agent) -> None:
         from kubernetes import client
 
         body = client.V1Service(
-            metadata=client.V1ObjectMeta(name=robot.service_name, namespace=robot.namespace),
+            metadata=client.V1ObjectMeta(name=agent.service_name, namespace=agent.namespace),
             spec=client.V1ServiceSpec(
-                selector={"app": "robot", "robot-id": robot.id},
+                selector={"app": "agent", "agent-id": agent.id},
                 ports=[client.V1ServicePort(port=8000, target_port=8000)],
                 type="NodePort",
             ),
         )
         try:
-            self.core_api.create_namespaced_service(namespace=robot.namespace, body=body)
+            self.core_api.create_namespaced_service(namespace=agent.namespace, body=body)
         except Exception as exc:
             if not self._is_already_exists(exc):
                 raise

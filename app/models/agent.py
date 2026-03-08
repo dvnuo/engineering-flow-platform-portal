@@ -8,8 +8,8 @@ from app.db import Base
 from typing import Optional
 
 
-class Robot(Base):
-    __tablename__ = "robots"
+class Agent(Base):
+    __tablename__ = "agents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -22,7 +22,7 @@ class Robot(Base):
     memory: Mapped[Optional[str]] = mapped_column(String(32))
     disk_size_gi: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
     mount_path: Mapped[str] = mapped_column(String(255), nullable=False, default="/data")
-    namespace: Mapped[str] = mapped_column(String(63), nullable=False, default="robots")
+    namespace: Mapped[str] = mapped_column(String(63), nullable=False, default="agents")
     deployment_name: Mapped[str] = mapped_column(String(128), nullable=False)
     service_name: Mapped[str] = mapped_column(String(128), nullable=False)
     pvc_name: Mapped[str] = mapped_column(String(128), nullable=False)

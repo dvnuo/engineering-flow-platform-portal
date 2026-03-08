@@ -12,13 +12,13 @@
 ## 当前实现进度（已落地）
 
 - ✅ FastAPI 应用骨架（`app/main.py`）
-- ✅ SQLite + SQLAlchemy 模型（`users`/`robots`/`audit_logs`）
+- ✅ SQLite + SQLAlchemy 模型（`users`/`agents`/`audit_logs`）
 - ✅ 基础认证 API（login/logout/me，cookie session）
 - ✅ 管理员用户 API（创建/列表/改密）
 - ✅ 机器人 API（mine/public/create/detail/start/stop/share/unshare/delete/status + delete-runtime/destroy）
-- ✅ 管理端 API（/api/admin/robots, /api/admin/audit-logs）
+- ✅ 管理端 API（/api/admin/agents, /api/admin/audit-logs）
 - ✅ k8s_service 抽象与机器人生命周期接口接入（支持本地 no-op 模式）
-- ✅ `/r/{robot_id}` 反向代理访问入口（含权限与运行状态校验）
+- ✅ `/a/{agent_id}` 反向代理访问入口（含权限与运行状态校验）
 - ✅ Dockerfile 与依赖清单
 - ✅ 简洁风格 Web UI（登录页 + 控制台，ChatGPT 风格）
 - ✅ 机器人状态流转约束（start/stop 按状态机校验）
@@ -44,7 +44,7 @@ uvicorn app.main:app --reload
 
 - `K8S_ENABLED=false`（默认，本地 no-op）
 - `K8S_ENABLED=true`（启用真实 K8s 调用）
-- `ROBOTS_NAMESPACE=robots`
+- `ROBOTS_NAMESPACE=agents`
 - `K8S_STORAGE_CLASS=gp3`
 - `BOOTSTRAP_ADMIN_USERNAME=admin`
 - `BOOTSTRAP_ADMIN_PASSWORD=admin123`
@@ -94,16 +94,16 @@ uvicorn app.main:app --reload
    |
    \--> [Kubernetes API]
             |
-            +--> create Deployment for robot
-            +--> create PVC for robot
-            +--> create Service for robot
+            +--> create Deployment for agent
+            +--> create PVC for agent
+            +--> create Service for agent
             +--> query Pod / Deployment status
 ```
 
 建议 namespace：
 
 - `portal-system`（Portal）
-- `robots`（机器人工作负载）
+- `agents`（机器人工作负载）
 
 ---
 
@@ -119,7 +119,7 @@ uvicorn app.main:app --reload
 - `created_at` DATETIME NOT NULL
 - `updated_at` DATETIME NOT NULL
 
-### `robots`
+### `agents`
 
 - `id` TEXT PK (uuid)
 - `name` TEXT NOT NULL
@@ -146,7 +146,7 @@ uvicorn app.main:app --reload
 - `id` INTEGER PK
 - `user_id` INTEGER
 - `action` TEXT NOT NULL
-- `target_type` TEXT NOT NULL (`user`/`robot`)
+- `target_type` TEXT NOT NULL (`user`/`agent`)
 - `target_id` TEXT NOT NULL
 - `details_json` TEXT
 - `created_at` DATETIME NOT NULL
@@ -166,22 +166,22 @@ uvicorn app.main:app --reload
 
 ### 机器人
 
-- `GET /api/robots/mine`
-- `GET /api/robots/public`
-- `POST /api/robots`
-- `GET /api/robots/{id}`
-- `POST /api/robots/{id}/start`
-- `POST /api/robots/{id}/stop`
-- `POST /api/robots/{id}/share`
-- `POST /api/robots/{id}/unshare`
-- `DELETE /api/robots/{id}`
-- `POST /api/robots/{id}/delete-runtime`
-- `POST /api/robots/{id}/destroy`
-- `GET /api/robots/{id}/status`
+- `GET /api/agents/mine`
+- `GET /api/agents/public`
+- `POST /api/agents`
+- `GET /api/agents/{id}`
+- `POST /api/agents/{id}/start`
+- `POST /api/agents/{id}/stop`
+- `POST /api/agents/{id}/share`
+- `POST /api/agents/{id}/unshare`
+- `DELETE /api/agents/{id}`
+- `POST /api/agents/{id}/delete-runtime`
+- `POST /api/agents/{id}/destroy`
+- `GET /api/agents/{id}/status`
 
 ### 管理端
 
-- `GET /api/admin/robots`
+- `GET /api/admin/agents`
 - `GET /api/admin/audit-logs`
 
 ---
@@ -229,38 +229,38 @@ portal/
 
     models/
       user.py
-      robot.py
+      agent.py
       audit_log.py
 
     schemas/
       auth.py
       user.py
-      robot.py
+      agent.py
 
     api/
       auth.py
       users.py
-      robots.py
+      agents.py
       admin.py
 
     services/
       auth_service.py
       user_service.py
-      robot_service.py
+      agent_service.py
       k8s_service.py
       proxy_service.py
       audit_service.py
 
     repositories/
       user_repo.py
-      robot_repo.py
+      agent_repo.py
       audit_repo.py
 
     templates/
       login.html
-      my_robots.html
-      create_robot.html
-      robot_detail.html
+      my_agents.html
+      create_agent.html
+      agent_detail.html
       public_space.html
       admin_users.html
 
@@ -281,8 +281,8 @@ portal/
 
 v1 推荐统一入口代理：
 
-- 用户访问：`https://portal.example.com/r/{robot_id}/...`
-- Portal 内部代理到：`http://robot-<id>-svc.robots.svc.cluster.local`
+- 用户访问：`https://portal.example.com/a/{agent_id}/...`
+- Portal 内部代理到：`http://agent-<id>-svc.agents.svc.cluster.local`
 
 优势：
 
@@ -294,7 +294,7 @@ v1 推荐统一入口代理：
 
 ## 8. Kubernetes 最小权限建议
 
-Portal 的 ServiceAccount 只授予 `robots` namespace 的必要权限：
+Portal 的 ServiceAccount 只授予 `agents` namespace 的必要权限：
 
 - Deployments：`get/list/watch/create/delete/patch`
 - PVC：`get/list/watch/create/delete`
@@ -304,7 +304,7 @@ Portal 的 ServiceAccount 只授予 `robots` namespace 的必要权限：
 资源统一打标签：
 
 - `owner-id`
-- `robot-id`
+- `agent-id`
 - `visibility`
 
 ---
@@ -321,7 +321,7 @@ Portal 的 ServiceAccount 只授予 `robots` namespace 的必要权限：
 
 ### Phase 2：机器人管理（不接 K8s）
 
-- robots CRUD
+- agents CRUD
 - 状态机与页面
 - 审计日志基础
 
@@ -332,7 +332,7 @@ Portal 的 ServiceAccount 只授予 `robots` namespace 的必要权限：
 
 ### Phase 4：代理与分享
 
-- `/r/{robot_id}` 请求代理
+- `/a/{agent_id}` 请求代理
 - Public Space 展示打通
 - 运维可观测性补齐
 
@@ -341,12 +341,12 @@ Portal 的 ServiceAccount 只授予 `robots` namespace 的必要权限：
 ## 10. 给 Codex 的任务拆分（可直接执行）
 
 1. 初始化项目骨架（FastAPI + Jinja2 + SQLAlchemy + Alembic + Dockerfile）
-2. 定义 `users/robots/audit_logs` 数据模型与迁移
+2. 定义 `users/agents/audit_logs` 数据模型与迁移
 3. 实现 session 登录与用户管理 API
 4. 实现 My Space / Public Space 页面与查询 API
-5. 实现 robots 的创建/启动/停止/删除/分享 API
+5. 实现 agents 的创建/启动/停止/删除/分享 API
 6. 实现 Kubernetes 资源管理服务（create/scale/delete/status）
-7. 实现 `/r/{robot_id}` 反向代理
+7. 实现 `/a/{agent_id}` 反向代理
 8. 补充测试、README、部署 YAML 与运维说明
 
 ---

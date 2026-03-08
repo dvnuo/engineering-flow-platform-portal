@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 
-class RobotCreateRequest(BaseModel):
+class AgentCreateRequest(BaseModel):
     name: str
     image: str
     disk_size_gi: int = 20
@@ -13,12 +13,21 @@ class RobotCreateRequest(BaseModel):
     description: Optional[str] = None
 
 
-class RobotDeleteResponse(BaseModel):
+class AgentUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    image: Optional[str] = None
+    disk_size_gi: Optional[int] = None
+    cpu: Optional[str] = None
+    memory: Optional[str] = None
+    description: Optional[str] = None
+
+
+class AgentDeleteResponse(BaseModel):
     ok: bool
     destroy_data: bool
 
 
-class RobotStatusResponse(BaseModel):
+class AgentStatusResponse(BaseModel):
     id: str
     status: str
     cpu_usage: Optional[str] = None
@@ -26,7 +35,7 @@ class RobotStatusResponse(BaseModel):
     last_error: Optional[str] = None
 
 
-class RobotResponse(BaseModel):
+class AgentResponse(BaseModel):
     id: str
     name: str
     status: str
@@ -35,6 +44,8 @@ class RobotResponse(BaseModel):
     owner_user_id: int
     cpu: Optional[str] = None
     memory: Optional[str] = None
+    disk_size_gi: int
+    description: Optional[str] = None
     last_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime

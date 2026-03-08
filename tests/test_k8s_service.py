@@ -15,14 +15,14 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.service = self.K8sService()
         self.service.enabled = False
 
-    def test_create_robot_runtime_noop_running(self):
-        robot = SimpleNamespace()
-        status = self.service.create_robot_runtime(robot)
+    def test_create_agent_runtime_noop_running(self):
+        agent = SimpleNamespace()
+        status = self.service.create_agent_runtime(agent)
         self.assertEqual(status.status, "running")
 
-    def test_stop_robot_runtime_noop_stopped(self):
-        robot = SimpleNamespace()
-        status = self.service.stop_robot(robot)
+    def test_stop_agent_runtime_noop_stopped(self):
+        agent = SimpleNamespace()
+        status = self.service.stop_agent(agent)
         self.assertEqual(status.status, "stopped")
 
 

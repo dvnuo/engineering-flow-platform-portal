@@ -36,13 +36,13 @@ class ProxyService:
             self._node_ip = os.environ.get('NODE_IP', '192.168.8.237')
         return self._node_ip
 
-    def build_robot_base_url(self, robot) -> str:
+    def build_agent_base_url(self, agent) -> str:
         # Try to get NodePort from K8s service
         if self.core_api:
             try:
                 svc = self.core_api.read_namespaced_service(
-                    name=robot.service_name,
-                    namespace=robot.namespace
+                    name=agent.service_name,
+                    namespace=agent.namespace
                 )
                 # Check if it's NodePort type
                 if svc.spec.type == "NodePort":
@@ -54,18 +54,18 @@ class ProxyService:
                 pass
         
         # Fallback to internal DNS (for ClusterIP)
-        return f"http://{robot.service_name}.{robot.namespace}.svc.cluster.local"
+        return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local"
 
     async def forward(
         self,
-        robot,
+        agent,
         method: str,
         subpath: str,
         query_items: Iterable[tuple[str, str]],
         body: Optional[bytes],
         headers: dict[str, str],
     ) -> tuple[int, bytes, str]:
-        base = self.build_robot_base_url(robot).rstrip("/")
+        base = self.build_agent_base_url(agent).rstrip("/")
         path = f"/{subpath}" if subpath else "/"
         url = f"{base}{path}"
 

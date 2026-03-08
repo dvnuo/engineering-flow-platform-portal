@@ -3,37 +3,37 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.repositories.robot_repo import RobotRepository
+from app.repositories.agent_repo import AgentRepository
 from app.services.proxy_service import ProxyService
 
 router = APIRouter(tags=["proxy"])
 proxy_service = ProxyService()
 
 
-def _can_access(robot, user) -> bool:
-    return user.role == "admin" or robot.owner_user_id == user.id or robot.visibility == "public"
+def _can_access(agent, user) -> bool:
+    return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
 
 
-@router.api_route("/r/{robot_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-@router.api_route("/r/{robot_id}/{subpath:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-async def proxy_robot(
-    robot_id: str,
+@router.api_route("/a/{agent_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+@router.api_route("/a/{agent_id}/{subpath:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_agent(
+    agent_id: str,
     request: Request,
     subpath: str = "",
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    robot = RobotRepository(db).get_by_id(robot_id)
-    if not robot:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Robot not found")
-    if not _can_access(robot, user):
+    agent = AgentRepository(db).get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not _can_access(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    if robot.status != "running":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Robot is not running")
+    if agent.status != "running":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is not running")
 
     try:
         status_code, content, content_type = await proxy_service.forward(
-            robot=robot,
+            agent=agent,
             method=request.method,
             subpath=subpath,
             query_items=request.query_params.multi_items(),

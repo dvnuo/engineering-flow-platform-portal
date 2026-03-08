@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = "admin123"
 
-    robots_namespace: str = "robots"
+    agents_namespace: str = "agents"
     k8s_enabled: bool = False
     k8s_storage_class: str = "local-path"
     k8s_incluster: bool = True
