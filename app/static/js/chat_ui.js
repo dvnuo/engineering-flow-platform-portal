@@ -22,6 +22,7 @@ const dom = {
   chatAgentId: document.getElementById("chat-agent-id"),
   chatSessionId: document.getElementById("chat-session-id"),
   chatStatus: document.getElementById("chat-status"),
+  sendChatBtn: document.getElementById("send-chat-btn"),
   uploadInput: document.getElementById("upload-input"),
   detailPanel: document.getElementById("detail-panel"),
   detailBackdrop: document.getElementById("detail-backdrop"),
@@ -45,6 +46,8 @@ const dom = {
   logoutBtn: document.getElementById("logout-btn"),
 };
 
+const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
+
 // ===== app state =====
 const state = {
   selectedAgentId: null,
@@ -58,6 +61,8 @@ const state = {
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
   agentSessionIds: new Map(),
+  isSubmittingChat: false,
+  pendingMessage: "",
 };
 
 const md = window.markdownit({
@@ -134,13 +139,28 @@ async function agentApi(path, options = {}) {
 }
 
 function defaultWelcomeMessage() {
-  return '<article class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
+  return '<article data-welcome="1" class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
 }
 
 function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
   scrollToBottom();
+}
+
+
+function removeWelcomeMessageIfPresent() {
+  if (!dom.messageList) return;
+  const welcome = dom.messageList.querySelector('[data-welcome="1"]');
+  if (!welcome) return;
+
+  const onlyWelcome = dom.messageList.children.length === 1;
+  if (onlyWelcome) welcome.remove();
+}
+
+function setChatSubmitting(active) {
+  state.isSubmittingChat = active;
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = active;
 }
 
 function currentSessionIdForSelectedAgent() {
@@ -211,21 +231,21 @@ function renderAgentActions(agent, status) {
   };
 
   const primary = document.createElement("div");
-  primary.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
+  primary.className = "space-y-1.5 rounded-xl border border-slate-700 bg-slate-800/40 p-1.5";
   const secondary = document.createElement("div");
-  secondary.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
+  secondary.className = "space-y-1.5 rounded-xl border border-slate-700 bg-slate-800/40 p-1.5";
 
-  const startButton = buildButton("Start", "w-full rounded-lg bg-emerald-600/80 px-3 py-2 font-semibold", () => action(`/api/agents/${agent.id}/start`));
-  const stopButton = buildButton("Stop", "w-full rounded-lg bg-amber-500/90 px-3 py-2 font-semibold", () => action(`/api/agents/${agent.id}/stop`));
+  const startButton = buildButton("Start", "w-full rounded-lg bg-emerald-600/80 px-2.5 py-1.5 text-sm font-semibold", () => action(`/api/agents/${agent.id}/start`));
+  const stopButton = buildButton("Stop", "w-full rounded-lg bg-amber-500/90 px-2.5 py-1.5 text-sm font-semibold", () => action(`/api/agents/${agent.id}/stop`));
   startButton.disabled = !(status === "stopped" || status === "failed");
   stopButton.disabled = status !== "running";
 
   primary.append(startButton, stopButton);
   secondary.append(
-    buildButton(agent.visibility === "public" ? "Unshare" : "Share", "w-full rounded-lg bg-slate-700 px-3 py-2", () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`)),
-    buildButton("Edit", "w-full rounded-lg bg-slate-700 px-3 py-2", () => openEditDialog(agent)),
-    buildButton("Delete Runtime", "w-full rounded-lg bg-slate-700 px-3 py-2", () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true)),
-    buildButton("Destroy", "w-full rounded-lg bg-rose-600/90 px-3 py-2 font-semibold", () => action(`/api/agents/${agent.id}/destroy`, "POST", true)),
+    buildButton(agent.visibility === "public" ? "Unshare" : "Share", "w-full rounded-lg bg-slate-700 px-2.5 py-1.5 text-sm", () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`)),
+    buildButton("Edit", "w-full rounded-lg bg-slate-700 px-2.5 py-1.5 text-sm", () => openEditDialog(agent)),
+    buildButton("Delete Runtime", "w-full rounded-lg bg-slate-700 px-2.5 py-1.5 text-sm", () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true)),
+    buildButton("Destroy", "w-full rounded-lg bg-rose-600/90 px-2.5 py-1.5 text-sm font-semibold", () => action(`/api/agents/${agent.id}/destroy`, "POST", true)),
   );
 
   dom.agentActions.append(primary, secondary);
@@ -233,6 +253,7 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
+  if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.cachedMentionFiles = [];
   state.selectedSuggestionIndex = -1;
@@ -284,7 +305,13 @@ async function refreshAll() {
   }));
 
   state.agentStatus = new Map(pairs);
+
+  const available = new Set(state.mineAgents.map((agent) => agent.id));
+  const stored = localStorage.getItem(LAST_AGENT_STORAGE_KEY) || "";
+  if (state.selectedAgentId && !available.has(state.selectedAgentId)) state.selectedAgentId = null;
+  if (!state.selectedAgentId && stored && available.has(stored)) state.selectedAgentId = stored;
   if (!state.selectedAgentId && state.mineAgents.length) state.selectedAgentId = state.mineAgents[0].id;
+  if (state.selectedAgentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, state.selectedAgentId);
 
   renderAgentList();
   await syncSelectedAgentState();
@@ -293,12 +320,34 @@ async function refreshAll() {
 // ===== chat submit lifecycle (HTMX) =====
 function handleChatBeforeRequest(event) {
   if (event.target?.id !== "chat-form") return;
-  setChatStatus("Thinking...");
+  if (state.isSubmittingChat) {
+    event.preventDefault();
+    return;
+  }
+
+  setChatSubmitting(true);
+  state.pendingMessage = dom.chatInput?.value || "";
+  removeWelcomeMessageIfPresent();
+  hideSuggest();
+  if (dom.chatInput) dom.chatInput.value = "";
+  setChatStatus("Sending...");
 }
 
 function handleChatResponseError(event) {
   if (event.target?.id !== "chat-form") return;
+
+  setChatSubmitting(false);
+  if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
+  state.pendingMessage = "";
   setChatStatus("Send failed");
+}
+
+function handleChatAfterRequest(event) {
+  if (event.target?.id !== "chat-form") return;
+  if (!event.detail?.successful) return;
+
+  setChatSubmitting(false);
+  state.pendingMessage = "";
 }
 
 function handleChatAfterSwap(target) {
@@ -312,13 +361,13 @@ function handleChatAfterSwap(target) {
   renderIcons();
   scrollToBottom();
 
-  if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Ready");
 }
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
+  document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
@@ -736,6 +785,7 @@ function bindEvents() {
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      if (state.isSubmittingChat) return;
       htmx.trigger("#chat-form", "submit");
     }
   });

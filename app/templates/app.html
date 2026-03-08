@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<div x-data="chatApp()" class="h-screen bg-slate-950 text-slate-100">
+<div x-data="chatApp()" class="h-screen bg-slate-950 text-slate-100 text-sm">
   <div class="h-full grid grid-cols-[280px_minmax(0,1fr)] gap-3 p-3">
     <aside class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-0">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-2xl font-semibold">Agents</h2>
+        <h2 class="text-xl font-semibold">Agents</h2>
         <button id="theme-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700">☾</button>
       </div>
 
@@ -24,7 +24,7 @@
       <header class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
         <div>
           <div class="text-xs text-slate-400">Active Agent</div>
-          <h1 id="embed-title" class="text-3xl font-semibold">Select an agent</h1>
+          <h1 id="embed-title" class="text-2xl font-semibold">Select an agent</h1>
         </div>
         <div class="flex items-center gap-2">
           <span id="selected-status" class="px-3 py-1 rounded-full text-xs bg-slate-700">idle</span>
@@ -34,7 +34,7 @@
 
       <section id="center-placeholder" class="flex-1 grid place-items-center text-center text-slate-400">
         <div>
-          <h3 class="text-xl text-slate-200 font-semibold">Start an agent conversation</h3>
+          <h3 class="text-lg text-slate-200 font-semibold">Start an agent conversation</h3>
           <p class="mt-2">Select an agent and ensure it is running.</p>
         </div>
       </section>
@@ -54,20 +54,17 @@
         </div>
 
         <div id="message-list" class="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
-          <article class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4">
+          <article data-welcome="1" class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4">
             <p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p>
             <div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div>
           </article>
         </div>
 
         <div class="px-5 pb-4">
-          <div id="thinking-indicator" class="htmx-indicator mb-2 text-xs text-slate-400">Thinking...</div>
-
           <form id="chat-form"
                 hx-post="/app/chat/send"
                 hx-target="#message-list"
                 hx-swap="beforeend"
-                hx-indicator="#thinking-indicator"
                 class="rounded-2xl border border-slate-700 bg-slate-900 p-3">
             <input type="hidden" id="chat-agent-id" name="agent_id" value="" />
             <input type="hidden" id="chat-session-id" name="session_id" value="" />
@@ -79,7 +76,7 @@
             </div>
             <div class="mt-2 flex items-center justify-between">
               <span id="chat-status" class="text-xs text-slate-400">Ready</span>
-              <button id="send-chat-btn" class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 font-semibold">Send</button>
+              <button id="send-chat-btn" class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 font-semibold disabled:cursor-not-allowed disabled:opacity-60">Send</button>
             </div>
           </form>
         </div>
@@ -90,7 +87,7 @@
   <div id="detail-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
   <aside id="detail-panel" class="fixed right-3 top-3 bottom-3 w-[360px] max-w-[calc(100vw-24px)] z-40 rounded-2xl border border-slate-800 bg-slate-900 shadow-xl translate-x-[120%] transition-transform duration-200 flex flex-col">
     <div class="p-4 border-b border-slate-800 flex items-center justify-between">
-      <h3 class="text-2xl font-semibold">Agent Details</h3>
+      <h3 class="text-xl font-semibold">Agent Details</h3>
       <button id="detail-close" class="toolbar-btn"><i data-lucide="x"></i></button>
     </div>
 
