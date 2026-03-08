@@ -10,6 +10,9 @@
   <symbol id="hi-chevron-left" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m15.75 19.5-7.5-7.5 7.5-7.5"/></symbol>
   <symbol id="hi-chevron-right" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></symbol>
   <symbol id="hi-x-mark" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 18 18 6M6 6l12 12"/></symbol>
+  <symbol id="hi-folder" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.25 6.75A2.25 2.25 0 0 1 4.5 4.5h5.379a2.25 2.25 0 0 1 1.591.659l1.371 1.371c.422.422.994.659 1.591.659H19.5a2.25 2.25 0 0 1 2.25 2.25v7.5a2.25 2.25 0 0 1-2.25 2.25h-15A2.25 2.25 0 0 1 2.25 16.5v-9.75Z"/></symbol>
+  <symbol id="hi-cog" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4.5 12a7.5 7.5 0 1 0 15 0 7.5 7.5 0 0 0-15 0Z"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 1.5v3m0 15v3m10.5-10.5h-3m-15 0h-3m16.95 7.95-2.121-2.121M7.171 7.171 5.05 5.05m12.9 0-2.121 2.121M7.171 16.829 5.05 18.95"/></symbol>
+  <symbol id="hi-paper-clip" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 1 1-6.364-6.364l9.193-9.193a3 3 0 0 1 4.243 4.243l-9.194 9.193a1.5 1.5 0 0 1-2.121-2.121l7.072-7.072"/></symbol>
 </svg>
 <div class="app-layout">
   <aside class="conversation-list panel">
@@ -61,18 +64,49 @@
       <p class="muted">Select an agent in the left column. Running agents open here automatically.</p>
     </div>
 
-    <iframe id="agent-embed-frame" title="Agent Embedded View" class="hidden"></iframe>
+    <section id="agent-chat-app" class="agent-chat-app hidden" aria-label="Agent chat workspace">
+      <div class="agent-chat-main">
+        <div class="chat-toolbar">
+          <input id="upload-input" type="file" class="hidden" />
+          <button id="top-new-chat" class="icon-btn" type="button" title="New Chat"><svg class="hi"><use href="#hi-plus"></use></svg></button>
+          <button id="top-upload" class="icon-btn" type="button" title="Upload File"><svg class="hi"><use href="#hi-paper-clip"></use></svg></button>
+          <button id="top-server-files" class="icon-btn" type="button" title="Server Files"><svg class="hi"><use href="#hi-folder"></use></svg></button>
+          <button id="top-my-uploads" class="icon-btn" type="button" title="My Uploads"><svg class="hi"><use href="#hi-arrow-path"></use></svg></button>
+          <button id="top-settings" class="icon-btn" type="button" title="Settings"><svg class="hi"><use href="#hi-cog"></use></svg></button>
+          <button id="top-clear-chat" class="icon-btn" type="button" title="Clear Chat"><svg class="hi"><use href="#hi-x-mark"></use></svg></button>
+        </div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-composer">
+          <div class="input-wrap">
+            <textarea id="chat-input" rows="2" placeholder="Type a message or / for skills, @ for files..."></textarea>
+            <div id="chat-suggest" class="chat-suggest hidden"></div>
+          </div>
+          <div class="chat-composer-actions">
+            <button id="send-chat-btn" type="button">Send</button>
+          </div>
+          <div id="chat-status" class="muted tiny">Ready</div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <aside id="detail-panel" class="detail-panel panel collapsed">
-    <button id="detail-toggle-side" class="icon-btn" type="button" title="Expand Details" aria-label="Expand Details"><svg class="hi"><use href="#hi-chevron-left"></use></svg></button>
     <div class="detail-content">
-      <h3>Agent Details</h3>
+      <div class="detail-head"><h3>Agent Details</h3><button id="detail-close" class="icon-btn" type="button" title="Close Details"><svg class="hi"><use href="#hi-x-mark"></use></svg></button></div>
       <div id="agent-meta" class="meta-box muted">No agent selected.</div>
-      <div id="agent-actions" class="stack"></div>
+      <div id="agent-actions" class="agent-actions"></div>
+      <div class="agent-chat-group-title">Utilities</div>
+      <section id="tool-panel" class="tool-panel hidden">
+        <div class="tool-panel-head">
+          <h4 id="tool-panel-title">Panel</h4>
+          <button id="close-tool-panel" class="icon-btn" type="button"><svg class="hi"><use href="#hi-x-mark"></use></svg></button>
+        </div>
+        <div id="tool-panel-body" class="tool-panel-body muted tiny">Select tool to view data.</div>
+      </section>
     </div>
   </aside>
 </div>
+<div id="detail-backdrop" class="detail-backdrop hidden"></div>
 
 <div id="create-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
