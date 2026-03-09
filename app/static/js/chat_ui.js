@@ -171,7 +171,7 @@ function renderThinkingProcess(article, events) {
   if (!host) {
     host = document.createElement("div");
     host.dataset.thinkingProcess = "1";
-    host.className = "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
+    host.className = "mt-3 rounded-xl border border-slate-600 bg-slate-800/50 p-2";
     article.append(host);
   }
 
@@ -179,8 +179,8 @@ function renderThinkingProcess(article, events) {
   const count = events.length;
   const rows = events.map((event, idx) => {
     const view = getThinkingEventDisplay(event);
-    const border = idx === events.length - 1 ? "" : " border-l border-slate-200";
-    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold text-slate-700">${safe(view.title)}</div><div class="text-xs text-slate-500 whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
+    const border = idx === events.length - 1 ? "" : " border-l border-slate-600";
+    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-600 bg-slate-700 text-slate-300"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold text-slate-200">${safe(view.title)}</div><div class="text-xs text-slate-400 whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
   }).join("");
 
   host.innerHTML = `
@@ -189,7 +189,7 @@ function renderThinkingProcess(article, events) {
       <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
     </button>
     <div data-thinking-timeline="1" class="mt-2 ${expanded ? "" : "hidden"}">
-      ${count ? rows : '<div class="text-xs text-slate-500 px-1 py-1">Waiting for runtime events…</div>'}
+      ${count ? rows : '<div class="text-xs text-slate-400 px-1 py-1">Waiting for runtime events…</div>'}
     </div>
   `;
 
