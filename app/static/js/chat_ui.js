@@ -128,11 +128,11 @@ function canWriteAgent(agent) {
 }
 
 function buildUserMessageArticle(text) {
-  return `<article class="ml-auto max-w-2xl rounded-2xl bg-blue-600 px-4 py-3 text-white shadow-lg" data-local-user="1"><p class="text-xs font-semibold text-blue-100 mb-2">You</p><div class="whitespace-pre-wrap text-sm">${safe(text)}</div></article>`;
+  return `<article class="ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4" data-local-user="1"><p class="text-xs uppercase tracking-wide text-blue-200 mb-2">You</p><div class="whitespace-pre-wrap text-slate-100">${safe(text)}</div></article>`;
 }
 
 function buildPendingAssistantArticle() {
-  return '<article class="max-w-2xl rounded-2xl bg-slate-800 border border-slate-700 px-4 py-3 assistant-message shadow-sm" data-pending-assistant="1"><p class="text-xs font-semibold text-emerald-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
+  return '<article class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/70 p-4 assistant-message" data-pending-assistant="1"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
 }
 
 function removePendingAssistantPlaceholder() {
@@ -323,7 +323,7 @@ async function agentApi(path, options = {}) {
 }
 
 function defaultWelcomeMessage() {
-  return '<article data-welcome="1" class="max-w-2xl rounded-2xl bg-slate-800 border border-slate-700 px-4 py-3"><p class="text-xs font-semibold text-emerald-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
+  return '<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
 }
 
 function clearMessageListToWelcome() {
