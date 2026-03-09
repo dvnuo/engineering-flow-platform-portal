@@ -725,6 +725,17 @@ function handleChatAfterSwap(target) {
     }
   });
 
+  // Add timestamp to server-rendered Assistant messages if missing
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const assistantContainers = messageList.querySelectorAll('.assistant-header:not([data-timestamp-added])');
+  assistantContainers.forEach(header => {
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "text-xs text-slate-500";
+    timeSpan.textContent = now;
+    header.appendChild(timeSpan);
+    header.setAttribute("data-timestamp-added", "true");
+  });
+
   setChatStatus("Ready");
 }
 
