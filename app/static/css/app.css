@@ -147,6 +147,31 @@ html:not([data-theme="light"]) #tool-panel label {
   justify-content: center;
 }
 
+/* Floating New Chat Button */
+#floating-new-chat {
+  z-index: 50;
+}
+
+html[data-theme="light"] #floating-new-chat {
+  background: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+/* Inline Upload Button */
+#top-upload-inline {
+  border-color: #e5e7eb;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #top-upload-inline {
+  background: #ffffff;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #top-upload-inline:hover {
+  background: #f9fafb;
+}
+
 #settings-form button[type="submit"] {
   display: block;
   width: 100%;
@@ -228,8 +253,9 @@ html[data-theme="light"] .toolbar-btn:hover,
 html[data-theme="light"] #theme-toggle:hover,
 html[data-theme="light"] #detail-toggle:hover,
 html[data-theme="light"] #close-tool-panel:hover,
-html[data-theme="light"] #detail-close:hover {
-  background: #f9fafb;
+html[data-theme="light"] #detail-close:hover,
+html[data-theme="light"] #top-settings:hover {
+  background: #e5e7eb !important;
   color: #111827;
 }
 
@@ -431,4 +457,123 @@ html[data-theme="light"] #tool-panel .text-slate-400 {
 
 html[data-theme="light"] #tool-panel .bg-slate-800\/50 {
   background: #f9fafb !important;
+}
+
+/* Composer + Menu */
+#composer-menu {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+html[data-theme="light"] #composer-menu {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+.composer-menu-item {
+  color: #e2e8f0;
+}
+
+html[data-theme="light"] .composer-menu-item {
+  color: #111827;
+}
+
+html[data-theme="light"] .composer-menu-item:hover {
+  background: #f3f4f6;
+}
+
+#composer-plus-btn {
+  border-color: #334155;
+}
+
+html[data-theme="light"] #composer-plus-btn {
+  background: #ffffff;
+  border-color: #d1d5db;
+}
+
+/* Composer alignment */
+#chat-form {
+  align-items: flex-end;
+}
+
+#chat-form #composer-plus-btn,
+#chat-form #send-chat-btn {
+  flex-shrink: 0;
+}
+
+#chat-form #chat-input {
+  min-height: 40px;
+  height: auto;
+  margin-bottom: -5px;
+}
+
+/* Fix composer vertical alignment */
+#chat-form {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+}
+
+#composer-plus-btn {
+  align-self: flex-end;
+  height: 40px;
+  width: 40px;
+}
+
+#chat-input {
+  align-self: flex-end;
+  min-height: 40px !important;
+}
+
+#send-chat-btn {
+  align-self: flex-end;
+  height: 40px;
+}
+
+/* Settings button in header */
+#top-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-theme="light"] #top-settings {
+  background: #ffffff;
+  border-color: #d1d5db;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #top-settings:hover {
+  background: #f9fafb;
+  color: #111827;
+}
+
+/* Sidebar font sizes */
+#app-root aside h3,
+#app-root aside .text-xs {
+  font-size: 0.75rem;
+}
+
+#app-root aside .font-semibold {
+  font-size: 0.875rem;
+}
+
+html[data-theme="light"] #app-root aside {
+  color: #374151;
+}
+
+/* Logout button */
+#logout-btn {
+  color: #e2e8f0;
+}
+
+html[data-theme="light"] #logout-btn {
+  background: #ffffff;
+  border-color: #d1d5db;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #logout-btn:hover {
+  background: #e5e7eb;
+  color: #111827;
 }

@@ -35,15 +35,11 @@ const dom = {
   closeToolPanel: document.getElementById("close-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
-  topNewChat: document.getElementById("top-new-chat"),
-  topUpload: document.getElementById("top-upload"),
-  topServerFiles: document.getElementById("top-server-files"),
-  topMyUploads: document.getElementById("top-my-uploads"),
-  topSkills: document.getElementById("top-skills"),
-  topUsage: document.getElementById("top-usage"),
-  topSessions: document.getElementById("top-sessions"),
   topSettings: document.getElementById("top-settings"),
-  topClearChat: document.getElementById("top-clear-chat"),
+  composerPlusBtn: document.getElementById("composer-plus-btn"),
+  composerMenu: document.getElementById("composer-menu"),
+  uploadInput: document.getElementById("upload-input"),
+  topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
 };
@@ -1188,7 +1184,12 @@ function bindEvents() {
   dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
 
-  dom.chatInput?.addEventListener("input", maybeShowSuggest);
+  dom.chatInput?.addEventListener("input", () => {
+    maybeShowSuggest();
+    // Auto-expand textarea
+    dom.chatInput.style.height = 'auto';
+    dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 150) + 'px';
+  });
   dom.chatInput?.addEventListener("keydown", (event) => {
     if (event.key === "ArrowDown" && !dom.chatSuggest?.classList.contains("hidden")) {
       event.preventDefault();
@@ -1213,15 +1214,11 @@ function bindEvents() {
 
   dom.uploadInput?.addEventListener("change", uploadFile);
 
-  dom.topNewChat?.addEventListener("click", startNewChatForSelectedAgent);
-  dom.topUpload?.addEventListener("click", () => dom.uploadInput.click());
+  dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
   dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
   dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
-  dom.topSkills?.addEventListener("click", openSkillsPanel);
-  dom.topUsage?.addEventListener("click", openUsagePanel);
   dom.topSessions?.addEventListener("click", openSessionsPanel);
   dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
-  dom.topClearChat?.addEventListener("click", clearChat);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");
@@ -1271,6 +1268,45 @@ function bindEvents() {
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(group);
     }
+  });
+
+  // Composer + menu
+  dom.composerPlusBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dom.composerMenu?.classList.toggle("hidden");
+  });
+
+  // Close menu when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!dom.composerMenu?.contains(e.target) && e.target !== dom.composerPlusBtn) {
+      dom.composerMenu?.classList.add("hidden");
+    }
+  });
+
+  // Composer menu items
+  document.querySelectorAll(".composer-menu-item").forEach((item, idx) => {
+    item.addEventListener("click", () => {
+      dom.composerMenu?.classList.add("hidden");
+      switch (idx) {
+        case 0: // New Chat
+          startNewChatForSelectedAgent();
+          break;
+        case 1: // Upload File
+          dom.uploadInput?.click();
+          break;
+        case 2: // My Uploads
+          setDetailOpen(true);
+          openMyUploads();
+          break;
+        case 3: // Server Files
+          setDetailOpen(true);
+          openServerFiles();
+          break;
+        case 4: // Sessions
+          openSessionsPanel();
+          break;
+      }
+    });
   });
 
   dom.themeToggle?.addEventListener("click", toggleTheme);
