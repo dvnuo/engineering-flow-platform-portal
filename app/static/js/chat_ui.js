@@ -898,13 +898,13 @@ function renderChatHistory(messages, metadata = {}) {
     // Message bubble
     const article = document.createElement("article");
     if (isUser) {
-      article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
+      article.className = "max-w-2xl rounded-2xl bg-blue-600 px-4 py-3 text-white shadow-lg";
       const content = document.createElement("div");
       content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
       article.appendChild(content);
     } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
+      article.className = "max-w-2xl rounded-2xl bg-slate-800 border border-slate-700 px-4 py-3 assistant-message shadow-sm";
       const content = document.createElement("div");
       content.className = "md-render prose prose-invert max-w-none text-sm";
       content.dataset.md = message.content || "";
