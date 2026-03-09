@@ -167,11 +167,15 @@ function getThinkingEventDisplay(event) {
 
 function renderThinkingProcess(article, events) {
   if (!article) return;
+  
+  const isDark = document.documentElement.classList.contains("dark");
   let host = article.querySelector('[data-thinking-process="1"]');
   if (!host) {
     host = document.createElement("div");
     host.dataset.thinkingProcess = "1";
-    host.className = "mt-3 rounded-xl border border-slate-600 bg-slate-800/50 p-2";
+    host.className = isDark 
+      ? "mt-3 rounded-xl border border-slate-600 bg-slate-800/50 p-2"
+      : "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
     article.append(host);
   }
 
@@ -179,17 +183,25 @@ function renderThinkingProcess(article, events) {
   const count = events.length;
   const rows = events.map((event, idx) => {
     const view = getThinkingEventDisplay(event);
-    const border = idx === events.length - 1 ? "" : " border-l border-slate-600";
-    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-600 bg-slate-700 text-slate-300"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold text-slate-200">${safe(view.title)}</div><div class="text-xs text-slate-400 whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
+    const border = idx === events.length - 1 ? "" : (isDark ? " border-l border-slate-600" : " border-l border-slate-200");
+    const iconBg = isDark ? "bg-slate-700 border-slate-600 text-slate-300" : "bg-white border-slate-300 text-slate-500";
+    const titleColor = isDark ? "text-slate-200" : "text-slate-700";
+    const detailColor = isDark ? "text-slate-400" : "text-slate-500";
+    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border ${iconBg}"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold ${titleColor}">${safe(view.title)}</div><div class="text-xs ${detailColor} whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
   }).join("");
 
+  const btnClass = isDark 
+    ? "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-600 bg-slate-700 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-600"
+    : "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100";
+  const waitingMsg = isDark ? "text-slate-400" : "text-slate-500";
+  
   host.innerHTML = `
-    <button type="button" data-thinking-toggle="1" class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-600 bg-slate-700 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-600">
+    <button type="button" data-thinking-toggle="1" class="${btnClass}">
       <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
       <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
     </button>
     <div data-thinking-timeline="1" class="mt-2 ${expanded ? "" : "hidden"}">
-      ${count ? rows : '<div class="text-xs text-slate-400 px-1 py-1">Waiting for runtime events…</div>'}
+      ${count ? rows : `<div class="text-xs ${waitingMsg} px-1 py-1">Waiting for runtime events…</div>`}
     </div>
   `;
 
