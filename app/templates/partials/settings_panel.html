@@ -1,11 +1,4 @@
 <div class="space-y-4" id="settings-panel-root">
-  <div class="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700">
-    <div>
-      <h5 class="text-base font-semibold text-slate-800">Settings</h5>
-      <p class="text-xs text-slate-500 mt-0.5">Scoped to current agent runtime</p>
-    </div>
-  </div>
-
   {% if status_message %}
     <div class="rounded-lg border px-3 py-2 text-xs {{ 'border-emerald-600 bg-emerald-100 text-emerald-700' if status_type == 'success' else 'border-red-600 bg-red-100 text-red-700' }}">
       {{ status_message }}
