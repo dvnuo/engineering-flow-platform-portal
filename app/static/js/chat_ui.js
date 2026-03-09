@@ -918,7 +918,7 @@ function renderChatHistory(messages, metadata = {}) {
       content.textContent = message.content || "";
       article.appendChild(content);
     } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
+      article.className = "max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100";
       const content = document.createElement("div");
       content.className = "md-render prose prose-invert max-w-none text-sm";
       content.dataset.md = message.content || "";
