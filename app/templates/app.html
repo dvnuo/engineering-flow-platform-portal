@@ -64,14 +64,14 @@
                 hx-post="/app/chat/send"
                 hx-target="#message-list"
                 hx-swap="beforeend"
-                class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                class="rounded-2xl border p-3 shadow-sm">
             <input type="hidden" id="chat-agent-id" name="agent_id" value="" />
             <input type="hidden" id="chat-session-id" name="session_id" value="" />
             <div class="relative">
               <textarea id="chat-input" name="message" rows="2" required
-                        class="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none placeholder:text-slate-400"
+                        class="w-full resize-none rounded-xl border px-3 py-2 outline-none placeholder:"
                         placeholder="Type message, / for skills, @ for files..."></textarea>
-              <div id="chat-suggest" class="hidden absolute bottom-full mb-2 w-full rounded-xl border border-slate-200 bg-white p-2 space-y-1 max-h-56 overflow-auto shadow-lg"></div>
+              <div id="chat-suggest" class="hidden absolute bottom-full mb-2 w-full rounded-xl border p-2 space-y-1 max-h-56 overflow-auto shadow-lg"></div>
             </div>
             <div class="mt-2 flex items-center justify-between">
               <span id="chat-status" class="text-xs text-slate-400">Ready</span>

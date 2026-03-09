@@ -50,6 +50,24 @@ const dom = {
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
+function getLastSessionKey(agentId) {
+  return `portal-last-session-${agentId}`;
+}
+
+function getLastSessionId(agentId) {
+  if (!agentId) return null;
+  return localStorage.getItem(getLastSessionKey(agentId));
+}
+
+function setLastSessionId(agentId, sessionId) {
+  if (!agentId) return;
+  if (sessionId) {
+    localStorage.setItem(getLastSessionKey(agentId), sessionId);
+  } else {
+    localStorage.removeItem(getLastSessionKey(agentId));
+  }
+}
+
 // ===== app state =====
 const state = {
   selectedAgentId: null,
@@ -110,11 +128,13 @@ function canWriteAgent(agent) {
 }
 
 function buildUserMessageArticle(text) {
-  return `<article class="ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4" data-local-user="1"><p class="text-xs uppercase tracking-wide text-blue-200 mb-2">You</p><div class="whitespace-pre-wrap text-slate-100">${safe(text)}</div></article>`;
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div></article></div>`;
 }
 
 function buildPendingAssistantArticle() {
-  return '<article class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/70 p-4 assistant-message" data-pending-assistant="1"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">Assistant</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -149,11 +169,15 @@ function getThinkingEventDisplay(event) {
 
 function renderThinkingProcess(article, events) {
   if (!article) return;
+  
+  const isDark = document.documentElement.classList.contains("dark");
   let host = article.querySelector('[data-thinking-process="1"]');
   if (!host) {
     host = document.createElement("div");
     host.dataset.thinkingProcess = "1";
-    host.className = "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
+    host.className = isDark 
+      ? "mt-3 rounded-xl border border-slate-600 bg-slate-800/50 p-2"
+      : "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
     article.append(host);
   }
 
@@ -161,17 +185,25 @@ function renderThinkingProcess(article, events) {
   const count = events.length;
   const rows = events.map((event, idx) => {
     const view = getThinkingEventDisplay(event);
-    const border = idx === events.length - 1 ? "" : " border-l border-slate-200";
-    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold text-slate-700">${safe(view.title)}</div><div class="text-xs text-slate-500 whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
+    const border = idx === events.length - 1 ? "" : (isDark ? " border-l border-slate-600" : " border-l border-slate-200");
+    const iconBg = isDark ? "bg-slate-700 border-slate-600 text-slate-300" : "bg-white border-slate-300 text-slate-500";
+    const titleColor = isDark ? "text-slate-200" : "text-slate-700";
+    const detailColor = isDark ? "text-slate-400" : "text-slate-500";
+    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border ${iconBg}"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold ${titleColor}">${safe(view.title)}</div><div class="text-xs ${detailColor} whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
   }).join("");
 
+  const btnClass = isDark 
+    ? "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-600 bg-slate-700 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-600"
+    : "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100";
+  const waitingMsg = isDark ? "text-slate-400" : "text-slate-500";
+  
   host.innerHTML = `
-    <button type="button" data-thinking-toggle="1" class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100">
+    <button type="button" data-thinking-toggle="1" class="${btnClass}">
       <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
       <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
     </button>
     <div data-thinking-timeline="1" class="mt-2 ${expanded ? "" : "hidden"}">
-      ${count ? rows : '<div class="text-xs text-slate-500 px-1 py-1">Waiting for runtime events…</div>'}
+      ${count ? rows : `<div class="text-xs ${waitingMsg} px-1 py-1">Waiting for runtime events…</div>`}
     </div>
   `;
 
@@ -348,8 +380,13 @@ function updateSelectedAgentSession(sessionId) {
   if (!state.selectedAgentId) return;
 
   const value = (sessionId || "").trim();
-  if (value) state.agentSessionIds.set(state.selectedAgentId, value);
-  else state.agentSessionIds.delete(state.selectedAgentId);
+  if (value) {
+    state.agentSessionIds.set(state.selectedAgentId, value);
+    setLastSessionId(state.selectedAgentId, value);
+  } else {
+    state.agentSessionIds.delete(state.selectedAgentId);
+    setLastSessionId(state.selectedAgentId, null);
+  }
   syncHiddenSessionInputFromState();
 }
 
@@ -536,6 +573,19 @@ async function syncSelectedAgentState() {
   const running = status === "running";
   dom.centerPlaceholder.classList.toggle("hidden", running);
   dom.agentChatApp.classList.toggle("hidden", !running);
+  
+  // Auto-load last session if available
+  if (running) {
+    const lastSessionId = getLastSessionId(agent.id);
+    if (lastSessionId) {
+      try {
+        await loadSession(lastSessionId);
+      } catch (e) {
+        // Session not found, start fresh
+        console.log("Last session not found, starting fresh");
+      }
+    }
+  }
 }
 
 async function refreshAll() {
@@ -825,29 +875,58 @@ function renderChatHistory(messages, metadata = {}) {
   messages.forEach((message) => {
     if (message.role !== "user" && message.role !== "assistant") return;
 
-    const article = document.createElement("article");
-    const roleLabel = document.createElement("p");
-    roleLabel.className = "text-xs uppercase tracking-wide mb-2";
-
-    if (message.role === "user") {
-      article.className = "ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
-      roleLabel.classList.add("text-blue-200");
-      roleLabel.textContent = "You";
-      const content = document.createElement("div");
-      content.className = "whitespace-pre-wrap text-slate-100";
-      content.textContent = message.content || "";
-      article.append(roleLabel, content);
-    } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4 assistant-message";
-      roleLabel.classList.add("text-slate-400");
-      roleLabel.textContent = "Assistant";
-      const content = document.createElement("div");
-      content.className = "md-render prose prose-invert max-w-none";
-      content.dataset.md = message.content || "";
-      article.append(roleLabel, content);
+    const isUser = message.role === "user";
+    
+    // Format timestamp
+    let timeStr = "";
+    if (message.timestamp) {
+      try {
+        const ts = new Date(message.timestamp);
+        timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      } catch (e) {}
     }
 
-    dom.messageList.append(article);
+    // Create message container
+    const container = document.createElement("div");
+    container.className = isUser ? "flex flex-col items-end" : "flex flex-col items-start";
+    
+    // Role label and timestamp
+    const header = document.createElement("div");
+    header.className = "flex items-center gap-2 mb-1";
+    
+    const roleLabel = document.createElement("span");
+    roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
+    roleLabel.textContent = isUser ? "You" : "Assistant";
+    
+    header.appendChild(roleLabel);
+    
+    if (timeStr) {
+      const timeLabel = document.createElement("span");
+      timeLabel.className = "text-xs text-slate-500";
+      timeLabel.textContent = timeStr;
+      header.appendChild(timeLabel);
+    }
+    
+    container.appendChild(header);
+
+    // Message bubble
+    const article = document.createElement("article");
+    if (isUser) {
+      article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
+      const content = document.createElement("div");
+      content.className = "whitespace-pre-wrap text-sm";
+      content.textContent = message.content || "";
+      article.appendChild(content);
+    } else {
+      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
+      const content = document.createElement("div");
+      content.className = "md-render prose prose-invert max-w-none text-sm";
+      content.dataset.md = message.content || "";
+      article.appendChild(content);
+    }
+    
+    container.appendChild(article);
+    dom.messageList.appendChild(container);
   });
 
   renderMarkdown(dom.messageList);
@@ -870,7 +949,7 @@ async function loadSession(sessionId) {
   renderChatHistory(data.messages || [], data.metadata || {});
 
   setChatStatus(`Loaded session ${normalized}`);
-  await openSessionsPanel();
+  // Only open sessions panel if explicitly requested
 }
 
 async function openServerFiles() {
