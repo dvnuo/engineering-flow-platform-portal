@@ -439,24 +439,24 @@ function renderAgentMeta(agent) {
     <div class="space-y-3 text-sm">
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Image</div>
-        <div class="font-mono text-xs bg-slate-100 rounded px-2 py-1.5 break-all text-slate-700">${safe(agent.image)}</div>
+        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.image)}</div>
       </div>
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Created</div>
-        <div class="text-slate-700">${dateStr}</div>
+        <div class="text-slate-700 dark:text-slate-300">${dateStr}</div>
       </div>
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Resources</div>
         <div class="flex flex-wrap gap-1.5">
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs font-medium">
+          <span class="inline-flex items-center px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
             ${cpu}
           </span>
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-purple-50 text-purple-700 text-xs font-medium">
+          <span class="inline-flex items-center px-2 py-1 rounded-md bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-medium">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
             ${mem}
           </span>
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-green-50 text-green-700 text-xs font-medium">
+          <span class="inline-flex items-center px-2 py-1 rounded-md bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
             ${disk}Gi
           </span>
@@ -464,10 +464,54 @@ function renderAgentMeta(agent) {
       </div>
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Description</div>
-        <div class="text-slate-700">${safe(agent.description || '-')}</div>
+        <div class="text-slate-700 dark:text-slate-300">${safe(agent.description || '-')}</div>
       </div>
+      <div id="agent-usage" class="text-xs text-slate-400">Loading usage...</div>
     </div>
   `;
+
+  // Fetch usage data
+  fetchUsageForAgent(agent.id);
+}
+
+async function fetchUsageForAgent(agentId) {
+  const usageEl = document.getElementById("agent-usage");
+  if (!usageEl) return;
+  try {
+    const data = await api(`/api/agents/${agentId}/usage`);
+    if (!data) {
+      usageEl.textContent = "No usage data";
+      return;
+    }
+    const global = data.global || {};
+    const reqCount = global.request_count || 0;
+    const cost = global.total_cost_usd || global.total_cost || 0;
+    const inputTokens = global.total_input_tokens || global.total_input || 0;
+    const outputTokens = global.total_output_tokens || global.total_output || 0;
+    usageEl.innerHTML = `
+      <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Usage (30 days)</div>
+      <div class="grid grid-cols-2 gap-2">
+        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
+          <div class="text-slate-500 dark:text-slate-400">Requests</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">${reqCount}</div>
+        </div>
+        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
+          <div class="text-slate-500 dark:text-slate-400">Cost</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">$${cost.toFixed(4)}</div>
+        </div>
+        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
+          <div class="text-slate-500 dark:text-slate-400">Input</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">${inputTokens.toLocaleString()}</div>
+        </div>
+        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
+          <div class="text-slate-500 dark:text-slate-400">Output</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">${outputTokens.toLocaleString()}</div>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    usageEl.textContent = "No usage data";
+  }
 }
 
 function renderAgentActions(agent, status) {
