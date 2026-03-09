@@ -28,25 +28,88 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe 
 }
 
 .modal-card {
-  width: min(480px, calc(100vw - 2rem));
-  background: #0f172a;
+  width: min(400px, calc(100vw - 2rem));
+  background: #1e293b;
   border: 1px solid #334155;
   border-radius: 1rem;
-  padding: 1rem;
-  color: #e2e8f0;
+  padding: 1.5rem;
+  color: #f1f5f9;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 }
 
-.modal-head { display: flex; align-items: center; justify-content: space-between; }
-.stack { display: grid; gap: .6rem; }
-.stack input, .stack button {
-  width: 100%;
-  border-radius: .6rem;
-  border: 1px solid #334155;
-  background: #0b1220;
-  color: #e2e8f0;
-  padding: .6rem .7rem;
+.modal-head { 
+  display: flex; 
+  align-items: center; 
+  justify-content: space-between; 
+  margin-bottom: 1.25rem;
 }
-.stack button { background: #3b82f6; border: none; font-weight: 600; }
+
+.modal-head h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.modal-head .close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 0.375rem;
+}
+
+.modal-head .close-btn:hover {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+.stack { display: grid; gap: 1rem; }
+
+.stack label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #cbd5e1;
+  margin-bottom: 0.375rem;
+}
+
+.stack input {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #f1f5f9;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.stack input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.stack input::placeholder {
+  color: #64748b;
+}
+
+.stack button {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: none;
+  background: #3b82f6;
+  color: #ffffff;
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.stack button:hover {
+  background: #2563eb;
+}
 .hidden { display: none !important; }
 .muted { color: #94a3b8; }
 .tiny { font-size: .75rem; }
@@ -603,12 +666,34 @@ html[data-theme="light"] .modal-card {
   background: #ffffff;
   border-color: #e5e7eb;
   color: #111827;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+}
+
+html[data-theme="light"] .modal-head h3 {
+  color: #111827;
+}
+
+html[data-theme="light"] .modal-head .close-btn {
+  color: #6b7280;
+}
+
+html[data-theme="light"] .modal-head .close-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+html[data-theme="light"] .stack label {
+  color: #374151;
 }
 
 html[data-theme="light"] .stack input {
   background: #ffffff;
   border-color: #d1d5db;
   color: #111827;
+}
+
+html[data-theme="light"] .stack input:focus {
+  border-color: #3b82f6;
 }
 
 html[data-theme="light"] .stack input::placeholder {

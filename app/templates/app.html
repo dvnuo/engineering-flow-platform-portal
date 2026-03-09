@@ -134,16 +134,31 @@
   <div class="modal-card panel">
     <div class="modal-head">
       <h3>Create Agent</h3>
-      <button id="close-create-modal" class="icon-btn" type="button" title="Close" aria-label="Close">✕</button>
+      <button id="close-create-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="create-form" class="stack">
-      <input name="name" placeholder="Agent name" required />
-      <input name="image" placeholder="Container image" required value="your-registry/agent:latest" />
-      <input name="disk_size_gi" type="number" min="1" value="20" required />
-      <input name="cpu" placeholder="CPU request (e.g. 250m)" />
-      <input name="memory" placeholder="Memory request (e.g. 512Mi)" />
-      <button type="submit">Create</button>
+      <div>
+        <label>Agent Name</label>
+        <input name="name" placeholder="my-agent" required />
+      </div>
+      <div>
+        <label>Container Image</label>
+        <input name="image" placeholder="your-registry/agent:latest" required value="your-registry/agent:latest" />
+      </div>
+      <div>
+        <label>Disk Size (GiB)</label>
+        <input name="disk_size_gi" type="number" min="1" value="20" required />
+      </div>
+      <div>
+        <label>CPU Request</label>
+        <input name="cpu" placeholder="e.g. 250m" />
+      </div>
+      <div>
+        <label>Memory Request</label>
+        <input name="memory" placeholder="e.g. 512Mi" />
+      </div>
+      <button type="submit">Create Agent</button>
       <p id="create-msg" class="muted tiny"></p>
     </form>
   </div>
