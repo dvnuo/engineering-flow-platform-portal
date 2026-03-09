@@ -593,3 +593,34 @@ html[data-theme="light"] #add-agent-btn:hover {
   background: #e5e7eb;
   color: #111827;
 }
+
+/* Modal light mode */
+html[data-theme="light"] .modal {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="light"] .modal-card {
+  background: #ffffff;
+  border-color: #e5e7eb;
+  color: #111827;
+}
+
+html[data-theme="light"] .stack input {
+  background: #ffffff;
+  border-color: #d1d5db;
+  color: #111827;
+}
+
+html[data-theme="light"] .stack input::placeholder {
+  color: #9ca3af;
+}
+
+html[data-theme="light"] .stack button {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+html[data-theme="light"] .stack button:hover {
+  background: #2563eb;
+}
