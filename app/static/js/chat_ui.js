@@ -868,7 +868,9 @@ async function maybeShowSuggest() {
     showSuggest(state.cachedSkills, (item) => {
       const command = normalizeSkillCommand(item.command || item.label || item.title);
       if (!command) return;
-      dom.chatInput.setRangeText(`${command} `, cursor - slash[2].length, cursor, "end");
+      // Replace from the start of "/" to cursor
+      const start = slash.index;
+      dom.chatInput.setRangeText(`${command} `, start, cursor, "end");
       hideSuggest();
     });
     return;
@@ -889,7 +891,9 @@ async function maybeShowSuggest() {
     }
 
     showSuggest(state.cachedMentionFiles, (item) => {
-      dom.chatInput.setRangeText(`${item.full} `, cursor - at[2].length, cursor, "end");
+      // Replace from the start of "@" to cursor
+      const start = at.index;
+      dom.chatInput.setRangeText(`${item.full} `, start, cursor, "end");
       hideSuggest();
     });
     return;
