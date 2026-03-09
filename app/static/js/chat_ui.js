@@ -35,15 +35,9 @@ const dom = {
   closeToolPanel: document.getElementById("close-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
-  topNewChat: document.getElementById("top-new-chat"),
-  topUpload: document.getElementById("top-upload"),
-  topServerFiles: document.getElementById("top-server-files"),
-  topMyUploads: document.getElementById("top-my-uploads"),
-  topSkills: document.getElementById("top-skills"),
-  topUsage: document.getElementById("top-usage"),
-  topSessions: document.getElementById("top-sessions"),
   topSettings: document.getElementById("top-settings"),
-  topClearChat: document.getElementById("top-clear-chat"),
+  floatingNewChat: document.getElementById("floating-new-chat"),
+  topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
 };
@@ -1213,15 +1207,12 @@ function bindEvents() {
 
   dom.uploadInput?.addEventListener("change", uploadFile);
 
-  dom.topNewChat?.addEventListener("click", startNewChatForSelectedAgent);
-  dom.topUpload?.addEventListener("click", () => dom.uploadInput.click());
+  dom.floatingNewChat?.addEventListener("click", startNewChatForSelectedAgent);
+  dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
   dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
   dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
-  dom.topSkills?.addEventListener("click", openSkillsPanel);
-  dom.topUsage?.addEventListener("click", openUsagePanel);
   dom.topSessions?.addEventListener("click", openSessionsPanel);
   dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
-  dom.topClearChat?.addEventListener("click", clearChat);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");

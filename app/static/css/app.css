@@ -147,6 +147,31 @@ html:not([data-theme="light"]) #tool-panel label {
   justify-content: center;
 }
 
+/* Floating New Chat Button */
+#floating-new-chat {
+  z-index: 50;
+}
+
+html[data-theme="light"] #floating-new-chat {
+  background: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+/* Inline Upload Button */
+#top-upload-inline {
+  border-color: #e5e7eb;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #top-upload-inline {
+  background: #ffffff;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #top-upload-inline:hover {
+  background: #f9fafb;
+}
+
 #settings-form button[type="submit"] {
   display: block;
   width: 100%;

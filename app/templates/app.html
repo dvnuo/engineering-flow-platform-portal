@@ -41,15 +41,7 @@
       <section id="agent-chat-app" class="hidden flex-1 min-h-0 flex flex-col" aria-label="Agent chat workspace">
         <div class="px-4 py-2 border-b border-slate-200/80 flex items-center gap-2">
           <input id="upload-input" type="file" class="hidden" />
-          <button id="top-new-chat" class="toolbar-btn" title="New Chat"><i data-lucide="plus"></i></button>
-          <button id="top-upload" class="toolbar-btn" title="Upload File"><i data-lucide="paperclip"></i></button>
-          <button id="top-server-files" class="toolbar-btn" title="Server Files"><i data-lucide="folder"></i></button>
-          <button id="top-my-uploads" class="toolbar-btn" title="My Uploads"><i data-lucide="files"></i></button>
-          <button id="top-sessions" class="toolbar-btn" title="Sessions"><i data-lucide="history"></i></button>
-          <button id="top-skills" class="toolbar-btn" title="Skills"><i data-lucide="wrench"></i></button>
-          <button id="top-usage" class="toolbar-btn" title="Usage"><i data-lucide="bar-chart-3"></i></button>
           <button id="top-settings" class="toolbar-btn" title="Settings"><i data-lucide="settings"></i></button>
-          <button id="top-clear-chat" class="toolbar-btn" title="Clear Chat"><i data-lucide="eraser"></i></button>
         </div>
 
         <div id="message-list" class="flex-1 min-h-0 overflow-y-auto px-5 py-5 space-y-5">
@@ -73,13 +65,23 @@
                         placeholder="Type message, / for skills, @ for files..."></textarea>
               <div id="chat-suggest" class="hidden absolute bottom-full mb-2 w-full rounded-xl border p-2 space-y-1 max-h-56 overflow-auto shadow-lg"></div>
             </div>
-            <div class="mt-2 flex items-center justify-between">
+            <div class="mt-2 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <button type="button" id="top-upload-inline" class="p-2 rounded-lg border hover:bg-slate-100 dark:hover:bg-slate-700" title="Upload File">
+                  <i data-lucide="paperclip" class="w-4 h-4"></i>
+                </button>
+              </div>
               <span id="chat-status" class="text-xs text-slate-400">Ready</span>
               <button id="send-chat-btn" class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold disabled:cursor-not-allowed disabled:opacity-60">Send</button>
             </div>
           </form>
         </div>
       </section>
+
+      <!-- Floating New Chat Button -->
+      <button id="floating-new-chat" class="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-blue-500 hover:bg-blue-600 text-white shadow-lg flex items-center justify-center hover:scale-110 transition-transform" title="New Chat">
+        <i data-lucide="plus" class="w-6 h-6"></i>
+      </button>
     </main>
   </div>
 
