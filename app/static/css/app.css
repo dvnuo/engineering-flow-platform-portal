@@ -524,3 +524,21 @@ html[data-theme="light"] #composer-plus-btn {
   align-self: flex-end;
   height: 40px;
 }
+
+/* Settings button in header */
+#top-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-theme="light"] #top-settings {
+  background: #ffffff;
+  border-color: #d1d5db;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #top-settings:hover {
+  background: #f9fafb;
+  color: #111827;
+}
