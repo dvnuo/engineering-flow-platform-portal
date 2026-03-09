@@ -628,7 +628,7 @@ function handleChatResponseError(event) {
         <i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i>
       </div>
       <div class="flex-1 min-w-0">
-        <div class="text-red-400 text-sm">${escapeHtml(errorMsg)}</div>
+        <div class="text-red-400 text-sm">${errorMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
       </div>
     `;
     dom.messageList.appendChild(errorDiv);
