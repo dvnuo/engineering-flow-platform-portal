@@ -193,12 +193,18 @@
       }
     }
 
-    // Initialize on load
-    document.addEventListener('DOMContentLoaded', function() {
+    // Initialize immediately (works with HTMX)
+    function initSettings() {
       updateModelOptions();
       
       // Listen for provider changes
-      document.getElementById('llm_provider').addEventListener('change', updateModelOptions);
-    });
+      const providerSelect = document.getElementById('llm_provider');
+      if (providerSelect) {
+        providerSelect.addEventListener('change', updateModelOptions);
+      }
+    }
+    
+    // Run on load
+    initSettings();
   </script>
 </div>
