@@ -872,27 +872,16 @@ function renderChatHistory(messages, metadata = {}) {
       } catch (e) {}
     }
 
-    // Create message container with avatar
+    // Create message container
     const container = document.createElement("div");
-    container.className = isUser ? "flex flex-row-reverse items-end gap-3" : "flex items-start gap-3";
-    
-    // Avatar
-    const avatar = document.createElement("div");
-    avatar.className = isUser 
-      ? "w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 text-blue-400 text-sm font-semibold" 
-      : "w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0 text-emerald-400 text-sm font-semibold";
-    avatar.textContent = isUser ? "Y" : "AI";
-    
-    // Message content wrapper
-    const contentWrapper = document.createElement("div");
-    contentWrapper.className = "flex flex-col max-w-[70%]";
+    container.className = isUser ? "flex flex-col items-end" : "flex flex-col items-start";
     
     // Role label and timestamp
     const header = document.createElement("div");
-    header.className = isUser ? "flex items-center gap-2 mb-1 justify-end" : "flex items-center gap-2 mb-1";
+    header.className = "flex items-center gap-2 mb-1";
     
     const roleLabel = document.createElement("span");
-    roleLabel.className = isUser ? "text-xs text-blue-400" : "text-xs text-emerald-400 font-medium";
+    roleLabel.className = isUser ? "text-xs text-blue-400" : "text-xs text-slate-400";
     roleLabel.textContent = isUser ? "You" : "Assistant";
     
     header.appendChild(roleLabel);
@@ -904,26 +893,25 @@ function renderChatHistory(messages, metadata = {}) {
       header.appendChild(timeLabel);
     }
     
-    contentWrapper.appendChild(header);
+    container.appendChild(header);
 
     // Message bubble
     const article = document.createElement("article");
     if (isUser) {
-      article.className = "rounded-2xl border border-blue-500/30 bg-blue-500/20 px-4 py-3";
+      article.className = "max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
       const content = document.createElement("div");
-      content.className = "whitespace-pre-wrap text-slate-100 text-sm";
+      content.className = "whitespace-pre-wrap text-slate-100 text-right";
       content.textContent = message.content || "";
       article.appendChild(content);
     } else {
-      article.className = "rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
+      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4 assistant-message";
       const content = document.createElement("div");
-      content.className = "md-render prose prose-invert max-w-none text-sm";
+      content.className = "md-render prose prose-invert max-w-none";
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
     
-    contentWrapper.appendChild(article);
-    container.append(avatar, contentWrapper);
+    container.appendChild(article);
     dom.messageList.appendChild(container);
   });
 
