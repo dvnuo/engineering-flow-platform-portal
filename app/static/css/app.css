@@ -55,3 +55,292 @@ pre code.hljs {
   border-radius: .75rem;
   padding: 1rem;
 }
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: #020617;
+}
+
+.login-card {
+  width: min(440px, 100%);
+  border-radius: 1rem;
+  border: 1px solid #334155;
+  background: #0f172a;
+  padding: 1.1rem;
+  color: #e2e8f0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.login-card label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.error {
+  min-height: 1.1rem;
+  margin: 0;
+  color: #fda4af;
+  font-size: 0.85rem;
+}
+
+html[data-theme="light"] body {
+  background: #f6f7f9;
+  color: #111827;
+}
+
+html[data-theme="light"] #app-root {
+  background: #f6f7f9 !important;
+  color: #111827;
+}
+
+html[data-theme="light"] #app-root > .h-full {
+  gap: 0.85rem;
+  padding: 0.85rem;
+}
+
+html[data-theme="light"] #app-root aside,
+html[data-theme="light"] #app-root main,
+html[data-theme="light"] #detail-panel,
+html[data-theme="light"] #tool-panel,
+html[data-theme="light"] #chat-form,
+html[data-theme="light"] #agent-meta {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+html[data-theme="light"] #app-root main {
+  background: #ffffff !important;
+}
+
+html[data-theme="light"] #message-list article {
+  border-radius: 14px;
+}
+
+html[data-theme="light"] #message-list article.ml-auto {
+  background: #3b82f6 !important;
+  border-color: #2563eb !important;
+}
+
+html[data-theme="light"] #message-list article.ml-auto p,
+html[data-theme="light"] #message-list article.ml-auto div {
+  color: #ffffff !important;
+}
+
+html[data-theme="light"] #message-list article:not(.ml-auto) {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+html[data-theme="light"] #message-list article:not(.ml-auto) p,
+html[data-theme="light"] #message-list article:not(.ml-auto) div {
+  color: #111827 !important;
+}
+
+html[data-theme="light"] [data-pending-assistant="1"] {
+  position: relative;
+  padding-left: 2.6rem !important;
+}
+
+html[data-theme="light"] [data-pending-assistant="1"]::before {
+  content: "🤖";
+  position: absolute;
+  left: 1rem;
+  top: 1.05rem;
+  font-size: 0.95rem;
+}
+
+html[data-theme="light"] .toolbar-btn,
+html[data-theme="light"] #theme-toggle,
+html[data-theme="light"] #detail-toggle,
+html[data-theme="light"] #close-tool-panel,
+html[data-theme="light"] #detail-close {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+}
+
+html[data-theme="light"] .toolbar-btn:hover,
+html[data-theme="light"] #theme-toggle:hover,
+html[data-theme="light"] #detail-toggle:hover,
+html[data-theme="light"] #close-tool-panel:hover,
+html[data-theme="light"] #detail-close:hover {
+  background: #f9fafb;
+  color: #111827;
+}
+
+html[data-theme="light"] #mine-list button {
+  border-color: #e5e7eb !important;
+  background: #ffffff !important;
+  transition: all .15s ease;
+}
+
+html[data-theme="light"] #mine-list button:hover {
+  background: #f8fafc !important;
+  border-color: #d1d5db !important;
+}
+
+html[data-theme="light"] #mine-list button.border-blue-500 {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  box-shadow: inset 0 0 0 1px rgba(59,130,246,.12);
+}
+
+html[data-theme="light"] #detail-panel {
+  background: #f8fafc !important;
+}
+
+html[data-theme="light"] #agent-meta,
+html[data-theme="light"] #agent-actions > div,
+html[data-theme="light"] #tool-panel {
+  background: #ffffff !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+}
+
+html[data-theme="light"] #chat-form {
+  background: #ffffff !important;
+  border-color: #d1d5db !important;
+}
+
+html[data-theme="light"] #chat-input {
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+html[data-theme="light"] #chat-input::placeholder {
+  color: #9ca3af !important;
+}
+
+html[data-theme="light"] #chat-suggest {
+  background: #ffffff !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 8px 20px rgba(15,23,42,0.08);
+}
+
+html[data-theme="light"] #send-chat-btn {
+  background: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="light"] #send-chat-btn:hover {
+  background: #2563eb !important;
+}
+
+html[data-theme="light"] #app-root .text-slate-500,
+html[data-theme="light"] #app-root .text-slate-400,
+html[data-theme="light"] #app-root .text-slate-300,
+html[data-theme="light"] #chat-status,
+html[data-theme="light"] #tool-panel-body {
+  color: #6b7280 !important;
+}
+
+html[data-theme="light"] .login-shell {
+  background: #f6f7f9;
+}
+
+html[data-theme="light"] .login-card {
+  background: #ffffff;
+  color: #111827;
+  border-color: #e5e7eb;
+  box-shadow: 0 10px 30px rgba(15,23,42,0.06);
+}
+
+html[data-theme="light"] .login-card .muted {
+  color: #6b7280;
+}
+
+html[data-theme="light"] .stack input {
+  background: #ffffff;
+  color: #111827;
+  border-color: #d1d5db;
+}
+
+
+/* Light, subtle scrollbars for better parity with EFP visual style */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+  border: 2px solid #f1f5f9;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+html[data-theme="light"] #app-root header {
+  border-bottom-color: #e5e7eb !important;
+}
+
+html[data-theme="light"] #agent-chat-app > div:first-child {
+  border-bottom-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] #message-list {
+  gap: 1rem;
+}
+
+html[data-theme="light"] .assistant-message {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+html[data-theme="light"] .tool-message {
+  position: relative;
+  border-left: 3px solid #dbeafe !important;
+  padding-left: 1rem !important;
+}
+
+html[data-theme="light"] .tool-message::before {
+  content: "🛠️";
+  position: absolute;
+  left: -0.72rem;
+  top: 0.9rem;
+  font-size: 0.8rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: grid;
+  place-items: center;
+}
+
+html[data-theme="light"] #app-root aside > div.mt-auto {
+  background: #ffffff;
+  border-top-color: #e5e7eb !important;
+  margin-left: -1rem;
+  margin-right: -1rem;
+  margin-bottom: -1rem;
+  padding: 0.9rem 1rem 1rem;
+  border-bottom-left-radius: 1rem;
+  border-bottom-right-radius: 1rem;
+}

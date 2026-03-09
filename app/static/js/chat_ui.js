@@ -11,6 +11,7 @@ function chatApp() {
 
 // ===== DOM refs =====
 const dom = {
+  appRoot: document.getElementById("app-root"),
   mineList: document.getElementById("mine-list"),
   embedTitle: document.getElementById("embed-title"),
   selectedStatus: document.getElementById("selected-status"),
@@ -22,6 +23,7 @@ const dom = {
   chatAgentId: document.getElementById("chat-agent-id"),
   chatSessionId: document.getElementById("chat-session-id"),
   chatStatus: document.getElementById("chat-status"),
+  sendChatBtn: document.getElementById("send-chat-btn"),
   uploadInput: document.getElementById("upload-input"),
   detailPanel: document.getElementById("detail-panel"),
   detailBackdrop: document.getElementById("detail-backdrop"),
@@ -37,11 +39,16 @@ const dom = {
   topUpload: document.getElementById("top-upload"),
   topServerFiles: document.getElementById("top-server-files"),
   topMyUploads: document.getElementById("top-my-uploads"),
+  topSkills: document.getElementById("top-skills"),
+  topUsage: document.getElementById("top-usage"),
   topSessions: document.getElementById("top-sessions"),
   topSettings: document.getElementById("top-settings"),
   topClearChat: document.getElementById("top-clear-chat"),
   logoutBtn: document.getElementById("logout-btn"),
+  themeToggle: document.getElementById("theme-toggle"),
 };
+
+const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
 // ===== app state =====
 const state = {
@@ -50,10 +57,19 @@ const state = {
   agentStatus: new Map(),
   detailOpen: false,
   cachedSkills: [],
+  cachedSkillsByAgent: new Map(),
   cachedMentionFiles: [],
+  selectedSuggestionIndex: -1,
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
   agentSessionIds: new Map(),
+  isSubmittingChat: false,
+  pendingMessage: "",
+  currentUserId: Number(dom.appRoot?.dataset.userId || 0),
+  currentUserRole: String(dom.appRoot?.dataset.role || "user"),
+  eventWs: null,
+  eventWsAgentId: null,
+  inflightThinking: null,
 };
 
 const md = window.markdownit({
@@ -73,6 +89,166 @@ function safe(value) {
   return String(value || "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function normalizeSkillCommand(raw) {
+  const skillName = String(raw || "").trim().replace(/^\/+/, "");
+  return skillName ? `/${skillName}` : "";
+}
+
+function toSkillSuggestion(item) {
+  const name = typeof item === "string" ? item : (item?.name || "");
+  const command = normalizeSkillCommand(name);
+  return {
+    label: command,
+    command,
+    desc: typeof item === "string" ? "Skill" : (item?.description || "Skill"),
+  };
+}
+
+function canWriteAgent(agent) {
+  if (!agent) return false;
+  return state.currentUserRole === "admin" || Number(agent.owner_user_id) === state.currentUserId;
+}
+
+function buildUserMessageArticle(text) {
+  return `<article class="ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4" data-local-user="1"><p class="text-xs uppercase tracking-wide text-blue-200 mb-2">You</p><div class="whitespace-pre-wrap text-slate-100">${safe(text)}</div></article>`;
+}
+
+function buildPendingAssistantArticle() {
+  return '<article class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/70 p-4 assistant-message" data-pending-assistant="1"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
+}
+
+function removePendingAssistantPlaceholder() {
+  if (!dom.messageList) return;
+  dom.messageList.querySelectorAll('[data-pending-assistant="1"]').forEach((el) => el.remove());
+}
+
+function disconnectEventSocket() {
+  if (state.eventWs) {
+    try { state.eventWs.close(); } catch {}
+  }
+  state.eventWs = null;
+  state.eventWsAgentId = null;
+}
+
+function isTrackableThinkingEvent(type) {
+  return ["iteration_start", "llm_thinking", "tool_call", "tool_result", "complete"].includes(type);
+}
+
+function getThinkingEventDisplay(event) {
+  const type = event?.type || "event";
+  const data = event?.data || {};
+  const byType = {
+    iteration_start: { icon: "rotate-cw", title: "Iteration Start", detail: `Iteration ${data.iteration || 1}${data.total ? `/${data.total}` : ""}` },
+    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || "Model is reasoning" },
+    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool" },
+    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed") },
+    complete: { icon: "flag", title: "Complete", detail: "Execution complete" },
+  };
+  return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
+}
+
+function renderThinkingProcess(article, events) {
+  if (!article) return;
+  let host = article.querySelector('[data-thinking-process="1"]');
+  if (!host) {
+    host = document.createElement("div");
+    host.dataset.thinkingProcess = "1";
+    host.className = "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
+    article.append(host);
+  }
+
+  const expanded = host.dataset.expanded === "1";
+  const count = events.length;
+  const rows = events.map((event, idx) => {
+    const view = getThinkingEventDisplay(event);
+    const border = idx === events.length - 1 ? "" : " border-l border-slate-200";
+    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold text-slate-700">${safe(view.title)}</div><div class="text-xs text-slate-500 whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
+  }).join("");
+
+  host.innerHTML = `
+    <button type="button" data-thinking-toggle="1" class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100">
+      <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
+      <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
+    </button>
+    <div data-thinking-timeline="1" class="mt-2 ${expanded ? "" : "hidden"}">
+      ${count ? rows : '<div class="text-xs text-slate-500 px-1 py-1">Waiting for runtime events…</div>'}
+    </div>
+  `;
+
+  host.querySelector('[data-thinking-toggle="1"]')?.addEventListener("click", () => {
+    const timeline = host.querySelector('[data-thinking-timeline="1"]');
+    const isExpanded = !timeline.classList.contains("hidden");
+    host.dataset.expanded = isExpanded ? "0" : "1";
+    renderThinkingProcess(article, events);
+  });
+
+  renderIcons();
+}
+
+function attachThinkingToLatestAssistant(events) {
+  if (!dom.messageList || !events?.length) return false;
+  const assistants = Array.from(dom.messageList.querySelectorAll("article.assistant-message:not([data-pending-assistant='1'])"));
+  const target = assistants[assistants.length - 1];
+  if (!target) return false;
+  renderThinkingProcess(target, events);
+  return true;
+}
+
+function handleAgentEventMessage(raw) {
+  if (!state.inflightThinking) return;
+
+  let payload = null;
+  try { payload = JSON.parse(raw); } catch { return; }
+  const type = payload?.type;
+  if (!isTrackableThinkingEvent(type)) return;
+
+  const entry = { type, data: payload?.data || {}, ts: payload?.ts || Date.now() / 1000 };
+  state.inflightThinking.events.push(entry);
+
+  const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${state.inflightThinking.id}"]`);
+  if (pendingArticle) renderThinkingProcess(pendingArticle, state.inflightThinking.events);
+
+  if (type === "complete") state.inflightThinking.completed = true;
+}
+
+function ensureEventSocketForSelectedAgent() {
+  const agentId = state.selectedAgentId;
+  if (!agentId) return;
+
+  if (state.eventWs && state.eventWsAgentId === agentId && state.eventWs.readyState === WebSocket.OPEN) return;
+  if (state.eventWs && state.eventWsAgentId !== agentId) disconnectEventSocket();
+  if (state.eventWs?.readyState === WebSocket.CONNECTING) return;
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${protocol}//${window.location.host}/a/${agentId}/api/events`);
+  state.eventWs = ws;
+  state.eventWsAgentId = agentId;
+
+  ws.onmessage = (event) => handleAgentEventMessage(event.data);
+  ws.onclose = () => {
+    if (state.eventWs === ws) {
+      state.eventWs = null;
+      state.eventWsAgentId = null;
+    }
+  };
+  ws.onerror = () => {};
+}
+
+function applyTheme(theme) {
+  const normalized = theme === "light" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", normalized);
+  localStorage.setItem("portal-theme", normalized);
+  if (dom.themeToggle) dom.themeToggle.innerHTML = normalized === "light"
+    ? '<i data-lucide="sun"></i>'
+    : '<i data-lucide="moon"></i>';
+  renderIcons();
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  applyTheme(current === "dark" ? "light" : "dark");
+}
+
 function setChatStatus(text) {
   if (dom.chatStatus) dom.chatStatus.textContent = text;
 }
@@ -86,6 +262,16 @@ function renderMarkdown(scope = document) {
     el.innerHTML = md.render(el.dataset.md || "");
   });
   scope.querySelectorAll("pre code").forEach((el) => hljs.highlightElement(el));
+}
+
+function decorateToolMessages(scope = document) {
+  scope.querySelectorAll(".assistant-message .md-render").forEach((el) => {
+    const text = (el.dataset.md || el.textContent || "").trim();
+    const article = el.closest("article");
+    if (!article) return;
+    if (text.startsWith("[Tool") || text.startsWith("Tool ")) article.classList.add("tool-message");
+    else article.classList.remove("tool-message");
+  });
 }
 
 function renderIcons() {
@@ -115,13 +301,35 @@ async function agentApi(path, options = {}) {
 }
 
 function defaultWelcomeMessage() {
-  return '<article class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
+  return '<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
 }
 
 function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
+  decorateToolMessages(dom.messageList);
+
+  const storedEvents = Array.isArray(metadata?.thinking_events) ? metadata.thinking_events
+    .filter((event) => isTrackableThinkingEvent(event?.type))
+    .map((event) => ({ type: event.type, data: event.data || event, ts: event.ts || Date.now() / 1000 })) : [];
+  if (storedEvents.length) attachThinkingToLatestAssistant(storedEvents);
+
   scrollToBottom();
+}
+
+
+function removeWelcomeMessageIfPresent() {
+  if (!dom.messageList) return;
+  const welcome = dom.messageList.querySelector('[data-welcome="1"]');
+  if (!welcome) return;
+
+  const onlyWelcome = dom.messageList.children.length === 1;
+  if (onlyWelcome) welcome.remove();
+}
+
+function setChatSubmitting(active) {
+  state.isSubmittingChat = active;
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = active;
 }
 
 function currentSessionIdForSelectedAgent() {
@@ -151,18 +359,34 @@ function renderAgentList() {
     return;
   }
 
-  state.mineAgents.forEach((agent) => {
-    const status = state.agentStatus.get(agent.id)?.status || agent.status;
-    const activeClass = state.selectedAgentId === agent.id
-      ? "border-blue-500 bg-blue-500/10"
-      : "border-slate-700 bg-slate-800/40";
+  const mine = state.mineAgents.filter((agent) => Number(agent.owner_user_id) === state.currentUserId);
+  const shared = state.mineAgents.filter((agent) => Number(agent.owner_user_id) !== state.currentUserId);
 
-    const button = document.createElement("button");
-    button.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
-    button.innerHTML = `<div class="flex items-center justify-between"><span class="font-medium">${safe(agent.name)}</span><span class="h-2.5 w-2.5 rounded-full ${status === "running" ? "bg-emerald-400" : "bg-slate-500"}"></span></div>`;
-    button.addEventListener("click", () => selectAgentById(agent.id));
-    dom.mineList.append(button);
-  });
+  const renderSection = (title, agents) => {
+    if (!agents.length) return;
+    const section = document.createElement("div");
+    section.className = "space-y-2";
+    section.innerHTML = `<div class="text-xs uppercase tracking-wide text-slate-400 mt-2">${safe(title)}</div>`;
+
+    agents.forEach((agent) => {
+      const status = state.agentStatus.get(agent.id)?.status || agent.status;
+      const activeClass = state.selectedAgentId === agent.id
+        ? "border-blue-500 bg-blue-500/10"
+        : "border-slate-700 bg-slate-800/40";
+      const badge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-500">shared</span>';
+
+      const button = document.createElement("button");
+      button.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
+      button.innerHTML = `<div class="flex items-center justify-between"><span class="font-medium">${safe(agent.name)}${badge}</span><span class="h-2.5 w-2.5 rounded-full ${status === "running" ? "bg-emerald-400" : "bg-slate-500"}"></span></div>`;
+      button.addEventListener("click", () => selectAgentById(agent.id));
+      section.append(button);
+    });
+
+    dom.mineList.append(section);
+  };
+
+  renderSection("My Space", mine);
+  renderSection("Shared", shared);
 }
 
 function renderAgentMeta(agent) {
@@ -182,40 +406,56 @@ function renderAgentActions(agent, status) {
   if (!dom.agentActions) return;
 
   dom.agentActions.innerHTML = "";
-  const buildButton = (label, classes, onClick) => {
+  const writable = canWriteAgent(agent);
+
+  const container = document.createElement("div");
+  container.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
+
+  const grid = document.createElement("div");
+  grid.className = "grid grid-cols-3 gap-1.5";
+
+  const buildIconBtn = ({ label, icon, classes, onClick, disabled = false }) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = classes;
-    button.textContent = label;
+    button.title = label;
+    button.className = `h-9 rounded-lg border text-slate-100 inline-flex items-center justify-center ${classes}`;
+    button.innerHTML = `<i data-lucide="${icon}"></i>`;
+    button.disabled = disabled;
     button.addEventListener("click", onClick);
     return button;
   };
 
-  const primary = document.createElement("div");
-  primary.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
-  const secondary = document.createElement("div");
-  secondary.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
+  const actions = [
+    { label: "Start", icon: "play", classes: "border-emerald-600/60 bg-emerald-600/20 hover:bg-emerald-600/35", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
+    { label: "Stop", icon: "square", classes: "border-amber-500/60 bg-amber-500/20 hover:bg-amber-500/35", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
+    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
+    { label: "Edit", icon: "pencil", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: "Delete Runtime", icon: "trash-2", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true) },
+    { label: "Destroy", icon: "flame", classes: "border-rose-600/70 bg-rose-600/25 hover:bg-rose-600/40", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
+  ];
 
-  const startButton = buildButton("Start", "w-full rounded-lg bg-emerald-600/80 px-3 py-2 font-semibold", () => action(`/api/agents/${agent.id}/start`));
-  const stopButton = buildButton("Stop", "w-full rounded-lg bg-amber-500/90 px-3 py-2 font-semibold", () => action(`/api/agents/${agent.id}/stop`));
-  startButton.disabled = !(status === "stopped" || status === "failed");
-  stopButton.disabled = status !== "running";
+  actions.forEach((cfg) => grid.append(buildIconBtn(cfg)));
+  container.append(grid);
 
-  primary.append(startButton, stopButton);
-  secondary.append(
-    buildButton(agent.visibility === "public" ? "Unshare" : "Share", "w-full rounded-lg bg-slate-700 px-3 py-2", () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`)),
-    buildButton("Edit", "w-full rounded-lg bg-slate-700 px-3 py-2", () => openEditDialog(agent)),
-    buildButton("Delete Runtime", "w-full rounded-lg bg-slate-700 px-3 py-2", () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true)),
-    buildButton("Destroy", "w-full rounded-lg bg-rose-600/90 px-3 py-2 font-semibold", () => action(`/api/agents/${agent.id}/destroy`, "POST", true)),
-  );
+  if (!writable) {
+    const note = document.createElement("div");
+    note.className = "text-xs text-slate-400";
+    note.textContent = "Read-only for shared agent.";
+    container.append(note);
+  }
 
-  dom.agentActions.append(primary, secondary);
+  dom.agentActions.append(container);
+  renderIcons();
 }
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
-  state.cachedSkills = [];
+  if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
+  state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.cachedMentionFiles = [];
+  state.selectedSuggestionIndex = -1;
+  state.inflightThinking = null;
+  disconnectEventSocket();
 
   if (dom.chatAgentId) dom.chatAgentId.value = agentId || "";
   syncHiddenSessionInputFromState();
@@ -239,6 +479,12 @@ async function syncSelectedAgentState() {
   const status = state.agentStatus.get(agent.id)?.status || agent.status;
   dom.embedTitle.textContent = agent.name;
   dom.selectedStatus.textContent = status;
+  if (dom.selectedStatus) {
+    dom.selectedStatus.className = "px-3 py-1 rounded-full text-xs border";
+    if (status === "running") dom.selectedStatus.classList.add("border-emerald-200", "bg-emerald-50", "text-emerald-700");
+    else if (status === "failed") dom.selectedStatus.classList.add("border-rose-200", "bg-rose-50", "text-rose-700");
+    else dom.selectedStatus.classList.add("border-slate-200", "bg-slate-100", "text-slate-600");
+  }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
   syncHiddenSessionInputFromState();
@@ -252,8 +498,14 @@ async function syncSelectedAgentState() {
 }
 
 async function refreshAll() {
-  const mine = await api("/api/agents/mine");
-  state.mineAgents = mine;
+  const [mine, publicAgents] = await Promise.all([
+    api("/api/agents/mine"),
+    api("/api/agents/public"),
+  ]);
+
+  const allById = new Map();
+  [...mine, ...publicAgents].forEach((agent) => allById.set(agent.id, agent));
+  state.mineAgents = Array.from(allById.values());
 
   const pairs = await Promise.all(state.mineAgents.map(async (agent) => {
     try {
@@ -264,7 +516,13 @@ async function refreshAll() {
   }));
 
   state.agentStatus = new Map(pairs);
+
+  const available = new Set(state.mineAgents.map((agent) => agent.id));
+  const stored = localStorage.getItem(LAST_AGENT_STORAGE_KEY) || "";
+  if (state.selectedAgentId && !available.has(state.selectedAgentId)) state.selectedAgentId = null;
+  if (!state.selectedAgentId && stored && available.has(stored)) state.selectedAgentId = stored;
   if (!state.selectedAgentId && state.mineAgents.length) state.selectedAgentId = state.mineAgents[0].id;
+  if (state.selectedAgentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, state.selectedAgentId);
 
   renderAgentList();
   await syncSelectedAgentState();
@@ -273,34 +531,77 @@ async function refreshAll() {
 // ===== chat submit lifecycle (HTMX) =====
 function handleChatBeforeRequest(event) {
   if (event.target?.id !== "chat-form") return;
-  setChatStatus("Thinking...");
+  if (state.isSubmittingChat) {
+    event.preventDefault();
+    return;
+  }
+
+  setChatSubmitting(true);
+  state.pendingMessage = dom.chatInput?.value || "";
+  removeWelcomeMessageIfPresent();
+  removePendingAssistantPlaceholder();
+  hideSuggest();
+  if (dom.messageList && state.pendingMessage.trim()) {
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage));
+    const thinkingId = `thinking-${Date.now()}`;
+    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
+    if (pending) pending.dataset.thinkingId = thinkingId;
+    state.inflightThinking = { id: thinkingId, events: [], completed: false };
+    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+    ensureEventSocketForSelectedAgent();
+    scrollToBottom();
+  }
+  if (dom.chatInput) dom.chatInput.value = "";
+  setChatStatus("Sending...");
 }
 
 function handleChatResponseError(event) {
   if (event.target?.id !== "chat-form") return;
+
+  removePendingAssistantPlaceholder();
+  setChatSubmitting(false);
+  if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
+  state.pendingMessage = "";
+  state.inflightThinking = null;
   setChatStatus("Send failed");
+}
+
+function handleChatAfterRequest(event) {
+  if (event.target?.id !== "chat-form") return;
+  if (!event.detail?.successful) return;
+
+  setChatSubmitting(false);
+  state.pendingMessage = "";
 }
 
 function handleChatAfterSwap(target) {
   if (target?.id !== "message-list") return;
+
+  const pendingEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
+  removePendingAssistantPlaceholder();
+  if (pendingEvents.length) attachThinkingToLatestAssistant(pendingEvents);
+  state.inflightThinking = null;
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
   const sessionFromInput = dom.chatSessionId?.value || "";
   updateSelectedAgentSession(sessionFromInput);
 
   renderMarkdown(dom.messageList);
+  decorateToolMessages(dom.messageList);
   renderIcons();
   scrollToBottom();
 
-  if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Ready");
 }
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
+  document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
     handleChatAfterSwap(event.target);
+    if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
     renderIcons();
   });
   document.addEventListener("htmx:responseError", handleChatResponseError);
@@ -321,13 +622,37 @@ function showSuggest(items, onPick) {
   }
 
   dom.chatSuggest.innerHTML = items.map((item, index) => (
-    `<button type="button" data-i="${index}" class="w-full text-left rounded-lg px-2 py-1 hover:bg-slate-700"><div class="font-medium">${safe(item.title)}</div><div class="text-xs text-slate-400">${safe(item.desc || "")}</div></button>`
+    `<button type="button" data-i="${index}" class="w-full text-left rounded-lg px-2 py-1 hover:bg-slate-700"><div class="font-medium">${safe(item.label || item.title || "")}</div><div class="text-xs text-slate-400">${safe(item.desc || "")}</div></button>`
   )).join("");
   dom.chatSuggest.classList.remove("hidden");
+  state.selectedSuggestionIndex = 0;
 
-  dom.chatSuggest.querySelectorAll("button").forEach((button) => {
+  const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
+  buttons.forEach((button) => {
     button.addEventListener("click", () => onPick(items[Number(button.dataset.i)]));
   });
+  buttons[0]?.classList.add("bg-slate-700");
+}
+
+function moveSuggestionSelection(direction) {
+  if (!dom.chatSuggest || dom.chatSuggest.classList.contains("hidden")) return;
+  const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
+  if (!buttons.length) return;
+
+  buttons.forEach((b) => b.classList.remove("bg-slate-700"));
+  state.selectedSuggestionIndex = (state.selectedSuggestionIndex + direction + buttons.length) % buttons.length;
+  const selected = buttons[state.selectedSuggestionIndex];
+  selected.classList.add("bg-slate-700");
+  selected.scrollIntoView({ block: "nearest" });
+}
+
+function pickCurrentSuggestion() {
+  if (!dom.chatSuggest || dom.chatSuggest.classList.contains("hidden")) return false;
+  const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
+  if (!buttons.length) return false;
+  const idx = Math.max(0, Math.min(state.selectedSuggestionIndex, buttons.length - 1));
+  buttons[idx].click();
+  return true;
 }
 
 function insertFileReference(fileRef) {
@@ -352,14 +677,17 @@ async function maybeShowSuggest() {
     if (!state.cachedSkills.length) {
       try {
         const data = await agentApi("/api/skills");
-        state.cachedSkills = (data.skills || []).map((item) => ({ title: `/${item}`, desc: "Skill" }));
+        state.cachedSkills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
+        if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, state.cachedSkills);
       } catch {
         state.cachedSkills = [];
       }
     }
 
     showSuggest(state.cachedSkills, (item) => {
-      dom.chatInput.setRangeText(`${item.title} `, cursor - slash[2].length, cursor, "end");
+      const command = normalizeSkillCommand(item.command || item.label || item.title);
+      if (!command) return;
+      dom.chatInput.setRangeText(`${command} `, cursor - slash[2].length, cursor, "end");
       hideSuggest();
     });
     return;
@@ -409,7 +737,7 @@ async function openSessionsPanel() {
   });
 }
 
-function renderChatHistory(messages) {
+function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
 
   if (!messages.length) {
@@ -426,7 +754,7 @@ function renderChatHistory(messages) {
     roleLabel.className = "text-xs uppercase tracking-wide mb-2";
 
     if (message.role === "user") {
-      article.className = "ml-auto max-w-3xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
+      article.className = "ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
       roleLabel.classList.add("text-blue-200");
       roleLabel.textContent = "You";
       const content = document.createElement("div");
@@ -434,7 +762,7 @@ function renderChatHistory(messages) {
       content.textContent = message.content || "";
       article.append(roleLabel, content);
     } else {
-      article.className = "max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4";
+      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4 assistant-message";
       roleLabel.classList.add("text-slate-400");
       roleLabel.textContent = "Assistant";
       const content = document.createElement("div");
@@ -447,6 +775,13 @@ function renderChatHistory(messages) {
   });
 
   renderMarkdown(dom.messageList);
+  decorateToolMessages(dom.messageList);
+
+  const storedEvents = Array.isArray(metadata?.thinking_events) ? metadata.thinking_events
+    .filter((event) => isTrackableThinkingEvent(event?.type))
+    .map((event) => ({ type: event.type, data: event.data || event, ts: event.ts || Date.now() / 1000 })) : [];
+  if (storedEvents.length) attachThinkingToLatestAssistant(storedEvents);
+
   scrollToBottom();
 }
 
@@ -456,7 +791,7 @@ async function loadSession(sessionId) {
 
   const data = await agentApi(`/api/sessions/${encodeURIComponent(normalized)}`);
   updateSelectedAgentSession(normalized);
-  renderChatHistory(data.messages || []);
+  renderChatHistory(data.messages || [], data.metadata || {});
 
   setChatStatus(`Loaded session ${normalized}`);
   await openSessionsPanel();
@@ -474,6 +809,47 @@ async function openServerFiles() {
   }
 }
 
+async function openSkillsPanel() {
+  if (!state.selectedAgentId) return;
+
+  setDetailOpen(true);
+  setToolPanel("Skills", '<div class="text-xs text-slate-400">Loading skills…</div>');
+
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML",
+    });
+
+    if (!state.cachedSkillsByAgent.has(state.selectedAgentId)) {
+      const data = await agentApi("/api/skills");
+      const mapped = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
+      state.cachedSkillsByAgent.set(state.selectedAgentId, mapped);
+      state.cachedSkills = mapped;
+    }
+  } catch (error) {
+    setToolPanel("Skills", `Failed: ${safe(error.message)}`);
+  }
+}
+
+
+async function openUsagePanel() {
+  if (!state.selectedAgentId) return;
+
+  setDetailOpen(true);
+  setToolPanel("Usage", '<div class="text-xs text-slate-400">Loading usage…</div>');
+
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML",
+    });
+  } catch (error) {
+    setToolPanel("Usage", `Failed: ${safe(error.message)}`);
+  }
+}
+
+
 async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
@@ -490,6 +866,49 @@ async function openMyUploads() {
   }
 }
 
+
+function normalizeInstanceInputs(group) {
+  const container = dom.toolPanelBody?.querySelector(`[data-instance-container="${group}"]`);
+  const countInput = dom.toolPanelBody?.querySelector(`[data-instance-count="${group}"]`);
+  if (!container || !countInput) return;
+
+  const items = Array.from(container.querySelectorAll(`[data-instance-item="${group}"]`));
+  items.forEach((item, idx) => {
+    const title = item.querySelector("span");
+    if (title) title.textContent = `Instance ${idx + 1}`;
+    item.querySelectorAll("input[data-field]").forEach((input) => {
+      const field = input.dataset.field;
+      input.name = `${group}_instances_${idx}_${field}`;
+    });
+  });
+  countInput.value = String(items.length);
+}
+
+function addInstanceRow(group) {
+  const container = dom.toolPanelBody?.querySelector(`[data-instance-container="${group}"]`);
+  if (!container) return;
+
+  const fields = group === "jira"
+    ? ["name", "url", "username", "password", "token", "project"]
+    : ["name", "url", "username", "password", "token", "space"];
+
+  const div = document.createElement("div");
+  div.className = "rounded border border-slate-700 p-2 space-y-1";
+  div.dataset.instanceItem = group;
+  div.innerHTML = `
+    <div class="flex justify-between items-center"><span class="text-xs text-slate-400">Instance</span><button type="button" class="text-xs text-rose-300" data-action="remove-instance" data-group="${group}">Remove</button></div>
+    ${fields.map((f) => `<input type="${f === "password" || f === "token" ? "password" : "text"}" data-field="${f}" placeholder="${f[0].toUpperCase()}${f.slice(1)}" class="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs" />`).join("")}
+  `;
+  container.append(div);
+  normalizeInstanceInputs(group);
+}
+
+function initializeSettingsPanel() {
+  if (!dom.toolPanelBody?.querySelector("#settings-form")) return;
+  normalizeInstanceInputs("jira");
+  normalizeInstanceInputs("confluence");
+}
+
 async function openSettings() {
   if (!state.selectedAgentId) return;
 
@@ -501,6 +920,7 @@ async function openSettings() {
       target: "#tool-panel-body",
       swap: "innerHTML",
     });
+    initializeSettingsPanel();
   } catch (error) {
     setToolPanel("Settings", `Failed: ${safe(error.message)}`);
   }
@@ -543,6 +963,8 @@ async function clearChat() {
     }
 
     updateSelectedAgentSession("");
+    state.inflightThinking = null;
+    removePendingAssistantPlaceholder();
     clearMessageListToWelcome();
     setChatStatus("Chat cleared");
   } catch (error) {
@@ -552,6 +974,8 @@ async function clearChat() {
 
 async function startNewChatForSelectedAgent() {
   updateSelectedAgentSession("");
+  state.inflightThinking = null;
+  removePendingAssistantPlaceholder();
   clearMessageListToWelcome();
   setChatStatus("New chat started");
 
@@ -587,8 +1011,23 @@ function bindEvents() {
 
   dom.chatInput?.addEventListener("input", maybeShowSuggest);
   dom.chatInput?.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" && !dom.chatSuggest?.classList.contains("hidden")) {
+      event.preventDefault();
+      moveSuggestionSelection(1);
+      return;
+    }
+    if (event.key === "ArrowUp" && !dom.chatSuggest?.classList.contains("hidden")) {
+      event.preventDefault();
+      moveSuggestionSelection(-1);
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && !dom.chatSuggest?.classList.contains("hidden")) {
+      event.preventDefault();
+      if (pickCurrentSuggestion()) return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      if (state.isSubmittingChat) return;
       htmx.trigger("#chat-form", "submit");
     }
   });
@@ -599,6 +1038,8 @@ function bindEvents() {
   dom.topUpload?.addEventListener("click", () => dom.uploadInput.click());
   dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
   dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
+  dom.topSkills?.addEventListener("click", openSkillsPanel);
+  dom.topUsage?.addEventListener("click", openUsagePanel);
   dom.topSessions?.addEventListener("click", openSessionsPanel);
   dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
   dom.topClearChat?.addEventListener("click", clearChat);
@@ -623,8 +1064,37 @@ function bindEvents() {
       event.preventDefault();
       insertFileReference(fileBtn.dataset.fileRef || "");
       setChatStatus(`Inserted ${fileBtn.dataset.fileRef || "file reference"}`);
+      return;
+    }
+
+    const skillBtn = event.target.closest("[data-skill-command]");
+    if (skillBtn) {
+      event.preventDefault();
+      const command = normalizeSkillCommand(skillBtn.dataset.skillCommand);
+      if (!command) return;
+      dom.chatInput.setRangeText(`${command} `, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
+      dom.chatInput.focus();
+      setChatStatus(`Inserted ${command}`);
+      return;
+    }
+
+    const addBtn = event.target.closest('[data-action="add-instance"]');
+    if (addBtn) {
+      event.preventDefault();
+      addInstanceRow(addBtn.dataset.group || "jira");
+      return;
+    }
+
+    const removeBtn = event.target.closest('[data-action="remove-instance"]');
+    if (removeBtn) {
+      event.preventDefault();
+      const group = removeBtn.dataset.group || "jira";
+      removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
+      normalizeInstanceInputs(group);
     }
   });
+
+  dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.logoutBtn?.addEventListener("click", async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -633,9 +1103,14 @@ function bindEvents() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const initialTheme = localStorage.getItem("portal-theme") || (document.documentElement.getAttribute("data-theme") || "dark");
+  applyTheme(initialTheme);
+
   bindEvents();
   initializeRenderLifecycle();
   await refreshAll();
   renderMarkdown(document);
   renderIcons();
 });
+
+window.addEventListener("beforeunload", disconnectEventSocket);

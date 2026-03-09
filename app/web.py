@@ -39,6 +39,47 @@ def _can_access(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
 
 
+def _settings_view_payload(config_data: dict) -> dict:
+    llm = config_data.get("llm") if isinstance(config_data.get("llm"), dict) else {}
+    jira = config_data.get("jira") if isinstance(config_data.get("jira"), dict) else {}
+    confluence = config_data.get("confluence") if isinstance(config_data.get("confluence"), dict) else {}
+
+    jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []
+    if not jira_instances and jira.get("url"):
+        jira_instances = [{
+            "name": "Default",
+            "url": jira.get("url") or "",
+            "username": jira.get("username") or "",
+            "password": jira.get("password") or "",
+            "token": jira.get("token") or "",
+            "project": jira.get("project") or "",
+        }]
+
+    confluence_instances = confluence.get("instances") if isinstance(confluence.get("instances"), list) else []
+    if not confluence_instances and confluence.get("url"):
+        confluence_instances = [{
+            "name": "Default",
+            "url": confluence.get("url") or "",
+            "username": confluence.get("username") or "",
+            "password": confluence.get("password") or "",
+            "token": confluence.get("token") or "",
+            "space": confluence.get("space") or "",
+        }]
+
+    return {
+        "config": config_data,
+        "llm": llm,
+        "jira": jira,
+        "jira_instances": jira_instances,
+        "confluence": confluence,
+        "confluence_instances": confluence_instances,
+        "github": config_data.get("github") if isinstance(config_data.get("github"), dict) else {},
+        "git": config_data.get("git") if isinstance(config_data.get("git"), dict) else {},
+        "ssh": config_data.get("ssh") if isinstance(config_data.get("ssh"), dict) else {},
+        "debug": config_data.get("debug") if isinstance(config_data.get("debug"), dict) else {},
+    }
+
+
 @router.get("/")
 def index(request: Request) -> RedirectResponse:
     user = _current_user_from_cookie(request)
@@ -64,6 +105,7 @@ def app_page(request: Request):
             "request": request,
             "title": "Engineering Portal",
             "username": user.username,
+            "user_id": user.id,
             "role": user.role,
         },
     )
@@ -107,6 +149,86 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
                 "request": request,
                 "sessions": payload.get("sessions") or [],
                 "current_session_id": current_session_id,
+            },
+        )
+    finally:
+        db.close()
+
+
+
+
+@router.get("/app/agents/{agent_id}/skills/panel")
+async def app_agent_skills_panel(request: Request, agent_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/skills",
+            query_items=[],
+            body=None,
+            headers={},
+        )
+
+        if status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+
+        payload = json.loads(content.decode("utf-8"))
+        return templates.TemplateResponse(
+            "partials/skills_panel.html",
+            {
+                "request": request,
+                "skills": payload.get("skills") or [],
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/agents/{agent_id}/usage/panel")
+async def app_agent_usage_panel(request: Request, agent_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    days = (request.query_params.get("days") or "30").strip()
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/usage",
+            query_items=[("days", days)],
+            body=None,
+            headers={},
+        )
+
+        if status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+
+        payload = json.loads(content.decode("utf-8"))
+        return templates.TemplateResponse(
+            "partials/usage_panel.html",
+            {
+                "request": request,
+                "usage": payload if isinstance(payload, dict) else {},
             },
         )
     finally:
@@ -183,14 +305,15 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
 
         payload = json.loads(content.decode("utf-8"))
         config_data = payload.get("config") or {}
+        view_data = _settings_view_payload(config_data)
         return templates.TemplateResponse(
             "partials/settings_panel.html",
             {
                 "request": request,
                 "agent_id": agent_id,
-                "llm": config_data.get("llm") or {},
                 "status_type": "",
                 "status_message": "",
+                **view_data,
             },
         )
     finally:
@@ -204,46 +327,107 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
     form = await request.form()
-    model = (form.get("model") or "").strip()
-    api_base = (form.get("api_base") or "").strip()
-    temperature_raw = (form.get("temperature") or "").strip()
-    max_tokens_raw = (form.get("max_tokens") or "").strip()
 
-    llm_payload = {}
-    if model:
-        llm_payload["model"] = model
-    if api_base:
-        llm_payload["api_base"] = api_base
+    def as_bool(value) -> bool:
+        return str(value or "").lower() in {"1", "true", "on", "yes"}
 
-    if temperature_raw:
+    def parse_instances(prefix: str, fields: list[str]) -> list[dict]:
+        count_text = (form.get(f"{prefix}_instance_count") or "0").strip()
         try:
-            llm_payload["temperature"] = float(temperature_raw)
+            count = max(0, int(count_text))
         except ValueError:
+            count = 0
+
+        instances = []
+        for i in range(count):
+            item = {}
+            for field in fields:
+                item[field] = (form.get(f"{prefix}_instances_{i}_{field}") or "").strip()
+            if item.get("name") or item.get("url"):
+                instances.append(item)
+        return instances
+
+    original_config_json = (form.get("original_config_json") or "").strip()
+    try:
+        config_payload = json.loads(original_config_json) if original_config_json else {}
+    except Exception:
+        config_payload = {}
+    if not isinstance(config_payload, dict):
+        config_payload = {}
+
+    llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
+    llm["provider"] = (form.get("llm_provider") or "").strip()
+    llm["model"] = (form.get("llm_model") or "").strip()
+    llm["api_key"] = (form.get("llm_api_key") or "").strip()
+    llm["api_base"] = (form.get("llm_api_base") or "").strip()
+
+    temperature_text = (form.get("llm_temperature") or "").strip()
+    if temperature_text:
+        try:
+            llm["temperature"] = float(temperature_text)
+        except ValueError:
+            view_data = _settings_view_payload(config_payload)
             return templates.TemplateResponse(
                 "partials/settings_panel.html",
                 {
                     "request": request,
                     "agent_id": agent_id,
-                    "llm": {"model": model, "api_base": api_base, "temperature": temperature_raw, "max_tokens": max_tokens_raw},
                     "status_type": "error",
                     "status_message": "Temperature must be a number.",
+                    **view_data,
                 },
             )
 
-    if max_tokens_raw:
+    max_tokens_text = (form.get("llm_max_tokens") or "").strip()
+    if max_tokens_text:
         try:
-            llm_payload["max_tokens"] = int(max_tokens_raw)
+            llm["max_tokens"] = int(max_tokens_text)
         except ValueError:
+            view_data = _settings_view_payload(config_payload)
             return templates.TemplateResponse(
                 "partials/settings_panel.html",
                 {
                     "request": request,
                     "agent_id": agent_id,
-                    "llm": {"model": model, "api_base": api_base, "temperature": temperature_raw, "max_tokens": max_tokens_raw},
                     "status_type": "error",
                     "status_message": "Max tokens must be an integer.",
+                    **view_data,
                 },
             )
+
+    jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
+    jira["enabled"] = as_bool(form.get("jira_enabled"))
+    jira["instances"] = parse_instances("jira", ["name", "url", "username", "password", "token", "project"])
+
+    confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
+    confluence["enabled"] = as_bool(form.get("confluence_enabled"))
+    confluence["instances"] = parse_instances("confluence", ["name", "url", "username", "password", "token", "space"])
+
+    github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
+    github_cfg["enabled"] = as_bool(form.get("github_enabled"))
+    github_cfg["api_token"] = (form.get("github_api_token") or "").strip()
+    github_cfg["base_url"] = (form.get("github_base_url") or "").strip()
+
+    git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
+    git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
+    git_user["name"] = (form.get("git_user_name") or "").strip()
+    git_user["email"] = (form.get("git_user_email") or "").strip()
+    git_cfg["user"] = git_user
+
+    ssh_cfg = (config_payload.get("ssh") if isinstance(config_payload.get("ssh"), dict) else {}).copy()
+    ssh_cfg["enabled"] = as_bool(form.get("ssh_enabled"))
+    ssh_cfg["private_key_path"] = (form.get("ssh_private_key_path") or "").strip()
+
+    debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
+    debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
+
+    config_payload["llm"] = llm
+    config_payload["jira"] = jira
+    config_payload["confluence"] = confluence
+    config_payload["github"] = github_cfg
+    config_payload["git"] = git_cfg
+    config_payload["ssh"] = ssh_cfg
+    config_payload["debug"] = debug_cfg
 
     db = SessionLocal()
     status_type = "success"
@@ -260,7 +444,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             method="POST",
             subpath="api/config/save",
             query_items=[],
-            body=json.dumps({"llm": llm_payload}).encode("utf-8"),
+            body=json.dumps(config_payload).encode("utf-8"),
             headers={"content-type": "application/json"},
         )
 
@@ -277,22 +461,23 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             headers={},
         )
 
-        llm = llm_payload.copy()
+        config_data = config_payload
         if read_status < 400:
             payload = json.loads(read_content.decode("utf-8"))
-            llm = (payload.get("config") or {}).get("llm") or llm
+            config_data = payload.get("config") or config_payload
         elif status_type != "error":
             status_type = "error"
             status_message = f"Saved but failed to reload panel: {read_content.decode('utf-8', errors='ignore')}"
 
+        view_data = _settings_view_payload(config_data)
         return templates.TemplateResponse(
             "partials/settings_panel.html",
             {
                 "request": request,
                 "agent_id": agent_id,
-                "llm": llm,
                 "status_type": status_type,
                 "status_message": status_message,
+                **view_data,
             },
         )
     finally:
