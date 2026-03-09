@@ -33,31 +33,11 @@
         <span class="mb-1 block text-slate-600 dark:text-slate-400">API Key</span>
         <input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
       </label>
-    </section>
-
-    <!-- GitHub Copilot Authorization (shown only when github_copilot is selected) -->
-    <section id="copilot_auth_section" class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3" style="display: none;">
-      <div class="flex items-center gap-2">
-        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">GitHub Copilot Authorization</h6>
-      </div>
       
-      <div id="copilot_auth_content" class="space-y-3">
-        <button type="button" id="copilot_auth_btn" class="w-full rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 px-4 py-2 text-sm font-medium text-white transition-colors">
-          Authorize GitHub Copilot
-        </button>
-        
-        <div id="copilot_auth_status" class="hidden rounded-lg border border-slate-300 dark:border-slate-600 p-3 space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-slate-700 dark:text-slate-300">Status:</span>
-            <span id="copilot_status_text" class="text-xs text-slate-500">Not authorized</span>
-          </div>
-          <div id="copilot_device_info" class="hidden space-y-2">
-            <p class="text-xs text-slate-500">Visit: <a id="copilot_sso_url" href="#" target="_blank" class="text-blue-500 hover:underline"></a></p>
-            <p class="text-xs text-slate-500">Code: <span id="copilot_user_code" class="font-mono font-bold"></span></p>
-          </div>
-        </div>
-      </div>
+      <!-- Authorize GitHub Copilot Button (shown only for github_copilot) -->
+      <button type="button" id="copilot_auth_btn" class="w-full rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 px-4 py-2 text-sm font-medium text-white transition-colors hidden">
+        Authorize GitHub Copilot
+      </button>
     </section>
 
     <!-- Jira Section -->
@@ -186,14 +166,14 @@
         modelSelect.appendChild(option);
       });
 
-      // Show/hide GitHub Copilot auth section
-      const copilotSection = document.getElementById('copilot_auth_section');
-      if (copilotSection) {
-        copilotSection.style.display = provider === 'github_copilot' ? 'block' : 'none';
+      // Show/hide GitHub Copilot auth button
+      const copilotBtn = document.getElementById('copilot_auth_btn');
+      if (copilotBtn) {
+        copilotBtn.classList.toggle('hidden', provider !== 'github_copilot');
       }
     }
 
-    // Initialize immediately (works with HTMX)
+    // Initialize immediately
     function initSettings() {
       updateModelOptions();
       
@@ -202,9 +182,24 @@
       if (providerSelect) {
         providerSelect.addEventListener('change', updateModelOptions);
       }
+      
+      // Handle Authorize button click
+      const authBtn = document.getElementById('copilot_auth_btn');
+      if (authBtn) {
+        authBtn.addEventListener('click', async function() {
+          try {
+            const response = await fetch('/api/copilot/auth/start', { method: 'POST' });
+            const data = await response.json();
+            if (data.device_code) {
+              alert('Please visit: ' + data.verification_uri + '\nEnter code: ' + data.user_code);
+            }
+          } catch (e) {
+            alert('Failed to start authorization: ' + e);
+          }
+        });
+      }
     }
     
-    // Run on load
     initSettings();
   </script>
 </div>
