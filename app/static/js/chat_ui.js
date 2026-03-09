@@ -128,7 +128,7 @@ function canWriteAgent(agent) {
 }
 
 function buildUserMessageArticle(text) {
-  return `<article class="ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4" data-local-user="1"><p class="text-xs uppercase tracking-wide text-blue-200 mb-2">You</p><div class="whitespace-pre-wrap text-slate-100">${safe(text)}</div></article>`;
+  return `<article class="ml-auto max-w-2xl rounded-2xl bg-blue-600 px-4 py-3 text-white shadow-lg" data-local-user="1"><p class="text-xs font-semibold text-blue-100 mb-2">You</p><div class="whitespace-pre-wrap text-sm">${safe(text)}</div></article>`;
 }
 
 function buildPendingAssistantArticle() {
