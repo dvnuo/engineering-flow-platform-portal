@@ -39,7 +39,6 @@ const dom = {
   composerPlusBtn: document.getElementById("composer-plus-btn"),
   composerMenu: document.getElementById("composer-menu"),
   uploadInput: document.getElementById("upload-input"),
-  floatingNewChat: document.getElementById("floating-new-chat"),
   topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
@@ -1210,7 +1209,6 @@ function bindEvents() {
 
   dom.uploadInput?.addEventListener("change", uploadFile);
 
-  dom.floatingNewChat?.addEventListener("click", startNewChatForSelectedAgent);
   dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
   dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
   dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
