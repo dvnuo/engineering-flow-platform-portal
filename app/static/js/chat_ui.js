@@ -881,7 +881,7 @@ function renderChatHistory(messages, metadata = {}) {
     header.className = "flex items-center gap-2 mb-1";
     
     const roleLabel = document.createElement("span");
-    roleLabel.className = isUser ? "text-xs text-blue-400" : "text-xs text-slate-400";
+    roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
     roleLabel.textContent = isUser ? "You" : "Assistant";
     
     header.appendChild(roleLabel);
@@ -898,15 +898,15 @@ function renderChatHistory(messages, metadata = {}) {
     // Message bubble
     const article = document.createElement("article");
     if (isUser) {
-      article.className = "max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
+      article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
       const content = document.createElement("div");
-      content.className = "whitespace-pre-wrap text-slate-100 text-right";
+      content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
       article.appendChild(content);
     } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4 assistant-message";
+      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
       const content = document.createElement("div");
-      content.className = "md-render prose prose-invert max-w-none";
+      content.className = "md-render prose prose-invert max-w-none text-sm";
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
