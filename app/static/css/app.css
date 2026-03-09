@@ -253,8 +253,9 @@ html[data-theme="light"] .toolbar-btn:hover,
 html[data-theme="light"] #theme-toggle:hover,
 html[data-theme="light"] #detail-toggle:hover,
 html[data-theme="light"] #close-tool-panel:hover,
-html[data-theme="light"] #detail-close:hover {
-  background: #f9fafb;
+html[data-theme="light"] #detail-close:hover,
+html[data-theme="light"] #top-settings:hover {
+  background: #e5e7eb !important;
   color: #111827;
 }
 
