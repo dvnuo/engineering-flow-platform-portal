@@ -446,26 +446,29 @@ function renderAgentActions(agent, status) {
   container.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
 
   const grid = document.createElement("div");
-  grid.className = "grid grid-cols-3 gap-1.5";
+  grid.className = "grid grid-cols-3 gap-2";
 
   const buildIconBtn = ({ label, icon, classes, onClick, disabled = false }) => {
     const button = document.createElement("button");
     button.type = "button";
     button.title = label;
-    button.className = `h-9 rounded-lg border text-white inline-flex items-center justify-center shadow-sm ${classes}`;
-    button.innerHTML = `<i data-lucide="${icon}"></i>`;
+    button.className = `h-14 rounded-lg border text-white inline-flex flex-col items-center justify-center gap-1 shadow-sm ${classes}`;
+    button.innerHTML = `
+      <i data-lucide="${icon}" class="w-4 h-4"></i>
+      <span class="text-[10px] font-medium opacity-90">${label}</span>
+    `;
     button.disabled = disabled;
     button.addEventListener("click", onClick);
     return button;
   };
 
   const actions = [
-    { label: "Start", icon: "play", classes: "border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
-    { label: "Stop", icon: "square", classes: "border-amber-500 bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
-    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 text-white disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
-    { label: "Edit", icon: "pencil", classes: "border-slate-400 bg-slate-400 hover:bg-slate-500 text-white disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => openEditDialog(agent) },
-    { label: "Delete Runtime", icon: "trash-2", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 text-white disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true) },
-    { label: "Destroy", icon: "flame", classes: "border-rose-600 bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
+    { label: "Start", icon: "play", classes: "border-emerald-600 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
+    { label: "Stop", icon: "square", classes: "border-amber-500 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
+    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-indigo-500 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
+    { label: "Edit", icon: "pencil", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: "Delete", icon: "trash-2", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true) },
+    { label: "Destroy", icon: "flame", classes: "border-rose-600 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
   ];
 
   actions.forEach((cfg) => grid.append(buildIconBtn(cfg)));
