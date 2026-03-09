@@ -618,6 +618,23 @@ function handleChatResponseError(event) {
     }
   }
   setChatStatus(errorMsg, true);
+  
+  // Also show error in message list
+  if (dom.messageList) {
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "message message-error flex gap-3 py-3";
+    errorDiv.innerHTML = `
+      <div class="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+        <i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-red-400 text-sm">${escapeHtml(errorMsg)}</div>
+      </div>
+    `;
+    dom.messageList.appendChild(errorDiv);
+    renderIcons();
+    scrollToBottom();
+  }
 }
 
 function handleChatAfterRequest(event) {
