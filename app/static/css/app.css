@@ -344,3 +344,41 @@ html[data-theme="light"] #app-root aside > div.mt-auto {
   border-bottom-left-radius: 1rem;
   border-bottom-right-radius: 1rem;
 }
+
+/* Light theme input overrides for settings panel */
+html[data-theme="light"] #tool-panel input[type="text"],
+html[data-theme="light"] #tool-panel input[type="password"],
+html[data-theme="light"] #tool-panel input[type="number"] {
+  background: #ffffff !important;
+  border-color: #e5e7eb !important;
+  color: #111827 !important;
+}
+
+html[data-theme="light"] #tool-panel input::placeholder {
+  color: #9ca3af !important;
+}
+
+html[data-theme="light"] #tool-panel section {
+  background: #ffffff !important;
+  border-color: #e5e7eb !important;
+}
+
+html[data-theme="light"] #tool-panel h6 {
+  color: #111827 !important;
+}
+
+html[data-theme="light"] #tool-panel .text-slate-200 {
+  color: #111827 !important;
+}
+
+html[data-theme="light"] #tool-panel .text-slate-300 {
+  color: #374151 !important;
+}
+
+html[data-theme="light"] #tool-panel .text-slate-400 {
+  color: #6b7280 !important;
+}
+
+html[data-theme="light"] #tool-panel .bg-slate-800\/50 {
+  background: #f9fafb !important;
+}

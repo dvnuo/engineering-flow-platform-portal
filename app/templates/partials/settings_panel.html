@@ -1,7 +1,7 @@
 <div class="space-y-4" id="settings-panel-root">
-  <div class="flex items-center justify-between pb-2 border-b border-slate-700">
+  <div class="flex items-center justify-between pb-2 border-b border-slate-700 dark:border-slate-700">
     <div>
-      <h5 class="text-base font-semibold text-slate-100">Settings</h5>
+      <h5 class="text-base font-semibold text-slate-100 dark:text-slate-100 text-slate-800">Settings</h5>
       <p class="text-xs text-slate-400 mt-0.5">Scoped to current agent runtime</p>
     </div>
   </div>
@@ -16,49 +16,49 @@
     <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
 
     <!-- LLM Model Section -->
-    <section class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3">
+    <section class="rounded-xl border border-slate-700 bg-slate-800/50 dark:border-slate-700 dark:bg-slate-800/50 p-4 space-y-3">
       <div class="flex items-center gap-2">
         <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-200">LLM Model</h6>
+        <h6 class="text-sm font-semibold text-slate-200 dark:text-slate-200 text-slate-800">LLM Model</h6>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-xs text-slate-400">
           <span class="mb-1 block">Provider</span>
-          <input type="text" name="llm_provider" value="{{ llm.get('provider', '') }}" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+          <input type="text" name="llm_provider" value="{{ llm.get('provider', '') }}" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
         </label>
         <label class="block text-xs text-slate-400">
           <span class="mb-1 block">Model</span>
-          <input type="text" name="llm_model" value="{{ llm.get('model', '') }}" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+          <input type="text" name="llm_model" value="{{ llm.get('model', '') }}" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
         </label>
       </div>
       <label class="block text-xs text-slate-400">
         <span class="mb-1 block">API Key</span>
-        <input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+        <input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
       </label>
       <label class="block text-xs text-slate-400">
         <span class="mb-1 block">API Base URL</span>
-        <input type="text" name="llm_api_base" value="{{ llm.get('api_base', '') }}" placeholder="https://api.openai.com/v1" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+        <input type="text" name="llm_api_base" value="{{ llm.get('api_base', '') }}" placeholder="https://api.openai.com/v1" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
       </label>
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-xs text-slate-400">
           <span class="mb-1 block">Temperature</span>
-          <input type="text" name="llm_temperature" value="{{ llm.get('temperature', '') }}" placeholder="0.7" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+          <input type="text" name="llm_temperature" value="{{ llm.get('temperature', '') }}" placeholder="0.7" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
         </label>
         <label class="block text-xs text-slate-400">
           <span class="mb-1 block">Max Tokens</span>
-          <input type="text" name="llm_max_tokens" value="{{ llm.get('max_tokens', '') }}" placeholder="4096" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+          <input type="text" name="llm_max_tokens" value="{{ llm.get('max_tokens', '') }}" placeholder="4096" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
         </label>
       </div>
     </section>
 
     <!-- Jira Section -->
-    <section class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3" data-instance-group="jira">
+    <section class="rounded-xl border border-slate-700 bg-slate-800/50 dark:border-slate-700 dark:bg-slate-800/50 p-4 space-y-3" data-instance-group="jira">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-200">Jira</h6>
+          <h6 class="text-sm font-semibold text-slate-200 dark:text-slate-200 text-slate-800">Jira</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <label class="flex items-center gap-2 text-xs text-slate-300 dark:text-slate-300 text-slate-700 cursor-pointer">
           <input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} class="rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500" />
           <span>Enabled</span>
         </label>
@@ -66,19 +66,19 @@
       <input type="hidden" name="jira_instance_count" value="{{ jira_instances|length }}" data-instance-count="jira" />
       <div class="space-y-2" data-instance-container="jira">
         {% for inst in jira_instances %}
-          <div class="rounded-lg border border-slate-600 bg-slate-900/50 p-3 space-y-2" data-instance-item="jira">
+          <div class="rounded-lg border border-slate-600 bg-slate-900/50 dark:border-slate-600 dark:bg-slate-900/50 p-3 space-y-2" data-instance-item="jira">
             <div class="flex justify-between items-center">
-              <span class="text-xs font-medium text-slate-300">Instance {{ loop.index }}</span>
+              <span class="text-xs font-medium text-slate-300 dark:text-slate-300 text-slate-600">Instance {{ loop.index }}</span>
               <button type="button" class="text-xs text-rose-400 hover:text-rose-300" data-action="remove-instance" data-group="jira">✕ Remove</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
-              <input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
+              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
+              <input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
             </div>
-            <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
+            <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
             <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
-              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
+              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
+              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
             </div>
           </div>
         {% endfor %}
@@ -87,13 +87,13 @@
     </section>
 
     <!-- Confluence Section -->
-    <section class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3" data-instance-group="confluence">
+    <section class="rounded-xl border border-slate-700 bg-slate-800/50 dark:border-slate-700 dark:bg-slate-800/50 p-4 space-y-3" data-instance-group="confluence">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-200">Confluence</h6>
+          <h6 class="text-sm font-semibold text-slate-200 dark:text-slate-200 text-slate-800">Confluence</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <label class="flex items-center gap-2 text-xs text-slate-300 dark:text-slate-300 text-slate-700 cursor-pointer">
           <input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} class="rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500" />
           <span>Enabled</span>
         </label>
@@ -101,19 +101,19 @@
       <input type="hidden" name="confluence_instance_count" value="{{ confluence_instances|length }}" data-instance-count="confluence" />
       <div class="space-y-2" data-instance-container="confluence">
         {% for inst in confluence_instances %}
-          <div class="rounded-lg border border-slate-600 bg-slate-900/50 p-3 space-y-2" data-instance-item="confluence">
+          <div class="rounded-lg border border-slate-600 bg-slate-900/50 dark:border-slate-600 dark:bg-slate-900/50 p-3 space-y-2" data-instance-item="confluence">
             <div class="flex justify-between items-center">
-              <span class="text-xs font-medium text-slate-300">Instance {{ loop.index }}</span>
+              <span class="text-xs font-medium text-slate-300 dark:text-slate-300 text-slate-600">Instance {{ loop.index }}</span>
               <button type="button" class="text-xs text-rose-400 hover:text-rose-300" data-action="remove-instance" data-group="confluence">✕ Remove</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
-              <input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
+              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
+              <input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
             </div>
-            <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
+            <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
             <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
-              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs text-slate-200" />
+              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
+              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-200 dark:text-slate-200 text-slate-800" />
             </div>
           </div>
         {% endfor %}
@@ -122,66 +122,66 @@
     </section>
 
     <!-- GitHub Section -->
-    <section class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3">
+    <section class="rounded-xl border border-slate-700 bg-slate-800/50 dark:border-slate-700 dark:bg-slate-800/50 p-4 space-y-3">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-200">GitHub</h6>
+          <h6 class="text-sm font-semibold text-slate-200 dark:text-slate-200 text-slate-800">GitHub</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <label class="flex items-center gap-2 text-xs text-slate-300 dark:text-slate-300 text-slate-700 cursor-pointer">
           <input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} class="rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500" />
           <span>Enabled</span>
         </label>
       </div>
       <label class="block text-xs text-slate-400">
         <span class="mb-1 block">API Token</span>
-        <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+        <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
       </label>
       <label class="block text-xs text-slate-400">
         <span class="mb-1 block">Base URL</span>
-        <input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+        <input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
       </label>
     </section>
 
     <!-- Git Section -->
-    <section class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3">
+    <section class="rounded-xl border border-slate-700 bg-slate-800/50 dark:border-slate-700 dark:bg-slate-800/50 p-4 space-y-3">
       <div class="flex items-center gap-2">
         <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-200">Git</h6>
+        <h6 class="text-sm font-semibold text-slate-200 dark:text-slate-200 text-slate-800">Git</h6>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-xs text-slate-400">
           <span class="mb-1 block">User Name</span>
-          <input type="text" name="git_user_name" value="{{ git.get('user', {}).get('name', '') }}" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+          <input type="text" name="git_user_name" value="{{ git.get('user', {}).get('name', '') }}" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
         </label>
         <label class="block text-xs text-slate-400">
           <span class="mb-1 block">User Email</span>
-          <input type="text" name="git_user_email" value="{{ git.get('user', {}).get('email', '') }}" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+          <input type="text" name="git_user_email" value="{{ git.get('user', {}).get('email', '') }}" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
         </label>
       </div>
     </section>
 
     <!-- SSH Section -->
-    <section class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3">
+    <section class="rounded-xl border border-slate-700 bg-slate-800/50 dark:border-slate-700 dark:bg-slate-800/50 p-4 space-y-3">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-200">SSH</h6>
+          <h6 class="text-sm font-semibold text-slate-200 dark:text-slate-200 text-slate-800">SSH</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <label class="flex items-center gap-2 text-xs text-slate-300 dark:text-slate-300 text-slate-700 cursor-pointer">
           <input type="checkbox" name="ssh_enabled" {% if ssh.get('enabled') %}checked{% endif %} class="rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500" />
           <span>Enabled</span>
         </label>
       </div>
       <label class="block text-xs text-slate-400">
         <span class="mb-1 block">Private Key Path</span>
-        <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa" class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none" />
+        <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa" class="w-full rounded-lg border border-slate-600 dark:border-slate-600 bg-slate-900 dark:bg-slate-900 px-3 py-2 text-sm text-slate-200 dark:text-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none" />
       </label>
     </section>
 
     <!-- Debug Section -->
-    <section class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-      <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+    <section class="rounded-xl border border-slate-700 bg-slate-800/50 dark:border-slate-700 dark:bg-slate-800/50 p-4">
+      <label class="flex items-center gap-2 text-sm text-slate-300 dark:text-slate-300 text-slate-700 cursor-pointer">
         <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
         <input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} class="rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500" />
         <span class="font-semibold">Debug Mode</span>
