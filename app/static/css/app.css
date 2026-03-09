@@ -709,3 +709,17 @@ html[data-theme="light"] .stack button {
 html[data-theme="light"] .stack button:hover {
   background: #2563eb;
 }
+
+/* Suggestion popup items */
+html[data-theme="light"] #chat-suggest button {
+  color: #374151;
+}
+
+html[data-theme="light"] #chat-suggest button:hover,
+html[data-theme="light"] #chat-suggest button.bg-slate-700 {
+  background: #f3f4f6 !important;
+}
+
+html[data-theme="light"] #chat-suggest button .text-slate-400 {
+  color: #6b7280 !important;
+}
