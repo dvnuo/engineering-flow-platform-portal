@@ -34,16 +34,16 @@ const dom = {
   toolPanelBody: document.getElementById("tool-panel-body"),
   closeToolPanel: document.getElementById("close-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
+  detailUsage: document.getElementById("detail-usage"),
   agentActions: document.getElementById("agent-actions"),
-  topNewChat: document.getElementById("top-new-chat"),
-  topUpload: document.getElementById("top-upload"),
-  topServerFiles: document.getElementById("top-server-files"),
-  topMyUploads: document.getElementById("top-my-uploads"),
-  topSkills: document.getElementById("top-skills"),
-  topUsage: document.getElementById("top-usage"),
-  topSessions: document.getElementById("top-sessions"),
+  composerPlus: document.getElementById("composer-plus"),
+  composerPlusMenu: document.getElementById("composer-plus-menu"),
+  plusNewChat: document.getElementById("plus-new-chat"),
+  plusUpload: document.getElementById("plus-upload"),
+  plusMyUploads: document.getElementById("plus-my-uploads"),
+  plusServerFiles: document.getElementById("plus-server-files"),
+  plusSessions: document.getElementById("plus-sessions"),
   topSettings: document.getElementById("top-settings"),
-  topClearChat: document.getElementById("top-clear-chat"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
 };
@@ -318,6 +318,16 @@ function setDetailOpen(open) {
   state.detailOpen = open;
   if (dom.detailPanel) dom.detailPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
   dom.detailBackdrop?.classList.toggle("hidden", !open);
+  if (open) loadUsageIntoDetail();
+}
+
+function setComposerPlusMenuOpen(open) {
+  dom.composerPlusMenu?.classList.toggle("hidden", !open);
+}
+
+function toggleComposerPlusMenu() {
+  if (!dom.composerPlusMenu) return;
+  setComposerPlusMenuOpen(dom.composerPlusMenu.classList.contains("hidden"));
 }
 
 async function api(path, options = {}) {
@@ -569,6 +579,7 @@ async function syncSelectedAgentState() {
 
   renderAgentMeta(agent);
   renderAgentActions(agent, status);
+  await loadUsageIntoDetail();
 
   const running = status === "running";
   dom.centerPlaceholder.classList.toggle("hidden", running);
@@ -1028,6 +1039,20 @@ async function openUsagePanel() {
   }
 }
 
+async function loadUsageIntoDetail() {
+  if (!state.selectedAgentId || !dom.detailUsage) return;
+
+  dom.detailUsage.innerHTML = '<div class="text-xs text-slate-400">Loading usage…</div>';
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
+      target: "#detail-usage",
+      swap: "innerHTML",
+    });
+  } catch (error) {
+    dom.detailUsage.innerHTML = `<div class="text-xs text-rose-400">Failed to load usage: ${safe(error.message)}</div>`;
+  }
+}
+
 
 async function openMyUploads() {
   if (!state.selectedAgentId) return;
@@ -1213,15 +1238,42 @@ function bindEvents() {
 
   dom.uploadInput?.addEventListener("change", uploadFile);
 
-  dom.topNewChat?.addEventListener("click", startNewChatForSelectedAgent);
-  dom.topUpload?.addEventListener("click", () => dom.uploadInput.click());
-  dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
-  dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
-  dom.topSkills?.addEventListener("click", openSkillsPanel);
-  dom.topUsage?.addEventListener("click", openUsagePanel);
-  dom.topSessions?.addEventListener("click", openSessionsPanel);
+  dom.composerPlus?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleComposerPlusMenu();
+  });
+
+  dom.plusNewChat?.addEventListener("click", async () => {
+    setComposerPlusMenuOpen(false);
+    await startNewChatForSelectedAgent();
+  });
+  dom.plusUpload?.addEventListener("click", () => {
+    setComposerPlusMenuOpen(false);
+    dom.uploadInput.click();
+  });
+  dom.plusMyUploads?.addEventListener("click", () => {
+    setComposerPlusMenuOpen(false);
+    setDetailOpen(true);
+    openMyUploads();
+  });
+  dom.plusServerFiles?.addEventListener("click", () => {
+    setComposerPlusMenuOpen(false);
+    setDetailOpen(true);
+    openServerFiles();
+  });
+  dom.plusSessions?.addEventListener("click", () => {
+    setComposerPlusMenuOpen(false);
+    setDetailOpen(true);
+    openSessionsPanel();
+  });
+
   dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
-  dom.topClearChat?.addEventListener("click", clearChat);
+
+  document.addEventListener("click", (event) => {
+    if (!dom.composerPlusMenu || dom.composerPlusMenu.classList.contains("hidden")) return;
+    if (event.target.closest("#composer-plus") || event.target.closest("#composer-plus-menu")) return;
+    setComposerPlusMenuOpen(false);
+  });
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");

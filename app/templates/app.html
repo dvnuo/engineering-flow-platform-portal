@@ -27,6 +27,7 @@
         </div>
         <div class="flex items-center gap-2">
           <span id="selected-status" class="px-3 py-1 rounded-full text-xs border border-slate-200 bg-emerald-50 text-emerald-700">idle</span>
+          <button id="top-settings" class="toolbar-btn" title="Settings"><i data-lucide="settings"></i></button>
           <button id="detail-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700">☰</button>
         </div>
       </header>
@@ -39,18 +40,7 @@
       </section>
 
       <section id="agent-chat-app" class="hidden flex-1 min-h-0 flex flex-col" aria-label="Agent chat workspace">
-        <div class="px-4 py-2 border-b border-slate-200/80 flex items-center gap-2">
-          <input id="upload-input" type="file" class="hidden" />
-          <button id="top-new-chat" class="toolbar-btn" title="New Chat"><i data-lucide="plus"></i></button>
-          <button id="top-upload" class="toolbar-btn" title="Upload File"><i data-lucide="paperclip"></i></button>
-          <button id="top-server-files" class="toolbar-btn" title="Server Files"><i data-lucide="folder"></i></button>
-          <button id="top-my-uploads" class="toolbar-btn" title="My Uploads"><i data-lucide="files"></i></button>
-          <button id="top-sessions" class="toolbar-btn" title="Sessions"><i data-lucide="history"></i></button>
-          <button id="top-skills" class="toolbar-btn" title="Skills"><i data-lucide="wrench"></i></button>
-          <button id="top-usage" class="toolbar-btn" title="Usage"><i data-lucide="bar-chart-3"></i></button>
-          <button id="top-settings" class="toolbar-btn" title="Settings"><i data-lucide="settings"></i></button>
-          <button id="top-clear-chat" class="toolbar-btn" title="Clear Chat"><i data-lucide="eraser"></i></button>
-        </div>
+        <input id="upload-input" type="file" class="hidden" />
 
         <div id="message-list" class="flex-1 min-h-0 overflow-y-auto px-5 py-5 space-y-5">
           <article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -67,7 +57,19 @@
                 class="rounded-2xl border p-3 shadow-sm">
             <input type="hidden" id="chat-agent-id" name="agent_id" value="" />
             <input type="hidden" id="chat-session-id" name="session_id" value="" />
-            <div class="relative">
+            <div class="relative flex items-end gap-2">
+              <div class="relative">
+                <button id="composer-plus" type="button" class="h-10 w-10 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-100 inline-flex items-center justify-center" title="Chat actions">
+                  <i data-lucide="plus"></i>
+                </button>
+                <div id="composer-plus-menu" class="hidden absolute bottom-full left-0 mb-2 min-w-[220px] rounded-xl border border-slate-700 bg-slate-900 p-1.5 shadow-xl">
+                  <button type="button" id="plus-new-chat" class="plus-menu-item"><i data-lucide="plus"></i><span>New Chat</span></button>
+                  <button type="button" id="plus-upload" class="plus-menu-item"><i data-lucide="paperclip"></i><span>Upload File</span></button>
+                  <button type="button" id="plus-my-uploads" class="plus-menu-item"><i data-lucide="files"></i><span>My Uploads</span></button>
+                  <button type="button" id="plus-server-files" class="plus-menu-item"><i data-lucide="folder"></i><span>Server Files</span></button>
+                  <button type="button" id="plus-sessions" class="plus-menu-item"><i data-lucide="history"></i><span>Sessions</span></button>
+                </div>
+              </div>
               <textarea id="chat-input" name="message" rows="2" required
                         class="w-full resize-none rounded-xl border px-3 py-2 outline-none placeholder:"
                         placeholder="Type message, / for skills, @ for files..."></textarea>
@@ -94,6 +96,9 @@
 
     <div class="p-4 overflow-auto min-h-0 space-y-4">
       <div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div>
+      <div id="detail-usage" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm">
+        <div class="text-xs text-slate-500 dark:text-slate-400">Usage information appears when an agent is selected.</div>
+      </div>
       <div id="agent-actions" class="space-y-2"></div>
     </div>
   </aside>
@@ -104,7 +109,7 @@
       <h4 id="tool-panel-title" class="text-lg font-semibold text-slate-800 dark:text-slate-100">Panel</h4>
       <button id="close-tool-panel" class="toolbar-btn"><i data-lucide="x"></i></button>
     </div>
-    <div id="tool-panel-body" class="p-4 overflow-auto min-h-0 text-sm text-slate-600 dark:text-slate-300">Select a utility from top toolbar.</div>
+    <div id="tool-panel-body" class="p-4 overflow-auto min-h-0 text-sm text-slate-600 dark:text-slate-300">Select an action from the + menu in the composer.</div>
   </aside>
 </div>
 

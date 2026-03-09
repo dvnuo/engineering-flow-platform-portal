@@ -14,6 +14,23 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe 
 }
 .toolbar-btn:hover { background: rgb(51 65 85 / .85); }
 
+.plus-menu-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: rgb(226 232 240);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.6rem;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+}
+
+.plus-menu-item:hover {
+  background: rgb(51 65 85 / .85);
+}
+
 .htmx-indicator { display: none; }
 .htmx-request .htmx-indicator,
 .htmx-request.htmx-indicator { display: block; }
@@ -115,7 +132,9 @@ html[data-theme="light"] #app-root main,
 html[data-theme="light"] #detail-panel,
 html[data-theme="light"] #tool-panel,
 html[data-theme="light"] #chat-form,
-html[data-theme="light"] #agent-meta {
+html[data-theme="light"] #agent-meta,
+html[data-theme="light"] #detail-usage,
+html[data-theme="light"] #composer-plus-menu {
   background: #ffffff !important;
   color: #111827 !important;
   border-color: #e5e7eb !important;
@@ -170,6 +189,11 @@ html:not([data-theme="light"]) #chat-input::placeholder {
 html:not([data-theme="light"]) #chat-suggest {
   background: #334155 !important;
   border-color: #475569 !important;
+}
+
+html:not([data-theme="light"]) #composer-plus-menu {
+  background: #0f172a !important;
+  border-color: #334155 !important;
 }
 
 html[data-theme="light"] #app-root main {
