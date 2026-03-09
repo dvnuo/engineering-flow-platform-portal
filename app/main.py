@@ -6,6 +6,7 @@ from app.api.auth import router as auth_router
 from app.api.proxy import router as proxy_router
 from app.api.agents import router as agents_router
 from app.api.users import router as users_router
+from app.api.copilot import router as copilot_router
 from app.config import get_settings
 from app.db import Base, SessionLocal, engine
 from app.repositories.user_repo import UserRepository
@@ -46,3 +47,4 @@ app.include_router(users_router)
 app.include_router(agents_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)
+app.include_router(copilot_router)

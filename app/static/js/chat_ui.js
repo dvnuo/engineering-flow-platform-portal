@@ -237,6 +237,7 @@ function ensureEventSocketForSelectedAgent() {
 function applyTheme(theme) {
   const normalized = theme === "light" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", normalized);
+  document.documentElement.classList.toggle("dark", normalized === "dark");
   localStorage.setItem("portal-theme", normalized);
   if (dom.themeToggle) dom.themeToggle.innerHTML = normalized === "light"
     ? '<i data-lucide="sun"></i>'
@@ -392,12 +393,46 @@ function renderAgentList() {
 function renderAgentMeta(agent) {
   if (!dom.agentMeta) return;
 
+  // Format date nicely
+  const created = new Date(agent.created_at);
+  const dateStr = created.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  
+  // Format resources as pills
+  const cpu = agent.cpu || 'N/A';
+  const mem = agent.memory || 'N/A';
+  const disk = agent.disk_size_gi;
+
   dom.agentMeta.innerHTML = `
-    <div class="space-y-2 text-sm">
-      <div><span class="text-slate-400">Image</span><div class="font-semibold break-all">${safe(agent.image)}</div></div>
-      <div><span class="text-slate-400">Created</span><div class="font-semibold">${safe(new Date(agent.created_at).toLocaleString())}</div></div>
-      <div><span class="text-slate-400">Resources</span><div class="font-semibold">CPU ${safe(agent.cpu || "N/A")}, Mem ${safe(agent.memory || "N/A")}, Disk ${safe(agent.disk_size_gi)}Gi</div></div>
-      <div><span class="text-slate-400">Description</span><div class="font-semibold">${safe(agent.description || "-")}</div></div>
+    <div class="space-y-3 text-sm">
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Image</div>
+        <div class="font-mono text-xs bg-slate-100 rounded px-2 py-1.5 break-all text-slate-700">${safe(agent.image)}</div>
+      </div>
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Created</div>
+        <div class="text-slate-700">${dateStr}</div>
+      </div>
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Resources</div>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="inline-flex items-center px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs font-medium">
+            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+            ${cpu}
+          </span>
+          <span class="inline-flex items-center px-2 py-1 rounded-md bg-purple-50 text-purple-700 text-xs font-medium">
+            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+            ${mem}
+          </span>
+          <span class="inline-flex items-center px-2 py-1 rounded-md bg-green-50 text-green-700 text-xs font-medium">
+            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+            ${disk}Gi
+          </span>
+        </div>
+      </div>
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Description</div>
+        <div class="text-slate-700">${safe(agent.description || '-')}</div>
+      </div>
     </div>
   `;
 }
@@ -412,26 +447,29 @@ function renderAgentActions(agent, status) {
   container.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
 
   const grid = document.createElement("div");
-  grid.className = "grid grid-cols-3 gap-1.5";
+  grid.className = "grid grid-cols-3 gap-2";
 
   const buildIconBtn = ({ label, icon, classes, onClick, disabled = false }) => {
     const button = document.createElement("button");
     button.type = "button";
     button.title = label;
-    button.className = `h-9 rounded-lg border text-slate-100 inline-flex items-center justify-center ${classes}`;
-    button.innerHTML = `<i data-lucide="${icon}"></i>`;
+    button.className = `h-14 rounded-lg border text-white inline-flex flex-col items-center justify-center gap-1 shadow-sm ${classes}`;
+    button.innerHTML = `
+      <i data-lucide="${icon}" class="w-4 h-4"></i>
+      <span class="text-[10px] font-medium opacity-90">${label}</span>
+    `;
     button.disabled = disabled;
     button.addEventListener("click", onClick);
     return button;
   };
 
   const actions = [
-    { label: "Start", icon: "play", classes: "border-emerald-600/60 bg-emerald-600/20 hover:bg-emerald-600/35", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
-    { label: "Stop", icon: "square", classes: "border-amber-500/60 bg-amber-500/20 hover:bg-amber-500/35", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
-    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
-    { label: "Edit", icon: "pencil", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => openEditDialog(agent) },
-    { label: "Delete Runtime", icon: "trash-2", classes: "border-slate-600 bg-slate-700/30 hover:bg-slate-700/45", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true) },
-    { label: "Destroy", icon: "flame", classes: "border-rose-600/70 bg-rose-600/25 hover:bg-rose-600/40", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
+    { label: "Start", icon: "play", classes: "border-emerald-600 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
+    { label: "Stop", icon: "square", classes: "border-amber-500 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
+    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-indigo-500 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
+    { label: "Edit", icon: "pencil", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: "Delete", icon: "trash-2", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true) },
+    { label: "Destroy", icon: "flame", classes: "border-rose-600 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
   ];
 
   actions.forEach((cfg) => grid.append(buildIconBtn(cfg)));
@@ -722,13 +760,19 @@ function setToolPanel(title, contentHtml) {
   if (!dom.toolPanel) return;
   dom.toolPanelTitle.textContent = title;
   dom.toolPanelBody.innerHTML = contentHtml;
-  dom.toolPanel.classList.remove("hidden");
+  // Hide detail panel, show tool panel
+  if (dom.detailPanel) dom.detailPanel.style.transform = "translateX(120%)";
+  dom.detailBackdrop?.classList.add("hidden");
+  dom.toolPanel.style.transform = "translateX(0)";
+}
+
+function closeToolPanel() {
+  if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
 }
 
 async function openSessionsPanel() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
   setToolPanel("Sessions", '<div class="text-xs text-slate-400">Loading sessions…</div>');
 
   await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
@@ -812,7 +856,7 @@ async function openServerFiles() {
 async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
+  
   setToolPanel("Skills", '<div class="text-xs text-slate-400">Loading skills…</div>');
 
   try {
@@ -836,7 +880,7 @@ async function openSkillsPanel() {
 async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
+  
   setToolPanel("Usage", '<div class="text-xs text-slate-400">Loading usage…</div>');
 
   try {
@@ -853,7 +897,7 @@ async function openUsagePanel() {
 async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
+  
   setToolPanel("My Uploads", '<div class="text-xs text-slate-400">Loading files…</div>');
 
   try {
@@ -912,7 +956,7 @@ function initializeSettingsPanel() {
 async function openSettings() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
+  
   setToolPanel("Settings", '<div class="text-xs text-slate-400">Loading settings…</div>');
 
   try {
@@ -1007,7 +1051,7 @@ function bindEvents() {
   dom.detailToggle?.addEventListener("click", () => setDetailOpen(!state.detailOpen));
   dom.detailClose?.addEventListener("click", () => setDetailOpen(false));
   dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
-  dom.closeToolPanel?.addEventListener("click", () => dom.toolPanel.classList.add("hidden"));
+  dom.closeToolPanel?.addEventListener("click", closeToolPanel);
 
   dom.chatInput?.addEventListener("input", maybeShowSuggest);
   dom.chatInput?.addEventListener("keydown", (event) => {
