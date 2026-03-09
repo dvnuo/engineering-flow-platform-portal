@@ -499,6 +499,7 @@ html[data-theme="light"] #composer-plus-btn {
 #chat-form #chat-input {
   min-height: 40px;
   height: auto;
+  margin-bottom: -5px;
 }
 
 /* Fix composer vertical alignment */
