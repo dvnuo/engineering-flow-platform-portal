@@ -250,8 +250,11 @@ function toggleTheme() {
   applyTheme(current === "dark" ? "light" : "dark");
 }
 
-function setChatStatus(text) {
-  if (dom.chatStatus) dom.chatStatus.textContent = text;
+function setChatStatus(text, isError = false) {
+  if (dom.chatStatus) {
+    dom.chatStatus.textContent = text;
+    dom.chatStatus.className = isError ? "text-xs text-red-400" : "text-xs text-slate-400";
+  }
 }
 
 function scrollToBottom() {
@@ -602,7 +605,36 @@ function handleChatResponseError(event) {
   if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
   state.pendingMessage = "";
   state.inflightThinking = null;
-  setChatStatus("Send failed");
+  
+  // Extract error message from response
+  let errorMsg = "Send failed";
+  const xhr = event.detail?.xhr;
+  if (xhr) {
+    try {
+      const response = JSON.parse(xhr.responseText);
+      errorMsg = response.detail || response.message || `Error: ${xhr.status} ${xhr.statusText}`;
+    } catch (e) {
+      errorMsg = xhr.responseText || `Error: ${xhr.status} ${xhr.statusText}`;
+    }
+  }
+  setChatStatus(errorMsg, true);
+  
+  // Also show error in message list
+  if (dom.messageList) {
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "message message-error flex gap-3 py-3";
+    errorDiv.innerHTML = `
+      <div class="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+        <i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-red-400 text-sm">${errorMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+      </div>
+    `;
+    dom.messageList.appendChild(errorDiv);
+    renderIcons();
+    scrollToBottom();
+  }
 }
 
 function handleChatAfterRequest(event) {
