@@ -59,7 +59,12 @@ async def proxy_agent(
 async def proxy_agent_events(agent_id: str, websocket: WebSocket):
     db = SessionLocal()
     try:
+        # Try cookie first, then query param
         token = websocket.cookies.get(settings.session_cookie_name)
+        if not token:
+            # Check query parameter
+            token = websocket.query_params.get("token")
+        
         if not token:
             await websocket.close(code=4401, reason="Not authenticated")
             return
@@ -99,6 +104,8 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
 
     upstream_url = f"{ws_base}/api/events"
     query_items = list(websocket.query_params.multi_items())
+    # Remove token from query_items to avoid passing it to upstream
+    query_items = [(k, v) for k, v in query_items if k != "token"]
     if query_items:
         upstream_url = f"{upstream_url}?{urlencode(query_items)}"
 
