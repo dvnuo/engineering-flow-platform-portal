@@ -1,49 +1,48 @@
 # Engineering Flow Platform Portal (v1 Spec)
 
-这是一个面向内部团队的机器人门户（Portal）项目说明。目标是先快速实现一个可运行、可演进的 v1：
+This is a robot portal project for internal teams. The goal is to quickly implement a runnable and evolvable v1 version.
 
 - **FastAPI Portal**
-- **SQLite（单实例）**
-- **EKS 上单副本 Deployment + EBS PVC**
-- **由 Portal 调用 Kubernetes API 动态创建机器人资源**
+- **SQLite (single instance)**
+- **Single replica Deployment + EBS PVC on EKS**
+- Portal dynamically creates robot resources via Kubernetes API
 
 ---
 
-## 当前实现进度（已落地）
+## Current Implementation Progress
 
-- ✅ FastAPI 应用骨架（`app/main.py`）
-- ✅ SQLite + SQLAlchemy 模型（`users`/`agents`/`audit_logs`）
-- ✅ 基础认证 API（login/logout/me，cookie session）
-- ✅ 管理员用户 API（创建/列表/改密）
-- ✅ 机器人 API（mine/public/create/detail/start/stop/share/unshare/delete/status + delete-runtime/destroy）
-- ✅ 管理端 API（/api/admin/agents, /api/admin/audit-logs）
-- ✅ k8s_service 抽象与机器人生命周期接口接入（支持本地 no-op 模式）
-- ✅ `/a/{agent_id}` 反向代理访问入口（含权限与运行状态校验）
-- ✅ Dockerfile 与依赖清单
-- ✅ 简洁风格 Web UI（登录页 + 控制台，ChatGPT 风格）
-- ✅ 机器人状态流转约束（start/stop 按状态机校验）
+- ✅ FastAPI application skeleton (`app/main.py`)
+- ✅ SQLite + SQLAlchemy models (`users`/`agents`/`audit_logs`)
+- ✅ Basic authentication API (login/logout/me, cookie session)
+- ✅ Admin user API (create/list/change password)
+- ✅ Robot API (mine/public/create/detail/start/stop/share/unshare/delete/status + delete-runtime/destroy)
+- ✅ Admin API (/api/admin/agents, /api/admin/audit-logs)
+- ✅ k8s_service abstraction for robot lifecycle (supports local no-op mode)
+- ✅ `/a/{agent_id}` reverse proxy access with permission and running status validation
+- ✅ Dockerfile and dependency list
+- ✅ Clean style Web UI (login page + console, ChatGPT style)
+- ✅ Robot status transition constraints (start/stop with state machine validation)
 
-### 本地启动
+### Local Development
 
 ```bash
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-访问 `http://localhost:8000/login` 进入界面。
+Access `http://localhost:8000/login`
 
-默认会在首次启动时创建管理员账号：
+The admin account will be created on first startup:
 
-- username: `admin`（默认，可通过环境变量覆盖）
-- password: `admin123`（默认，仅限本地开发）
+- username: `admin` (default, can be overridden via environment variable)
+- password: `admin123` (default, for local development only)
 
+### Kubernetes Configuration (Development/Production)
 
-### Kubernetes 开关（开发/生产）
+Control whether to actually call Kubernetes API via environment variables:
 
-可通过环境变量控制是否真实调用 Kubernetes API：
-
-- `K8S_ENABLED=false`（默认，本地 no-op）
-- `K8S_ENABLED=true`（启用真实 K8s 调用）
+- `K8S_ENABLED=false` (default, local no-op)
+- `K8S_ENABLED=true` (enable real K8s calls)
 - `ROBOTS_NAMESPACE=agents`
 - `K8S_STORAGE_CLASS=gp3`
 - `BOOTSTRAP_ADMIN_USERNAME=admin`
@@ -51,35 +50,35 @@ uvicorn app.main:app --reload
 
 ---
 
-## 1. v1 范围
+## 1. v1 Scope
 
-### 包含
+### Included
 
-- 本地账号密码登录（session）
-- 管理员手动创建用户
-- My Space（我的机器人）/ Public Space（公开机器人）
-- 机器人创建、查看、启动、停止、删除
-- 机器人分享/取消分享
-- 机器人运行状态与错误信息查看
-- Portal 运行在 EKS
-- 每个机器人对应：
-  - 1 个 Deployment（`replicas=1`）
-  - 1 个 Service
-  - 1 个 PVC（独立存储）
+- Local username/password login (session)
+- Admin manually creates users
+- My Space (my robots) / Public Space (public robots)
+- Robot create, view, start, stop, delete
+- Robot share/unshare
+- Robot running status and error message viewing
+- Portal running on EKS
+- Each robot has:
+  - 1 Deployment (replicas=1)
+  - 1 Service
+  - 1 PVC (dedicated storage)
 
-### 不包含
+### Not Included
 
 - SSO
-- 每用户独立 namespace
-- 复杂 RBAC / 审批流
-- 多副本 Portal
+- Per-user separate namespace
+- Complex RBAC / approval flow
+- Multiple replica Portal
 - PostgreSQL / RDS
 - Operator / CRD
-- 细粒度协作者模型
+- Fine-grained collaborator model
 
 ---
 
-## 2. 总体架构
+## 2. Overall Architecture
 
 ```text
 [Browser]
@@ -89,8 +88,7 @@ uvicorn app.main:app --reload
    |
    v
 [Portal Web/API - FastAPI]
-   | \
-   |  \--> [SQLite on EBS PVC]
+   |    |  \--> [SQLite on EBS PVC]
    |
    \--> [Kubernetes API]
             |
@@ -100,14 +98,14 @@ uvicorn app.main:app --reload
             +--> query Pod / Deployment status
 ```
 
-建议 namespace：
+Recommended namespaces:
 
-- `portal-system`（Portal）
-- `agents`（机器人工作负载）
+- `portal-system` (Portal)
+- `agents` (Robot workloads)
 
 ---
 
-## 3. 数据模型（最小可用）
+## 3. Data Models (Minimum Viable)
 
 ### `users`
 
@@ -153,9 +151,9 @@ uvicorn app.main:app --reload
 
 ---
 
-## 4. API 契约（v1）
+## 4. API Contract (v1)
 
-### 认证与用户
+### Authentication & Users
 
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
@@ -164,7 +162,7 @@ uvicorn app.main:app --reload
 - `GET /api/users` (admin)
 - `PATCH /api/users/{id}/password`
 
-### 机器人
+### Robots/Agents
 
 - `GET /api/agents/mine`
 - `GET /api/agents/public`
@@ -179,45 +177,44 @@ uvicorn app.main:app --reload
 - `POST /api/agents/{id}/destroy`
 - `GET /api/agents/{id}/status`
 
-### 管理端
+### Admin
 
 - `GET /api/admin/agents`
 - `GET /api/admin/audit-logs`
 
 ---
 
-## 5. 机器人生命周期
+## 5. Robot Lifecycle
 
-状态机：
+State Machine:
 
 ```text
 creating -> running -> stopped
    |          |         |
-   +--------> failed <--+
-            \
-             -> deleting
+   +--------> failed <-+
+                         -> deleting
 ```
 
-创建流程（简化）：
+Creation Flow (simplified):
 
-1. 用户提交 `name/image/disk_size_gi/cpu/memory`
-2. 写入 DB，状态设为 `creating`
-3. 创建 PVC
-4. 创建 Deployment（`replicas=1`）
-5. 创建 Service
-6. 检查 PVC Bound + Pod Ready
-7. 成功更新 `running`，失败更新 `failed + last_error`
+1. User submits `name/image/disk_size_gi/cpu/memory`
+2. Write to DB, status = `creating`
+3. Create PVC
+4. Create Deployment (`replicas=1`)
+5. Create Service
+6. Check PVC Bound + Pod Ready
+7. Success update to `running`, failure update to `failed + last_error`
 
-停止：Deployment scale 到 0。  
-启动：Deployment scale 到 1。  
-删除：优先支持两种动作：
+Stop: Deployment scale to 0.  
+Start: Deployment scale to 1.  
+Delete: Support two actions:
 
-- `Delete Runtime`（删 Deployment + Service，保留 PVC）
-- `Destroy Completely`（Deployment + Service + PVC）
+- `Delete Runtime` (Delete Deployment + Service, keep PVC)
+- `Destroy Completely` (Deployment + Service + PVC)
 
 ---
 
-## 6. 建议目录结构
+## 6. Recommended Directory Structure
 
 ```text
 portal/
@@ -277,31 +274,31 @@ portal/
 
 ---
 
-## 7. 访问路径建议
+## 7. Access Path Recommendations
 
-v1 推荐统一入口代理：
+v1 recommended unified entry proxy:
 
-- 用户访问：`https://portal.example.com/a/{agent_id}/...`
-- Portal 内部代理到：`http://agent-<id>-svc.agents.svc.cluster.local`
+- User access: `https://portal.example.com/a/{agent_id}/...`
+- Portal internal proxy to: `http://agent-<id>-svc.agents.svc.cluster.local`
 
-优势：
+Advantages:
 
-- 权限检查集中在 Portal
-- 不需要给每个机器人维护独立 Ingress
-- 更适合 v1 多租户管理
+- Permission check centralized in Portal
+- No need to maintain independent Ingress for each robot
+- More suitable for v1 multi-tenant management
 
 ---
 
-## 8. Kubernetes 最小权限建议
+## 8. Kubernetes Minimum Permissions Recommendation
 
-Portal 的 ServiceAccount 只授予 `agents` namespace 的必要权限：
+Portal's ServiceAccount only grants necessary permissions to `agents` namespace:
 
-- Deployments：`get/list/watch/create/delete/patch`
-- PVC：`get/list/watch/create/delete`
-- Services：`get/list/watch/create/delete`
-- Pods：`get/list/watch`
+- Deployments: `get/list/watch/create/delete/patch`
+- PVC: `get/list/watch/create/delete`
+- Services: `get/list/watch/create/delete`
+- Pods: `get/list/watch`
 
-资源统一打标签：
+Resource labels:
 
 - `owner-id`
 - `agent-id`
@@ -309,64 +306,105 @@ Portal 的 ServiceAccount 只授予 `agents` namespace 的必要权限：
 
 ---
 
-## 9. 分阶段落地计划
+## 9. Phased Rollout Plan
 
-### Phase 1：Portal 基础可用
+### Phase 1: Portal Basic Available
 
-- FastAPI 项目初始化
+- FastAPI project initialization
 - SQLite + Alembic
-- 登录/会话
-- 用户管理
-- My/Public Space 基础页面
+- Login/session
+- User management
+- My/Public Space basic pages
 
-### Phase 2：机器人管理（不接 K8s）
+### Phase 2: Robot Management (without K8s)
 
-- agents CRUD
-- 状态机与页面
-- 审计日志基础
+- Agents CRUD
+- State machine and pages
+- Basic audit logs
 
-### Phase 3：接入 Kubernetes
+### Phase 3: Kubernetes Integration
 
-- `k8s_service.py`（PVC/Deployment/Service 生命周期）
-- 状态轮询与错误回写
+- `k8s_service.py` (PVC/Deployment/Service lifecycle)
+- Status polling and error writing
 
-### Phase 4：代理与分享
+### Phase 4: Proxy and Share
 
-- `/a/{agent_id}` 请求代理
-- Public Space 展示打通
-- 运维可观测性补齐
-
----
-
-## 10. 给 Codex 的任务拆分（可直接执行）
-
-1. 初始化项目骨架（FastAPI + Jinja2 + SQLAlchemy + Alembic + Dockerfile）
-2. 定义 `users/agents/audit_logs` 数据模型与迁移
-3. 实现 session 登录与用户管理 API
-4. 实现 My Space / Public Space 页面与查询 API
-5. 实现 agents 的创建/启动/停止/删除/分享 API
-6. 实现 Kubernetes 资源管理服务（create/scale/delete/status）
-7. 实现 `/a/{agent_id}` 反向代理
-8. 补充测试、README、部署 YAML 与运维说明
+- `/a/{agent_id}` request proxy
+- Public Space display connected
+- Operational observability added
 
 ---
 
-## 11. 成功标准（Definition of Done）
+## 10. Codex Task Breakdown (Can Execute Directly)
 
-- 管理员可创建用户并登录
-- 普通用户只能管理自己的机器人
-- 用户能创建机器人并在页面看到 `creating -> running`
-- 用户能停止并再次启动机器人
-- 分享后机器人可在 Public Space 可见
-- 删除运行时不会误删数据（默认保留 PVC）
-- 审计日志可追踪关键动作
-- 在 EKS 单副本部署可稳定运行
-## 12. GitHub Actions 自动构建镜像
+1. Initialize project skeleton (FastAPI + Jinja2 + SQLAlchemy + Alembic + Dockerfile)
+2. Define `users/agents/audit_logs` data models and migrations
+3. Implement session login and user management API
+4. Implement My Space / Public Space pages and query API
+5. Implement agents create/start/stop/delete/share API
+6. Implement Kubernetes resource management service (create/scale/delete/status)
+7. Implement `/a/{agent_id}` reverse proxy
+8. Add tests, README, deployment YAML and operational documentation
 
-仓库已提供 `.github/workflows/docker-image.yml`：
+---
 
-- 在 `main` 分支 push、`v*` tag push、手动触发时构建并推送镜像到 `ghcr.io/<owner>/<repo>`。
-- 在对 `main` 的 Pull Request 上仅执行构建校验，不推送镜像。
-- 使用 Buildx + GHA cache 来加速后续构建。
+## 11. Success Criteria (Definition of Done)
 
-如需使用该工作流，请确保仓库已启用 `GITHUB_TOKEN` 的 packages 写权限。
+- Admin can create users and log in
+- Regular users can only manage their own robots
+- Users can create robots and see `creating -> running` on page
+- Users can stop and restart robots
+- Shared robots visible in Public Space after sharing
+- Delete runtime won't accidentally delete data (keep PVC by default)
+- Audit logs can track key actions
+- Can run stably with single replica deployment on EKS
+
+## 12. GitHub Actions Auto Build Image
+
+The repository provides `.github/workflows/docker-image.yml`:
+
+- On `main` branch push, `v*` tag push, or manual trigger: build and push image to `ghcr.io/<owner>/<repo>`.
+- On Pull Request to `main`: only build validation, no image push.
+- Use Buildx + GHA cache to speed up subsequent builds.
+
+To use this workflow, ensure the repository has write permission for `GITHUB_TOKEN` packages.
+
+---
+
+## Tech Stack
+
+- FastAPI
+- SQLite + SQLAlchemy
+- Kubernetes API
+- HTMX + Alpine.js
+
+## Project Structure
+
+```
+app/
+  api/        # API endpoints
+  db/         # Database models
+  models/     # SQLAlchemy models
+  services/   # Business logic
+  static/     # CSS, JS
+  templates/  # HTML templates
+  web.py      # Web routes
+  main.py     # Application entry
+```
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| DATABASE_URL | SQLite database path | `portal.db` |
+| SECRET_KEY | Session secret key | `change-me-in-production` |
+| ADMIN_USERNAME | Admin username | `admin` |
+| ADMIN_PASSWORD | Admin password | `admin123` |
+| K8S_ENABLED | Enable Kubernetes integration | `false` |
+| K8S_INCLUSTER | Use in-cluster config | `false` |
+| K8S_KUBECONFIG | Path to kubeconfig | - |
+| ROBOTS_NAMESPACE | Robots namespace | `robots` |
+| AGENTS_NAMESPACE | Agents namespace | `agents` |
+| K8S_STORAGE_CLASS | Storage class for PVC | `gp3` |
+| BOOTSTRAP_ADMIN_USERNAME | Bootstrap admin username | `admin` |
+| BOOTSTRAP_ADMIN_PASSWORD | Bootstrap admin password | `admin123` |
