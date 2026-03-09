@@ -906,7 +906,7 @@ async function loadSession(sessionId) {
   renderChatHistory(data.messages || [], data.metadata || {});
 
   setChatStatus(`Loaded session ${normalized}`);
-  await openSessionsPanel();
+  // Only open sessions panel if explicitly requested
 }
 
 async function openServerFiles() {
