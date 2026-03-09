@@ -1,13 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy.orm import Session
+import asyncio
+from urllib.parse import urlencode
 
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+from sqlalchemy.orm import Session
+import websockets
+
+from app.config import get_settings
 from app.db import get_db
+from app.db import SessionLocal
 from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.user_repo import UserRepository
+from app.services.auth_service import parse_session_token
 from app.services.proxy_service import ProxyService
 
 router = APIRouter(tags=["proxy"])
 proxy_service = ProxyService()
+settings = get_settings()
 
 
 def _can_access(agent, user) -> bool:
@@ -44,3 +53,88 @@ async def proxy_agent(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Proxy upstream failure: {exc}") from exc
 
     return Response(status_code=status_code, content=content, media_type=content_type)
+
+
+@router.websocket("/a/{agent_id}/api/events")
+async def proxy_agent_events(agent_id: str, websocket: WebSocket):
+    db = SessionLocal()
+    try:
+        token = websocket.cookies.get(settings.session_cookie_name)
+        if not token:
+            await websocket.close(code=4401, reason="Not authenticated")
+            return
+
+        user_id = parse_session_token(token)
+        if not user_id:
+            await websocket.close(code=4401, reason="Invalid session")
+            return
+
+        user = UserRepository(db).get_by_id(user_id)
+        if not user or not user.is_active:
+            await websocket.close(code=4401, reason="Inactive user")
+            return
+
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            await websocket.close(code=4404, reason="Agent not found")
+            return
+        if not _can_access(agent, user):
+            await websocket.close(code=4403, reason="Forbidden")
+            return
+        if agent.status != "running":
+            await websocket.close(code=4409, reason="Agent is not running")
+            return
+    finally:
+        db.close()
+
+    await websocket.accept()
+
+    base = proxy_service.build_agent_base_url(agent).rstrip("/")
+    if base.startswith("https://"):
+        ws_base = "wss://" + base[len("https://") :]
+    elif base.startswith("http://"):
+        ws_base = "ws://" + base[len("http://") :]
+    else:
+        ws_base = base
+
+    upstream_url = f"{ws_base}/api/events"
+    query_items = list(websocket.query_params.multi_items())
+    if query_items:
+        upstream_url = f"{upstream_url}?{urlencode(query_items)}"
+
+    try:
+        async with websockets.connect(upstream_url) as upstream:
+            async def client_to_upstream():
+                while True:
+                    try:
+                        message = await websocket.receive()
+                    except WebSocketDisconnect:
+                        break
+
+                    msg_type = message.get("type")
+                    if msg_type == "websocket.disconnect":
+                        break
+
+                    if message.get("text") is not None:
+                        await upstream.send(message["text"])
+                    elif message.get("bytes") is not None:
+                        await upstream.send(message["bytes"])
+
+            async def upstream_to_client():
+                async for message in upstream:
+                    if isinstance(message, bytes):
+                        await websocket.send_bytes(message)
+                    else:
+                        await websocket.send_text(message)
+
+            upstream_task = asyncio.create_task(upstream_to_client())
+            client_task = asyncio.create_task(client_to_upstream())
+            done, pending = await asyncio.wait(
+                {upstream_task, client_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            for task in done:
+                await task
+    except Exception:
+        await websocket.close(code=1011)
