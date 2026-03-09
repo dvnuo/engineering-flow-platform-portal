@@ -1,6 +1,6 @@
-<article class="max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm assistant-message">
-  <p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p>
-  <div class="md-render prose prose-invert max-w-none" data-md="{{ assistant_message | e }}"></div>
+<article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100">
+  <p class="text-xs font-semibold text-emerald-400 mb-2">Assistant</p>
+  <div class="md-render prose prose-invert max-w-none text-sm" data-md="{{ assistant_message | e }}"></div>
 </article>
 
 <input id="chat-session-id" name="session_id" type="hidden" value="{{ session_id }}" hx-swap-oob="true" />

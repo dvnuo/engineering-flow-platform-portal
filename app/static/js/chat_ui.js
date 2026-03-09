@@ -337,7 +337,7 @@ async function agentApi(path, options = {}) {
 }
 
 function defaultWelcomeMessage() {
-  return '<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
+  return '<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-slate-100"><p class="text-xs font-semibold text-emerald-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none text-sm">👋 Welcome! Ask me anything.</div></article>';
 }
 
 function clearMessageListToWelcome() {
