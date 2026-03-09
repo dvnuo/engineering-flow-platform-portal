@@ -195,6 +195,40 @@ async def app_agent_skills_panel(request: Request, agent_id: str):
         db.close()
 
 
+@router.get("/api/agents/{agent_id}/usage")
+async def api_agent_usage(request: Request, agent_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    days = (request.query_params.get("days") or "30").strip()
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/usage",
+            query_items=[("days", days)],
+            body=None,
+            headers={},
+        )
+
+        if status_code >= 400:
+            return {"global": {}, "by_provider": {}, "by_model": {}, "daily": []}
+
+        payload = json.loads(content.decode("utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    finally:
+        db.close()
+
+
 @router.get("/app/agents/{agent_id}/usage/panel")
 async def app_agent_usage_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
