@@ -190,6 +190,7 @@
   </form>
 
   <script>
+  (function() {
     // Provider-Model mapping (from EFP) - define only once
     if (typeof window.providerModels === 'undefined') {
       window.providerModels = {
@@ -385,5 +386,6 @@
     }
     
     initSettings();
+  })();
   </script>
 </div>
