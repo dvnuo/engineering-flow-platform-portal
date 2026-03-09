@@ -129,12 +129,12 @@ function canWriteAgent(agent) {
 
 function buildUserMessageArticle(text) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div></article></div>`;
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl px-4 py-3" data-local-user="1" style="background-color:#2563eb !important;border:1px solid #3b82f6 !important;"><div class="whitespace-pre-wrap text-sm text-white">${safe(text)}</div></article></div>`;
 }
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">Assistant</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1" style="background-color:#1e293b;border-color:#475569;"><div class="text-slate-300">Thinking...</div></article></div>`;
+  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">Assistant</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1" style="background-color:#1e293b !important;border:1px solid #475569 !important;"><div class="text-slate-300">Thinking...</div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -912,15 +912,13 @@ function renderChatHistory(messages, metadata = {}) {
     // Message bubble
     const article = document.createElement("article");
     if (isUser) {
-      article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
+      article.style.cssText = "background-color:#2563eb !important;border:1px solid #3b82f6 !important;";
       const content = document.createElement("div");
-      content.className = "whitespace-pre-wrap text-sm";
+      content.className = "whitespace-pre-wrap text-sm text-white";
       content.textContent = message.content || "";
       article.appendChild(content);
     } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100 !important";
-      article.style.backgroundColor = "#1e293b !important";
-      article.style.borderColor = "#475569 !important";
+      article.style.cssText = "background-color:#1e293b !important;border:1px solid #475569 !important;";
       const content = document.createElement("div");
       content.className = "md-render prose prose-invert max-w-none text-sm text-slate-100";
       content.dataset.md = message.content || "";
