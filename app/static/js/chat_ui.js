@@ -698,15 +698,6 @@ function handleChatAfterRequest(event) {
 function handleChatAfterSwap(target) {
   if (target?.id !== "message-list") return;
 
-  // Clean up any orphan header divs (divs with Assistant span but no article sibling)
-  const messageList = target;
-  const children = Array.from(messageList.children);
-  children.forEach(child => {
-    if (child.querySelector && child.querySelector('span.text-emerald-400') && !child.querySelector('article')) {
-      child.remove();
-    }
-  });
-
   const pendingEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
   removePendingAssistantPlaceholder();
   if (pendingEvents.length) attachThinkingToLatestAssistant(pendingEvents);
@@ -720,6 +711,19 @@ function handleChatAfterSwap(target) {
   decorateToolMessages(dom.messageList);
   renderIcons();
   scrollToBottom();
+
+  // Clean up any orphan header divs after all processing (divs without article child)
+  const messageList = target;
+  const children = Array.from(messageList.children);
+  children.forEach(child => {
+    // Check if it's a container div without an article child (orphan)
+    if (child.tagName === 'DIV' && !child.querySelector('article') && child.querySelector('span')) {
+      // Check if it has Assistant text
+      if (child.textContent.includes('Assistant') || child.querySelector('.text-emerald-400')) {
+        child.remove();
+      }
+    }
+  });
 
   setChatStatus("Ready");
 }
