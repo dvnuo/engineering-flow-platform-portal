@@ -36,6 +36,9 @@ const dom = {
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
   topSettings: document.getElementById("top-settings"),
+  composerPlusBtn: document.getElementById("composer-plus-btn"),
+  composerMenu: document.getElementById("composer-menu"),
+  uploadInput: document.getElementById("upload-input"),
   floatingNewChat: document.getElementById("floating-new-chat"),
   topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
@@ -1262,6 +1265,45 @@ function bindEvents() {
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(group);
     }
+  });
+
+  // Composer + menu
+  dom.composerPlusBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dom.composerMenu?.classList.toggle("hidden");
+  });
+
+  // Close menu when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!dom.composerMenu?.contains(e.target) && e.target !== dom.composerPlusBtn) {
+      dom.composerMenu?.classList.add("hidden");
+    }
+  });
+
+  // Composer menu items
+  document.querySelectorAll(".composer-menu-item").forEach((item, idx) => {
+    item.addEventListener("click", () => {
+      dom.composerMenu?.classList.add("hidden");
+      switch (idx) {
+        case 0: // New Chat
+          startNewChatForSelectedAgent();
+          break;
+        case 1: // Upload File
+          dom.uploadInput?.click();
+          break;
+        case 2: // My Uploads
+          setDetailOpen(true);
+          openMyUploads();
+          break;
+        case 3: // Server Files
+          setDetailOpen(true);
+          openServerFiles();
+          break;
+        case 4: // Sessions
+          openSessionsPanel();
+          break;
+      }
+    });
   });
 
   dom.themeToggle?.addEventListener("click", toggleTheme);

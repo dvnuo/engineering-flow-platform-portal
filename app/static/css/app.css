@@ -457,3 +457,31 @@ html[data-theme="light"] #tool-panel .text-slate-400 {
 html[data-theme="light"] #tool-panel .bg-slate-800\/50 {
   background: #f9fafb !important;
 }
+
+/* Composer + Menu */
+#composer-menu {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+html[data-theme="light"] #composer-menu {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+.composer-menu-item {
+  color: #e2e8f0;
+}
+
+html[data-theme="light"] .composer-menu-item {
+  color: #374151;
+}
+
+#composer-plus-btn {
+  border-color: #334155;
+}
+
+html[data-theme="light"] #composer-plus-btn {
+  background: #ffffff;
+  border-color: #d1d5db;
+}
