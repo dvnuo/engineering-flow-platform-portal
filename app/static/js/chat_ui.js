@@ -1353,7 +1353,7 @@ function bindEvents() {
       setTimeout(() => {
         document.getElementById("create-modal")?.classList.add("hidden");
         document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
-        loadMyAgents();
+        refreshAll();
       }, 1000);
     } catch (err) {
       msgEl.textContent = err.message;
