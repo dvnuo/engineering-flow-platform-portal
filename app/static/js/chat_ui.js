@@ -341,12 +341,6 @@ function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
-
-  const storedEvents = Array.isArray(metadata?.thinking_events) ? metadata.thinking_events
-    .filter((event) => isTrackableThinkingEvent(event?.type))
-    .map((event) => ({ type: event.type, data: event.data || event, ts: event.ts || Date.now() / 1000 })) : [];
-  if (storedEvents.length) attachThinkingToLatestAssistant(storedEvents);
-
   scrollToBottom();
 }
 
