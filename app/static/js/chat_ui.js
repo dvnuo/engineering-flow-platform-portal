@@ -250,8 +250,11 @@ function toggleTheme() {
   applyTheme(current === "dark" ? "light" : "dark");
 }
 
-function setChatStatus(text) {
-  if (dom.chatStatus) dom.chatStatus.textContent = text;
+function setChatStatus(text, isError = false) {
+  if (dom.chatStatus) {
+    dom.chatStatus.textContent = text;
+    dom.chatStatus.className = isError ? "text-xs text-red-400" : "text-xs text-slate-400";
+  }
 }
 
 function scrollToBottom() {
@@ -602,7 +605,19 @@ function handleChatResponseError(event) {
   if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
   state.pendingMessage = "";
   state.inflightThinking = null;
-  setChatStatus("Send failed");
+  
+  // Extract error message from response
+  let errorMsg = "Send failed";
+  const xhr = event.detail?.xhr;
+  if (xhr) {
+    try {
+      const response = JSON.parse(xhr.responseText);
+      errorMsg = response.detail || response.message || `Error: ${xhr.status} ${xhr.statusText}`;
+    } catch (e) {
+      errorMsg = xhr.responseText || `Error: ${xhr.status} ${xhr.statusText}`;
+    }
+  }
+  setChatStatus(errorMsg, true);
 }
 
 function handleChatAfterRequest(event) {
