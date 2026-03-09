@@ -712,6 +712,30 @@ function handleChatAfterSwap(target) {
   renderIcons();
   scrollToBottom();
 
+  // Clean up any orphan header divs after all processing (divs without article child)
+  const messageList = target;
+  const children = Array.from(messageList.children);
+  children.forEach(child => {
+    // Check if it's a container div without an article child (orphan)
+    if (child.tagName === 'DIV' && !child.querySelector('article') && child.querySelector('span')) {
+      // Check if it has Assistant text
+      if (child.textContent.includes('Assistant') || child.querySelector('.text-emerald-400')) {
+        child.remove();
+      }
+    }
+  });
+
+  // Add timestamp to server-rendered Assistant messages if missing
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const assistantContainers = messageList.querySelectorAll('.assistant-header:not([data-timestamp-added])');
+  assistantContainers.forEach(header => {
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "text-xs text-slate-500";
+    timeSpan.textContent = now;
+    header.appendChild(timeSpan);
+    header.setAttribute("data-timestamp-added", "true");
+  });
+
   setChatStatus("Ready");
 }
 

@@ -122,6 +122,56 @@ html[data-theme="light"] #agent-meta {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
+/* Dark mode chat input - darker borders */
+html:not([data-theme="light"]) #tool-panel {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+html:not([data-theme="light"]) #tool-panel-body {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+html:not([data-theme="light"]) #tool-panel h3 {
+  color: #e2e8f0 !important;
+}
+
+html:not([data-theme="light"]) #tool-panel label {
+  color: #94a3b8 !important;
+}
+/* Theme toggle button centering */
+#theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#settings-form button[type="submit"] {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+html:not([data-theme="light"]) #chat-form {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+html:not([data-theme="light"]) #chat-input {
+  background: #334155 !important;
+  border-color: #475569 !important;
+  color: #f1f5f9 !important;
+}
+
+html:not([data-theme="light"]) #chat-input::placeholder {
+  color: #94a3b8 !important;
+}
+
+html:not([data-theme="light"]) #chat-suggest {
+  background: #334155 !important;
+  border-color: #475569 !important;
+}
+
 html[data-theme="light"] #app-root main {
   background: #ffffff !important;
 }
