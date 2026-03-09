@@ -565,9 +565,7 @@ async function syncSelectedAgentState() {
     const lastSessionId = getLastSessionId(agent.id);
     if (lastSessionId) {
       try {
-        await agentApi(`/api/sessions/${encodeURIComponent(lastSessionId)}`);
-        updateSelectedAgentSession(lastSessionId);
-        setChatStatus(`Loaded last session`);
+        await loadSession(lastSessionId);
       } catch (e) {
         // Session not found, start fresh
         console.log("Last session not found, starting fresh");
