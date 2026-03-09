@@ -1322,6 +1322,45 @@ function bindEvents() {
     document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
   });
 
+  document.getElementById("create-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    const data = {
+      name: formData.get("name"),
+      image: formData.get("image"),
+      disk_size_gi: Number(formData.get("disk_size_gi")),
+      cpu: formData.get("cpu") || null,
+      memory: formData.get("memory") || null,
+    };
+    const msgEl = document.getElementById("create-msg");
+    try {
+      msgEl.textContent = "Creating...";
+      msgEl.className = "muted tiny";
+      const resp = await fetch("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || "Failed to create agent");
+      }
+      const agent = await resp.json();
+      msgEl.textContent = "Agent created!";
+      msgEl.className = "text-green-400 tiny";
+      form.reset();
+      setTimeout(() => {
+        document.getElementById("create-modal")?.classList.add("hidden");
+        document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
+        loadMyAgents();
+      }, 1000);
+    } catch (err) {
+      msgEl.textContent = err.message;
+      msgEl.className = "text-red-400 tiny";
+    }
+  });
+
   dom.logoutBtn?.addEventListener("click", async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     location.href = "/login";
