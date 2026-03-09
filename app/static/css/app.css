@@ -140,7 +140,13 @@ html:not([data-theme="light"]) #tool-panel h3 {
 html:not([data-theme="light"]) #tool-panel label {
   color: #94a3b8 !important;
 }
-/* Settings panel button centering */
+/* Theme toggle button centering */
+#theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 #settings-form button[type="submit"] {
   display: block;
   width: 100%;
