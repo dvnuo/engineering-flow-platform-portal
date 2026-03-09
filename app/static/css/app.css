@@ -561,3 +561,19 @@ html[data-theme="light"] #top-settings:hover {
 html[data-theme="light"] #app-root aside {
   color: #374151;
 }
+
+/* Logout button */
+#logout-btn {
+  color: #e2e8f0;
+}
+
+html[data-theme="light"] #logout-btn {
+  background: #ffffff;
+  border-color: #d1d5db;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #logout-btn:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
