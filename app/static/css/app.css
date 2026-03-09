@@ -475,7 +475,11 @@ html[data-theme="light"] #composer-menu {
 }
 
 html[data-theme="light"] .composer-menu-item {
-  color: #374151;
+  color: #111827;
+}
+
+html[data-theme="light"] .composer-menu-item:hover {
+  background: #f3f4f6;
 }
 
 #composer-plus-btn {
