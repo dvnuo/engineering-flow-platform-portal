@@ -698,6 +698,15 @@ function handleChatAfterRequest(event) {
 function handleChatAfterSwap(target) {
   if (target?.id !== "message-list") return;
 
+  // Clean up any orphan header divs (divs with Assistant span but no article sibling)
+  const messageList = target;
+  const children = Array.from(messageList.children);
+  children.forEach(child => {
+    if (child.querySelector && child.querySelector('span.text-emerald-400') && !child.querySelector('article')) {
+      child.remove();
+    }
+  });
+
   const pendingEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
   removePendingAssistantPlaceholder();
   if (pendingEvents.length) attachThinkingToLatestAssistant(pendingEvents);
