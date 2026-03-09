@@ -107,11 +107,11 @@ function canWriteAgent(agent) {
 }
 
 function buildUserMessageArticle(text) {
-  return `<article class="ml-auto max-w-3xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4" data-local-user="1"><p class="text-xs uppercase tracking-wide text-blue-200 mb-2">You</p><div class="whitespace-pre-wrap text-slate-100">${safe(text)}</div></article>`;
+  return `<article class="ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4" data-local-user="1"><p class="text-xs uppercase tracking-wide text-blue-200 mb-2">You</p><div class="whitespace-pre-wrap text-slate-100">${safe(text)}</div></article>`;
 }
 
 function buildPendingAssistantArticle() {
-  return '<article class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/70 p-4" data-pending-assistant="1"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
+  return '<article class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/70 p-4" data-pending-assistant="1"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
 }
 
 function removePendingAssistantPlaceholder() {
@@ -149,6 +149,16 @@ function renderMarkdown(scope = document) {
   scope.querySelectorAll("pre code").forEach((el) => hljs.highlightElement(el));
 }
 
+function decorateToolMessages(scope = document) {
+  scope.querySelectorAll(".assistant-message .md-render").forEach((el) => {
+    const text = (el.dataset.md || el.textContent || "").trim();
+    const article = el.closest("article");
+    if (!article) return;
+    if (text.startsWith("[Tool") || text.startsWith("Tool ")) article.classList.add("tool-message");
+    else article.classList.remove("tool-message");
+  });
+}
+
 function renderIcons() {
   if (window.lucide) window.lucide.createIcons();
 }
@@ -176,12 +186,13 @@ async function agentApi(path, options = {}) {
 }
 
 function defaultWelcomeMessage() {
-  return '<article data-welcome="1" class="max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
+  return '<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
 }
 
 function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
+  decorateToolMessages(dom.messageList);
   scrollToBottom();
 }
 
@@ -241,7 +252,7 @@ function renderAgentList() {
       const activeClass = state.selectedAgentId === agent.id
         ? "border-blue-500 bg-blue-500/10"
         : "border-slate-700 bg-slate-800/40";
-      const badge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">shared</span>';
+      const badge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-500">shared</span>';
 
       const button = document.createElement("button");
       button.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
@@ -345,6 +356,12 @@ async function syncSelectedAgentState() {
   const status = state.agentStatus.get(agent.id)?.status || agent.status;
   dom.embedTitle.textContent = agent.name;
   dom.selectedStatus.textContent = status;
+  if (dom.selectedStatus) {
+    dom.selectedStatus.className = "px-3 py-1 rounded-full text-xs border";
+    if (status === "running") dom.selectedStatus.classList.add("border-emerald-200", "bg-emerald-50", "text-emerald-700");
+    else if (status === "failed") dom.selectedStatus.classList.add("border-rose-200", "bg-rose-50", "text-rose-700");
+    else dom.selectedStatus.classList.add("border-slate-200", "bg-slate-100", "text-slate-600");
+  }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
   syncHiddenSessionInputFromState();
@@ -438,6 +455,7 @@ function handleChatAfterSwap(target) {
   updateSelectedAgentSession(sessionFromInput);
 
   renderMarkdown(dom.messageList);
+  decorateToolMessages(dom.messageList);
   renderIcons();
   scrollToBottom();
 
@@ -603,7 +621,7 @@ function renderChatHistory(messages) {
     roleLabel.className = "text-xs uppercase tracking-wide mb-2";
 
     if (message.role === "user") {
-      article.className = "ml-auto max-w-3xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
+      article.className = "ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
       roleLabel.classList.add("text-blue-200");
       roleLabel.textContent = "You";
       const content = document.createElement("div");
@@ -611,7 +629,7 @@ function renderChatHistory(messages) {
       content.textContent = message.content || "";
       article.append(roleLabel, content);
     } else {
-      article.className = "max-w-3xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4";
+      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4";
       roleLabel.classList.add("text-slate-400");
       roleLabel.textContent = "Assistant";
       const content = document.createElement("div");
@@ -624,6 +642,7 @@ function renderChatHistory(messages) {
   });
 
   renderMarkdown(dom.messageList);
+  decorateToolMessages(dom.messageList);
   scrollToBottom();
 }
 
