@@ -42,6 +42,7 @@ const dom = {
   topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
+  addAgentBtn: document.getElementById("add-agent-btn"),
 };
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
@@ -1310,6 +1311,16 @@ function bindEvents() {
   });
 
   dom.themeToggle?.addEventListener("click", toggleTheme);
+
+  dom.addAgentBtn?.addEventListener("click", () => {
+    document.getElementById("create-modal")?.classList.remove("hidden");
+    document.getElementById("create-modal")?.setAttribute("aria-hidden", "false");
+  });
+
+  document.getElementById("close-create-modal")?.addEventListener("click", () => {
+    document.getElementById("create-modal")?.classList.add("hidden");
+    document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
+  });
 
   dom.logoutBtn?.addEventListener("click", async () => {
     await fetch("/api/auth/logout", { method: "POST" });
