@@ -759,13 +759,19 @@ function setToolPanel(title, contentHtml) {
   if (!dom.toolPanel) return;
   dom.toolPanelTitle.textContent = title;
   dom.toolPanelBody.innerHTML = contentHtml;
-  dom.toolPanel.classList.remove("hidden");
+  // Hide detail panel, show tool panel
+  if (dom.detailPanel) dom.detailPanel.style.transform = "translateX(120%)";
+  dom.detailBackdrop?.classList.add("hidden");
+  dom.toolPanel.style.transform = "translateX(0)";
+}
+
+function closeToolPanel() {
+  if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
 }
 
 async function openSessionsPanel() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
   setToolPanel("Sessions", '<div class="text-xs text-slate-400">Loading sessions…</div>');
 
   await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
@@ -849,7 +855,7 @@ async function openServerFiles() {
 async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
+  
   setToolPanel("Skills", '<div class="text-xs text-slate-400">Loading skills…</div>');
 
   try {
@@ -873,7 +879,7 @@ async function openSkillsPanel() {
 async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
+  
   setToolPanel("Usage", '<div class="text-xs text-slate-400">Loading usage…</div>');
 
   try {
@@ -890,7 +896,7 @@ async function openUsagePanel() {
 async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
+  
   setToolPanel("My Uploads", '<div class="text-xs text-slate-400">Loading files…</div>');
 
   try {
@@ -949,7 +955,7 @@ function initializeSettingsPanel() {
 async function openSettings() {
   if (!state.selectedAgentId) return;
 
-  setDetailOpen(true);
+  
   setToolPanel("Settings", '<div class="text-xs text-slate-400">Loading settings…</div>');
 
   try {
@@ -1044,7 +1050,7 @@ function bindEvents() {
   dom.detailToggle?.addEventListener("click", () => setDetailOpen(!state.detailOpen));
   dom.detailClose?.addEventListener("click", () => setDetailOpen(false));
   dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
-  dom.closeToolPanel?.addEventListener("click", () => dom.toolPanel.classList.add("hidden"));
+  dom.closeToolPanel?.addEventListener("click", closeToolPanel);
 
   dom.chatInput?.addEventListener("input", maybeShowSuggest);
   dom.chatInput?.addEventListener("keydown", (event) => {
