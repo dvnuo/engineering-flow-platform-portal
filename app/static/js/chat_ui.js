@@ -861,29 +861,58 @@ function renderChatHistory(messages, metadata = {}) {
   messages.forEach((message) => {
     if (message.role !== "user" && message.role !== "assistant") return;
 
-    const article = document.createElement("article");
-    const roleLabel = document.createElement("p");
-    roleLabel.className = "text-xs uppercase tracking-wide mb-2";
+    const isUser = message.role === "user";
+    
+    // Format timestamp
+    let timeStr = "";
+    if (message.timestamp) {
+      try {
+        const ts = new Date(message.timestamp);
+        timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      } catch (e) {}
+    }
 
-    if (message.role === "user") {
-      article.className = "ml-auto max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
-      roleLabel.classList.add("text-blue-200");
-      roleLabel.textContent = "You";
+    // Create message container
+    const container = document.createElement("div");
+    container.className = isUser ? "flex flex-col items-end" : "flex flex-col items-start";
+    
+    // Role label and timestamp
+    const header = document.createElement("div");
+    header.className = "flex items-center gap-2 mb-1";
+    
+    const roleLabel = document.createElement("span");
+    roleLabel.className = isUser ? "text-xs text-blue-400" : "text-xs text-slate-400";
+    roleLabel.textContent = isUser ? "You" : "Assistant";
+    
+    header.appendChild(roleLabel);
+    
+    if (timeStr) {
+      const timeLabel = document.createElement("span");
+      timeLabel.className = "text-xs text-slate-500";
+      timeLabel.textContent = timeStr;
+      header.appendChild(timeLabel);
+    }
+    
+    container.appendChild(header);
+
+    // Message bubble
+    const article = document.createElement("article");
+    if (isUser) {
+      article.className = "max-w-2xl rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4";
       const content = document.createElement("div");
-      content.className = "whitespace-pre-wrap text-slate-100";
+      content.className = "whitespace-pre-wrap text-slate-100 text-right";
       content.textContent = message.content || "";
-      article.append(roleLabel, content);
+      article.appendChild(content);
     } else {
       article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4 assistant-message";
-      roleLabel.classList.add("text-slate-400");
-      roleLabel.textContent = "Assistant";
       const content = document.createElement("div");
       content.className = "md-render prose prose-invert max-w-none";
       content.dataset.md = message.content || "";
-      article.append(roleLabel, content);
+      article.appendChild(content);
     }
-
-    dom.messageList.append(article);
+    
+    container.appendChild(article);
+    dom.messageList.appendChild(container);
   });
 
   renderMarkdown(dom.messageList);
