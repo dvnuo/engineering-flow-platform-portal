@@ -67,6 +67,9 @@ const state = {
   pendingMessage: "",
   currentUserId: Number(dom.appRoot?.dataset.userId || 0),
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
+  eventWs: null,
+  eventWsAgentId: null,
+  inflightThinking: null,
 };
 
 const md = window.markdownit({
@@ -111,12 +114,124 @@ function buildUserMessageArticle(text) {
 }
 
 function buildPendingAssistantArticle() {
-  return '<article class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/70 p-4" data-pending-assistant="1"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
+  return '<article class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/70 p-4 assistant-message" data-pending-assistant="1"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="text-slate-300">Thinking...</div></article>';
 }
 
 function removePendingAssistantPlaceholder() {
   if (!dom.messageList) return;
   dom.messageList.querySelectorAll('[data-pending-assistant="1"]').forEach((el) => el.remove());
+}
+
+function disconnectEventSocket() {
+  if (state.eventWs) {
+    try { state.eventWs.close(); } catch {}
+  }
+  state.eventWs = null;
+  state.eventWsAgentId = null;
+}
+
+function isTrackableThinkingEvent(type) {
+  return ["iteration_start", "llm_thinking", "tool_call", "tool_result", "complete"].includes(type);
+}
+
+function getThinkingEventDisplay(event) {
+  const type = event?.type || "event";
+  const data = event?.data || {};
+  const byType = {
+    iteration_start: { icon: "rotate-cw", title: "Iteration Start", detail: `Iteration ${data.iteration || 1}${data.total ? `/${data.total}` : ""}` },
+    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || "Model is reasoning" },
+    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool" },
+    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed") },
+    complete: { icon: "flag", title: "Complete", detail: "Execution complete" },
+  };
+  return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
+}
+
+function renderThinkingProcess(article, events) {
+  if (!article) return;
+  let host = article.querySelector('[data-thinking-process="1"]');
+  if (!host) {
+    host = document.createElement("div");
+    host.dataset.thinkingProcess = "1";
+    host.className = "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
+    article.append(host);
+  }
+
+  const expanded = host.dataset.expanded === "1";
+  const count = events.length;
+  const rows = events.map((event, idx) => {
+    const view = getThinkingEventDisplay(event);
+    const border = idx === events.length - 1 ? "" : " border-l border-slate-200";
+    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold text-slate-700">${safe(view.title)}</div><div class="text-xs text-slate-500 whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
+  }).join("");
+
+  host.innerHTML = `
+    <button type="button" data-thinking-toggle="1" class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100">
+      <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
+      <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
+    </button>
+    <div data-thinking-timeline="1" class="mt-2 ${expanded ? "" : "hidden"}">
+      ${count ? rows : '<div class="text-xs text-slate-500 px-1 py-1">Waiting for runtime events…</div>'}
+    </div>
+  `;
+
+  host.querySelector('[data-thinking-toggle="1"]')?.addEventListener("click", () => {
+    const timeline = host.querySelector('[data-thinking-timeline="1"]');
+    const isExpanded = !timeline.classList.contains("hidden");
+    host.dataset.expanded = isExpanded ? "0" : "1";
+    renderThinkingProcess(article, events);
+  });
+
+  renderIcons();
+}
+
+function attachThinkingToLatestAssistant(events) {
+  if (!dom.messageList || !events?.length) return false;
+  const assistants = Array.from(dom.messageList.querySelectorAll("article.assistant-message:not([data-pending-assistant='1'])"));
+  const target = assistants[assistants.length - 1];
+  if (!target) return false;
+  renderThinkingProcess(target, events);
+  return true;
+}
+
+function handleAgentEventMessage(raw) {
+  if (!state.inflightThinking) return;
+
+  let payload = null;
+  try { payload = JSON.parse(raw); } catch { return; }
+  const type = payload?.type;
+  if (!isTrackableThinkingEvent(type)) return;
+
+  const entry = { type, data: payload?.data || {}, ts: payload?.ts || Date.now() / 1000 };
+  state.inflightThinking.events.push(entry);
+
+  const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${state.inflightThinking.id}"]`);
+  if (pendingArticle) renderThinkingProcess(pendingArticle, state.inflightThinking.events);
+
+  if (type === "complete") state.inflightThinking.completed = true;
+}
+
+function ensureEventSocketForSelectedAgent() {
+  const agentId = state.selectedAgentId;
+  if (!agentId) return;
+
+  if (state.eventWs && state.eventWsAgentId === agentId && state.eventWs.readyState === WebSocket.OPEN) return;
+  if (state.eventWs && state.eventWsAgentId !== agentId) disconnectEventSocket();
+  if (state.eventWs?.readyState === WebSocket.CONNECTING) return;
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${protocol}//${window.location.host}/a/${agentId}/api/events`);
+  state.eventWs = ws;
+  state.eventWsAgentId = agentId;
+
+  ws.onmessage = (event) => handleAgentEventMessage(event.data);
+  ws.onclose = () => {
+    if (state.eventWs === ws) {
+      state.eventWs = null;
+      state.eventWsAgentId = null;
+    }
+  };
+  ws.onerror = () => {};
 }
 
 function applyTheme(theme) {
@@ -193,6 +308,12 @@ function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
+
+  const storedEvents = Array.isArray(metadata?.thinking_events) ? metadata.thinking_events
+    .filter((event) => isTrackableThinkingEvent(event?.type))
+    .map((event) => ({ type: event.type, data: event.data || event, ts: event.ts || Date.now() / 1000 })) : [];
+  if (storedEvents.length) attachThinkingToLatestAssistant(storedEvents);
+
   scrollToBottom();
 }
 
@@ -333,6 +454,8 @@ async function selectAgentById(agentId) {
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.cachedMentionFiles = [];
   state.selectedSuggestionIndex = -1;
+  state.inflightThinking = null;
+  disconnectEventSocket();
 
   if (dom.chatAgentId) dom.chatAgentId.value = agentId || "";
   syncHiddenSessionInputFromState();
@@ -420,7 +543,13 @@ function handleChatBeforeRequest(event) {
   hideSuggest();
   if (dom.messageList && state.pendingMessage.trim()) {
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage));
+    const thinkingId = `thinking-${Date.now()}`;
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
+    if (pending) pending.dataset.thinkingId = thinkingId;
+    state.inflightThinking = { id: thinkingId, events: [], completed: false };
+    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+    ensureEventSocketForSelectedAgent();
     scrollToBottom();
   }
   if (dom.chatInput) dom.chatInput.value = "";
@@ -434,6 +563,7 @@ function handleChatResponseError(event) {
   setChatSubmitting(false);
   if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
   state.pendingMessage = "";
+  state.inflightThinking = null;
   setChatStatus("Send failed");
 }
 
@@ -448,7 +578,10 @@ function handleChatAfterRequest(event) {
 function handleChatAfterSwap(target) {
   if (target?.id !== "message-list") return;
 
+  const pendingEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
   removePendingAssistantPlaceholder();
+  if (pendingEvents.length) attachThinkingToLatestAssistant(pendingEvents);
+  state.inflightThinking = null;
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
   const sessionFromInput = dom.chatSessionId?.value || "";
@@ -604,7 +737,7 @@ async function openSessionsPanel() {
   });
 }
 
-function renderChatHistory(messages) {
+function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
 
   if (!messages.length) {
@@ -629,7 +762,7 @@ function renderChatHistory(messages) {
       content.textContent = message.content || "";
       article.append(roleLabel, content);
     } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4";
+      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4 assistant-message";
       roleLabel.classList.add("text-slate-400");
       roleLabel.textContent = "Assistant";
       const content = document.createElement("div");
@@ -643,6 +776,12 @@ function renderChatHistory(messages) {
 
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
+
+  const storedEvents = Array.isArray(metadata?.thinking_events) ? metadata.thinking_events
+    .filter((event) => isTrackableThinkingEvent(event?.type))
+    .map((event) => ({ type: event.type, data: event.data || event, ts: event.ts || Date.now() / 1000 })) : [];
+  if (storedEvents.length) attachThinkingToLatestAssistant(storedEvents);
+
   scrollToBottom();
 }
 
@@ -652,7 +791,7 @@ async function loadSession(sessionId) {
 
   const data = await agentApi(`/api/sessions/${encodeURIComponent(normalized)}`);
   updateSelectedAgentSession(normalized);
-  renderChatHistory(data.messages || []);
+  renderChatHistory(data.messages || [], data.metadata || {});
 
   setChatStatus(`Loaded session ${normalized}`);
   await openSessionsPanel();
@@ -824,6 +963,8 @@ async function clearChat() {
     }
 
     updateSelectedAgentSession("");
+    state.inflightThinking = null;
+    removePendingAssistantPlaceholder();
     clearMessageListToWelcome();
     setChatStatus("Chat cleared");
   } catch (error) {
@@ -833,6 +974,8 @@ async function clearChat() {
 
 async function startNewChatForSelectedAgent() {
   updateSelectedAgentSession("");
+  state.inflightThinking = null;
+  removePendingAssistantPlaceholder();
   clearMessageListToWelcome();
   setChatStatus("New chat started");
 
@@ -969,3 +1112,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderMarkdown(document);
   renderIcons();
 });
+
+window.addEventListener("beforeunload", disconnectEventSocket);
