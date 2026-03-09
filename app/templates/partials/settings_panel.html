@@ -38,6 +38,27 @@
       <button type="button" id="copilot_auth_btn" class="w-full rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 px-4 py-2 text-sm font-medium text-white transition-colors hidden">
         Authorize GitHub Copilot
       </button>
+      
+      <!-- Copilot Auth Status -->
+      <div id="copilot_auth_status" class="hidden rounded-lg border border-slate-300 dark:border-slate-600 p-3 space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-700 dark:text-slate-300">Status:</span>
+          <span id="copilot_status_text" class="text-xs text-slate-500">Not authorized</span>
+        </div>
+        <div id="copilot_instructions" class="hidden space-y-2">
+          <p class="text-xs text-slate-500">Step 1: Click the link below to authorize</p>
+          <a id="copilot_verify_link" href="#" target="_blank" class="text-xs text-blue-500 hover:underline break-all"></a>
+          <p class="text-xs text-slate-500 mt-2">Step 2: Copy this code</p>
+          <div class="flex items-center gap-2">
+            <span id="copilot_user_code" class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200"></span>
+            <button type="button" id="copilot_copy_btn" class="text-xs text-blue-500 hover:underline">Copy</button>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">Step 3: Click the link in step 1 to complete</p>
+          <div class="flex items-center gap-2 mt-2">
+            <span id="copilot_timer" class="text-xs text-slate-500"></span>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Jira Section -->
@@ -150,6 +171,9 @@
     const currentModel = "{{ llm.get('model', '') }}";
     const currentProvider = "{{ llm.get('provider', 'openai') }}";
 
+    let copilotAuthInterval = null;
+    let copilotTimerInterval = null;
+
     function updateModelOptions() {
       const provider = document.getElementById('llm_provider').value;
       const modelSelect = document.getElementById('llm_model');
@@ -171,6 +195,122 @@
       if (copilotBtn) {
         copilotBtn.classList.toggle('hidden', provider !== 'github_copilot');
       }
+      
+      // Hide auth status when switching away
+      if (provider !== 'github_copilot') {
+        const authStatus = document.getElementById('copilot_auth_status');
+        if (authStatus) authStatus.classList.add('hidden');
+        stopCopilotPolling();
+      }
+    }
+
+    function stopCopilotPolling() {
+      if (copilotAuthInterval) {
+        clearInterval(copilotAuthInterval);
+        copilotAuthInterval = null;
+      }
+      if (copilotTimerInterval) {
+        clearInterval(copilotTimerInterval);
+        copilotTimerInterval = null;
+      }
+    }
+
+    async function startCopilotAuth() {
+      const authStatus = document.getElementById('copilot_auth_status');
+      const instructions = document.getElementById('copilot_instructions');
+      const statusText = document.getElementById('copilot_status_text');
+      const verifyLink = document.getElementById('copilot_verify_link');
+      const userCode = document.getElementById('copilot_user_code');
+      const timer = document.getElementById('copilot_timer');
+      
+      try {
+        const response = await fetch('/api/copilot/auth/start', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.error) {
+          alert('Failed to start authorization: ' + data.error);
+          return;
+        }
+
+        // Store auth data
+        authStatus.dataset.authId = data.auth_id;
+        authStatus.dataset.deviceCode = data.device_code;
+
+        // Show status section
+        authStatus.classList.remove('hidden');
+        instructions.classList.remove('hidden');
+        
+        // Update UI
+        verifyLink.href = data.verification_url;
+        verifyLink.textContent = data.verification_url;
+        userCode.textContent = data.user_code;
+        timer.textContent = data.expires_in + 's';
+        statusText.textContent = 'Waiting for authorization...';
+        statusText.className = 'text-xs text-amber-500';
+
+        // Start countdown timer
+        let currentTimer = data.expires_in || 600;
+        if (copilotTimerInterval) clearInterval(copilotTimerInterval);
+        copilotTimerInterval = setInterval(() => {
+          currentTimer--;
+          timer.textContent = currentTimer + 's';
+          if (currentTimer <= 0) {
+            clearInterval(copilotTimerInterval);
+            statusText.textContent = 'Authorization timed out. Please try again.';
+            statusText.className = 'text-xs text-red-500';
+          }
+        }, 1000);
+
+        // Start polling for authorization status
+        if (copilotAuthInterval) clearInterval(copilotAuthInterval);
+        copilotAuthInterval = setInterval(async () => {
+          try {
+            const checkResponse = await fetch('/api/copilot/auth/check', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                auth_id: data.auth_id,
+                device_code: data.device_code
+              })
+            });
+            const checkData = await checkResponse.json();
+
+            if (checkData.status === 'authorized') {
+              clearInterval(copilotAuthInterval);
+              clearInterval(copilotTimerInterval);
+              statusText.textContent = 'Authorized successfully!';
+              statusText.className = 'text-xs text-green-500';
+              instructions.classList.add('hidden');
+              
+              // Store token in API key field
+              const apiKeyInput = document.querySelector('input[name="llm_api_key"]');
+              if (apiKeyInput && checkData.token) {
+                apiKeyInput.value = checkData.token;
+              }
+            } else if (checkData.status === 'failed' || checkData.status === 'expired') {
+              clearInterval(copilotAuthInterval);
+              clearInterval(copilotTimerInterval);
+              statusText.textContent = checkData.message || 'Authorization failed';
+              statusText.className = 'text-xs text-red-500';
+            }
+          } catch (e) {
+            console.error('Polling error:', e);
+          }
+        }, (data.interval || 5) * 1000);
+
+      } catch (e) {
+        alert('Failed to start authorization: ' + e);
+      }
+    }
+
+    // Copy code function
+    function copyCode() {
+      const code = document.getElementById('copilot_user_code').textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copilot_copy_btn');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 2000);
+      });
     }
 
     // Initialize immediately
@@ -186,17 +326,13 @@
       // Handle Authorize button click
       const authBtn = document.getElementById('copilot_auth_btn');
       if (authBtn) {
-        authBtn.addEventListener('click', async function() {
-          try {
-            const response = await fetch('/api/copilot/auth/start', { method: 'POST' });
-            const data = await response.json();
-            if (data.device_code) {
-              alert('Please visit: ' + data.verification_uri + '\nEnter code: ' + data.user_code);
-            }
-          } catch (e) {
-            alert('Failed to start authorization: ' + e);
-          }
-        });
+        authBtn.addEventListener('click', startCopilotAuth);
+      }
+      
+      // Handle copy button
+      const copyBtn = document.getElementById('copilot_copy_btn');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', copyCode);
       }
     }
     
