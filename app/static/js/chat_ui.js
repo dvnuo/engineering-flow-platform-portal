@@ -50,6 +50,24 @@ const dom = {
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
+function getLastSessionKey(agentId) {
+  return `portal-last-session-${agentId}`;
+}
+
+function getLastSessionId(agentId) {
+  if (!agentId) return null;
+  return localStorage.getItem(getLastSessionKey(agentId));
+}
+
+function setLastSessionId(agentId, sessionId) {
+  if (!agentId) return;
+  if (sessionId) {
+    localStorage.setItem(getLastSessionKey(agentId), sessionId);
+  } else {
+    localStorage.removeItem(getLastSessionKey(agentId));
+  }
+}
+
 // ===== app state =====
 const state = {
   selectedAgentId: null,
@@ -348,8 +366,13 @@ function updateSelectedAgentSession(sessionId) {
   if (!state.selectedAgentId) return;
 
   const value = (sessionId || "").trim();
-  if (value) state.agentSessionIds.set(state.selectedAgentId, value);
-  else state.agentSessionIds.delete(state.selectedAgentId);
+  if (value) {
+    state.agentSessionIds.set(state.selectedAgentId, value);
+    setLastSessionId(state.selectedAgentId, value);
+  } else {
+    state.agentSessionIds.delete(state.selectedAgentId);
+    setLastSessionId(state.selectedAgentId, null);
+  }
   syncHiddenSessionInputFromState();
 }
 
@@ -536,6 +559,21 @@ async function syncSelectedAgentState() {
   const running = status === "running";
   dom.centerPlaceholder.classList.toggle("hidden", running);
   dom.agentChatApp.classList.toggle("hidden", !running);
+  
+  // Auto-load last session if available
+  if (running) {
+    const lastSessionId = getLastSessionId(agent.id);
+    if (lastSessionId) {
+      try {
+        await agentApi(`/api/sessions/${encodeURIComponent(lastSessionId)}`);
+        updateSelectedAgentSession(lastSessionId);
+        setChatStatus(`Loaded last session`);
+      } catch (e) {
+        // Session not found, start fresh
+        console.log("Last session not found, starting fresh");
+      }
+    }
+  }
 }
 
 async function refreshAll() {
