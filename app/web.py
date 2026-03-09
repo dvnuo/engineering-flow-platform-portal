@@ -360,16 +360,17 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     llm["model"] = (form.get("llm_model") or "").strip()
     llm["api_key"] = (form.get("llm_api_key") or "").strip()
     
-    # Set api_base based on provider (same logic as EFP)
+    # Set api_base based on provider (same logic as EFP) - only if empty
     provider = llm.get("provider", "")
-    if provider == "github_copilot":
-        llm["api_base"] = "https://api.githubcopilot.com"
-    elif provider == "anthropic":
-        llm["api_base"] = "https://api.anthropic.com/v1"
-    elif provider == "ollama":
-        llm["api_base"] = "http://127.0.0.1:11434"
-    else:  # openai or default
-        llm["api_base"] = "https://api.openai.com/v1"
+    if not llm.get("api_base"):  # Only set if not already present
+        if provider == "github_copilot":
+            llm["api_base"] = "https://api.githubcopilot.com"
+        elif provider == "anthropic":
+            llm["api_base"] = "https://api.anthropic.com/v1"
+        elif provider == "ollama":
+            llm["api_base"] = "http://127.0.0.1:11434"
+        else:  # openai or default
+            llm["api_base"] = "https://api.openai.com/v1"
 
     temperature_text = (form.get("llm_temperature") or "").strip()
     if temperature_text:
