@@ -547,3 +547,17 @@ html[data-theme="light"] #top-settings:hover {
   background: #f9fafb;
   color: #111827;
 }
+
+/* Sidebar font sizes */
+#app-root aside h3,
+#app-root aside .text-xs {
+  font-size: 0.75rem;
+}
+
+#app-root aside .font-semibold {
+  font-size: 0.875rem;
+}
+
+html[data-theme="light"] #app-root aside {
+  color: #374151;
+}
