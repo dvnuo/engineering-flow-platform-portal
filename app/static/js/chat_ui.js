@@ -134,7 +134,7 @@ function buildUserMessageArticle(text) {
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">Assistant</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
+  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">Assistant</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1" style="background-color:#1e293b;border-color:#475569;"><div class="text-slate-300">Thinking...</div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -918,9 +918,11 @@ function renderChatHistory(messages, metadata = {}) {
       content.textContent = message.content || "";
       article.appendChild(content);
     } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100";
+      article.className = "max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100 !important";
+      article.style.backgroundColor = "#1e293b !important";
+      article.style.borderColor = "#475569 !important";
       const content = document.createElement("div");
-      content.className = "md-render prose prose-invert max-w-none text-sm";
+      content.className = "md-render prose prose-invert max-w-none text-sm text-slate-100";
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
