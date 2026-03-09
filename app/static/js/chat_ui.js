@@ -1184,7 +1184,12 @@ function bindEvents() {
   dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
 
-  dom.chatInput?.addEventListener("input", maybeShowSuggest);
+  dom.chatInput?.addEventListener("input", () => {
+    maybeShowSuggest();
+    // Auto-expand textarea
+    dom.chatInput.style.height = 'auto';
+    dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 150) + 'px';
+  });
   dom.chatInput?.addEventListener("keydown", (event) => {
     if (event.key === "ArrowDown" && !dom.chatSuggest?.classList.contains("hidden")) {
       event.preventDefault();
