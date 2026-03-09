@@ -577,3 +577,19 @@ html[data-theme="light"] #logout-btn:hover {
   background: #e5e7eb;
   color: #111827;
 }
+
+/* Add Agent button */
+#add-agent-btn {
+  color: #e2e8f0;
+}
+
+html[data-theme="light"] #add-agent-btn {
+  background: #ffffff;
+  border-color: #d1d5db;
+  color: #6b7280;
+}
+
+html[data-theme="light"] #add-agent-btn:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
