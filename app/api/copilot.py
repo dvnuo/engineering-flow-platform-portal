@@ -31,7 +31,7 @@ class AuthCheckResponse(BaseModel):
     token: str = ""
 
 
-@router.post("/start", response_model=AuthStartResponse)
+@router.post("/start")
 async def start_auth(request: Request):
     """Start GitHub Copilot device authorization."""
     try:
@@ -86,7 +86,7 @@ async def start_auth(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/check", response_model=AuthCheckResponse)
+@router.post("/check")
 async def check_auth(request: AuthCheckRequest):
     """Check if authorization is complete."""
     auth = _pending_authorizations.get(request.auth_id)
