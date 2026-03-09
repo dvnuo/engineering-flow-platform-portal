@@ -500,3 +500,26 @@ html[data-theme="light"] #composer-plus-btn {
   min-height: 40px;
   height: auto;
 }
+
+/* Fix composer vertical alignment */
+#chat-form {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+}
+
+#composer-plus-btn {
+  align-self: flex-end;
+  height: 40px;
+  width: 40px;
+}
+
+#chat-input {
+  align-self: flex-end;
+  min-height: 40px !important;
+}
+
+#send-chat-btn {
+  align-self: flex-end;
+  height: 40px;
+}
