@@ -5,12 +5,9 @@
     <aside class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-0">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-semibold">Agents</h2>
-        <div class="flex items-center gap-1">
-          <button id="add-agent-btn" class="h-8 w-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Add Agent">
-            <i data-lucide="plus" class="w-4 h-4"></i>
-          </button>
-          <button id="theme-toggle" class="h-8 w-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Toggle theme"><i data-lucide="moon" class="w-4 h-4"></i></button>
-        </div>
+        <button id="add-agent-btn" class="h-8 w-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Add Agent">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+        </button>
       </div>
 
       <div id="mine-list" class="space-y-2 overflow-auto min-h-0"></div>
@@ -20,10 +17,14 @@
           <div class="font-semibold">{{ username }}</div>
           <div class="text-xs text-slate-400">{{ role }}</div>
         </div>
-        <button id="logout-btn" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Logout">
-          <i data-lucide="log-out" class="w-5 h-5"></i>
-        </button>
-      </div>
+        <div class="flex items-center gap-1">
+          <button id="theme-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Toggle theme">
+            <i data-lucide="moon" class="w-4 h-4"></i>
+          </button>
+          <button id="logout-btn" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Logout">
+            <i data-lucide="log-out" class="w-4 h-4"></i>
+          </button>
+        </div>
     </aside>
 
     <main class="rounded-2xl border border-slate-800 bg-slate-900/60 min-h-0 flex flex-col relative">
