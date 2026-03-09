@@ -485,3 +485,18 @@ html[data-theme="light"] #composer-plus-btn {
   background: #ffffff;
   border-color: #d1d5db;
 }
+
+/* Composer alignment */
+#chat-form {
+  align-items: flex-end;
+}
+
+#chat-form #composer-plus-btn,
+#chat-form #send-chat-btn {
+  flex-shrink: 0;
+}
+
+#chat-form #chat-input {
+  min-height: 40px;
+  height: auto;
+}
