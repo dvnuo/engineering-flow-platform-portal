@@ -21,7 +21,6 @@
             <option value="openai" {{ 'selected' if llm.get('provider') == 'openai' else '' }}>OpenAI</option>
             <option value="anthropic" {{ 'selected' if llm.get('provider') == 'anthropic' else '' }}>Anthropic</option>
             <option value="github_copilot" {{ 'selected' if llm.get('provider') == 'github_copilot' else '' }}>GitHub Copilot</option>
-            <option value="minimax" {{ 'selected' if llm.get('provider') == 'minimax' else '' }}>Minimax</option>
           </select>
         </label>
         <label class="block text-xs">
@@ -36,25 +35,29 @@
       </label>
     </section>
 
-    <!-- GitHub Copilot Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">GitHub Copilot</h6>
-        </div>
-        <label class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
-          <input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} class="rounded border-slate-300 dark:border-slate-600 text-blue-600 dark:bg-slate-700" />
-          <span>Enabled</span>
-        </label>
+    <!-- GitHub Copilot Authorization (shown only when github_copilot is selected) -->
+    <section id="copilot_auth_section" class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3" style="display: none;">
+      <div class="flex items-center gap-2">
+        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
+        <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">GitHub Copilot Authorization</h6>
       </div>
-      <label class="block text-xs">
-        <span class="mb-1 block text-slate-600 dark:text-slate-400">Personal Access Token</span>
-        <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
-      </label>
-      <button type="button" class="w-full rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 px-4 py-2 text-sm font-medium text-white transition-colors">
-        Authorize GitHub Copilot
-      </button>
+      
+      <div id="copilot_auth_content" class="space-y-3">
+        <button type="button" id="copilot_auth_btn" class="w-full rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 px-4 py-2 text-sm font-medium text-white transition-colors">
+          Authorize GitHub Copilot
+        </button>
+        
+        <div id="copilot_auth_status" class="hidden rounded-lg border border-slate-300 dark:border-slate-600 p-3 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-700 dark:text-slate-300">Status:</span>
+            <span id="copilot_status_text" class="text-xs text-slate-500">Not authorized</span>
+          </div>
+          <div id="copilot_device_info" class="hidden space-y-2">
+            <p class="text-xs text-slate-500">Visit: <a id="copilot_sso_url" href="#" target="_blank" class="text-blue-500 hover:underline"></a></p>
+            <p class="text-xs text-slate-500">Code: <span id="copilot_user_code" class="font-mono font-bold"></span></p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Jira Section -->
@@ -140,33 +143,54 @@
   </form>
 
   <script>
-    // Provider-Model mapping
-    const modelMap = {
-      openai: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o', 'gpt-4o-mini', 'gpt-5-mini', 'gpt-5'],
-      anthropic: ['claude-haiku-4', 'claude-sonnet-4', 'claude-opus-4'],
-      github_copilot: ['gpt-5-mini', 'gpt-5', 'gpt-5.1-coodex', 'gemini-2.5-pro'],
-      minimax: ['MiniMax-M2.1']
+    // Provider-Model mapping (from EFP)
+    const providerModels = {
+      github_copilot: [
+        { value: 'gpt-4o', label: 'GPT-4o' },
+        { value: 'gpt-5-mini', label: 'GPT-5 mini' },
+        { value: 'gpt-5', label: 'GPT-5' },
+        { value: 'gpt-5.1-codex', label: 'GPT-5.1-Codex' },
+        { value: 'gpt-5.1-codex-max', label: 'GPT-5.1-Codex-Max' },
+        { value: 'gpt-5.2', label: 'GPT-5.2' },
+        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      ],
+      openai: [
+        { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+        { value: 'gpt-4', label: 'GPT-4' },
+        { value: 'gpt-4o', label: 'GPT-4o' },
+        { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+      ],
+      anthropic: [
+        { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+        { value: 'claude-haiku-4-20250514', label: 'Claude Haiku 4' },
+        { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+      ],
     };
 
-    // Get current model from select or config
     const currentModel = "{{ llm.get('model', '') }}";
     const currentProvider = "{{ llm.get('provider', 'openai') }}";
 
     function updateModelOptions() {
       const provider = document.getElementById('llm_provider').value;
       const modelSelect = document.getElementById('llm_model');
-      const models = modelMap[provider] || [];
+      const models = providerModels[provider] || [];
       
       modelSelect.innerHTML = '';
       models.forEach(model => {
         const option = document.createElement('option');
-        option.value = model;
-        option.textContent = model;
-        if (model === currentModel && provider === currentProvider) {
+        option.value = model.value;
+        option.textContent = model.label;
+        if (model.value === currentModel && provider === currentProvider) {
           option.selected = true;
         }
         modelSelect.appendChild(option);
       });
+
+      // Show/hide GitHub Copilot auth section
+      const copilotSection = document.getElementById('copilot_auth_section');
+      if (copilotSection) {
+        copilotSection.style.display = provider === 'github_copilot' ? 'block' : 'none';
+      }
     }
 
     // Initialize on load
