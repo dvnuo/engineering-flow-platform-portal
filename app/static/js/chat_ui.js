@@ -391,8 +391,9 @@ function renderAgentList() {
     return;
   }
 
-  const mine = state.mineAgents.filter((agent) => Number(agent.owner_user_id) === state.currentUserId);
-  const shared = state.mineAgents.filter((agent) => Number(agent.owner_user_id) !== state.currentUserId);
+  const mine = state.mineAgents.filter((agent) => Number(agent.owner_user_id) === state.currentUserId && agent.visibility !== "public");
+  const shared = state.mineAgents.filter((agent) => Number(agent.owner_user_id) !== state.currentUserId && agent.visibility !== "public");
+  const publicAgents = state.mineAgents.filter((agent) => agent.visibility === "public");
 
   const renderSection = (title, agents) => {
     if (!agents.length) return;
@@ -419,6 +420,7 @@ function renderAgentList() {
 
   renderSection("My Space", mine);
   renderSection("Shared", shared);
+  if (publicAgents.length) renderSection("Public", publicAgents);
 }
 
 function renderAgentMeta(agent) {
