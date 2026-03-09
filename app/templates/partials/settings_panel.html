@@ -190,8 +190,9 @@
   </form>
 
   <script>
-    // Provider-Model mapping (from EFP)
-    const providerModels = {
+    // Provider-Model mapping (from EFP) - define only once
+    if (typeof window.providerModels === 'undefined') {
+      window.providerModels = {
       github_copilot: [
         { value: 'gpt-4o', label: 'GPT-4o' },
         { value: 'gpt-5-mini', label: 'GPT-5 mini' },
@@ -213,6 +214,7 @@
         { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
       ],
     };
+    }  // end if typeof window.providerModels
 
     const currentModel = "{{ llm.get('model', '') }}";
     const currentProvider = "{{ llm.get('provider', 'openai') }}";
@@ -223,7 +225,7 @@
     function updateModelOptions() {
       const provider = document.getElementById('llm_provider').value;
       const modelSelect = document.getElementById('llm_model');
-      const models = providerModels[provider] || [];
+      const models = window.providerModels[provider] || [];
       
       modelSelect.innerHTML = '';
       models.forEach(model => {
