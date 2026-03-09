@@ -237,6 +237,7 @@ function ensureEventSocketForSelectedAgent() {
 function applyTheme(theme) {
   const normalized = theme === "light" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", normalized);
+  document.documentElement.classList.toggle("dark", normalized === "dark");
   localStorage.setItem("portal-theme", normalized);
   if (dom.themeToggle) dom.themeToggle.innerHTML = normalized === "light"
     ? '<i data-lucide="sun"></i>'
