@@ -184,7 +184,7 @@ function renderThinkingProcess(article, events) {
   }).join("");
 
   host.innerHTML = `
-    <button type="button" data-thinking-toggle="1" class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100">
+    <button type="button" data-thinking-toggle="1" class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-600 bg-slate-700 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-600">
       <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
       <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
     </button>
