@@ -1067,7 +1067,7 @@ async function loadServerFiles(path) {
       const icon = item.is_dir ? '📁' : '📄';
       const onclick = item.is_dir 
         ? `loadServerFiles('${item.path}')` 
-        : `previewServerFile('${item.path.replace(/'/g, "\\'")}')`;
+        : `previewServerFile('${item.path.replace(/'/g, "\\'")}', '${path}')`;
       return (
         `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer" onclick="${onclick}">` +
           `<span class="text-lg">${icon}</span>` +
@@ -1087,10 +1087,21 @@ async function loadServerFiles(path) {
   }
 }
 
-async function previewServerFile(filePath) {
+async function previewServerFile(filePath, currentDir) {
   try {
     const encodedPath = encodeURIComponent(filePath);
+    const dir = currentDir || filePath.substring(0, filePath.lastIndexOf('/'));
     const resp = await agentApi(`/api/files/read?path=${encodedPath}`);
+    
+    // Build breadcrumb for navigation
+    const parts = dir.split('/').filter(Boolean);
+    let breadcrumb = '<a href="#" onclick="loadServerFiles(\'/\'); event.preventDefault();">/</a>';
+    let currentPath = '';
+    for (const part of parts) {
+      currentPath += '/' + part;
+      breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + part + '</a> /';
+    }
+    breadcrumb = breadcrumb.replace(/ \/$/, '');
     
     if (resp.error) {
       // Check if it's a binary file error - show file info instead
@@ -1102,12 +1113,12 @@ async function previewServerFile(filePath) {
         if (isImage) {
           // Show image directly
           setToolPanel("File: " + filePath.split('/').pop(), 
-            `<div class="text-xs text-slate-500 dark:text-slate-400 mb-2">${filePath}</div>` +
+            `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
             `<div class="text-center"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
           );
         } else {
           setToolPanel("File: " + filePath.split('/').pop(), 
-            `<div class="text-xs text-slate-500 dark:text-slate-400 mb-2">${filePath}</div>` +
+            `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
             `<div class="text-slate-500 dark:text-slate-400">Binary file (${size} bytes)</div>` +
             `<div class="text-xs text-slate-400 mt-2">Type: ${ext.toUpperCase()}</div>`
           );
@@ -1121,7 +1132,7 @@ async function previewServerFile(filePath) {
     const content = resp.content || "(empty file)";
     const language = resp.language || 'text';
     setToolPanel("File: " + filePath.split('/').pop(), 
-      `<div class="text-xs text-slate-500 dark:text-slate-400 mb-2">${filePath}</div>` +
+      `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
       `<pre class="whitespace-pre-wrap text-xs bg-slate-100 dark:bg-slate-900 p-2 rounded overflow-auto max-h-96">${escapeHtml(content)}</pre>`
     );
   } catch (error) {
