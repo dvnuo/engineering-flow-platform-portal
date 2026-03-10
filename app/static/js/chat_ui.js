@@ -1162,21 +1162,12 @@ async function uploadFile() {
   try {
     const formData = new FormData();
     formData.append("file", file);
-    
-    // Use XMLHttpRequest for progress tracking
-    const response = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `/a/${state.selectedAgentId}/api/files/upload`);
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve({ ok: true, json: () => JSON.parse(xhr.responseText) });
-        } else {
-          reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Upload failed"));
-      xhr.send(formData);
-    });
+    const response = await fetch(`/a/${state.selectedAgentId}/api/files/upload`, { method: "POST", body: formData });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `HTTP ${response.status}`);
+    }
 
     const data = await response.json();
     
@@ -1457,8 +1448,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   initializeRenderLifecycle();
   
   // Drag and drop file upload
-  const messageList = document.getElementById("message-list");
+  const messageList = dom.messageList;
+  let dragCounter = 0;
   if (messageList) {
+    messageList.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter++;
+      messageList.classList.add("drag-over");
+    });
     messageList.addEventListener("dragover", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1467,14 +1465,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     messageList.addEventListener("dragleave", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      messageList.classList.remove("drag-over");
+      dragCounter = Math.max(0, dragCounter - 1);
+      if (dragCounter === 0) {
+        messageList.classList.remove("drag-over");
+      }
     });
     messageList.addEventListener("drop", async (e) => {
       e.preventDefault();
       e.stopPropagation();
+      dragCounter = 0;
       messageList.classList.remove("drag-over");
       const files = e.dataTransfer?.files;
-      if (files?.length) {
+      if (files?.length && dom.uploadInput) {
         // Use the existing upload handler
         const dataTransfer = new DataTransfer();
         dataTransfer.items.add(files[0]);
