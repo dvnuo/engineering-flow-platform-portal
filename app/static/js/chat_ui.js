@@ -915,8 +915,7 @@ function setToolPanel(title, contentHtml) {
     dom.toolPanelBody.innerHTML = contentHtml;
   }
   // Hide detail panel, show tool panel
-  if (dom.detailPanel) dom.detailPanel.style.transform = "translateX(120%)";
-  dom.detailBackdrop?.classList.add("hidden");
+  setDetailOpen(false);
   dom.toolPanel.style.transform = "translateX(0)";
   dom.toolBackdrop?.classList.remove("hidden");
 }
@@ -1280,9 +1279,6 @@ function bindEvents() {
   dom.uploadInput?.addEventListener("change", uploadFile);
 
   dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
-  dom.topServerFiles?.addEventListener("click", openServerFiles);
-  dom.topMyUploads?.addEventListener("click", openMyUploads);
-  dom.topSessions?.addEventListener("click", openSessionsPanel);
   dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
