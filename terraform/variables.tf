@@ -22,6 +22,7 @@ variable "subnet_ids" {
   default     = []
 }
 variable "vpc_id" {
+  description = "VPC ID for EFS security group (required)"
   description = "VPC ID for EFS security group"
   type        = string
 }

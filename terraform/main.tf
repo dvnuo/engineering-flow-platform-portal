@@ -180,3 +180,13 @@ resource "aws_security_group" "efs" {
     Name = "${var.cluster_name}-efs-sg"
   }
 }
+
+
+# EFS Mount Targets - one per subnet
+resource "aws_efs_mount_target" "portal" {
+  for_each = toset(var.subnet_ids)
+
+  file_system_id  = aws_efs_file_system.portal.id
+  subnet_id       = each.value
+  security_groups = [aws_security_group.efs.id]
+}

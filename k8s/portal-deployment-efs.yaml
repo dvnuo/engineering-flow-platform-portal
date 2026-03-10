@@ -1,25 +1,15 @@
-# Portal Deployment with EFS Storage (Simple Version)
-# Requires: EFS File System + Access Point created in AWS
+# Simple Portal Deployment with local development in mind
+# Uses hostPath for application code (mounted from host)
+# This is a simple version for development/testing
+#
+# Usage:
+#   kubectl apply -f k8s/portal-deployment-efs.yaml
 
 apiVersion: v1
 kind: Namespace
 metadata:
   name: agents
 ---
-# EFS StorageClass with Access Point
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: efs-sc
-provisioner: efs.csi.aws.com
-parameters:
-  provisioningMode: efs-ap
-  fileSystemId: <EFS_FILE_SYSTEM_ID>
-  directoryPerms: "700"
-  gidRangeStart: "1000"
-  gidRangeEnd: "2000"
----
-# Portal Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,7 +25,6 @@ spec:
       labels:
         app: portal
     spec:
-      hostNetwork: true
       serviceAccountName: portal
       containers:
       - name: portal
@@ -58,7 +47,15 @@ spec:
           value: "/root/.kube/k3s.yaml"
         - name: AGENTS_NAMESPACE
           value: "agents"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
+      # HostPath for local development
       - name: portal-code
         hostPath:
           path: /root/engineering-flow-platform-portal
