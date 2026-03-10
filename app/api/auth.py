@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
+from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import LoginRequest, MeResponse, RegisterRequest
 from app.services.auth_service import hash_password, issue_session_token, verify_password
@@ -22,7 +23,24 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
     
     # Create new user (default role: user)
-    user = repo.create(payload.username, hash_password(payload.password), "user")
+    # Use transaction to prevent race condition
+    try:
+        user = repo.create(payload.username, hash_password(payload.password), "user")
+    except Exception as e:
+        db.rollback()
+        # Check if it's a duplicate key error
+        if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        raise
+    
+    # Audit trail for registration
+    AuditRepository(db).create(
+        action="register",
+        target_type="user",
+        target_id=str(user.id),
+        user_id=user.id,
+        details={"username": user.username},
+    )
     
     # Auto-login
     token = issue_session_token(user.id)

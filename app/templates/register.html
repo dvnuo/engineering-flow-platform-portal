@@ -58,8 +58,12 @@ form.addEventListener("submit", async (e) => {
   });
 
   if (!resp.ok) {
-    const data = await resp.json();
-    err.textContent = data.detail || "Registration failed. Please try a different username.";
+    let msg = "Registration failed. Please try a different username.";
+    try {
+      const data = await resp.json();
+      msg = data.detail || msg;
+    } catch {}
+    err.textContent = msg;
     return;
   }
   location.href = "/app";

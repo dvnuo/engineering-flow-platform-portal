@@ -907,7 +907,12 @@ async function maybeShowSuggest() {
 function setToolPanel(title, contentHtml) {
   if (!dom.toolPanel) return;
   dom.toolPanelTitle.textContent = title;
-  dom.toolPanelBody.innerHTML = contentHtml;
+  // Use textContent for error messages to prevent XSS, innerHTML for HTML content
+  if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
+    dom.toolPanelBody.textContent = contentHtml.replace('Failed: ', '');
+  } else {
+    dom.toolPanelBody.innerHTML = contentHtml;
+  }
   // Hide detail panel, show tool panel
   if (dom.detailPanel) dom.detailPanel.style.transform = "translateX(120%)";
   dom.detailBackdrop?.classList.add("hidden");

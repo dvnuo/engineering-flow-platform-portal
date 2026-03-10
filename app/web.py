@@ -128,7 +128,7 @@ async def app_users_panel(request: Request):
 
     db = SessionLocal()
     try:
-        users = UserRepository(db).list_all()
+        users = UserRepository(db).list_all()[:100]  # Limit to 100 users
         return templates.TemplateResponse(
             "partials/users_panel.html",
             {
