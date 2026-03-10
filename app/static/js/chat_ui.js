@@ -42,6 +42,7 @@ const dom = {
   topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
+  usersMenuBtn: document.getElementById("users-menu-btn"),
   addAgentBtn: document.getElementById("add-agent-btn"),
 };
 
@@ -1355,6 +1356,19 @@ function bindEvents() {
   });
 
   dom.themeToggle?.addEventListener("click", toggleTheme);
+
+  dom.usersMenuBtn?.addEventListener("click", async () => {
+    setDetailOpen(true);
+    setToolPanel("Users", '<div class="text-xs text-slate-400">Loading users…</div>');
+    try {
+      await htmx.ajax("GET", "/app/users/panel", {
+        target: "#tool-panel-body",
+        swap: "innerHTML",
+      });
+    } catch (error) {
+      setToolPanel("Users", `Failed: ${safe(error.message)}`);
+    }
+  });
 
   dom.addAgentBtn?.addEventListener("click", () => {
     document.getElementById("create-modal")?.classList.remove("hidden");

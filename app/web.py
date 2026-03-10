@@ -118,6 +118,22 @@ def app_page(request: Request):
     )
 
 
+@router.get("/app/users/panel")
+async def app_users_panel(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    users = UserRepository(SessionLocal()).list_all()
+    return templates.TemplateResponse(
+        "partials/users_panel.html",
+        {
+            "request": request,
+            "users": [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at} for u in users],
+        },
+    )
 
 
 @router.get("/app/agents/{agent_id}/sessions/panel")
