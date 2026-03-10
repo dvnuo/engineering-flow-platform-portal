@@ -1,0 +1,192 @@
+# Portal Deployment with NFS Storage
+# Uses NFS PersistentVolume + PersistentVolumeClaim (no CSI driver required)
+#
+# Prerequisites:
+#   1. Have NFS server available (e.g., AWS EFS mounted on NFS, or traditional NFS)
+#   2. Note NFS server IP/hostname and export path
+#   3. Replace <NFS_SERVER> and <NFS_PATH> below
+#
+# Usage:
+#   kubectl apply -f k8s/namespaces.yaml
+#   kubectl apply -f k8s/rbac.yaml
+#   kubectl apply -f k8s/portal-deployment-nfs.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agents
+---
+# NFS PersistentVolume (Static Provisioning)
+# Note: Replace <NFS_SERVER> and <NFS_PATH> with your NFS details
+# Example for AWS EFS: NFS server = efs-mount-target-ip, NFS path = /
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: portal-nfs-pv
+spec:
+  capacity:
+    storage: 10Gi
+  storageClassName: nfs-client
+  accessModes:
+    - ReadWriteMany
+  mountOptions:
+    - rw
+    - hard
+    - timeo=600
+    - retrans=2
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: <NFS_SERVER>
+    path: <NFS_PATH>
+
+---
+# NFS PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: portal-nfs-pvc
+  namespace: default
+spec:
+  storageClassName: nfs-client
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  volumeName: portal-nfs-pv
+
+---
+# Portal Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal
+  namespace: default
+  labels:
+    app: portal
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: portal
+
+---
+# Portal Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portal
+  template:
+    metadata:
+      labels:
+        app: portal
+    spec:
+      serviceAccountName: portal
+      containers:
+      - name: portal
+        image: ghcr.io/dvnuo/engineering-flow-platform-portal:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        # Mount NFS at /app/data to preserve image's /app code
+        volumeMounts:
+        - name: portal-data
+          mountPath: /app/data
+        - name: kubeconfig
+          mountPath: /root/.kube
+          readOnly: true
+        env:
+        - name: K8S_ENABLED
+          value: "true"
+        - name: K8S_INCLUSTER
+          value: "false"
+        - name: K8S_KUBECONFIG
+          value: "/root/.kube/k3s.yaml"
+        - name: AGENTS_NAMESPACE
+          value: "agents"
+        # Use /app/data for SQLite database
+        - name: DATABASE_URL
+          value: "sqlite:////app/data/portal.db"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      # NFS PV/PVC for persistent data (database)
+      - name: portal-data
+        persistentVolumeClaim:
+          claimName: portal-nfs-pvc
+      - name: kubeconfig
+        hostPath:
+          path: /etc/rancher/k3s
+          type: Directory
+
+---
+
+# Optional: NFS StorageClass (if not already installed)
+# Use nfs-subdir-external-provisioner for dynamic provisioning
+# apiVersion: storage.k8s.io/v1
+# kind: StorageClass
+# metadata:
+#   name: nfs-client
+# provisioner: cluster.local/nfs-subdir-external-provisioner
+# parameters:
+#   archiveOnDelete: "false"
+#   mountOptions: "rw,sync"
+#   server: <NFS_SERVER>
+#   share: <NFS_PATH>
+
+---
+
+# Optional: Ingress for custom domain
+# Uncomment and configure for production use
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: portal
+#   namespace: default
+#   annotations:
+#     kubernetes.io/ingress.class: nginx
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+# spec:
+#   tls:
+#   - hosts:
+#     - portal.example.com
+#     secretName: portal-tls
+#   rules:
+#   - host: portal.example.com
+#     http:
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: portal
+#             port:
+#               number: 80
