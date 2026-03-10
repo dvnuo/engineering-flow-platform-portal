@@ -319,8 +319,9 @@ function setDetailOpen(open) {
     closeToolPanel();
   }
   state.detailOpen = open;
-  if (dom.detailPanel) dom.detailPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
-  dom.detailBackdrop?.classList.toggle("hidden", !open);
+  // Use unified tool-panel for agent details
+  if (dom.toolPanel) dom.toolPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
+  dom.toolBackdrop?.classList.toggle("hidden", !open);
 }
 
 async function api(path, options = {}) {
@@ -1325,7 +1326,23 @@ async function openEditDialog(agent) {
 
 // ===== wiring =====
 function bindEvents() {
-  dom.detailToggle?.addEventListener("click", () => setDetailOpen(!state.detailOpen));
+  dom.detailToggle?.addEventListener("click", () => {
+    if (state.detailOpen) {
+      setDetailOpen(false);
+    } else {
+      setDetailOpen(true);
+      // Render agent details to tool panel
+      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || state.publicAgents.find(a => a.id === state.selectedAgentId);
+      if (agent) {
+        dom.toolPanelTitle.textContent = "Agent Details";
+        dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
+        dom.agentMeta = document.getElementById("agent-meta");
+        dom.agentActions = document.getElementById("agent-actions");
+        renderAgentMeta(agent);
+        renderAgentActions(agent, agent.status || "stopped");
+      }
+    }
+  });
   dom.detailClose?.addEventListener("click", () => setDetailOpen(false));
   dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
@@ -1454,7 +1471,6 @@ function bindEvents() {
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", async () => {
-    setDetailOpen(true);
     setToolPanel("Users", '<div class="text-xs text-slate-400">Loading users…</div>');
     try {
       await htmx.ajax("GET", "/app/users/panel", {
