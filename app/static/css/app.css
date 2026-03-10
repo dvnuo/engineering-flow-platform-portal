@@ -743,13 +743,30 @@ html[data-theme="light"] #users-menu-btn:hover {
   color: #111827;
 }
 
-/* Drag and drop file upload */
-#message-list.drag-over {
+/* Drag and drop file upload - use fixed overlay */
+#message-list.drag-over,
+#message-list.drag-over::after {
+  position: relative;
+}
+
+#message-list.drag-over::before {
+  content: "Drop file to upload";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #3b82f6;
   background: rgba(59, 130, 246, 0.1);
   border: 2px dashed #3b82f6;
   border-radius: 0.5rem;
+  z-index: 50;
+  pointer-events: none;
 }
 
-html[data-theme="light"] #message-list.drag-over {
+html[data-theme="light"] #message-list.drag-over::before {
   background: rgba(59, 130, 246, 0.05);
+  color: #2563eb;
 }
