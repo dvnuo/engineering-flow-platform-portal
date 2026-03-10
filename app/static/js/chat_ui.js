@@ -314,6 +314,10 @@ function renderIcons() {
 }
 
 function setDetailOpen(open) {
+  // Close tool panel when opening detail panel (mutual exclusivity)
+  if (open) {
+    closeToolPanel();
+  }
   state.detailOpen = open;
   if (dom.detailPanel) dom.detailPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
   dom.detailBackdrop?.classList.toggle("hidden", !open);
