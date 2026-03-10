@@ -1525,6 +1525,31 @@ document.addEventListener("DOMContentLoaded", async () => {
   const initialTheme = localStorage.getItem("portal-theme") || (document.documentElement.getAttribute("data-theme") || "dark");
   applyTheme(initialTheme);
 
+  // Tool panel resize from left edge
+  const resizeHandle = document.getElementById('tool-panel-resize');
+  const toolPanel = document.getElementById('tool-panel');
+  if (resizeHandle && toolPanel) {
+    let isResizing = false;
+    resizeHandle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const newWidth = window.innerWidth - e.clientX - 24; // 24px offset
+      const minWidth = 300;
+      const maxWidth = window.innerWidth - 24;
+      const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      toolPanel.style.width = clampedWidth + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+  }
+
   bindEvents();
   initializeRenderLifecycle();
   
