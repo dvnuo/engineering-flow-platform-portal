@@ -32,6 +32,7 @@ const dom = {
   toolPanel: document.getElementById("tool-panel"),
   toolPanelTitle: document.getElementById("tool-panel-title"),
   toolPanelBody: document.getElementById("tool-panel-body"),
+  toolBackdrop: document.getElementById("tool-backdrop"),
   closeToolPanel: document.getElementById("close-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
@@ -917,10 +918,12 @@ function setToolPanel(title, contentHtml) {
   if (dom.detailPanel) dom.detailPanel.style.transform = "translateX(120%)";
   dom.detailBackdrop?.classList.add("hidden");
   dom.toolPanel.style.transform = "translateX(0)";
+  dom.toolBackdrop?.classList.remove("hidden");
 }
 
 function closeToolPanel() {
   if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
+  dom.toolBackdrop?.classList.add("hidden");
 }
 
 async function openSessionsPanel() {
@@ -1244,6 +1247,7 @@ function bindEvents() {
   dom.detailClose?.addEventListener("click", () => setDetailOpen(false));
   dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
+  dom.toolBackdrop?.addEventListener("click", closeToolPanel);
 
   dom.chatInput?.addEventListener("input", () => {
     maybeShowSuggest();
