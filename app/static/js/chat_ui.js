@@ -32,6 +32,7 @@ const dom = {
   toolPanel: document.getElementById("tool-panel"),
   toolPanelTitle: document.getElementById("tool-panel-title"),
   toolPanelBody: document.getElementById("tool-panel-body"),
+  toolBackdrop: document.getElementById("tool-backdrop"),
   closeToolPanel: document.getElementById("close-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
@@ -313,6 +314,10 @@ function renderIcons() {
 }
 
 function setDetailOpen(open) {
+  // Close tool panel when opening detail panel (mutual exclusivity)
+  if (open) {
+    closeToolPanel();
+  }
   state.detailOpen = open;
   if (dom.detailPanel) dom.detailPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
   dom.detailBackdrop?.classList.toggle("hidden", !open);
@@ -914,13 +919,14 @@ function setToolPanel(title, contentHtml) {
     dom.toolPanelBody.innerHTML = contentHtml;
   }
   // Hide detail panel, show tool panel
-  if (dom.detailPanel) dom.detailPanel.style.transform = "translateX(120%)";
-  dom.detailBackdrop?.classList.add("hidden");
+  setDetailOpen(false);
   dom.toolPanel.style.transform = "translateX(0)";
+  dom.toolBackdrop?.classList.remove("hidden");
 }
 
 function closeToolPanel() {
   if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
+  dom.toolBackdrop?.classList.add("hidden");
 }
 
 async function openSessionsPanel() {
@@ -1244,6 +1250,7 @@ function bindEvents() {
   dom.detailClose?.addEventListener("click", () => setDetailOpen(false));
   dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
+  dom.toolBackdrop?.addEventListener("click", closeToolPanel);
 
   dom.chatInput?.addEventListener("input", () => {
     maybeShowSuggest();
@@ -1276,10 +1283,7 @@ function bindEvents() {
   dom.uploadInput?.addEventListener("change", uploadFile);
 
   dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
-  dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
-  dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
-  dom.topSessions?.addEventListener("click", openSessionsPanel);
-  dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
+  dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");
@@ -1356,11 +1360,9 @@ function bindEvents() {
           dom.uploadInput?.click();
           break;
         case 2: // My Uploads
-          setDetailOpen(true);
           openMyUploads();
           break;
         case 3: // Server Files
-          setDetailOpen(true);
           openServerFiles();
           break;
         case 4: // Sessions
