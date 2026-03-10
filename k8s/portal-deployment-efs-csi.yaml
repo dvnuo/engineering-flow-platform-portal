@@ -1,17 +1,23 @@
 # Portal Deployment with EFS Storage (using AWS EFS CSI Driver)
-# This version uses EFS for both portal database AND agent PVCs
+# This version uses EFS Access Points for portal and agent PVCs
 
 apiVersion: v1
 kind: Namespace
 metadata:
   name: agents
 ---
-# EFS StorageClass
+# EFS StorageClass with Access Point
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: efs-sc
 provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: <EFS_FILE_SYSTEM_ID>
+  directoryPerms: "700"
+  gidRangeStart: "1000"
+  gidRangeEnd: "2000"
 ---
 # EFS PersistentVolumeClaim for Portal Database
 apiVersion: v1
@@ -58,24 +64,24 @@ spec:
           readOnly: true
         env:
         - name: K8S_ENABLED
-          value: true
+          value: "true"
         - name: K8S_INCLUSTER
-          value: false
+          value: "false"
         - name: K8S_KUBECONFIG
-          value: /root/.kube/k3s.yaml
+          value: "/root/.kube/k3s.yaml"
         - name: AGENTS_NAMESPACE
-          value: agents
+          value: "agents"
         - name: DATABASE_URL
-          value: sqlite:////app/portal.db
+          value: "sqlite:////app/portal.db"
         - name: K8S_STORAGE_CLASS
-          value: efs-sc
+          value: "efs-sc"
         resources:
           requests:
-            memory: 512Mi
-            cpu: 250m
+            memory: "512Mi"
+            cpu: "250m"
           limits:
-            memory: 1Gi
-            cpu: 500m
+            memory: "1Gi"
+            cpu: "500m"
       volumes:
       - name: portal-efs
         persistentVolumeClaim:
@@ -100,12 +106,12 @@ metadata:
   name: portal-agent-manager
   namespace: agents
 rules:
-- apiGroups: []
-  resources: [pods, services, persistentvolumeclaims]
-  verbs: [get, list, watch, create, update, patch, delete]
-- apiGroups: [apps]
-  resources: [deployments]
-  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: ["pods", "services", "persistentvolumeclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -120,3 +126,11 @@ roleRef:
   kind: Role
   name: portal-agent-manager
   apiGroup: rbac.authorization.k8s.io
+
+---
+
+# EFS Access Point (create in AWS Console or CLI first)
+# Example: aws efs create-access-point --file-system-id fs-12345678 --posix-user "Uid=1000,Gid=1000" --root-directory "Path=/portal"
+#
+# Replace <EFS_ACCESS_POINT_ID> below with your actual access point ID
+# Example: fsap-1234567890abcdef0
