@@ -1,0 +1,92 @@
+# Portal Deployment with EFS Storage
+# For AWS EKS with EFS CSI Driver
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agents
+---
+# EFS StorageClass (if not already installed)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: <EFS_FILE_SYSTEM_ID>
+  directoryPerms: 700
+  gidRangeStart: 1000
+  gidRangeEnd: 2000
+---
+# EFS PersistentVolumeClaim for Portal Database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: portal-efs-pvc
+  namespace: default
+spec:
+  storageClassName: efs-sc
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portal
+  template:
+    metadata:
+      labels:
+        app: portal
+    spec:
+      hostNetwork: true
+      serviceAccountName: portal
+      containers:
+      - name: portal
+        image: ghcr.io/dvnuo/engineering-flow-platform-portal:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: portal-efs
+          mountPath: /app
+        - name: kubeconfig
+          mountPath: /root/.kube
+          readOnly: true
+        env:
+        - name: K8S_ENABLED
+          value: true
+        - name: K8S_INCLUSTER
+          value: false
+        - name: K8S_KUBECONFIG
+          value: /root/.kube/k3s.yaml
+        - name: AGENTS_NAMESPACE
+          value: agents
+        - name: DATABASE_URL
+          value: sqlite:////app/portal.db
+        - name: K8S_STORAGE_CLASS
+          value: efs-sc
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 250m
+          limits:
+            memory: 1Gi
+            cpu: 500m
+      volumes:
+      - name: portal-efs
+        persistentVolumeClaim:
+          claimName: portal-efs-pvc
+      - name: kubeconfig
+        hostPath:
+          path: /etc/rancher/k3s
+          type: Directory
