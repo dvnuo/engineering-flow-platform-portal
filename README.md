@@ -44,6 +44,7 @@ Control whether to actually call Kubernetes API via environment variables:
 - `K8S_ENABLED=false` (default, local no-op)
 - `K8S_ENABLED=true` (enable real K8s calls)
 - `K8S_STORAGE_CLASS=gp3`
+- `AGENTS_NAMESPACE=agents` (optional, namespace for agent Kubernetes resources; defaults to `agents` if unset)
 - `BOOTSTRAP_ADMIN_USERNAME=admin`
 - `BOOTSTRAP_ADMIN_PASSWORD=admin123`
 
