@@ -1156,18 +1156,37 @@ async function uploadFile() {
   const file = dom.uploadInput?.files?.[0];
   if (!file) return;
 
+  const fileName = file.name;
+  setChatStatus(`Uploading ${fileName}...`);
+
   try {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch(`/a/${state.selectedAgentId}/api/files/upload`, { method: "POST", body: formData });
+    
+    // Use XMLHttpRequest for progress tracking
+    const response = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/a/${state.selectedAgentId}/api/files/upload`);
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve({ ok: true, json: () => JSON.parse(xhr.responseText) });
+        } else {
+          reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed"));
+      xhr.send(formData);
+    });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-
-    setChatStatus(`Uploaded ${file.name}`);
+    const data = await response.json();
+    
+    // Insert file reference into chat input
+    const fileRef = `@file_${data.file_id || data.id}`;
+    insertFileReference(fileRef);
+    
+    setChatStatus(`Uploaded ${fileName}`);
     state.cachedMentionFiles = [];
+    
     if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "My Uploads") {
       await openMyUploads();
     }
