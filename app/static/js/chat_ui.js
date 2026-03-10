@@ -1280,10 +1280,10 @@ function bindEvents() {
   dom.uploadInput?.addEventListener("change", uploadFile);
 
   dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
-  dom.topServerFiles?.addEventListener("click", () => { setDetailOpen(true); openServerFiles(); });
-  dom.topMyUploads?.addEventListener("click", () => { setDetailOpen(true); openMyUploads(); });
+  dom.topServerFiles?.addEventListener("click", openServerFiles);
+  dom.topMyUploads?.addEventListener("click", openMyUploads);
   dom.topSessions?.addEventListener("click", openSessionsPanel);
-  dom.topSettings?.addEventListener("click", () => { setDetailOpen(true); openSettings(); });
+  dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");
