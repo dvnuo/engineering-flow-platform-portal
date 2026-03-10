@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="login-shell">
+  <div class="login-card">
+    <h1>Create Account</h1>
+    <p class="muted">Sign up to create and manage your agents.</p>
+
+    <form id="register-form" class="stack">
+      <label>
+        Username
+        <input name="username" type="text" placeholder="username" required minlength="3" maxlength="32" />
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" placeholder="••••••••" required minlength="6" />
+      </label>
+      <label>
+        Confirm Password
+        <input name="confirm_password" type="password" placeholder="••••••••" required minlength="6" />
+      </label>
+      <button type="submit">Create Account</button>
+    </form>
+
+    <p id="register-error" class="error"></p>
+    
+    <p class="muted tiny">
+      Already have an account? <a href="/login">Sign in</a>
+    </p>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById("register-form");
+const err = document.getElementById("register-error");
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  err.textContent = "";
+  
+  const fd = new FormData(form);
+  const password = fd.get("password");
+  const confirm = fd.get("confirm_password");
+  
+  if (password !== confirm) {
+    err.textContent = "Passwords do not match.";
+    return;
+  }
+  
+  const payload = {
+    username: fd.get("username"),
+    password: password
+  };
+
+  const resp = await fetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    let msg = "Registration failed. Please try a different username.";
+    try {
+      const data = await resp.json();
+      msg = data.detail || msg;
+    } catch {}
+    err.textContent = msg;
+    return;
+  }
+  location.href = "/app";
+});
+</script>
+{% endblock %}

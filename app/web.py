@@ -93,6 +93,13 @@ def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request, "title": "Portal Login"})
 
 
+@router.get("/register")
+def register_page(request: Request):
+    if _current_user_from_cookie(request):
+        return RedirectResponse(url="/app", status_code=302)
+    return templates.TemplateResponse("register.html", {"request": request, "title": "Create Account"})
+
+
 @router.get("/app")
 def app_page(request: Request):
     user = _current_user_from_cookie(request)
@@ -111,6 +118,26 @@ def app_page(request: Request):
     )
 
 
+@router.get("/app/users/panel")
+async def app_users_panel(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    db = SessionLocal()
+    try:
+        users = UserRepository(db).list_all()[:100]  # Limit to 100 users
+        return templates.TemplateResponse(
+            "partials/users_panel.html",
+            {
+                "request": request,
+                "users": [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at} for u in users],
+            },
+        )
+    finally:
+        db.close()
 
 
 @router.get("/app/agents/{agent_id}/sessions/panel")

@@ -42,6 +42,7 @@ const dom = {
   topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
+  usersMenuBtn: document.getElementById("users-menu-btn"),
   addAgentBtn: document.getElementById("add-agent-btn"),
 };
 
@@ -596,9 +597,9 @@ async function syncSelectedAgentState() {
   dom.selectedStatus.textContent = status;
   if (dom.selectedStatus) {
     dom.selectedStatus.className = "px-3 py-1 rounded-full text-xs border";
-    if (status === "running") dom.selectedStatus.classList.add("border-emerald-200", "bg-emerald-50", "text-emerald-700");
-    else if (status === "failed") dom.selectedStatus.classList.add("border-rose-200", "bg-rose-50", "text-rose-700");
-    else dom.selectedStatus.classList.add("border-slate-200", "bg-slate-100", "text-slate-600");
+    if (status === "running") dom.selectedStatus.classList.add("border-emerald-200", "dark:border-emerald-500", "bg-emerald-50", "dark:bg-emerald-900/40", "text-emerald-700", "dark:text-emerald-400");
+    else if (status === "failed") dom.selectedStatus.classList.add("border-rose-200", "dark:border-rose-500", "bg-rose-50", "dark:bg-rose-900/40", "text-rose-700", "dark:text-rose-400");
+    else dom.selectedStatus.classList.add("border-slate-200", "dark:border-slate-600", "bg-slate-100", "dark:bg-slate-800", "text-slate-600", "dark:text-slate-400");
   }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
@@ -906,7 +907,12 @@ async function maybeShowSuggest() {
 function setToolPanel(title, contentHtml) {
   if (!dom.toolPanel) return;
   dom.toolPanelTitle.textContent = title;
-  dom.toolPanelBody.innerHTML = contentHtml;
+  // Use textContent for error messages to prevent XSS, innerHTML for HTML content
+  if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
+    dom.toolPanelBody.textContent = contentHtml.replace('Failed: ', '');
+  } else {
+    dom.toolPanelBody.innerHTML = contentHtml;
+  }
   // Hide detail panel, show tool panel
   if (dom.detailPanel) dom.detailPanel.style.transform = "translateX(120%)";
   dom.detailBackdrop?.classList.add("hidden");
@@ -1355,6 +1361,19 @@ function bindEvents() {
   });
 
   dom.themeToggle?.addEventListener("click", toggleTheme);
+
+  dom.usersMenuBtn?.addEventListener("click", async () => {
+    setDetailOpen(true);
+    setToolPanel("Users", '<div class="text-xs text-slate-400">Loading users…</div>');
+    try {
+      await htmx.ajax("GET", "/app/users/panel", {
+        target: "#tool-panel-body",
+        swap: "innerHTML",
+      });
+    } catch (error) {
+      setToolPanel("Users", `Failed: ${safe(error.message)}`);
+    }
+  });
 
   dom.addAgentBtn?.addEventListener("click", () => {
     document.getElementById("create-modal")?.classList.remove("hidden");

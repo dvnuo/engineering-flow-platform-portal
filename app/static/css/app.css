@@ -723,3 +723,22 @@ html[data-theme="light"] #chat-suggest button.bg-slate-700 {
 html[data-theme="light"] #chat-suggest button .text-slate-400 {
   color: #6b7280 !important;
 }
+
+/* Users panel light mode */
+html[data-theme="light"] #tool-panel-body .text-slate-800 {
+  color: #111827 !important;
+}
+
+html[data-theme="light"] #tool-panel-body .text-slate-500 {
+  color: #6b7280 !important;
+}
+
+/* Users menu button light mode */
+html[data-theme="light"] #users-menu-btn {
+  color: #374151;
+}
+
+html[data-theme="light"] #users-menu-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
