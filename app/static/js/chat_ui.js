@@ -571,6 +571,7 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
+  window.selectedAgentId = agentId;  // Expose for inline scripts
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.cachedMentionFiles = [];
@@ -656,7 +657,10 @@ async function refreshAll() {
   if (state.selectedAgentId && !available.has(state.selectedAgentId)) state.selectedAgentId = null;
   if (!state.selectedAgentId && stored && available.has(stored)) state.selectedAgentId = stored;
   if (!state.selectedAgentId && state.mineAgents.length) state.selectedAgentId = state.mineAgents[0].id;
-  if (state.selectedAgentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, state.selectedAgentId);
+  if (state.selectedAgentId) {
+    localStorage.setItem(LAST_AGENT_STORAGE_KEY, state.selectedAgentId);
+    window.selectedAgentId = state.selectedAgentId;
+  }
 
   renderAgentList();
   await syncSelectedAgentState();
