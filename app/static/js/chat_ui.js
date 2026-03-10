@@ -106,6 +106,12 @@ function safe(value) {
   return String(value || "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 function normalizeSkillCommand(raw) {
   const skillName = String(raw || "").trim().replace(/^\/+/, "");
   return skillName ? `/${skillName}` : "";
