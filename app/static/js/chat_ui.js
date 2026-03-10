@@ -1054,7 +1054,6 @@ async function loadServerFiles(path) {
       currentPath += '/' + parts[i];
       breadcrumb += ' / <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + parts[i] + '</a>';
     }
-    }
     
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
