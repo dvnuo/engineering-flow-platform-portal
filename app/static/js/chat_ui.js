@@ -1084,7 +1084,28 @@ async function previewServerFile(filePath) {
     const resp = await agentApi(`/api/files/read?path=${encodedPath}`);
     
     if (resp.error) {
-      setToolPanel("File Preview", `<div class="text-rose-500">Error: ${safe(resp.error)}</div>`);
+      // Check if it's a binary file error - show file info instead
+      if (resp.error.includes('binary')) {
+        const size = resp.size || 'Unknown';
+        const ext = filePath.split('.').pop().toLowerCase();
+        const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
+        
+        if (isImage) {
+          // Show image directly
+          setToolPanel("File: " + filePath.split('/').pop(), 
+            `<div class="text-xs text-slate-500 dark:text-slate-400 mb-2">${filePath}</div>` +
+            `<div class="text-center"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
+          );
+        } else {
+          setToolPanel("File: " + filePath.split('/').pop(), 
+            `<div class="text-xs text-slate-500 dark:text-slate-400 mb-2">${filePath}</div>` +
+            `<div class="text-slate-500 dark:text-slate-400">Binary file (${size} bytes)</div>` +
+            `<div class="text-xs text-slate-400 mt-2">Type: ${ext.toUpperCase()}</div>`
+          );
+        }
+      } else {
+        setToolPanel("File Preview", `<div class="text-rose-500">Error: ${safe(resp.error)}</div>`);
+      }
       return;
     }
     
