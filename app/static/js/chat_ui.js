@@ -1360,11 +1360,9 @@ function bindEvents() {
           dom.uploadInput?.click();
           break;
         case 2: // My Uploads
-          setDetailOpen(true);
           openMyUploads();
           break;
         case 3: // Server Files
-          setDetailOpen(true);
           openServerFiles();
           break;
         case 4: // Sessions
