@@ -34,8 +34,6 @@ spec:
           value: "false"
         - name: K8S_KUBECONFIG
           value: "/root/.kube/k3s.yaml"
-        - name: ROBOTS_NAMESPACE
-          value: "robots"
         - name: AGENTS_NAMESPACE
           value: "agents"
       volumes:

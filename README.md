@@ -43,8 +43,8 @@ Control whether to actually call Kubernetes API via environment variables:
 
 - `K8S_ENABLED=false` (default, local no-op)
 - `K8S_ENABLED=true` (enable real K8s calls)
-- `ROBOTS_NAMESPACE=agents`
 - `K8S_STORAGE_CLASS=gp3`
+- `AGENTS_NAMESPACE=agents` (optional, namespace for agent Kubernetes resources; defaults to `agents` if unset)
 - `BOOTSTRAP_ADMIN_USERNAME=admin`
 - `BOOTSTRAP_ADMIN_PASSWORD=admin123`
 
@@ -403,7 +403,6 @@ app/
 | K8S_ENABLED | Enable Kubernetes integration | `false` |
 | K8S_INCLUSTER | Use in-cluster config | `false` |
 | K8S_KUBECONFIG | Path to kubeconfig | - |
-| ROBOTS_NAMESPACE | Robots namespace | `robots` |
 | AGENTS_NAMESPACE | Agents namespace | `agents` |
 | K8S_STORAGE_CLASS | Storage class for PVC | `gp3` |
 | BOOTSTRAP_ADMIN_USERNAME | Bootstrap admin username | `admin` |
