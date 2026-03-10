@@ -1052,36 +1052,56 @@ async function loadServerFiles(path) {
     const data = await agentApi(`/api/files?path=${encodeURIComponent(path)}`);
     const items = data.items || [];
     
-    // Build breadcrumb
+    // Build breadcrumb with data attributes for event delegation
     const parts = path.split('/').filter(Boolean);
-    let breadcrumb = '<a href="#" onclick="loadServerFiles(\'/\'); event.preventDefault();">/</a>';
+    let breadcrumb = '<a href="#" class="breadcrumb-link" data-path="/">/</a>';
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + part + '</a> /';
+      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapeHtml(currentPath) + '">' + escapeHtml(part) + '</a>';
     }
-    // Remove trailing slash
-    breadcrumb = breadcrumb.replace(/ \/$/, '');
     
+    // Build file rows with data attributes for event delegation
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
-      const onclick = item.is_dir 
-        ? `loadServerFiles('${item.path}')` 
-        : `previewServerFile('${item.path.replace(/'/g, "\\'")}', '${path}')`;
       return (
-        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer" onclick="${onclick}">` +
+        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
           `<span class="text-lg">${icon}</span>` +
           `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${safe(item.name)}</span>` +
         `</div>`
       );
     }).join("");
     
+    // Set panel content with event handlers
     setToolPanel("Server Files", 
-      `<div class="space-y-3">` +
+      `<div class="space-y-3" id="server-files-panel">` +
         `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2">${breadcrumb}</div>` +
         `<div class="space-y-1">${rows || "Empty directory"}</div>` +
       `</div>`
     );
+    
+    // Add event delegation
+    const panel = document.getElementById('server-files-panel');
+    if (panel) {
+      panel.addEventListener('click', (e) => {
+        const breadcrumbLink = e.target.closest('.breadcrumb-link');
+        if (breadcrumbLink) {
+          const newPath = breadcrumbLink.dataset.path;
+          loadServerFiles(newPath);
+          return;
+        }
+        const fileRow = e.target.closest('.file-item');
+        if (fileRow) {
+          const filePath = fileRow.dataset.path;
+          const isDir = fileRow.dataset.isDir === 'true';
+          if (isDir) {
+            loadServerFiles(filePath);
+          } else {
+            previewServerFile(filePath, path);
+          }
+        }
+      });
+    }
   } catch (error) {
     setToolPanel("Server Files", `Failed: ${safe(error.message)}`);
   }
