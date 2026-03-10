@@ -770,3 +770,16 @@ html[data-theme="light"] #message-list.drag-over::before {
   background: rgba(59, 130, 246, 0.05);
   color: #2563eb;
 }
+
+/* Tool panel resize handle */
+#tool-panel {
+  resize: both;
+  overflow: auto;
+}
+
+/* Adjust body to fill available space */
+#tool-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
