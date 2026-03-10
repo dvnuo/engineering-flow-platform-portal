@@ -1,3 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agents
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal
+  namespace: default
+  labels:
+    app: portal
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: portal
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,7 +35,6 @@ spec:
       labels:
         app: portal
     spec:
-      hostNetwork: true
       serviceAccountName: portal
       containers:
       - name: portal
@@ -21,6 +42,7 @@ spec:
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
+          name: http
         volumeMounts:
         - name: portal-code
           mountPath: /app
@@ -36,6 +58,25 @@ spec:
           value: "/root/.kube/k3s.yaml"
         - name: AGENTS_NAMESPACE
           value: "agents"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
       volumes:
       - name: portal-code
         hostPath:
@@ -45,3 +86,32 @@ spec:
         hostPath:
           path: /etc/rancher/k3s
           type: Directory
+
+---
+
+# Optional: Ingress for custom domain
+# Uncomment and configure for production use
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: portal
+#   namespace: default
+#   annotations:
+#     kubernetes.io/ingress.class: nginx
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+# spec:
+#   tls:
+#   - hosts:
+#     - portal.example.com
+#     secretName: portal-tls
+#   rules:
+#   - host: portal.example.com
+#     http:
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: portal
+#             port:
+#               number: 80
