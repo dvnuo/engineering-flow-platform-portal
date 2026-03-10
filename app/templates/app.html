@@ -117,23 +117,11 @@
   <div id="detail-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
   <div id="tool-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
   
-  <!-- Agent Details Panel -->
-  <aside id="detail-panel" class="fixed right-3 top-3 bottom-3 w-[360px] max-w-[calc(100vw-24px)] z-40 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl translate-x-[120%] transition-transform duration-200 flex flex-col">
+  <!-- Unified Panel (Agent Details, Sessions, Skills, Files, etc.) -->
+  <aside id="tool-panel" class="fixed right-3 top-3 bottom-3 w-[360px] min-w-[300px] max-w-[calc(100vw-24px)] z-40 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl translate-x-[120%] transition-transform duration-200 flex flex-col">
+    <div id="tool-panel-resize" class="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-500/50 rounded-l-2xl"></div>
     <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-      <h3 class="text-xl font-semibold text-slate-800 dark:text-slate-100">Agent Details</h3>
-      <button id="detail-close" class="toolbar-btn"><i data-lucide="x"></i></button>
-    </div>
-
-    <div class="p-4 overflow-auto min-h-0 space-y-4">
-      <div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div>
-      <div id="agent-actions" class="space-y-2"></div>
-    </div>
-  </aside>
-
-  <!-- Tool Panel (Sessions, Skills, Files, etc.) -->
-  <aside id="tool-panel" class="fixed right-3 top-3 bottom-3 w-[360px] max-w-[calc(100vw-24px)] z-40 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl translate-x-[120%] transition-transform duration-200 flex flex-col">
-    <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-      <h4 id="tool-panel-title" class="text-lg font-semibold text-slate-800 dark:text-slate-100">Panel</h4>
+      <h4 id="tool-panel-title" class="text-xl font-semibold text-slate-800 dark:text-slate-100">Panel</h4>
       <button id="close-tool-panel" class="toolbar-btn"><i data-lucide="x"></i></button>
     </div>
     <div id="tool-panel-body" class="p-4 overflow-auto min-h-0 text-sm text-slate-600 dark:text-slate-300">Select a utility from top toolbar.</div>

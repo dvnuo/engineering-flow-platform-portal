@@ -106,6 +106,12 @@ function safe(value) {
   return String(value || "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 function normalizeSkillCommand(raw) {
   const skillName = String(raw || "").trim().replace(/^\/+/, "");
   return skillName ? `/${skillName}` : "";
@@ -319,8 +325,9 @@ function setDetailOpen(open) {
     closeToolPanel();
   }
   state.detailOpen = open;
-  if (dom.detailPanel) dom.detailPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
-  dom.detailBackdrop?.classList.toggle("hidden", !open);
+  // Use unified tool-panel for agent details
+  if (dom.toolPanel) dom.toolPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
+  dom.toolBackdrop?.classList.toggle("hidden", !open);
 }
 
 async function api(path, options = {}) {
@@ -1034,14 +1041,122 @@ async function loadSession(sessionId) {
 }
 
 async function openServerFiles() {
+  const workspacePath = '/root/.efp/workspace';
+  await loadServerFiles(workspacePath);
+}
+
+async function loadServerFiles(path) {
+  setToolPanel("Server Files", '<div class="text-xs text-slate-400">Loading files…</div>');
+  
   try {
-    const data = await agentApi("/api/files");
-    const rows = (data.items || []).map((item) => (
-      `<div class="rounded-lg border border-slate-700 px-2 py-1"><span class="mr-2">${item.type === "dir" ? "📁" : "📄"}</span>${safe(item.name)}</div>`
-    )).join("");
-    setToolPanel("Server Files", `<div class="space-y-2">${rows || "No files"}</div>`);
+    const data = await agentApi(`/api/files?path=${encodeURIComponent(path)}`);
+    const items = data.items || [];
+    
+    // Build breadcrumb with data attributes for event delegation
+    const parts = path.split('/').filter(Boolean);
+    let breadcrumb = '<a href="#" class="breadcrumb-link" data-path="/">/</a>';
+    let currentPath = '';
+    for (const part of parts) {
+      currentPath += '/' + part;
+      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapeHtml(currentPath) + '">' + escapeHtml(part) + '</a>';
+    }
+    
+    // Build file rows with data attributes for event delegation
+    const rows = items.map((item) => {
+      const icon = item.is_dir ? '📁' : '📄';
+      return (
+        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
+          `<span class="text-lg">${icon}</span>` +
+          `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+        `</div>`
+      );
+    }).join("");
+    
+    // Set panel content with event handlers
+    setToolPanel("Server Files", 
+      `<div class="space-y-3" id="server-files-panel">` +
+        `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2">${breadcrumb}</div>` +
+        `<div class="space-y-1">${rows || "Empty directory"}</div>` +
+      `</div>`
+    );
+    
+    // Add event delegation
+    const panel = document.getElementById('server-files-panel');
+    if (panel) {
+      panel.addEventListener('click', (e) => {
+        const breadcrumbLink = e.target.closest('.breadcrumb-link');
+        if (breadcrumbLink) {
+          const newPath = breadcrumbLink.dataset.path;
+          loadServerFiles(newPath);
+          return;
+        }
+        const fileRow = e.target.closest('.file-item');
+        if (fileRow) {
+          const filePath = fileRow.dataset.path;
+          const isDir = fileRow.dataset.isDir === 'true';
+          if (isDir) {
+            loadServerFiles(filePath);
+          } else {
+            previewServerFile(filePath, path);
+          }
+        }
+      });
+    }
   } catch (error) {
     setToolPanel("Server Files", `Failed: ${safe(error.message)}`);
+  }
+}
+
+async function previewServerFile(filePath, currentDir) {
+  try {
+    const encodedPath = encodeURIComponent(filePath);
+    const dir = currentDir || filePath.substring(0, filePath.lastIndexOf('/'));
+    const resp = await agentApi(`/api/files/read?path=${encodedPath}`);
+    
+    // Build breadcrumb for navigation
+    const parts = dir.split('/').filter(Boolean);
+    let breadcrumb = '<a href="#" onclick="loadServerFiles(\'/\'); event.preventDefault();">/</a>';
+    let currentPath = '';
+    for (const part of parts) {
+      currentPath += '/' + part;
+      breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + part + '</a> /';
+    }
+    breadcrumb = breadcrumb.replace(/ \/$/, '');
+    
+    if (resp.error) {
+      // Check if it's a binary file error - show file info instead
+      if (resp.error.includes('binary')) {
+        const size = resp.size || 'Unknown';
+        const ext = filePath.split('.').pop().toLowerCase();
+        const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
+        
+        if (isImage) {
+          // Show image directly
+          setToolPanel("File: " + filePath.split('/').pop(), 
+            `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
+            `<div class="text-center"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
+          );
+        } else {
+          setToolPanel("File: " + filePath.split('/').pop(), 
+            `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
+            `<div class="text-slate-500 dark:text-slate-400">Binary file (${size} bytes)</div>` +
+            `<div class="text-xs text-slate-400 mt-2">Type: ${ext.toUpperCase()}</div>`
+          );
+        }
+      } else {
+        setToolPanel("File Preview", `<div class="text-rose-500">Error: ${safe(resp.error)}</div>`);
+      }
+      return;
+    }
+    
+    const content = resp.content || "(empty file)";
+    const language = resp.language || 'text';
+    setToolPanel("File: " + filePath.split('/').pop(), 
+      `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
+      `<pre class="whitespace-pre-wrap text-xs bg-slate-100 dark:bg-slate-900 p-2 rounded overflow-auto max-h-96">${escapeHtml(content)}</pre>`
+    );
+  } catch (error) {
+    setToolPanel("File Preview", `<div class="text-rose-500">Failed: ${safe(error.message)}</div>`);
   }
 }
 
@@ -1250,7 +1365,23 @@ async function openEditDialog(agent) {
 
 // ===== wiring =====
 function bindEvents() {
-  dom.detailToggle?.addEventListener("click", () => setDetailOpen(!state.detailOpen));
+  dom.detailToggle?.addEventListener("click", () => {
+    if (state.detailOpen) {
+      setDetailOpen(false);
+    } else {
+      setDetailOpen(true);
+      // Render agent details to tool panel
+      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || state.publicAgents.find(a => a.id === state.selectedAgentId);
+      if (agent) {
+        dom.toolPanelTitle.textContent = "Agent Details";
+        dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
+        dom.agentMeta = document.getElementById("agent-meta");
+        dom.agentActions = document.getElementById("agent-actions");
+        renderAgentMeta(agent);
+        renderAgentActions(agent, agent.status || "stopped");
+      }
+    }
+  });
   dom.detailClose?.addEventListener("click", () => setDetailOpen(false));
   dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
@@ -1379,7 +1510,6 @@ function bindEvents() {
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", async () => {
-    setDetailOpen(true);
     setToolPanel("Users", '<div class="text-xs text-slate-400">Loading users…</div>');
     try {
       await htmx.ajax("GET", "/app/users/panel", {
@@ -1449,6 +1579,31 @@ function bindEvents() {
 document.addEventListener("DOMContentLoaded", async () => {
   const initialTheme = localStorage.getItem("portal-theme") || (document.documentElement.getAttribute("data-theme") || "dark");
   applyTheme(initialTheme);
+
+  // Tool panel resize from left edge
+  const resizeHandle = document.getElementById('tool-panel-resize');
+  const toolPanel = document.getElementById('tool-panel');
+  if (resizeHandle && toolPanel) {
+    let isResizing = false;
+    resizeHandle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const newWidth = window.innerWidth - e.clientX - 24; // 24px offset
+      const minWidth = 300;
+      const maxWidth = window.innerWidth - 24;
+      const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      toolPanel.style.width = clampedWidth + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+  }
 
   bindEvents();
   initializeRenderLifecycle();
