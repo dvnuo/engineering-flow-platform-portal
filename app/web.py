@@ -126,14 +126,18 @@ async def app_users_panel(request: Request):
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    users = UserRepository(SessionLocal()).list_all()
-    return templates.TemplateResponse(
-        "partials/users_panel.html",
-        {
-            "request": request,
-            "users": [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at} for u in users],
-        },
-    )
+    db = SessionLocal()
+    try:
+        users = UserRepository(db).list_all()
+        return templates.TemplateResponse(
+            "partials/users_panel.html",
+            {
+                "request": request,
+                "users": [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at} for u in users],
+            },
+        )
+    finally:
+        db.close()
 
 
 @router.get("/app/agents/{agent_id}/sessions/panel")

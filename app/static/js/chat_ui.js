@@ -597,9 +597,9 @@ async function syncSelectedAgentState() {
   dom.selectedStatus.textContent = status;
   if (dom.selectedStatus) {
     dom.selectedStatus.className = "px-3 py-1 rounded-full text-xs border";
-    if (status === "running") dom.selectedStatus.classList.add("border-emerald-500", "bg-emerald-900/40", "text-emerald-400");
-    else if (status === "failed") dom.selectedStatus.classList.add("border-rose-500", "bg-rose-900/40", "text-rose-400");
-    else dom.selectedStatus.classList.add("border-slate-600", "bg-slate-800", "text-slate-400");
+    if (status === "running") dom.selectedStatus.classList.add("border-emerald-200", "dark:border-emerald-500", "bg-emerald-50", "dark:bg-emerald-900/40", "text-emerald-700", "dark:text-emerald-400");
+    else if (status === "failed") dom.selectedStatus.classList.add("border-rose-200", "dark:border-rose-500", "bg-rose-50", "dark:bg-rose-900/40", "text-rose-700", "dark:text-rose-400");
+    else dom.selectedStatus.classList.add("border-slate-200", "dark:border-slate-600", "bg-slate-100", "dark:bg-slate-800", "text-slate-600", "dark:text-slate-400");
   }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
