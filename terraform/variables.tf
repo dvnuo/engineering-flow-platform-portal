@@ -21,3 +21,14 @@ variable "subnet_ids" {
   type        = list(string)
   default     = []
 }
+variable "vpc_id" {
+  description = "VPC ID for EFS security group (required)"
+  description = "VPC ID for EFS security group"
+  type        = string
+}
+
+variable "vpc_cidr" {
+  description = "VPC CIDR block"
+  type        = string
+  default     = "10.0.0.0/16"
+}

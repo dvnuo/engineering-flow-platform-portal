@@ -101,3 +101,92 @@ resource "aws_ecr_repository" "portal" {
 resource "aws_ecr_repository" "agent" {
   name = "engineering-flow-platform"
 }
+
+# ============================================
+# EFS with Access Point
+# ============================================
+
+# EFS File System
+resource "aws_efs_file_system" "portal" {
+  creation_token = "portal-efs"
+  encrypted     = true
+  tags = {
+    Name = "${var.cluster_name}-efs"
+  }
+}
+
+# EFS Access Point for Portal
+resource "aws_efs_access_point" "portal" {
+  file_system_id = aws_efs_file_system.portal.id
+
+  posix_user {
+    gid = 1000
+    uid = 1000
+  }
+
+  root_directory {
+    path = "/portal"
+
+    creation_info {
+      owner_gid   = 1000
+      owner_uid   = 1000
+      permissions = "700"
+    }
+  }
+
+  tags = {
+    Name = "${var.cluster_name}-portal-ap"
+  }
+}
+
+# EFS Access Point for Agents
+resource "aws_efs_access_point" "agents" {
+  file_system_id = aws_efs_file_system.portal.id
+
+  posix_user {
+    gid = 1000
+    uid = 1000
+  }
+
+  root_directory {
+    path = "/agents"
+
+    creation_info {
+      owner_gid   = 1000
+      owner_uid   = 1000
+      permissions = "700"
+    }
+  }
+
+  tags = {
+    Name = "${var.cluster_name}-agents-ap"
+  }
+}
+
+# Security Group for EFS
+resource "aws_security_group" "efs" {
+  name        = "${var.cluster_name}-efs-sg"
+  description = "Security group for EFS"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port   = 2049
+    to_port     = 2049
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  tags = {
+    Name = "${var.cluster_name}-efs-sg"
+  }
+}
+
+
+# EFS Mount Targets - one per subnet
+resource "aws_efs_mount_target" "portal" {
+  for_each = toset(var.subnet_ids)
+
+  file_system_id  = aws_efs_file_system.portal.id
+  subnet_id       = each.value
+  security_groups = [aws_security_group.efs.id]
+}
