@@ -1050,9 +1050,12 @@ async function loadServerFiles(path) {
     const parts = path.split('/').filter(Boolean);
     let breadcrumb = '<a href="#" onclick="loadServerFiles(\'/\'); event.preventDefault();">/</a>';
     let currentPath = '';
-    for (let i = 0; i < parts.length; i++) {
-      currentPath += '/' + parts[i];
-      breadcrumb += ' / <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + parts[i] + '</a>';
+    for (const part of parts) {
+      currentPath += '/' + part;
+      breadcrumb += ' / <span class="text-slate-400">' + part + '</span>';
+    }
+    if (parts.length > 0) {
+      breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();" class="text-blue-500 hover:underline">[view]</a>';
     }
     
     const rows = items.map((item) => {
