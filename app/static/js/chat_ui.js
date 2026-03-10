@@ -1066,7 +1066,7 @@ async function loadServerFiles(path) {
       const icon = item.is_dir ? '📁' : '📄';
       return (
         `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 text-blue-600 focus:ring-blue-500" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
           `<span class="text-lg">${icon}</span>` +
           `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
         `</div>`
@@ -1084,7 +1084,7 @@ async function loadServerFiles(path) {
         `</div>` +
         // Select all
         `<div class="flex items-center gap-2 text-xs text-slate-500">` +
-          `<input type="checkbox" id="sf-select-all" class="w-4 h-4 rounded border border-slate-400 text-blue-600 focus:ring-blue-500"> <label for="sf-select-all">Select all</label>` +
+          `<input type="checkbox" id="sf-select-all" class="w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500"> <label for="sf-select-all">Select all</label>` +
         `</div>` +
         // File list
         `<div class="space-y-1">${rows || "Empty directory"}</div>` +
