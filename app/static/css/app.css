@@ -742,3 +742,14 @@ html[data-theme="light"] #users-menu-btn:hover {
   background: #f3f4f6;
   color: #111827;
 }
+
+/* Drag and drop file upload */
+#message-list.drag-over {
+  background: rgba(59, 130, 246, 0.1);
+  border: 2px dashed #3b82f6;
+  border-radius: 0.5rem;
+}
+
+html[data-theme="light"] #message-list.drag-over {
+  background: rgba(59, 130, 246, 0.05);
+}

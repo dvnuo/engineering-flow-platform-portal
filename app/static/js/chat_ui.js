@@ -1436,6 +1436,35 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   bindEvents();
   initializeRenderLifecycle();
+  
+  // Drag and drop file upload
+  const messageList = document.getElementById("message-list");
+  if (messageList) {
+    messageList.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      messageList.classList.add("drag-over");
+    });
+    messageList.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      messageList.classList.remove("drag-over");
+    });
+    messageList.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      messageList.classList.remove("drag-over");
+      const files = e.dataTransfer?.files;
+      if (files?.length) {
+        // Use the existing upload handler
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(files[0]);
+        dom.uploadInput.files = dataTransfer.files;
+        await uploadFile();
+      }
+    });
+  }
+  
   await refreshAll();
   renderMarkdown(document);
   renderIcons();
