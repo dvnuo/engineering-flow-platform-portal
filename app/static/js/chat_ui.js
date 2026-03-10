@@ -1156,6 +1156,9 @@ async function uploadFile() {
   const file = dom.uploadInput?.files?.[0];
   if (!file) return;
 
+  const fileName = file.name;
+  setChatStatus(`Uploading ${fileName}...`);
+
   try {
     const formData = new FormData();
     formData.append("file", file);
@@ -1166,8 +1169,15 @@ async function uploadFile() {
       throw new Error(text || `HTTP ${response.status}`);
     }
 
-    setChatStatus(`Uploaded ${file.name}`);
+    const data = await response.json();
+    
+    // Insert file reference into chat input
+    const fileRef = `@file_${data.file_id || data.id}`;
+    insertFileReference(fileRef);
+    
+    setChatStatus(`Uploaded ${fileName}`);
     state.cachedMentionFiles = [];
+    
     if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "My Uploads") {
       await openMyUploads();
     }
@@ -1436,6 +1446,46 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   bindEvents();
   initializeRenderLifecycle();
+  
+  // Drag and drop file upload
+  const messageList = dom.messageList;
+  let dragCounter = 0;
+  if (messageList) {
+    messageList.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter++;
+      messageList.classList.add("drag-over");
+    });
+    messageList.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      messageList.classList.add("drag-over");
+    });
+    messageList.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter = Math.max(0, dragCounter - 1);
+      if (dragCounter === 0) {
+        messageList.classList.remove("drag-over");
+      }
+    });
+    messageList.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter = 0;
+      messageList.classList.remove("drag-over");
+      const files = e.dataTransfer?.files;
+      if (files?.length && dom.uploadInput) {
+        // Use the existing upload handler
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(files[0]);
+        dom.uploadInput.files = dataTransfer.files;
+        await uploadFile();
+      }
+    });
+  }
+  
   await refreshAll();
   renderMarkdown(document);
   renderIcons();
