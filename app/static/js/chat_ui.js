@@ -1052,11 +1052,10 @@ async function loadServerFiles(path) {
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      breadcrumb += ' / <span class="text-slate-400">' + part + '</span>';
+      breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + part + '</a> /';
     }
-    if (parts.length > 0) {
-      breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();" class="text-blue-500 hover:underline">[view]</a>';
-    }
+    // Remove trailing slash
+    breadcrumb = breadcrumb.replace(/ \/$/, '');
     
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
