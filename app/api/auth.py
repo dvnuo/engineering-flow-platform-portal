@@ -5,11 +5,34 @@ from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.user_repo import UserRepository
-from app.schemas.auth import LoginRequest, MeResponse
-from app.services.auth_service import issue_session_token, verify_password
+from app.schemas.auth import LoginRequest, MeResponse, RegisterRequest
+from app.services.auth_service import hash_password, issue_session_token, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 settings = get_settings()
+
+
+@router.post("/register")
+def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+    repo = UserRepository(db)
+    
+    # Check if username exists
+    existing = repo.get_by_username(payload.username)
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+    
+    # Create new user (default role: user)
+    user = repo.create(payload.username, hash_password(payload.password), "user")
+    
+    # Auto-login
+    token = issue_session_token(user.id)
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=token,
+        httponly=True,
+        samesite="lax",
+    )
+    return {"ok": True, "username": user.username, "role": user.role}
 
 
 @router.post("/login")

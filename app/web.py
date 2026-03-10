@@ -93,6 +93,13 @@ def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request, "title": "Portal Login"})
 
 
+@router.get("/register")
+def register_page(request: Request):
+    if _current_user_from_cookie(request):
+        return RedirectResponse(url="/app", status_code=302)
+    return templates.TemplateResponse("register.html", {"request": request, "title": "Create Account"})
+
+
 @router.get("/app")
 def app_page(request: Request):
     user = _current_user_from_cookie(request)
