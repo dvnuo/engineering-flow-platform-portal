@@ -1067,7 +1067,7 @@ async function loadServerFiles(path) {
       return (
         `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
           `<span class="text-lg">${icon}</span>` +
-          `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${safe(item.name)}</span>` +
+          `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
         `</div>`
       );
     }).join("");
