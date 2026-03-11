@@ -1058,53 +1058,202 @@ async function loadServerFiles(path) {
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapeHtml(currentPath) + '">' + escapeHtml(part) + '</a>';
+      const escapedPath = escapeHtml(currentPath);
+      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapedPath.replace(/"/g, '&quot;') + '">' + escapeHtml(part) + '</a>';
     }
     
-    // Build file rows with data attributes for event delegation
+    // Build file rows with checkboxes and data attributes
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
+      const disabled = item.is_dir ? 'disabled' : '';
+      const escapedPath = escapeHtml(item.path);
+      const safePath = escapedPath.replace(/"/g, '&quot;');
       return (
-        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
+        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}" ${disabled}>` +
           `<span class="text-lg">${icon}</span>` +
           `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
         `</div>`
       );
     }).join("");
     
-    // Set panel content with event handlers
+    // Set panel content with toolbar
     setToolPanel("Server Files", 
       `<div class="space-y-3" id="server-files-panel">` +
-        `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2">${breadcrumb}</div>` +
+        // Toolbar
+        `<div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">` +
+          `<div class="text-xs text-slate-500 dark:text-slate-400 flex-1">${breadcrumb}</div>` +
+          `<button class="sf-upload-btn px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded">Upload ZIP</button>` +
+          `<button class="sf-download-btn px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded" disabled>Download</button>` +
+        `</div>` +
+        // Select all
+        `<div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">` +
+          `<input type="checkbox" id="sf-select-all" class="w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600"> <label for="sf-select-all">Select all</label>` +
+        `</div>` +
+        // File list
         `<div class="space-y-1">${rows || "Empty directory"}</div>` +
       `</div>`
     );
     
-    // Add event delegation
+    // Add event delegation and handlers
     const panel = document.getElementById('server-files-panel');
     if (panel) {
-      panel.addEventListener('click', (e) => {
-        const breadcrumbLink = e.target.closest('.breadcrumb-link');
-        if (breadcrumbLink) {
-          const newPath = breadcrumbLink.dataset.path;
-          loadServerFiles(newPath);
-          return;
-        }
-        const fileRow = e.target.closest('.file-item');
-        if (fileRow) {
-          const filePath = fileRow.dataset.path;
-          const isDir = fileRow.dataset.isDir === 'true';
+      // Select all handler
+      const selectAll = document.getElementById('sf-select-all');
+      if (selectAll) {
+        selectAll.addEventListener('change', (e) => {
+          const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
+          checkboxes.forEach(cb => cb.checked = e.target.checked);
+          updateDownloadButton(panel);
+        });
+      }
+      
+      // File row click handler (toggle checkbox + navigate)
+      panel.querySelectorAll('.file-item').forEach(row => {
+        row.addEventListener('click', (e) => {
+          const filePath = row.dataset.path;
+          const isDir = row.dataset.isDir === 'true';
+          const isCheckbox = e.target.type === 'checkbox';
+          
+          // For directories (with or without checkbox click), navigate directly
           if (isDir) {
             loadServerFiles(filePath);
-          } else {
+            return;
+          }
+          
+          // For files, toggle checkbox (skip if directly clicking checkbox)
+          if (!isCheckbox) {
+            const checkbox = row.querySelector('.file-checkbox');
+            if (checkbox) checkbox.checked = !checkbox.checked;
             previewServerFile(filePath, path);
           }
+          updateDownloadButton(panel);
+        });
+      });
+      
+      // Checkbox change handler
+      panel.querySelectorAll('.file-checkbox').forEach(cb => {
+        cb.addEventListener('change', () => updateDownloadButton(panel));
+      });
+      
+      // Upload button handler
+      panel.querySelector('.sf-upload-btn')?.addEventListener('click', () => {
+        uploadZipToServer(path);
+      });
+      
+      // Download button handler  
+      panel.querySelector('.sf-download-btn')?.addEventListener('click', () => {
+        const selected = getSelectedFiles(panel);
+        if (selected.length > 0) {
+          downloadSelectedFiles(selected);
         }
       });
+      
+      // Breadcrumb click
+      panel.querySelectorAll('.breadcrumb-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          loadServerFiles(link.dataset.path);
+        });
+      });
+      
+      // Initialize button state
+      updateDownloadButton(panel);
     }
   } catch (error) {
-    setToolPanel("Server Files", `Failed: ${safe(error.message)}`);
+    setToolPanel("Server Files", `Failed: ${error.message}`);
   }
+}
+
+function getSelectedFiles(panel) {
+  const selected = [];
+  panel.querySelectorAll('.file-checkbox:checked').forEach(cb => {
+    if (cb.dataset.isDir !== 'true') {
+      selected.push(cb.dataset.path);
+    }
+  });
+  return selected;
+}
+
+function updateDownloadButton(panel) {
+  const btn = panel.querySelector('.sf-download-btn');
+  const selectAll = document.getElementById('sf-select-all');
+  const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
+  const checkedBoxes = panel.querySelectorAll('.file-checkbox:not([disabled]):checked');
+  
+  const selected = getSelectedFiles(panel);
+  if (btn) {
+    btn.disabled = selected.length === 0;
+    btn.textContent = selected.length > 0 ? `Download (${selected.length})` : 'Download';
+  }
+  
+  // Update select all checkbox state
+  if (selectAll) {
+    selectAll.disabled = checkboxes.length === 0;
+    if (checkboxes.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else if (checkedBoxes.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else if (checkedBoxes.length === checkboxes.length) {
+      selectAll.checked = true;
+      selectAll.indeterminate = false;
+    } else {
+      selectAll.checked = false;
+      selectAll.indeterminate = true;
+    }
+  }
+}
+
+async function uploadZipToServer(targetPath) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.zip';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setToolPanel("Server Files", `<div class="text-xs text-slate-400">Uploading ${escapeHtml(file.name)}…</div>`);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('path', targetPath);
+      
+      const resp = await fetch(`/a/${state.selectedAgentId}/api/files/upload-zip`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!resp.ok) {
+        const errText = await resp.text();
+        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(errText)}</div>`);
+        return;
+      }
+      
+      const data = await resp.json();
+      if (data.success) {
+        const safeCount = Number.isFinite(Number(data.count)) ? Number(data.count) : 0;
+        setToolPanel("Server Files", `<div class="text-xs text-green-500">Uploaded ${safeCount} files</div>`);
+        loadServerFiles(targetPath);
+      } else {
+        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(data.error)}</div>`);
+      }
+    } catch (err) {
+      setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(err.message)}</div>`);
+    }
+  };
+  input.click();
+}
+
+function downloadSelectedFiles(paths) {
+  if (paths.length === 0) return;
+  
+  // Use repeated query params to avoid comma ambiguity
+  const url = new URL(`${window.location.origin}/a/${state.selectedAgentId}/api/files/download`);
+  paths.forEach(p => url.searchParams.append('paths', p));
+  window.open(url.toString());
 }
 
 async function previewServerFile(filePath, currentDir) {
