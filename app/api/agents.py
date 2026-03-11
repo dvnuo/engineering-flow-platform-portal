@@ -22,10 +22,10 @@ settings = get_settings()
 
 
 @router.get("/defaults")
-def get_agent_defaults():
+def get_agent_defaults(user=Depends(get_current_user)):
     """Get default configuration for agent creation."""
     return {
-        "image": settings.default_agent_image,
+        "image_repo": settings.default_agent_image,
         "disk_size_gi": settings.default_agent_disk_size_gi,
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,

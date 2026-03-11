@@ -1692,11 +1692,19 @@ function bindEvents() {
     try {
       // Get defaults from config
       const defaultsResp = await fetch("/api/agents/defaults");
+      if (!defaultsResp.ok) {
+        const err = await defaultsResp.json();
+        throw new Error(err.detail || "Failed to load defaults");
+      }
       const defaults = await defaultsResp.json();
+      
+      if (!defaults.image_repo || !defaults.disk_size_gi) {
+        throw new Error("Invalid defaults configuration");
+      }
       
       const data = {
         name: name,
-        image: `${defaults.image}:${version}`,
+        image: `${defaults.image_repo}:${version}`,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,
