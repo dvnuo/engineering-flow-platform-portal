@@ -12,7 +12,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: agents
+  name: efp-agents
 ---
 # ServiceAccount with IAM role annotation
 apiVersion: v1
@@ -23,12 +23,12 @@ metadata:
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/portal-eks-role
 ---
-# RBAC - Portal role to manage agents namespace
+# RBAC - Portal role to manage efp-agents namespace
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: portal-agent-manager
-  namespace: agents
+  namespace: efp-agents
 rules:
 - apiGroups: [""]
   resources: ["pods", "services", "persistentvolumeclaims"]
@@ -41,7 +41,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: portal-agent-binding
-  namespace: agents
+  namespace: efp-agents
 subjects:
 - kind: ServiceAccount
   name: portal
@@ -106,7 +106,7 @@ spec:
         - name: K8S_KUBECONFIG
           value: ""
         - name: AGENTS_NAMESPACE
-          value: "agents"
+          value: "efp-agents"
         resources:
           requests:
             memory: "512Mi"
