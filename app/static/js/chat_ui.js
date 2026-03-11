@@ -1684,7 +1684,11 @@ function bindEvents() {
     const contentType = resp.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const err = await resp.json();
-      return err.detail || "Unknown error";
+      const detail = err.detail;
+      if (Array.isArray(detail)) {
+        return detail.map(e => e.msg || JSON.stringify(e)).join(", ");
+      }
+      return detail || "Unknown error";
     }
     return await resp.text() || "Unknown error";
   }
