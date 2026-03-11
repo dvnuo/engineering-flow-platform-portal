@@ -79,7 +79,7 @@ class K8sService:
         try:
             self.apps_api.delete_namespaced_deployment(name=agent.deployment_name, namespace=agent.namespace)
             self.core_api.delete_namespaced_service(name=agent.service_name, namespace=agent.namespace)
-            if destroy_data:
+            if destroy_data and False:  # Never delete shared PVC
                 self.core_api.delete_namespaced_persistent_volume_claim(name="efp-agents-pvc", namespace=agent.namespace)
             return RuntimeStatus(status="deleted")
         except Exception as exc:
