@@ -9,50 +9,16 @@
 # Usage:
 #   kubectl apply -f k8s/portal-irsa.yaml
 
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: efp-agents
----
 # ServiceAccount with IAM role annotation
-apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: portal
   namespace: default
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/portal-eks-role
----
 # RBAC - Portal role to manage efp-agents namespace
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
-metadata:
-  name: portal-agent-manager
-  namespace: efp-agents
-rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "persistentvolumeclaims"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["apps"]
-  resources: ["deployments"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: portal-agent-binding
-  namespace: efp-agents
-subjects:
-- kind: ServiceAccount
-  name: portal
-  namespace: default
-roleRef:
-  kind: Role
-  name: portal-agent-manager
-  apiGroup: rbac.authorization.k8s.io
----
-# Portal Service
-apiVersion: v1
 kind: Service
 metadata:
   name: portal
@@ -68,66 +34,3 @@ spec:
     name: http
   selector:
     app: portal
----
-# Portal Deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: portal
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: portal
-  template:
-    metadata:
-      labels:
-        app: portal
-    spec:
-      # Use IRSA - no kubeconfig mount needed
-      serviceAccountName: portal
-      containers:
-      - name: portal
-        image: ghcr.io/dvnuo/engineering-flow-platform-portal:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8000
-          name: http
-        volumeMounts:
-        - name: portal-code
-          mountPath: /app
-        env:
-        - name: K8S_ENABLED
-          value: "true"
-        - name: K8S_INCLUSTER
-          value: "false"
-        # IRSA handles authentication - no kubeconfig needed
-        - name: K8S_KUBECONFIG
-          value: ""
-        - name: AGENTS_NAMESPACE
-          value: "efp-agents"
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 8000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 8000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-      volumes:
-      - name: portal-code
-        hostPath:
-          path: /root/engineering-flow-platform-portal
-          type: Directory
