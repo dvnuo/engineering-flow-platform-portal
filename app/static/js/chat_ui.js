@@ -1681,15 +1681,15 @@ function bindEvents() {
   });
 
   async function handleErrorResponse(resp) {
-  const contentType = resp.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    const err = await resp.json();
-    return err.detail || "Unknown error";
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const err = await resp.json();
+      return err.detail || "Unknown error";
+    }
+    return await resp.text() || "Unknown error";
   }
-  return await resp.text() || "Unknown error";
-}
 
-document.getElementById("create-form")?.addEventListener("submit", async (e) => {
+  document.getElementById("create-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
     const formData = new FormData(form);
