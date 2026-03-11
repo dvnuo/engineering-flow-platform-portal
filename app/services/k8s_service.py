@@ -79,8 +79,12 @@ class K8sService:
         try:
             self.apps_api.delete_namespaced_deployment(name=agent.deployment_name, namespace=agent.namespace)
             self.core_api.delete_namespaced_service(name=agent.service_name, namespace=agent.namespace)
-            if destroy_data and False:  # Never delete shared PVC
-                self.core_api.delete_namespaced_persistent_volume_claim(name="efp-agents-pvc", namespace=agent.namespace)
+            # Note: With shared PVC, we cannot delete the PVC as it contains all agents' data.
+            # Agent data is stored in subPath efp-agents/{agent.id}.
+            # For NFS/EFS, implement file-based cleanup if needed.
+            # For local-path storage, data persists until PVC is manually deleted.
+            if destroy_data:
+                pass  # TODO: Implement subPath cleanup for shared PVC
             return RuntimeStatus(status="deleted")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
@@ -125,9 +129,9 @@ class K8sService:
                 labels={"app": "efp-agents", "managed-by": "portal"},
             ),
             spec=client.V1PersistentVolumeClaimSpec(
-                access_modes=["ReadWriteOnce"],
+                access_modes=self.settings.k8s_shared_pvc_access_modes,
                 storage_class_name=self.settings.k8s_storage_class,
-                resources=client.V1VolumeResourceRequirements(requests={"storage": "100Gi"}),  # Fixed size for shared PVC
+                resources=client.V1VolumeResourceRequirements(requests={"storage": self.settings.k8s_shared_pvc_size}),  # Fixed size for shared PVC
             ),
         )
         try:
