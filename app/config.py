@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     session_cookie_name: str = "portal_session"
 
     bootstrap_admin_username: str = "admin"
-    bootstrap_admin_password: str = "admin123"
+    bootstrap_admin_password: str = ""  # Set via PORTAL_ADMIN_PASSWORD env var
 
     agents_namespace: str = "agents"
     k8s_enabled: bool = False
