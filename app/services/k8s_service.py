@@ -79,8 +79,8 @@ class K8sService:
         try:
             self.apps_api.delete_namespaced_deployment(name=agent.deployment_name, namespace=agent.namespace)
             self.core_api.delete_namespaced_service(name=agent.service_name, namespace=agent.namespace)
-            if destroy_data:
-                self.core_api.delete_namespaced_persistent_volume_claim(name=agent.pvc_name, namespace=agent.namespace)
+            if destroy_data and False:  # Never delete shared PVC
+                self.core_api.delete_namespaced_persistent_volume_claim(name="efp-agents-pvc", namespace=agent.namespace)
             return RuntimeStatus(status="deleted")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
@@ -115,18 +115,19 @@ class K8sService:
             return False
 
     def _ensure_pvc(self, agent) -> None:
+        # Using shared PVC for all agents - fixed config, no agent-specific fields
         from kubernetes import client
 
         body = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
-                name=agent.pvc_name,
+                name="efp-agents-pvc",
                 namespace=agent.namespace,
-                labels={"app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id)},
+                labels={"app": "efp-agents", "managed-by": "portal"},
             ),
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 storage_class_name=self.settings.k8s_storage_class,
-                resources=client.V1VolumeResourceRequirements(requests={"storage": f"{agent.disk_size_gi}Gi"}),
+                resources=client.V1VolumeResourceRequirements(requests={"storage": "100Gi"}),  # Fixed size for shared PVC
             ),
         )
         try:
@@ -152,13 +153,13 @@ class K8sService:
                                 name="agent",
                                 image=agent.image,
                                 ports=[client.V1ContainerPort(container_port=8000)],
-                                volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path)],
+                                volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path="efp-agents/" + agent.id)],
                             )
                         ],
                         volumes=[
                             client.V1Volume(
                                 name="agent-data",
-                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=agent.pvc_name),
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name="efp-agents-pvc"),
                             )
                         ],
                     ),

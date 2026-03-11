@@ -5,12 +5,12 @@ metadata:
   name: portal
   namespace: default
 ---
-# Role for portal to manage agents in agents namespace
+# Role for portal to manage efp-agents in efp-agents namespace
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: portal-agent-manager
-  namespace: agents
+  namespace: efp-agents
 rules:
 - apiGroups: [""]
   resources: ["pods", "services", "persistentvolumeclaims"]
@@ -24,7 +24,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: portal-agent-binding
-  namespace: agents
+  namespace: efp-agents
 subjects:
 - kind: ServiceAccount
   name: portal

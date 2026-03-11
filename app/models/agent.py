@@ -22,7 +22,7 @@ class Agent(Base):
     memory: Mapped[Optional[str]] = mapped_column(String(32))
     disk_size_gi: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
     mount_path: Mapped[str] = mapped_column(String(255), nullable=False, default="/root/.efp")
-    namespace: Mapped[str] = mapped_column(String(63), nullable=False, default="agents")
+    namespace: Mapped[str] = mapped_column(String(63), nullable=False, default="efp-agents")
     deployment_name: Mapped[str] = mapped_column(String(128), nullable=False)
     service_name: Mapped[str] = mapped_column(String(128), nullable=False)
     pvc_name: Mapped[str] = mapped_column(String(128), nullable=False)
