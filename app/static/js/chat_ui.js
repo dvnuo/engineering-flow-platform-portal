@@ -1064,9 +1064,10 @@ async function loadServerFiles(path) {
     // Build file rows with checkboxes and data attributes
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
+      const disabled = item.is_dir ? 'disabled' : '';
       return (
         `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}" ${disabled}>` +
           `<span class="text-lg">${icon}</span>` +
           `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
         `</div>`
@@ -1109,7 +1110,16 @@ async function loadServerFiles(path) {
         row.addEventListener('click', (e) => {
           if (e.target.type === 'checkbox') return;
           const checkbox = row.querySelector('.file-checkbox');
+          if (checkbox && checkbox.disabled) return;
           if (checkbox) checkbox.checked = !checkbox.checked;
+          
+          const filePath = row.dataset.path;
+          const isDir = row.dataset.isDir === 'true';
+          if (isDir) {
+            loadServerFiles(filePath);
+          } else {
+            previewServerFile(filePath, path);
+          }
           updateDownloadButton(panel);
         });
       });
@@ -1141,7 +1151,7 @@ async function loadServerFiles(path) {
       });
     }
   } catch (error) {
-    setToolPanel("Server Files", `Failed: ${safe(error.message)}`);
+    setToolPanel("Server Files", `Failed: ${escapeHtml(error.message)}`);
   }
 }
 
@@ -1157,10 +1167,28 @@ function getSelectedFiles(panel) {
 
 function updateDownloadButton(panel) {
   const btn = panel.querySelector('.sf-download-btn');
+  const selectAll = document.getElementById('sf-select-all');
+  const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
+  const checkedBoxes = panel.querySelectorAll('.file-checkbox:not([disabled]):checked');
+  
   const selected = getSelectedFiles(panel);
   if (btn) {
     btn.disabled = selected.length === 0;
     btn.textContent = selected.length > 0 ? `Download (${selected.length})` : 'Download';
+  }
+  
+  // Update select all checkbox state
+  if (selectAll) {
+    if (checkedBoxes.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else if (checkedBoxes.length === checkboxes.length) {
+      selectAll.checked = true;
+      selectAll.indeterminate = false;
+    } else {
+      selectAll.checked = false;
+      selectAll.indeterminate = true;
+    }
   }
 }
 
@@ -1184,15 +1212,21 @@ async function uploadZipToServer(targetPath) {
         body: formData
       });
       
+      if (!resp.ok) {
+        const errText = await resp.text();
+        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(errText)}</div>`);
+        return;
+      }
+      
       const data = await resp.json();
       if (data.success) {
         setToolPanel("Server Files", `<div class="text-xs text-green-500">Uploaded ${data.count} files</div>`);
         loadServerFiles(targetPath);
       } else {
-        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${data.error}</div>`);
+        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(data.error)}</div>`);
       }
     } catch (err) {
-      setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${err.message}</div>`);
+      setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(err.message)}</div>`);
     }
   };
   input.click();
@@ -1201,8 +1235,10 @@ async function uploadZipToServer(targetPath) {
 function downloadSelectedFiles(paths) {
   if (paths.length === 0) return;
   
-  const pathsParam = encodeURIComponent(paths.join(','));
-  window.open(`/a/${state.selectedAgentId}/api/files/download?paths=${pathsParam}`);
+  // Use repeated query params to avoid comma ambiguity
+  const url = new URL(`${window.location.origin}/a/${state.selectedAgentId}/api/files/download`);
+  paths.forEach(p => url.searchParams.append('paths', p));
+  window.open(url.toString());
 }
 
 async function previewServerFile(filePath, currentDir) {
