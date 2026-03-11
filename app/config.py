@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = None
 
+    # Default agent config
+    default_agent_image: str = "your-registry/agent"
+    default_agent_disk_size_gi: int = 20
+    default_agent_cpu: str = "250m"
+    default_agent_memory: str = "512Mi"
+    default_agent_mount_path: str = "/root/.efp"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

@@ -1684,15 +1684,25 @@ function bindEvents() {
     e.preventDefault();
     const form = e.target;
     const formData = new FormData(form);
-    const data = {
-      name: formData.get("name"),
-      image: formData.get("image"),
-      disk_size_gi: Number(formData.get("disk_size_gi")),
-      cpu: formData.get("cpu") || null,
-      memory: formData.get("memory") || null,
-    };
+    const name = formData.get("name");
+    const version = formData.get("version") || "latest";
+    
     const msgEl = document.getElementById("create-msg");
+    
     try {
+      // Get defaults from config
+      const defaultsResp = await fetch("/api/agents/defaults");
+      const defaults = await defaultsResp.json();
+      
+      const data = {
+        name: name,
+        image: `${defaults.image}:${version}`,
+        disk_size_gi: defaults.disk_size_gi,
+        cpu: defaults.cpu,
+        memory: defaults.memory,
+        mount_path: defaults.mount_path,
+      };
+      
       msgEl.textContent = "Creating...";
       msgEl.className = "muted tiny";
       const resp = await fetch("/api/agents", {
