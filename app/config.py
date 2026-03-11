@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = None
 
-    # Default agent config
-    default_agent_image: str = "your-registry/agent"
+    # Default agent config (image repo without tag)
+    default_agent_image_repo: str = "your-registry/agent"
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"

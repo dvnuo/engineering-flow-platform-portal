@@ -1680,7 +1680,16 @@ function bindEvents() {
     document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
   });
 
-  document.getElementById("create-form")?.addEventListener("submit", async (e) => {
+  async function handleErrorResponse(resp) {
+  const contentType = resp.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const err = await resp.json();
+    return err.detail || "Unknown error";
+  }
+  return await resp.text() || "Unknown error";
+}
+
+document.getElementById("create-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
     const formData = new FormData(form);
@@ -1693,8 +1702,7 @@ function bindEvents() {
       // Get defaults from config
       const defaultsResp = await fetch("/api/agents/defaults");
       if (!defaultsResp.ok) {
-        const err = await defaultsResp.json();
-        throw new Error(err.detail || "Failed to load defaults");
+        throw new Error(await handleErrorResponse(defaultsResp));
       }
       const defaults = await defaultsResp.json();
       
@@ -1719,8 +1727,7 @@ function bindEvents() {
         body: JSON.stringify(data),
       });
       if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.detail || "Failed to create agent");
+        throw new Error(await handleErrorResponse(resp));
       }
       const agent = await resp.json();
       msgEl.textContent = "Agent created!";
