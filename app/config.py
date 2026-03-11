@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from typing import Optional
 
 
@@ -12,7 +13,7 @@ class Settings(BaseSettings):
     session_cookie_name: str = "portal_session"
 
     bootstrap_admin_username: str = "admin"
-    bootstrap_admin_password: str = "admin123"
+    bootstrap_admin_password: str = Field(default="", validation_alias="BOOTSTRAP_ADMIN_PASSWORD")
 
     agents_namespace: str = "agents"
     k8s_enabled: bool = False

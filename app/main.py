@@ -24,7 +24,10 @@ def on_startup() -> None:
     db = SessionLocal()
     try:
         repo = UserRepository(db)
-        if not repo.get_by_username(settings.bootstrap_admin_username):
+        # Validate admin password is set
+        if not settings.bootstrap_admin_password:
+            print("WARNING: BOOTSTRAP_ADMIN_PASSWORD not set! Admin account will not be created.")
+        elif not repo.get_by_username(settings.bootstrap_admin_username):
             repo.create(
                 settings.bootstrap_admin_username,
                 hash_password(settings.bootstrap_admin_password),
