@@ -184,7 +184,7 @@ class K8sService:
             spec=client.V1ServiceSpec(
                 selector={"app": "agent", "agent-id": agent.id},
                 ports=[client.V1ServicePort(port=8000, target_port=8000)],
-                type="NodePort",
+                type=self.settings.k8s_agent_service_type,
             ),
         )
         try:
