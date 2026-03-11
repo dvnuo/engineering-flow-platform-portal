@@ -1680,19 +1680,49 @@ function bindEvents() {
     document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
   });
 
+  async function handleErrorResponse(resp) {
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const err = await resp.json();
+      const detail = err.detail;
+      if (Array.isArray(detail)) {
+        return detail.map(e => e.msg || JSON.stringify(e)).join(", ");
+      }
+      return detail || "Unknown error";
+    }
+    return await resp.text() || "Unknown error";
+  }
+
   document.getElementById("create-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
     const formData = new FormData(form);
-    const data = {
-      name: formData.get("name"),
-      image: formData.get("image"),
-      disk_size_gi: Number(formData.get("disk_size_gi")),
-      cpu: formData.get("cpu") || null,
-      memory: formData.get("memory") || null,
-    };
+    const name = formData.get("name");
+    const version = formData.get("version") || "latest";
+    
     const msgEl = document.getElementById("create-msg");
+    
     try {
+      // Get defaults from config
+      const defaultsResp = await fetch("/api/agents/defaults");
+      if (!defaultsResp.ok) {
+        throw new Error(await handleErrorResponse(defaultsResp));
+      }
+      const defaults = await defaultsResp.json();
+      
+      if (!defaults.image_repo || !defaults.disk_size_gi) {
+        throw new Error("Invalid defaults configuration");
+      }
+      
+      const data = {
+        name: name,
+        image: `${defaults.image_repo}:${version}`,
+        disk_size_gi: defaults.disk_size_gi,
+        cpu: defaults.cpu,
+        memory: defaults.memory,
+        mount_path: defaults.mount_path,
+      };
+      
       msgEl.textContent = "Creating...";
       msgEl.className = "muted tiny";
       const resp = await fetch("/api/agents", {
@@ -1701,8 +1731,7 @@ function bindEvents() {
         body: JSON.stringify(data),
       });
       if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.detail || "Failed to create agent");
+        throw new Error(await handleErrorResponse(resp));
       }
       const agent = await resp.json();
       msgEl.textContent = "Agent created!";

@@ -138,23 +138,11 @@
     <form id="create-form" class="stack">
       <div>
         <label>Agent Name</label>
-        <input name="name" placeholder="my-agent" required />
+        <input name="name" placeholder="MyAgent" value="MyAgent" required />
       </div>
       <div>
-        <label>Container Image</label>
-        <input name="image" placeholder="your-registry/agent:latest" required value="your-registry/agent:latest" />
-      </div>
-      <div>
-        <label>Disk Size (GiB)</label>
-        <input name="disk_size_gi" type="number" min="1" value="20" required />
-      </div>
-      <div>
-        <label>CPU Request</label>
-        <input name="cpu" placeholder="e.g. 250m" />
-      </div>
-      <div>
-        <label>Memory Request</label>
-        <input name="memory" placeholder="e.g. 512Mi" />
+        <label>Version</label>
+        <input name="version" placeholder="latest" value="latest" required />
       </div>
       <button type="submit">Create Agent</button>
       <p id="create-msg" class="muted tiny"></p>

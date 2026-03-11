@@ -19,6 +19,20 @@ from app.utils.state_machine import can_transition, is_valid_status
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 settings = get_settings()
+
+
+@router.get("/defaults")
+def get_agent_defaults(user=Depends(get_current_user)):
+    """Get default configuration for agent creation."""
+    return {
+        "image_repo": settings.default_agent_image_repo,
+        "disk_size_gi": settings.default_agent_disk_size_gi,
+        "cpu": settings.default_agent_cpu,
+        "memory": settings.default_agent_memory,
+        "mount_path": settings.default_agent_mount_path,
+    }
+
+
 k8s_service = K8sService()
 
 
