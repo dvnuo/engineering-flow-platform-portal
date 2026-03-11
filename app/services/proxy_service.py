@@ -54,7 +54,7 @@ class ProxyService:
                 pass
         
         # Fallback to internal DNS (for ClusterIP)
-        return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local"
+        return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:{agent.port or 8000}"
 
     async def forward(
         self,
