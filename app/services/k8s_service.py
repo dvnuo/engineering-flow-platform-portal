@@ -127,7 +127,7 @@ class K8sService:
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 storage_class_name=self.settings.k8s_storage_class,
-                resources=client.V1VolumeResourceRequirements(requests={"storage": "100Gi"}),  # Fixed size for shared PVC
+                resources=client.V1VolumeResourceRequirements(requests={"storage": self.settings.k8s_shared_pvc_size}),  # Fixed size for shared PVC
             ),
         )
         try:
