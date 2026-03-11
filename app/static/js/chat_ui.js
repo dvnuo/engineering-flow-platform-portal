@@ -1058,14 +1058,16 @@ async function loadServerFiles(path) {
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapeHtml(currentPath.replace(/"/g, '&quot;')) + '">' + escapeHtml(part) + '</a>';
+      const escapedPath = escapeHtml(currentPath);
+      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapedPath.replace(/"/g, '&quot;') + '">' + escapeHtml(part) + '</a>';
     }
     
-    // Buildboxes and data attributes file rows with check
+    // Build file rows with checkboxes and data attributes
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
       const disabled = item.is_dir ? 'disabled' : '';
-      const safePath = escapeHtml(item.path.replace(/"/g, '&quot;'));
+      const escapedPath = escapeHtml(item.path);
+      const safePath = escapedPath.replace(/"/g, '&quot;');
       return (
         `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
           `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" ${disabled}>` +
@@ -1109,19 +1111,21 @@ async function loadServerFiles(path) {
       // File row click handler (toggle checkbox + navigate)
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
-          if (e.target.type === 'checkbox') return;
-          
           const filePath = row.dataset.path;
           const isDir = row.dataset.isDir === 'true';
+          const isCheckbox = e.target.type === 'checkbox';
           
-          // For directories, navigate directly (skip checkbox toggle)
+          // For directories (with or without checkbox click), navigate directly
           if (isDir) {
             loadServerFiles(filePath);
             return;
           }
           
-          const checkbox = row.querySelector('.file-checkbox');
-          if (checkbox) checkbox.checked = !checkbox.checked;
+          // For files, toggle checkbox (skip if directly clicking checkbox)
+          if (!isCheckbox) {
+            const checkbox = row.querySelector('.file-checkbox');
+            if (checkbox) checkbox.checked = !checkbox.checked;
+          }
           previewServerFile(filePath, path);
           updateDownloadButton(panel);
         });
@@ -1152,6 +1156,9 @@ async function loadServerFiles(path) {
           loadServerFiles(link.dataset.path);
         });
       });
+      
+      // Initialize button state
+      updateDownloadButton(panel);
     }
   } catch (error) {
     setToolPanel("Server Files", `Failed: ${error.message}`);
@@ -1207,7 +1214,7 @@ async function uploadZipToServer(targetPath) {
     const file = e.target.files[0];
     if (!file) return;
     
-    setToolPanel("Server Files", `<div class="text-xs text-slate-400">Uploading ${file.name}…</div>`);
+    setToolPanel("Server Files", `<div class="text-xs text-slate-400">Uploading ${escapeHtml(file.name)}…</div>`);
     
     try {
       const formData = new FormData();
