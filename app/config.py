@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     k8s_enabled: bool = False
     k8s_storage_class: str = "local-path"
     k8s_shared_pvc_size: str = "100Gi"
+    k8s_shared_pvc_access_modes: list = ["ReadWriteOnce"]
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = None
 

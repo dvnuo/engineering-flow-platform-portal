@@ -125,7 +125,7 @@ class K8sService:
                 labels={"app": "efp-agents", "managed-by": "portal"},
             ),
             spec=client.V1PersistentVolumeClaimSpec(
-                access_modes=["ReadWriteOnce"],
+                access_modes=self.settings.k8s_shared_pvc_access_modes,
                 storage_class_name=self.settings.k8s_storage_class,
                 resources=client.V1VolumeResourceRequirements(requests={"storage": self.settings.k8s_shared_pvc_size}),  # Fixed size for shared PVC
             ),
