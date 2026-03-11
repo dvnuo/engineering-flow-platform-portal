@@ -1058,16 +1058,17 @@ async function loadServerFiles(path) {
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapeHtml(currentPath) + '">' + escapeHtml(part) + '</a>';
+      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapeHtml(currentPath.replace(/"/g, '&quot;')) + '">' + escapeHtml(part) + '</a>';
     }
     
-    // Build file rows with checkboxes and data attributes
+    // Buildboxes and data attributes file rows with check
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
       const disabled = item.is_dir ? 'disabled' : '';
+      const safePath = escapeHtml(item.path.replace(/"/g, '&quot;'));
       return (
-        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_dir}" ${disabled}>` +
+        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" ${disabled}>` +
           `<span class="text-lg">${icon}</span>` +
           `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
         `</div>`
@@ -1109,17 +1110,19 @@ async function loadServerFiles(path) {
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
           if (e.target.type === 'checkbox') return;
-          const checkbox = row.querySelector('.file-checkbox');
-          if (checkbox && checkbox.disabled) return;
-          if (checkbox) checkbox.checked = !checkbox.checked;
           
           const filePath = row.dataset.path;
           const isDir = row.dataset.isDir === 'true';
+          
+          // For directories, navigate directly (skip checkbox toggle)
           if (isDir) {
             loadServerFiles(filePath);
-          } else {
-            previewServerFile(filePath, path);
+            return;
           }
+          
+          const checkbox = row.querySelector('.file-checkbox');
+          if (checkbox) checkbox.checked = !checkbox.checked;
+          previewServerFile(filePath, path);
           updateDownloadButton(panel);
         });
       });
@@ -1151,7 +1154,7 @@ async function loadServerFiles(path) {
       });
     }
   } catch (error) {
-    setToolPanel("Server Files", `Failed: ${escapeHtml(error.message)}`);
+    setToolPanel("Server Files", `Failed: ${error.message}`);
   }
 }
 
@@ -1179,7 +1182,11 @@ function updateDownloadButton(panel) {
   
   // Update select all checkbox state
   if (selectAll) {
-    if (checkedBoxes.length === 0) {
+    selectAll.disabled = checkboxes.length === 0;
+    if (checkboxes.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else if (checkedBoxes.length === 0) {
       selectAll.checked = false;
       selectAll.indeterminate = false;
     } else if (checkedBoxes.length === checkboxes.length) {
@@ -1220,7 +1227,8 @@ async function uploadZipToServer(targetPath) {
       
       const data = await resp.json();
       if (data.success) {
-        setToolPanel("Server Files", `<div class="text-xs text-green-500">Uploaded ${data.count} files</div>`);
+        const safeCount = Number.isFinite(Number(data.count)) ? Number(data.count) : 0;
+        setToolPanel("Server Files", `<div class="text-xs text-green-500">Uploaded ${safeCount} files</div>`);
         loadServerFiles(targetPath);
       } else {
         setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(data.error)}</div>`);
