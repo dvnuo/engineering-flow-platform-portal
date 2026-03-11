@@ -115,18 +115,19 @@ class K8sService:
             return False
 
     def _ensure_pvc(self, agent) -> None:
+        # Using shared PVC for all agents - fixed config, no agent-specific fields
         from kubernetes import client
 
         body = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
                 name="efp-agents-pvc",
                 namespace=agent.namespace,
-                labels={"app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id)},
+                labels={"app": "efp-agents", "managed-by": "portal"},
             ),
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 storage_class_name=self.settings.k8s_storage_class,
-                resources=client.V1VolumeResourceRequirements(requests={"storage": f"{agent.disk_size_gi}Gi"}),
+                resources=client.V1VolumeResourceRequirements(requests={"storage": "100Gi"}),  # Fixed size for shared PVC
             ),
         )
         try:
