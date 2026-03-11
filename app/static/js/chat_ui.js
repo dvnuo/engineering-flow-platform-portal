@@ -1087,7 +1087,7 @@ async function loadServerFiles(path) {
           `<button class="sf-download-btn px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded" disabled>Download</button>` +
         `</div>` +
         // Select all
-        `<div class="flex items-center gap-2 text-xs text-slate-500">` +
+        `<div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">` +
           `<input type="checkbox" id="sf-select-all" class="w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600"> <label for="sf-select-all">Select all</label>` +
         `</div>` +
         // File list
@@ -1102,7 +1102,7 @@ async function loadServerFiles(path) {
       const selectAll = document.getElementById('sf-select-all');
       if (selectAll) {
         selectAll.addEventListener('change', (e) => {
-          const checkboxes = panel.querySelectorAll('.file-checkbox');
+          const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
           checkboxes.forEach(cb => cb.checked = e.target.checked);
           updateDownloadButton(panel);
         });
@@ -1125,8 +1125,8 @@ async function loadServerFiles(path) {
           if (!isCheckbox) {
             const checkbox = row.querySelector('.file-checkbox');
             if (checkbox) checkbox.checked = !checkbox.checked;
+            previewServerFile(filePath, path);
           }
-          previewServerFile(filePath, path);
           updateDownloadButton(panel);
         });
       });
