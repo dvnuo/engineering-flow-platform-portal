@@ -45,6 +45,7 @@ const dom = {
   themeToggle: document.getElementById("theme-toggle"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   addAgentBtn: document.getElementById("add-agent-btn"),
+  editForm: document.getElementById("edit-form"),
 };
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
@@ -103,7 +104,7 @@ const md = window.markdownit({
 
 // ===== generic helpers =====
 function safe(value) {
-  return String(value || "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function escapeHtml(text) {
@@ -1533,50 +1534,50 @@ async function openEditDialog(agent) {
   document.getElementById("edit-modal").setAttribute("aria-hidden", "false");
 }
 
-// Handle edit form submission
-document.getElementById("edit-form")?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const formData = new FormData(form);
-  const id = formData.get("id");
-  
-  const updates = { name: formData.get("name")?.trim() };
-  const repoUrl = formData.get("repo_url")?.trim();
-  const branch = formData.get("branch")?.trim();
-  
-  if (repoUrl) updates.repo_url = repoUrl;
-  if (branch) updates.branch = branch;
-  
-  const msgEl = document.getElementById("edit-msg");
-  msgEl.textContent = "Saving...";
-  msgEl.className = "muted tiny";
-  
-  try {
-    await api(`/api/agents/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(updates),
-    });
-    msgEl.textContent = "Saved!";
-    msgEl.className = "text-green-400 tiny";
-    setTimeout(() => {
-      document.getElementById("edit-modal").classList.add("hidden");
-      document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
-      refreshAll();
-    }, 800);
-  } catch (err) {
-    msgEl.textContent = err.message || "Error saving";
-    msgEl.className = "text-red-400 tiny";
-  }
-});
-
-// Close edit modal
-document.getElementById("close-edit-modal")?.addEventListener("click", () => {
-  document.getElementById("edit-modal").classList.add("hidden");
-  document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
-});
-
 // ===== wiring =====
 function bindEvents() {
+  // Edit modal events
+  dom.editForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    const id = formData.get("id");
+    
+    const updates = { name: formData.get("name")?.trim() };
+    const repoUrl = formData.get("repo_url")?.trim();
+    const branch = formData.get("branch")?.trim();
+    
+    // Always include repo_url and branch (empty string to clear)
+    if (repoUrl !== undefined) updates.repo_url = repoUrl || null;
+    if (branch !== undefined) updates.branch = branch || null;
+    
+    const msgEl = document.getElementById("edit-msg");
+    msgEl.textContent = "Saving...";
+    msgEl.className = "muted tiny";
+    
+    try {
+      await api(`/api/agents/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      });
+      msgEl.textContent = "Saved!";
+      msgEl.className = "text-green-400 tiny";
+      setTimeout(() => {
+        document.getElementById("edit-modal").classList.add("hidden");
+        document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
+        refreshAll();
+      }, 800);
+    } catch (err) {
+      msgEl.textContent = err.message || "Error saving";
+      msgEl.className = "text-red-400 tiny";
+    }
+  });
+  
+  document.getElementById("close-edit-modal")?.addEventListener("click", () => {
+    document.getElementById("edit-modal").classList.add("hidden");
+    document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
+  });
+
   dom.detailToggle?.addEventListener("click", () => {
     if (state.detailOpen) {
       setDetailOpen(false);
@@ -1778,12 +1779,12 @@ function bindEvents() {
         throw new Error("Invalid defaults configuration");
       }
       
-      // Use form values if provided, otherwise defaults
+      // Use form values if provided, otherwise defaults (null if empty)
       const data = {
         name: name,
         image: defaults.image_repo + ":" + (defaults.image_tag || "latest"),
-        repo_url: repoUrl || defaults.default_repo_url || "",
-        branch: branch || defaults.default_branch || "main",
+        repo_url: repoUrl ? repoUrl : (defaults.default_repo_url || null),
+        branch: branch ? branch : (defaults.default_branch || "master"),
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,

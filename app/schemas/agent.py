@@ -8,7 +8,7 @@ class AgentCreateRequest(BaseModel):
     name: str
     image: str
     repo_url: Optional[str] = None  # GitHub repo URL
-    branch: Optional[str] = "main"  # Git branch
+    branch: Optional[str] = "master"  # Git branch
     disk_size_gi: int = 20
     mount_path: str = "/root/.efp"
     cpu: Optional[str] = None
