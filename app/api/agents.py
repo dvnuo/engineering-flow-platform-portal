@@ -174,7 +174,7 @@ def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depen
 
 
 @router.get("/{agent_id}/git-info")
-def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Get git commit info from running agent."""
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
@@ -187,7 +187,7 @@ def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Sessio
     
     # Try to get git info from agent
     try:
-        status_code, content, _ = proxy_service.forward(
+        status_code, content, _ = await proxy_service.forward(
             agent=agent,
             method="GET",
             subpath="api/git-info",
