@@ -1417,7 +1417,6 @@ function addInstanceRow(group) {
   }
 }
 
-}
 
 function initializeSettingsPanel() {
   if (!dom.toolPanelBody?.querySelector("#settings-form")) return;
