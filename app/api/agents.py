@@ -187,6 +187,7 @@ def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Sessio
     
     # Try to get git info from agent
     try:
+        print(f"DEBUG: Calling git-info for agent {agent_id}, service={agent.service_name}")
         status_code, content, _ = proxy_service.forward(
             agent=agent,
             method="GET",
@@ -195,10 +196,12 @@ def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Sessio
             body=None,
             headers={},
         )
+        print(f"DEBUG: status={status_code}, content={content}")
         if status_code == 200:
             import json
             return json.loads(content.decode("utf-8"))
-    except Exception:
+    except Exception as e:
+        print(f"DEBUG: Error getting git-info: {e}")
         pass
     
     return {"commit_id": None, "repo_url": None, "status": "error"}
