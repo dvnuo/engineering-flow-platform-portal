@@ -197,13 +197,19 @@ async def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: 
         )
         if status_code == 200:
             import json
-            return json.loads(content.decode("utf-8"))
+            data = json.loads(content.decode("utf-8"))
+            # Use repo_url from agent config if not returned from container
+            if not data.get("repo_url") and agent.repo_url:
+                data["repo_url"] = agent.repo_url
+            return data
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return {"commit_id": None, "repo_url": None, "status": str(e)}
+        # Fallback: return repo_url from agent config
+        return {"commit_id": None, "repo_url": agent.repo_url, "status": str(e)}
     
-    return {"commit_id": None, "repo_url": None, "status": "error"}
+    # Fallback to agent config
+    return {"commit_id": None, "repo_url": agent.repo_url, "status": "error"}
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)
