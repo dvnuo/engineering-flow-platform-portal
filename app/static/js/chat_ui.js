@@ -1812,12 +1812,12 @@ function bindEvents() {
         throw new Error("Invalid defaults configuration");
       }
       
-      // Use form values if provided, otherwise defaults (null if empty)
+      // Use form values if provided, or null to skip repo
       const data = {
         name: name,
         image: defaults.image_repo + ":" + (defaults.image_tag || "latest"),
-        repo_url: repoUrl ? repoUrl : (defaults.default_repo_url || null),
-        branch: branch ? branch : (defaults.default_branch || "master"),
+        repo_url: repoUrl || null,
+        branch: branch || null,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,
