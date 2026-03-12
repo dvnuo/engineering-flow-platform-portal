@@ -76,7 +76,7 @@ def _settings_view_payload(config_data: dict) -> dict:
         "github": config_data.get("github") if isinstance(config_data.get("github"), dict) else {},
         "git": config_data.get("git") if isinstance(config_data.get("git"), dict) else {},
         "ssh": config_data.get("ssh") if isinstance(config_data.get("ssh"), dict) else {},
-        "proxy": config_data.get("proxy") if isinstance(config_data.get("proxy"), dict) else {},
+        "proxy": {k: v for k, v in (config_data.get("proxy") or {}).items() if k != "password"},
         "debug": config_data.get("debug") if isinstance(config_data.get("debug"), dict) else {},
     }
 
@@ -495,7 +495,10 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
     proxy_cfg["url"] = (form.get("proxy_url") or "").strip()
     proxy_cfg["username"] = (form.get("proxy_username") or "").strip()
-    proxy_cfg["password"] = (form.get("proxy_password") or "").strip()
+    # Only update password if provided (to preserve existing password)
+    new_password = (form.get("proxy_password") or "").strip()
+    if new_password:
+        proxy_cfg["password"] = new_password
 
     debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
     debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
