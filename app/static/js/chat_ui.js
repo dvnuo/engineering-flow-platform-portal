@@ -512,6 +512,9 @@ async function fetchGitInfo(agentId) {
   const commitEl = document.getElementById("agent-git-commit");
   if (!commitEl) return;
   
+  // Check if still viewing same agent (prevent stale response overwriting wrong agent)
+  if (state.selectedAgentId !== agentId) return;
+  
   try {
     const data = await api(`/api/agents/${agentId}/git-info`);
     if (data.commit_id) {
