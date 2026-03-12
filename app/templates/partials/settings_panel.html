@@ -5,7 +5,7 @@
     </div>
   {% endif %}
 
-  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="space-y-4">
+  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { document.getElementById('tool-panel').classList.add('hidden'); }" class="space-y-4">
     <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
 
     <!-- LLM Model Section -->
