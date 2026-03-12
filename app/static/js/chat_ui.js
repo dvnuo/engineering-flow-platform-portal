@@ -516,14 +516,35 @@ async function fetchGitInfo(agentId) {
     const data = await api(`/api/agents/${agentId}/git-info`);
     if (data.commit_id) {
       const shortCommit = data.commit_id.substring(0, 7);
-      const commitLink = document.createElement('a');
-      commitLink.href = `${data.repo_url}/commit/${data.commit_id}`;
-      commitLink.target = '_blank';
-      commitLink.rel = 'noopener noreferrer';
-      commitLink.className = 'text-blue-500 hover:underline font-mono';
-      commitLink.textContent = shortCommit;
       commitEl.textContent = 'Commit: ';
-      commitEl.appendChild(commitLink);
+      
+      // Validate URL to prevent XSS
+      let safeUrl = null;
+      if (data.repo_url) {
+        try {
+          const parsed = new URL(data.repo_url);
+          if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            safeUrl = data.repo_url;
+          }
+        } catch (e) {
+          // Invalid URL, use plain text
+        }
+      }
+      
+      if (safeUrl) {
+        const commitLink = document.createElement('a');
+        commitLink.href = `${safeUrl}/commit/${data.commit_id}`;
+        commitLink.target = '_blank';
+        commitLink.rel = 'noopener noreferrer';
+        commitLink.className = 'text-blue-500 hover:underline font-mono';
+        commitLink.textContent = shortCommit;
+        commitEl.appendChild(commitLink);
+      } else {
+        const commitText = document.createElement('span');
+        commitText.className = 'text-blue-500 font-mono';
+        commitText.textContent = shortCommit;
+        commitEl.appendChild(commitText);
+      }
     } else if (data.status === 'running') {
       commitEl.textContent = "Commit: Not available";
     } else {
