@@ -164,27 +164,28 @@ class K8sService:
             branch = agent.branch or "main"
             git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
             code_sub_path = f"efp-agents/{agent.id}/code"
-            # Clone git repo to code subPath
+            # Clone git repo to /app (will be mounted)
             init_containers.append(
                 client.V1Container(
                     name="git-clone",
                     image=git_image,
                     command=["sh", "-c"],
                     args=[
-                        f"rm -rf {agent.mount_path}/code && "
-                        f"git clone --depth 1 --branch {branch} {agent.repo_url} {agent.mount_path}/code"
+                        f"rm -rf /app && "
+                        f"git clone --depth 1 --branch {branch} {agent.repo_url} /app"
                     ],
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=code_sub_path)],
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
                 )
             )
-            # Mount code to /app in main container to override image code
+            # Mount code to /app in main container
             volume_mounts.append(
                 client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)
             )
         
         # Always add the data mount
+        data_sub_path = f"efp-agents/{agent.id}/data"
         volume_mounts.append(
-            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path="efp-agents/" + agent.id)
+            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=data_sub_path)
         )
         
         body = client.V1Deployment(
