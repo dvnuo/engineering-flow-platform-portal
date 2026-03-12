@@ -174,7 +174,8 @@ class K8sService:
                         f"mkdir -p /app && "
                         f"cd /app && rm -rf .[!.]* * && "
                         f"git clone --depth 1 --branch {branch} {agent.repo_url} . && "
-                        f"git rev-parse HEAD > /app/.commit-id"
+                        f"git rev-parse HEAD > /app/.commit-id && "
+                        f"echo {agent.repo_url} > /app/.repo-url"
                     ],
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
                 )
