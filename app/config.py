@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     agents_namespace: str = "efp-agents"
     k8s_enabled: bool = False
-    k8s_storage_class: str = "efp-agents-storage"
+    k8s_storage_class: str = "local-path"
     k8s_shared_pvc_size: str = "100Gi"
     k8s_shared_pvc_access_modes: list = ["ReadWriteMany"]
     k8s_incluster: bool = True
