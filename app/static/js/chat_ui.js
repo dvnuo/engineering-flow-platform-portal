@@ -519,6 +519,7 @@ async function fetchGitInfo(agentId) {
       const commitLink = document.createElement('a');
       commitLink.href = `${data.repo_url}/commit/${data.commit_id}`;
       commitLink.target = '_blank';
+      commitLink.rel = 'noopener noreferrer';
       commitLink.className = 'text-blue-500 hover:underline font-mono';
       commitLink.textContent = shortCommit;
       commitEl.textContent = 'Commit: ';
