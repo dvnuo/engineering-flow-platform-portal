@@ -158,23 +158,34 @@ class K8sService:
         
         # Build init container if repo_url is provided
         init_containers = []
+        volume_mounts = []
+        
         if agent.repo_url:
             branch = agent.branch or "main"
             git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
-            # Clone git repo to agent data directory
+            code_sub_path = f"efp-agents/{agent.id}/code"
+            # Clone git repo to code subPath
             init_containers.append(
                 client.V1Container(
                     name="git-clone",
                     image=git_image,
                     command=["sh", "-c"],
                     args=[
-                        f"cd {agent.mount_path}/workspace && "
-                        f"git clone --depth 1 --branch {branch} {agent.repo_url} . || "
-                        f"(git fetch --all && git checkout {branch})"
+                        f"rm -rf {agent.mount_path}/code && "
+                        f"git clone --depth 1 --branch {branch} {agent.repo_url} {agent.mount_path}/code"
                     ],
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path="efp-agents/" + agent.id)],
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=code_sub_path)],
                 )
             )
+            # Mount code to /app in main container to override image code
+            volume_mounts.append(
+                client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)
+            )
+        
+        # Always add the data mount
+        volume_mounts.append(
+            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path="efp-agents/" + agent.id)
+        )
         
         body = client.V1Deployment(
             metadata=client.V1ObjectMeta(name=agent.deployment_name, namespace=agent.namespace, labels=labels),
@@ -190,7 +201,7 @@ class K8sService:
                                 name="agent",
                                 image=agent.image,
                                 ports=[client.V1ContainerPort(container_port=8000)],
-                                volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path="efp-agents/" + agent.id)],
+                                volume_mounts=volume_mounts,
                             )
                         ],
                         volumes=[
