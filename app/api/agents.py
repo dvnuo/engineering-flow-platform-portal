@@ -182,29 +182,12 @@ def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Sessio
     if not _can_read(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     
-    if agent.status != "running":
-        return {"commit_id": None, "repo_url": None, "status": agent.status}
-    
-    # Try to get git info from agent
-    try:
-        print(f"DEBUG: Calling git-info for agent {agent_id}, service={agent.service_name}")
-        status_code, content, _ = proxy_service.forward(
-            agent=agent,
-            method="GET",
-            subpath="api/git-info",
-            query_items=[],
-            body=None,
-            headers={},
-        )
-        print(f"DEBUG: status={status_code}, content={content}")
-        if status_code == 200:
-            import json
-            return json.loads(content.decode("utf-8"))
-    except Exception as e:
-        print(f"DEBUG: Error getting git-info: {e}")
-        pass
-    
-    return {"commit_id": None, "repo_url": None, "status": "error"}
+    # Always return running status and info
+    return {
+        "agent_status": agent.status,
+        "service_name": agent.service_name,
+        "namespace": agent.namespace,
+    }
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)
