@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = None
     k8s_agent_service_type: str = "ClusterIP"
+    k8s_git_username: Optional[str] = None
+    k8s_git_token: Optional[str] = None
 
     # Default agent config (image repo without tag)
     default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"

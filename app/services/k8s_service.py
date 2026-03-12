@@ -68,6 +68,31 @@ class K8sService:
                 client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
                 client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or "master"),
             ])
+            
+            # Add git credentials from secret if configured
+            if self.settings.k8s_git_username and self.settings.k8s_git_token:
+                env.extend([
+                    client.V1EnvVar(
+                        name="GIT_USERNAME",
+                        value_from=client.V1EnvVarSource(
+                            secret_key_ref=client.V1SecretKeySelector(
+                                name="git-credentials",
+                                key="username",
+                                optional=True,
+                            )
+                        )
+                    ),
+                    client.V1EnvVar(
+                        name="GIT_TOKEN",
+                        value_from=client.V1EnvVarSource(
+                            secret_key_ref=client.V1SecretKeySelector(
+                                name="git-credentials",
+                                key="token",
+                                optional=True,
+                            )
+                        )
+                    ),
+                ])
         
         # Build the init container spec
         init_containers = []
@@ -81,8 +106,11 @@ class K8sService:
                     command=["sh", "-c"],
                     args=[
                         "mkdir -p /app && "
-                        "cd /app && find . -mindepth 1 -maxdepth 1 -exec rm -rf {} + && "
-                        "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${GIT_REPO_URL}\" ."
+                        "cd /app && rm -rf .[!.]* * && "
+                        "REPO_URL=\"${GIT_REPO_URL}\" && "
+                        "[ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && "
+                        "REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && "
+                        "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" ."
                     ],
                     env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
@@ -239,6 +267,31 @@ class K8sService:
                 client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or "master"),
             ]
             
+            # Add git credentials from secret if configured
+            if self.settings.k8s_git_username and self.settings.k8s_git_token:
+                env.extend([
+                    client.V1EnvVar(
+                        name="GIT_USERNAME",
+                        value_from=client.V1EnvVarSource(
+                            secret_key_ref=client.V1SecretKeySelector(
+                                name="git-credentials",
+                                key="username",
+                                optional=True,
+                            )
+                        )
+                    ),
+                    client.V1EnvVar(
+                        name="GIT_TOKEN",
+                        value_from=client.V1EnvVarSource(
+                            secret_key_ref=client.V1SecretKeySelector(
+                                name="git-credentials",
+                                key="token",
+                                optional=True,
+                            )
+                        )
+                    ),
+                ])
+            
             init_containers.append(
                 client.V1Container(
                     name="git-clone",
@@ -247,7 +300,7 @@ class K8sService:
                     args=[
                         "mkdir -p /app && "
                         "cd /app && rm -rf .[!.]* * && "
-                        "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${GIT_REPO_URL}\" .",
+                        "REPO_URL=\"${GIT_REPO_URL}\" && [ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" ."
                     ],
                     env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
