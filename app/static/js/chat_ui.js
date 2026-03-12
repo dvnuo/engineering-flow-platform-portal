@@ -547,6 +547,8 @@ async function fetchGitInfo(agentId) {
       }
     } else if (data.status === 'running') {
       commitEl.textContent = "Commit: Not available";
+    } else if (data.status === 'error') {
+      commitEl.textContent = "Git info unavailable";
     } else {
       commitEl.textContent = "Agent not running";
     }
