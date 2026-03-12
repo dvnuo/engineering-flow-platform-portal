@@ -37,7 +37,7 @@ class ProxyService:
         return self._node_ip
 
     def build_agent_base_url(self, agent) -> str:
-        # Try to get NodePort from K8s service
+        # Try to get NodePort from K8s service first (for external access)
         if self.core_api:
             try:
                 svc = self.core_api.read_namespaced_service(
@@ -50,10 +50,13 @@ class ProxyService:
                     for port in svc.spec.ports:
                         if port.node_port:
                             return f"http://{self.node_ip}:{port.node_port}"
+                # For ClusterIP, try internal DNS
+                elif svc.spec.type == "ClusterIP":
+                    return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
             except Exception:
                 pass
         
-        # Fallback to internal DNS (for ClusterIP)
+        # Fallback to internal DNS
         return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
 
     async def forward(
