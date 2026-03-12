@@ -62,11 +62,12 @@ class K8sService:
         from kubernetes import client
         
         # Build env vars for git clone
+        default_branch = getattr(self.settings, "default_agent_branch", "master")
         env = []
         if agent.repo_url:
             env.extend([
                 client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
-                client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or "master"),
+                client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or default_branch),
             ])
             
             # Add git credentials from secret if configured
