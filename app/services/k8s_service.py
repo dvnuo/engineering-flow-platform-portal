@@ -124,7 +124,7 @@ class K8sService:
 
         body = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
-                name="efp-agents-pvc",
+                name="efp-agents-efs-pvc",
                 namespace=agent.namespace,
                 labels={"app": "efp-agents", "managed-by": "portal"},
             ),
@@ -163,7 +163,7 @@ class K8sService:
                         volumes=[
                             client.V1Volume(
                                 name="agent-data",
-                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name="efp-agents-pvc"),
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name="efp-agents-efs-pvc"),
                             )
                         ],
                     ),
