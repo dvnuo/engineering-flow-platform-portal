@@ -195,6 +195,25 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
     return AgentResponse.model_validate(agent)
 
 
+@router.post("/{agent_id}/restart", response_model=AgentResponse)
+def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    repo, agent = _load_writable_agent(agent_id, user, db)
+
+    # Restart = stop then start
+    if agent.status == "running":
+        runtime = k8s_service.stop_agent(agent)
+        agent.status = runtime.status
+        agent.last_error = runtime.message
+        repo.save(agent)
+    
+    runtime = k8s_service.start_agent(agent)
+    agent.status = runtime.status
+    agent.last_error = runtime.message
+    repo.save(agent)
+    AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
+    return AgentResponse.model_validate(agent)
+
+
 @router.post("/{agent_id}/share", response_model=AgentResponse)
 def share_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, agent = _load_writable_agent(agent_id, user, db)
