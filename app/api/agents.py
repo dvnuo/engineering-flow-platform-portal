@@ -14,6 +14,7 @@ from app.schemas.agent import (
     AgentUpdateRequest,
 )
 from app.services.k8s_service import K8sService
+from app.services.proxy_service import ProxyService
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
 
@@ -26,6 +27,10 @@ def get_agent_defaults(user=Depends(get_current_user)):
     """Get default configuration for agent creation."""
     return {
         "image_repo": settings.default_agent_image_repo,
+        "image_tag": settings.default_agent_image_tag,
+        "git_image": settings.default_agent_git_image,
+        "default_repo_url": settings.default_agent_repo_url,
+        "default_branch": settings.default_agent_branch,
         "disk_size_gi": settings.default_agent_disk_size_gi,
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,
@@ -34,6 +39,7 @@ def get_agent_defaults(user=Depends(get_current_user)):
 
 
 k8s_service = K8sService()
+proxy_service = ProxyService()
 
 
 def _can_read(agent, user) -> bool:
@@ -99,6 +105,8 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         visibility="private",
         status="creating",
         image=payload.image,
+        repo_url=payload.repo_url,
+        branch=payload.branch,
         cpu=payload.cpu,
         memory=payload.memory,
         disk_size_gi=payload.disk_size_gi,
@@ -140,6 +148,14 @@ def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(get_cu
         setattr(agent, field, value)
 
     repo.save(agent)
+    
+    # Update K8s runtime if repo_url or branch changed
+    if "repo_url" in changes or "branch" in changes:
+        runtime = k8s_service.update_agent_runtime(agent)
+        if runtime.status == "failed":
+            agent.last_error = runtime.message
+            repo.save(agent)
+
     AuditRepository(db).create(
         action="update_agent",
         target_type="agent",
@@ -158,6 +174,58 @@ def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depen
     if not _can_read(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return AgentResponse.model_validate(agent)
+
+
+@router.get("/{agent_id}/git-info")
+async def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Get git commit info from running agent."""
+    agent = AgentRepository(db).get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not _can_read(agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    
+    if agent.status != "running":
+        return {"commit_id": None, "repo_url": None, "status": agent.status}
+    
+    # Try to get git info from agent
+    try:
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/git-info",
+            query_items=[],
+            body=None,
+            headers={},
+        )
+        if status_code == 200:
+            import json
+            data = json.loads(content.decode("utf-8"))
+            # Use repo_url from agent config if not returned from container
+            if not data.get("repo_url") and agent.repo_url:
+                data["repo_url"] = agent.repo_url
+            return data
+        else:
+            # Non-200 from agent git-info endpoint: treat as upstream failure
+            import logging
+            logging.getLogger(__name__).error(
+                "Agent git-info endpoint returned non-200 status %s for agent %s",
+                status_code, agent.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to fetch git info from agent",
+            )
+    except HTTPException:
+        # Propagate HTTP exceptions (e.g. 502) unchanged
+        raise
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("Failed to get git-info")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch git info from agent",
+        )
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)
@@ -187,6 +255,36 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
     agent.last_error = runtime.message
     repo.save(agent)
     AuditRepository(db).create("stop_agent", "agent", agent.id, user.id)
+    return AgentResponse.model_validate(agent)
+
+
+@router.post("/{agent_id}/restart", response_model=AgentResponse)
+def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    repo, agent = _load_writable_agent(agent_id, user, db)
+
+    # Restart = stop then start, with same state-machine checks as /stop and /start
+    if agent.status == "running":
+        if not can_transition(agent.status, "stopped"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot stop agent from status '{agent.status}'",
+            )
+        runtime = k8s_service.stop_agent(agent)
+        agent.status = runtime.status
+        agent.last_error = runtime.message
+        repo.save(agent)
+
+    # Always enforce state-machine guard before starting
+    if not can_transition(agent.status, "running"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot start agent from status '{agent.status}'",
+        )
+    runtime = k8s_service.start_agent(agent)
+    agent.status = runtime.status
+    agent.last_error = runtime.message
+    repo.save(agent)
+    AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
     return AgentResponse.model_validate(agent)
 
 

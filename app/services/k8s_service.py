@@ -46,6 +46,114 @@ class K8sService:
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
 
+    def update_agent_runtime(self, agent) -> RuntimeStatus:
+        """Update agent runtime (deployment) with new config."""
+        if not self.enabled:
+            return RuntimeStatus(status="running")
+        
+        try:
+            self._patch_deployment(agent)
+            return RuntimeStatus(status="running")
+        except Exception as exc:
+            return RuntimeStatus(status="failed", message=str(exc))
+
+    def _patch_deployment(self, agent) -> None:
+        """Patch existing deployment with new config."""
+        from kubernetes import client
+        
+        # Build env vars for git clone
+        default_branch = getattr(self.settings, "default_agent_branch", "master")
+        env = []
+        if agent.repo_url:
+            env.extend([
+                client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
+                client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or default_branch),
+            ])
+            
+            # Add git credentials from secret if configured
+            if self.settings.k8s_git_username and self.settings.k8s_git_token:
+                env.extend([
+                    client.V1EnvVar(
+                        name="GIT_USERNAME",
+                        value_from=client.V1EnvVarSource(
+                            secret_key_ref=client.V1SecretKeySelector(
+                                name="git-credentials",
+                                key="username",
+                                optional=True,
+                            )
+                        )
+                    ),
+                    client.V1EnvVar(
+                        name="GIT_TOKEN",
+                        value_from=client.V1EnvVarSource(
+                            secret_key_ref=client.V1SecretKeySelector(
+                                name="git-credentials",
+                                key="token",
+                                optional=True,
+                            )
+                        )
+                    ),
+                ])
+        
+        # Build the init container spec
+        init_containers = []
+        code_sub_path = f"efp-agents/{agent.id}/code"
+        
+        if agent.repo_url:
+            init_containers.append(
+                client.V1Container(
+                    name="git-clone",
+                    image=getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest",
+                    command=["sh", "-c"],
+                    args=[
+                        "mkdir -p /app && "
+                        "cd /app && rm -rf .[!.]* * && "
+                        "REPO_URL=\"${GIT_REPO_URL}\" && "
+                        "[ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && "
+                        "REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && "
+                        "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" ."
+                    ],
+                    env=env,
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
+                )
+            )
+        
+        # Build volume mounts
+        volume_mounts = []
+        if agent.repo_url:
+            volume_mounts.append(
+                client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)
+            )
+        volume_mounts.append(
+            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=f"efp-agents/{agent.id}/data")
+        )
+        
+        # Patch the deployment
+        patch = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "initContainers": init_containers,
+                        "containers": [{
+                            "name": "agent",
+                            "image": agent.image,
+                            "ports": [{"containerPort": 8000}],
+                            "volumeMounts": volume_mounts,
+                        }],
+                    }
+                }
+            }
+        }
+        
+        try:
+            self.apps_api.patch_namespaced_deployment(
+                name=agent.deployment_name,
+                namespace=agent.namespace,
+                body=patch,
+            )
+        except Exception:
+            raise
+
     def start_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="running")
@@ -119,19 +227,19 @@ class K8sService:
             return False
 
     def _ensure_pvc(self, agent) -> None:
-        # Using shared PVC for all agents - fixed config, no agent-specific fields
+        # Using individual PVC per agent
         from kubernetes import client
 
         body = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
-                name="efp-agents-efs-pvc",
+                name=agent.pvc_name,
                 namespace=agent.namespace,
-                labels={"app": "efp-agents", "managed-by": "portal"},
+                labels={"app": "agent", "agent-id": agent.id, "managed-by": "portal"},
             ),
             spec=client.V1PersistentVolumeClaimSpec(
-                access_modes=self.settings.k8s_shared_pvc_access_modes,
+                access_modes=self.settings.k8s_pvc_access_modes,
                 storage_class_name=self.settings.k8s_storage_class,
-                resources=client.V1VolumeResourceRequirements(requests={"storage": self.settings.k8s_shared_pvc_size}),  # Fixed size for shared PVC
+                resources=client.V1VolumeResourceRequirements(requests={"storage": f"{agent.disk_size_gi}Gi"}),
             ),
         )
         try:
@@ -144,6 +252,72 @@ class K8sService:
         from kubernetes import client
 
         labels = {"app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id)}
+        
+        # Build init container if repo_url is provided
+        init_containers = []
+        volume_mounts = []
+        
+        if agent.repo_url:
+            branch = agent.branch or "main"
+            git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
+            code_sub_path = f"efp-agents/{agent.id}/code"
+            # Clone git repo to /app (will be mounted)
+            # Add environment variables for git clone
+            env = [
+                client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
+                client.V1EnvVar(name="GIT_BRANCH", value=branch),
+            ]
+            
+            # Add git credentials from secret if configured
+            if self.settings.k8s_git_username and self.settings.k8s_git_token:
+                env.extend([
+                    client.V1EnvVar(
+                        name="GIT_USERNAME",
+                        value_from=client.V1EnvVarSource(
+                            secret_key_ref=client.V1SecretKeySelector(
+                                name="git-credentials",
+                                key="username",
+                                optional=True,
+                            )
+                        )
+                    ),
+                    client.V1EnvVar(
+                        name="GIT_TOKEN",
+                        value_from=client.V1EnvVarSource(
+                            secret_key_ref=client.V1SecretKeySelector(
+                                name="git-credentials",
+                                key="token",
+                                optional=True,
+                            )
+                        )
+                    ),
+                ])
+            
+            init_containers.append(
+                client.V1Container(
+                    name="git-clone",
+                    image=git_image,
+                    command=["sh", "-c"],
+                    args=[
+                        "mkdir -p /app && "
+                        "cd /app && rm -rf .[!.]* * && "
+                        "REPO_URL=\"${GIT_REPO_URL}\" && [ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" ."
+                    ],
+                    env=env,
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
+                )
+            )
+            # Mount code to /app in main container
+            volume_mounts.append(
+                client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)
+            )
+        
+        # Always add the data mount
+        data_sub_path = f"efp-agents/{agent.id}/data"
+        volume_mounts.append(
+            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=data_sub_path)
+        )
+        
         body = client.V1Deployment(
             metadata=client.V1ObjectMeta(name=agent.deployment_name, namespace=agent.namespace, labels=labels),
             spec=client.V1DeploymentSpec(
@@ -152,18 +326,19 @@ class K8sService:
                 template=client.V1PodTemplateSpec(
                     metadata=client.V1ObjectMeta(labels=labels),
                     spec=client.V1PodSpec(
+                        init_containers=init_containers,
                         containers=[
                             client.V1Container(
                                 name="agent",
                                 image=agent.image,
                                 ports=[client.V1ContainerPort(container_port=8000)],
-                                volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path="efp-agents/" + agent.id)],
+                                volume_mounts=volume_mounts,
                             )
                         ],
                         volumes=[
                             client.V1Volume(
                                 name="agent-data",
-                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name="efp-agents-efs-pvc"),
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=agent.pvc_name),
                             )
                         ],
                     ),

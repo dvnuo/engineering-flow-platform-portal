@@ -45,6 +45,7 @@ const dom = {
   themeToggle: document.getElementById("theme-toggle"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   addAgentBtn: document.getElementById("add-agent-btn"),
+  editForm: document.getElementById("edit-form"),
 };
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
@@ -103,7 +104,7 @@ const md = window.markdownit({
 
 // ===== generic helpers =====
 function safe(value) {
-  return String(value || "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function escapeHtml(text) {
@@ -448,12 +449,27 @@ function renderAgentMeta(agent) {
   const mem = agent.memory || 'N/A';
   const disk = agent.disk_size_gi;
 
+  // Build repo/branch section if present
+  let repoSection = '';
+  if (agent.repo_url) {
+    const branch = agent.branch || 'main';
+    repoSection = `
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Repository</div>
+        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.repo_url)}</div>
+        <div class="text-xs text-slate-500 mt-1">Branch: <span class="text-slate-700 dark:text-slate-300">${safe(branch)}</span></div>
+        <div id="agent-git-commit" class="text-xs text-slate-400 mt-1">Loading commit...</div>
+      </div>
+    `;
+  }
+
   dom.agentMeta.innerHTML = `
     <div class="space-y-3 text-sm">
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Image</div>
         <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.image)}</div>
       </div>
+      ${repoSection}
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Created</div>
         <div class="text-slate-700 dark:text-slate-300">${dateStr}</div>
@@ -485,6 +501,63 @@ function renderAgentMeta(agent) {
 
   // Fetch usage data
   fetchUsageForAgent(agent.id);
+  
+  // Fetch git info if repo is configured
+  if (agent.repo_url) {
+    fetchGitInfo(agent.id);
+  }
+}
+
+async function fetchGitInfo(agentId) {
+  const commitEl = document.getElementById("agent-git-commit");
+  if (!commitEl) return;
+  
+  // Check if still viewing same agent (prevent stale response overwriting wrong agent)
+  if (state.selectedAgentId !== agentId) return;
+  
+  try {
+    const data = await api(`/api/agents/${agentId}/git-info`);
+    if (data.commit_id) {
+      const shortCommit = data.commit_id.substring(0, 7);
+      commitEl.textContent = 'Commit: ';
+      
+      // Validate URL to prevent XSS
+      let safeUrl = null;
+      if (data.repo_url) {
+        try {
+          const parsed = new URL(data.repo_url);
+          if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            safeUrl = data.repo_url;
+          }
+        } catch (e) {
+          // Invalid URL, use plain text
+        }
+      }
+      
+      if (safeUrl) {
+        const commitLink = document.createElement('a');
+        commitLink.href = `${safeUrl}/commit/${data.commit_id}`;
+        commitLink.target = '_blank';
+        commitLink.rel = 'noopener noreferrer';
+        commitLink.className = 'text-blue-500 hover:underline font-mono';
+        commitLink.textContent = shortCommit;
+        commitEl.appendChild(commitLink);
+      } else {
+        const commitText = document.createElement('span');
+        commitText.className = 'text-blue-500 font-mono';
+        commitText.textContent = shortCommit;
+        commitEl.appendChild(commitText);
+      }
+    } else if (data.status === 'running') {
+      commitEl.textContent = "Commit: Not available";
+    } else if (data.status === 'error') {
+      commitEl.textContent = "Git info unavailable";
+    } else {
+      commitEl.textContent = "Agent not running";
+    }
+  } catch (e) {
+    commitEl.textContent = "Failed to load commit";
+  }
 }
 
 async function fetchUsageForAgent(agentId) {
@@ -556,9 +629,10 @@ function renderAgentActions(agent, status) {
   const actions = [
     { label: "Start", icon: "play", classes: "border-emerald-600 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
     { label: "Stop", icon: "square", classes: "border-amber-500 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
+    { label: "Restart", icon: "rotate-cw", classes: "border-blue-500 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
     { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-indigo-500 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
     { label: "Edit", icon: "pencil", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => openEditDialog(agent) },
-    { label: "Delete", icon: "trash-2", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "POST", true) },
+    { label: "Delete", icon: "trash-2", classes: "border-red-500 bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
     { label: "Destroy", icon: "flame", classes: "border-rose-600 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
   ];
 
@@ -1517,18 +1591,75 @@ async function action(path, method = "POST", needsConfirm = false) {
 }
 
 async function openEditDialog(agent) {
-  const name = prompt("Agent name", agent.name);
-  if (name === null) return;
+  // Populate the edit form by setting input values directly
+  const form = document.getElementById("edit-form");
+  if (form && form.elements) {
+    if (form.elements["id"]) {
+      form.elements["id"].value = agent.id ?? "";
+    }
+    if (form.elements["name"]) {
+      form.elements["name"].value = agent.name || "";
+    }
+    if (form.elements["repo_url"]) {
+      form.elements["repo_url"].value = agent.repo_url || "";
+    }
+    if (form.elements["branch"]) {
+      form.elements["branch"].value = agent.branch || "master";
+    }
+  }
 
-  await api(`/api/agents/${agent.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ name: name.trim() }),
-  });
-  await refreshAll();
+  // Show the modal
+  const editModal = document.getElementById("edit-modal");
+  if (editModal) {
+    editModal.classList.remove("hidden");
+    editModal.setAttribute("aria-hidden", "false");
+  }
 }
 
 // ===== wiring =====
 function bindEvents() {
+  // Edit modal events
+  dom.editForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    const id = formData.get("id");
+    
+    const updates = { name: formData.get("name")?.trim() };
+    const repoUrl = formData.get("repo_url")?.trim();
+    const branch = formData.get("branch")?.trim();
+    
+    // Always include repo_url and branch (empty string to clear)
+    if (repoUrl !== undefined) updates.repo_url = repoUrl || null;
+    if (branch !== undefined) updates.branch = branch || null;
+    
+    const msgEl = document.getElementById("edit-msg");
+    msgEl.textContent = "Saving...";
+    msgEl.className = "muted tiny";
+    
+    try {
+      await api(`/api/agents/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      });
+      msgEl.textContent = "Saved!";
+      msgEl.className = "text-green-400 tiny";
+      setTimeout(() => {
+        document.getElementById("edit-modal").classList.add("hidden");
+        document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
+        refreshAll();
+      }, 800);
+    } catch (err) {
+      msgEl.textContent = err.message || "Error saving";
+      msgEl.className = "text-red-400 tiny";
+    }
+  });
+  
+  document.getElementById("close-edit-modal")?.addEventListener("click", () => {
+    document.getElementById("edit-modal").classList.add("hidden");
+    document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
+  });
+
   dom.detailToggle?.addEventListener("click", () => {
     if (state.detailOpen) {
       setDetailOpen(false);
@@ -1713,7 +1844,8 @@ function bindEvents() {
     const form = e.target;
     const formData = new FormData(form);
     const name = formData.get("name");
-    const version = formData.get("version") || "latest";
+    const repoUrl = formData.get("repo_url");
+    const branch = formData.get("branch");
     
     const msgEl = document.getElementById("create-msg");
     
@@ -1729,9 +1861,12 @@ function bindEvents() {
         throw new Error("Invalid defaults configuration");
       }
       
+      // Use form values if provided, or null to skip repo
       const data = {
         name: name,
-        image: `${defaults.image_repo}:${version}`,
+        image: defaults.image_repo + ":" + (defaults.image_tag || "latest"),
+        repo_url: repoUrl || null,
+        branch: branch || null,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,

@@ -141,11 +141,42 @@
         <input name="name" placeholder="MyAgent" value="MyAgent" required />
       </div>
       <div>
-        <label>Version</label>
-        <input name="version" placeholder="latest" value="latest" required />
+        <label>GitHub Repository</label>
+        <input name="repo_url" placeholder="https://github.com/user/repo" value="https://github.com/dvnuo/engineering-flow-platform" />
+      </div>
+      <div>
+        <label>Branch</label>
+        <input name="branch" placeholder="master" value="master" />
       </div>
       <button type="submit">Create Agent</button>
       <p id="create-msg" class="muted tiny"></p>
+    </form>
+  </div>
+</div>
+
+<div id="edit-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-card panel">
+    <div class="modal-head">
+      <h3>Edit Agent</h3>
+      <button id="close-edit-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+    </div>
+
+    <form id="edit-form" class="stack">
+      <input type="hidden" name="id" />
+      <div>
+        <label>Agent Name</label>
+        <input name="name" placeholder="MyAgent" required />
+      </div>
+      <div>
+        <label>GitHub Repository</label>
+        <input name="repo_url" placeholder="https://github.com/user/repo (leave empty to clear)" />
+      </div>
+      <div>
+        <label>Branch</label>
+        <input name="branch" placeholder="master" />
+      </div>
+      <button type="submit">Save Changes</button>
+      <p id="edit-msg" class="muted tiny"></p>
     </form>
   </div>
 </div>
