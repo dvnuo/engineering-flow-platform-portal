@@ -1521,12 +1521,23 @@ async function action(path, method = "POST", needsConfirm = false) {
 }
 
 async function openEditDialog(agent) {
+  // Simple prompt-based editing for name, repo_url, branch
   const name = prompt("Agent name", agent.name);
   if (name === null) return;
+  
+  const repoUrl = prompt("GitHub Repository (leave empty to clear)", agent.repo_url || "");
+  if (repoUrl === null) return;
+  
+  const branch = prompt("Branch", agent.branch || "master");
+  if (branch === null) return;
+
+  const updates = { name: name.trim() };
+  if (repoUrl !== undefined) updates.repo_url = repoUrl.trim() || null;
+  if (branch !== undefined) updates.branch = branch.trim() || "master";
 
   await api(`/api/agents/${agent.id}`, {
     method: "PATCH",
-    body: JSON.stringify({ name: name.trim() }),
+    body: JSON.stringify(updates),
   });
   await refreshAll();
 }
