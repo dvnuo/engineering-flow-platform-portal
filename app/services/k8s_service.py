@@ -81,8 +81,8 @@ class K8sService:
                     command=["sh", "-c"],
                     args=[
                         "mkdir -p /app && "
-                        "cd /app && rm -rf .[!.]* * && "
-                        "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${GIT_REPO_URL}\" .
+                        "cd /app && find . -mindepth 1 -maxdepth 1 -exec rm -rf {} + && "
+                        "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${GIT_REPO_URL}\" ."
                     ],
                     env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
