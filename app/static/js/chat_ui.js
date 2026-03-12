@@ -1581,17 +1581,29 @@ async function action(path, method = "POST", needsConfirm = false) {
 }
 
 async function openEditDialog(agent) {
-  // Populate the edit form using FormData
+  // Populate the edit form by setting input values directly
   const form = document.getElementById("edit-form");
-  const formData = new FormData(form);
-  formData.set("id", agent.id);
-  formData.set("name", agent.name || "");
-  formData.set("repo_url", agent.repo_url || "");
-  formData.set("branch", agent.branch || "master");
-  
+  if (form && form.elements) {
+    if (form.elements["id"]) {
+      form.elements["id"].value = agent.id ?? "";
+    }
+    if (form.elements["name"]) {
+      form.elements["name"].value = agent.name || "";
+    }
+    if (form.elements["repo_url"]) {
+      form.elements["repo_url"].value = agent.repo_url || "";
+    }
+    if (form.elements["branch"]) {
+      form.elements["branch"].value = agent.branch || "master";
+    }
+  }
+
   // Show the modal
-  document.getElementById("edit-modal").classList.remove("hidden");
-  document.getElementById("edit-modal").setAttribute("aria-hidden", "false");
+  const editModal = document.getElementById("edit-modal");
+  if (editModal) {
+    editModal.classList.remove("hidden");
+    editModal.setAttribute("aria-hidden", "false");
+  }
 }
 
 // ===== wiring =====
