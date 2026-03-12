@@ -265,7 +265,7 @@ class K8sService:
             # Add environment variables for git clone
             env = [
                 client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
-                client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or "master"),
+                client.V1EnvVar(name="GIT_BRANCH", value=branch),
             ]
             
             # Add git credentials from secret if configured
