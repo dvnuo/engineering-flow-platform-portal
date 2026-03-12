@@ -31,7 +31,7 @@
       </div>
       <label class="block text-xs">
         <span class="mb-1 block text-slate-600 dark:text-slate-400">API Key</span>
-        <input type="password" style="padding-right: 2rem" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
       </label>
       
       <!-- Authorize GitHub Copilot Button (shown only for github_copilot) -->
@@ -88,7 +88,7 @@
             <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="password" style="padding-right: 2rem" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
           </div>
         {% endfor %}
@@ -123,7 +123,7 @@
             <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="password" style="padding-right: 2rem" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
           </div>
         {% endfor %}
@@ -139,7 +139,7 @@
       </div>
       <label class="block text-xs">
         <span class="mb-1 block text-slate-600 dark:text-slate-400">API Token</span>
-        <input type="password" style="padding-right: 2rem" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
       </label>
       <label class="block text-xs">
         <span class="mb-1 block text-slate-600 dark:text-slate-400">Base URL</span>
@@ -188,7 +188,7 @@
         </label>
         <label class="block text-xs">
           <span class="mb-1 block text-slate-600 dark:text-slate-400">Password</span>
-          <input type="password" style="padding-right: 2rem" name="proxy_password" value="{{ proxy.get('password', '') }}" placeholder="Optional" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+          <input type="password" name="proxy_password" value="{{ proxy.get('password', '') }}" placeholder="Optional" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
         </label>
       </div>
     </section>
@@ -416,7 +416,10 @@
     }
     
     // Password toggle functionality
-    document.querySelectorAll('input[type="password" style="padding-right: 2rem"]').forEach(function(input) {
+    document.querySelectorAll('input[type="password"]').forEach(function(input) {
+      // Add padding-right to make room for eye icon
+      input.classList.add('pr-8');
+      
       const wrapper = document.createElement('div');
       wrapper.className = 'relative';
       input.parentNode.insertBefore(wrapper, input);
