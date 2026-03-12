@@ -76,6 +76,7 @@ def _settings_view_payload(config_data: dict) -> dict:
         "github": config_data.get("github") if isinstance(config_data.get("github"), dict) else {},
         "git": config_data.get("git") if isinstance(config_data.get("git"), dict) else {},
         "ssh": config_data.get("ssh") if isinstance(config_data.get("ssh"), dict) else {},
+        "proxy": {k: v for k, v in (config_data.get("proxy") or {}).items() if k != "password"},
         "debug": config_data.get("debug") if isinstance(config_data.get("debug"), dict) else {},
     }
 
@@ -415,6 +416,12 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         config_payload = {}
     if not isinstance(config_payload, dict):
         config_payload = {}
+    
+    # Preserve any existing proxy configuration from the payload; do not strip fields here,
+    # since this handler is processing a save request, not sending data back to the client.
+    existing_proxy_password = None
+    if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
+        existing_proxy_password = config_payload["proxy"].get("password")
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     llm["provider"] = (form.get("llm_provider") or "").strip()
@@ -490,6 +497,17 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     ssh_cfg["enabled"] = as_bool(form.get("ssh_enabled"))
     ssh_cfg["private_key_path"] = (form.get("ssh_private_key_path") or "").strip()
 
+    proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
+    proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
+    proxy_cfg["url"] = (form.get("proxy_url") or "").strip()
+    proxy_cfg["username"] = (form.get("proxy_username") or "").strip()
+    # Only update password if provided (to preserve existing password)
+    new_password = (form.get("proxy_password") or "").strip()
+    if new_password:
+        proxy_cfg["password"] = new_password
+    elif existing_proxy_password:
+        proxy_cfg["password"] = existing_proxy_password
+
     debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
     debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
 
@@ -499,6 +517,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     config_payload["github"] = github_cfg
     config_payload["git"] = git_cfg
     config_payload["ssh"] = ssh_cfg
+    config_payload["proxy"] = proxy_cfg
     config_payload["debug"] = debug_cfg
 
     db = SessionLocal()
