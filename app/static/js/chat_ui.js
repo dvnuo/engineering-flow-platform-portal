@@ -1521,23 +1521,25 @@ async function action(path, method = "POST", needsConfirm = false) {
 }
 
 async function openEditDialog(agent) {
-  // Debug: show what's in agent
-  alert("agent.repo_url=" + agent.repo_url + ", agent.branch=" + agent.branch);
+  console.log("openEditDialog called, agent:", agent);
   
-  // Simple prompt-based editing for name, repo_url, branch
   const name = prompt("Agent name", agent.name);
-  if (name === null) return;
+  if (name === null) { console.log("name prompt cancelled"); return; }
   
-  const repoUrl = prompt("GitHub Repository (leave empty to clear)", agent.repo_url || "");
-  if (repoUrl === null) return;
+  const repoUrl = prompt("GitHub Repository", agent.repo_url || "");
+  console.log("repoUrl:", repoUrl);
+  if (repoUrl === null) { console.log("repoUrl prompt cancelled"); return; }
   
   const branch = prompt("Branch", agent.branch || "master");
-  if (branch === null) return;
+  console.log("branch:", branch);
+  if (branch === null) { console.log("branch prompt cancelled"); return; }
 
   const updates = { name: name.trim() };
-  if (repoUrl !== undefined) updates.repo_url = repoUrl.trim() || null;
-  if (branch !== undefined) updates.branch = branch.trim() || "master";
+  if (repoUrl.trim()) updates.repo_url = repoUrl.trim();
+  if (branch.trim()) updates.branch = branch.trim();
 
+  console.log("Sending updates:", updates);
+  
   await api(`/api/agents/${agent.id}`, {
     method: "PATCH",
     body: JSON.stringify(updates),
