@@ -154,5 +154,32 @@
   </div>
 </div>
 
+<div id="edit-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-card panel">
+    <div class="modal-head">
+      <h3>Edit Agent</h3>
+      <button id="close-edit-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+    </div>
+
+    <form id="edit-form" class="stack">
+      <input type="hidden" name="id" />
+      <div>
+        <label>Agent Name</label>
+        <input name="name" placeholder="MyAgent" required />
+      </div>
+      <div>
+        <label>GitHub Repository</label>
+        <input name="repo_url" placeholder="https://github.com/user/repo (leave empty to clear)" />
+      </div>
+      <div>
+        <label>Branch</label>
+        <input name="branch" placeholder="master" />
+      </div>
+      <button type="submit">Save Changes</button>
+      <p id="edit-msg" class="muted tiny"></p>
+    </form>
+  </div>
+</div>
+
 <script src="/static/js/chat_ui.js"></script>
 {% endblock %}

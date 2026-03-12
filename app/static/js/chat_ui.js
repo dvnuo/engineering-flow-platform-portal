@@ -1521,31 +1521,59 @@ async function action(path, method = "POST", needsConfirm = false) {
 }
 
 async function openEditDialog(agent) {
-  console.log("openEditDialog called, agent:", agent);
+  // Populate the edit form
+  const form = document.getElementById("edit-form");
+  form.id.value = agent.id;
+  form.name.value = agent.name || "";
+  form.repo_url.value = agent.repo_url || "";
+  form.branch.value = agent.branch || "master";
   
-  const name = prompt("Agent name", agent.name);
-  if (name === null) { console.log("name prompt cancelled"); return; }
-  
-  const repoUrl = prompt("GitHub Repository", agent.repo_url || "");
-  console.log("repoUrl:", repoUrl);
-  if (repoUrl === null) { console.log("repoUrl prompt cancelled"); return; }
-  
-  const branch = prompt("Branch", agent.branch || "master");
-  console.log("branch:", branch);
-  if (branch === null) { console.log("branch prompt cancelled"); return; }
-
-  const updates = { name: name.trim() };
-  if (repoUrl.trim()) updates.repo_url = repoUrl.trim();
-  if (branch.trim()) updates.branch = branch.trim();
-
-  console.log("Sending updates:", updates);
-  
-  await api(`/api/agents/${agent.id}`, {
-    method: "PATCH",
-    body: JSON.stringify(updates),
-  });
-  await refreshAll();
+  // Show the modal
+  document.getElementById("edit-modal").classList.remove("hidden");
+  document.getElementById("edit-modal").setAttribute("aria-hidden", "false");
 }
+
+// Handle edit form submission
+document.getElementById("edit-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const formData = new FormData(form);
+  const id = formData.get("id");
+  
+  const updates = { name: formData.get("name")?.trim() };
+  const repoUrl = formData.get("repo_url")?.trim();
+  const branch = formData.get("branch")?.trim();
+  
+  if (repoUrl) updates.repo_url = repoUrl;
+  if (branch) updates.branch = branch;
+  
+  const msgEl = document.getElementById("edit-msg");
+  msgEl.textContent = "Saving...";
+  msgEl.className = "muted tiny";
+  
+  try {
+    await api(`/api/agents/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+    msgEl.textContent = "Saved!";
+    msgEl.className = "text-green-400 tiny";
+    setTimeout(() => {
+      document.getElementById("edit-modal").classList.add("hidden");
+      document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
+      refreshAll();
+    }, 800);
+  } catch (err) {
+    msgEl.textContent = err.message || "Error saving";
+    msgEl.className = "text-red-400 tiny";
+  }
+});
+
+// Close edit modal
+document.getElementById("close-edit-modal")?.addEventListener("click", () => {
+  document.getElementById("edit-modal").classList.add("hidden");
+  document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
+});
 
 // ===== wiring =====
 function bindEvents() {
