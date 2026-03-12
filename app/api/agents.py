@@ -26,6 +26,7 @@ def get_agent_defaults(user=Depends(get_current_user)):
     """Get default configuration for agent creation."""
     return {
         "image_repo": settings.default_agent_image_repo,
+        "image_tag": settings.default_agent_image_tag,
         "disk_size_gi": settings.default_agent_disk_size_gi,
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,

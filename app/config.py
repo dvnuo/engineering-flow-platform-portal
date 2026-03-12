@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     # Default agent config (image repo without tag)
     default_agent_image_repo: str = "your-registry/agent"
+    default_agent_image_tag: str = "latest"
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"
