@@ -1521,6 +1521,9 @@ async function action(path, method = "POST", needsConfirm = false) {
 }
 
 async function openEditDialog(agent) {
+  // Debug: show what's in agent
+  alert("agent.repo_url=" + agent.repo_url + ", agent.branch=" + agent.branch);
+  
   // Simple prompt-based editing for name, repo_url, branch
   const name = prompt("Agent name", agent.name);
   if (name === null) return;
