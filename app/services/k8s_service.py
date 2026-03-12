@@ -122,9 +122,8 @@ class K8sService:
                 namespace=agent.namespace,
                 body=patch,
             )
-        except Exception as exc:
-            if not self._is_already_exists(exc):
-                raise
+        except Exception:
+            raise
 
     def start_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
