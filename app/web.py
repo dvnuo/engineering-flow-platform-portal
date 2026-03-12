@@ -417,14 +417,11 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     if not isinstance(config_payload, dict):
         config_payload = {}
     
-    # Save existing proxy password before filtering
+    # Preserve any existing proxy configuration from the payload; do not strip fields here,
+    # since this handler is processing a save request, not sending data back to the client.
     existing_proxy_password = None
     if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
         existing_proxy_password = config_payload["proxy"].get("password")
-    
-    # Remove sensitive fields from config before sending to client
-    if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
-        config_payload["proxy"] = {k: v for k, v in config_payload["proxy"].items() if k != "password"}
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     llm["provider"] = (form.get("llm_provider") or "").strip()
