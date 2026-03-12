@@ -203,10 +203,10 @@ async def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: 
                 data["repo_url"] = agent.repo_url
             return data
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        import logging
+        logging.getLogger(__name__).exception("Failed to get git-info")
         # Fallback: return repo_url from agent config
-        return {"commit_id": None, "repo_url": agent.repo_url, "status": str(e)}
+        return {"commit_id": None, "repo_url": agent.repo_url, "status": "error"}
     
     # Fallback to agent config
     return {"commit_id": None, "repo_url": agent.repo_url, "status": "error"}

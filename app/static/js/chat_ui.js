@@ -515,7 +515,14 @@ async function fetchGitInfo(agentId) {
   try {
     const data = await api(`/api/agents/${agentId}/git-info`);
     if (data.commit_id) {
-      commitEl.innerHTML = `Commit: <a href="${data.repo_url}/commit/${data.commit_id}" target="_blank" class="text-blue-500 hover:underline font-mono">${data.commit_id.substring(0, 7)}</a>`;
+      const shortCommit = data.commit_id.substring(0, 7);
+      const commitLink = document.createElement('a');
+      commitLink.href = `${data.repo_url}/commit/${data.commit_id}`;
+      commitLink.target = '_blank';
+      commitLink.className = 'text-blue-500 hover:underline font-mono';
+      commitLink.textContent = shortCommit;
+      commitEl.textContent = 'Commit: ';
+      commitEl.appendChild(commitLink);
     } else if (data.status === 'running') {
       commitEl.textContent = "Commit: Not available";
     } else {
@@ -523,6 +530,7 @@ async function fetchGitInfo(agentId) {
     }
   } catch (e) {
     commitEl.textContent = "Failed to load commit";
+  }
   }
 }
 
@@ -1546,12 +1554,13 @@ async function action(path, method = "POST", needsConfirm = false) {
 }
 
 async function openEditDialog(agent) {
-  // Populate the edit form
+  // Populate the edit form using FormData
   const form = document.getElementById("edit-form");
-  form.id.value = agent.id;
-  form.name.value = agent.name || "";
-  form.repo_url.value = agent.repo_url || "";
-  form.branch.value = agent.branch || "master";
+  const formData = new FormData(form);
+  formData.set("id", agent.id);
+  formData.set("name", agent.name || "");
+  formData.set("repo_url", agent.repo_url || "");
+  formData.set("branch", agent.branch || "master");
   
   // Show the modal
   document.getElementById("edit-modal").classList.remove("hidden");
