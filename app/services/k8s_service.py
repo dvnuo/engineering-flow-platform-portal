@@ -208,7 +208,7 @@ class K8sService:
                 labels={"app": "agent", "agent-id": agent.id, "managed-by": "portal"},
             ),
             spec=client.V1PersistentVolumeClaimSpec(
-                access_modes=["ReadWriteOnce"],
+                access_modes=self.settings.k8s_pvc_access_modes,
                 storage_class_name=self.settings.k8s_storage_class,
                 resources=client.V1VolumeResourceRequirements(requests={"storage": f"{agent.disk_size_gi}Gi"}),
             ),
