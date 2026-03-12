@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     k8s_shared_pvc_access_modes: list = ["ReadWriteOnce"]
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = None
-    k8s_agent_service_type: str = "NodePort"
+    k8s_agent_service_type: str = "ClusterIP"
 
     # Default agent config (image repo without tag)
     default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"
