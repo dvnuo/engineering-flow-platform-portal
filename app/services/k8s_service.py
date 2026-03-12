@@ -160,11 +160,12 @@ class K8sService:
         init_containers = []
         if agent.repo_url:
             branch = agent.branch or "main"
+            git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
             # Clone git repo to agent data directory
             init_containers.append(
                 client.V1Container(
                     name="git-clone",
-                    image="alpine/git:latest",
+                    image=git_image,
                     command=["sh", "-c"],
                     args=[
                         f"cd {agent.mount_path}/workspace && "

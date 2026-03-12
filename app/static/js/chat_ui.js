@@ -1717,8 +1717,8 @@ function bindEvents() {
     const form = e.target;
     const formData = new FormData(form);
     const name = formData.get("name");
-    const repoUrl = formData.get("repo_url") || "";
-    const branch = formData.get("branch") || "main";
+    const repoUrl = formData.get("repo_url");
+    const branch = formData.get("branch");
     
     const msgEl = document.getElementById("create-msg");
     
@@ -1734,11 +1734,12 @@ function bindEvents() {
         throw new Error("Invalid defaults configuration");
       }
       
+      // Use form values if provided, otherwise defaults
       const data = {
         name: name,
-        image: defaults.image_repo,
-        repo_url: repoUrl,
-        branch: branch,
+        image: defaults.image_repo + ":" + (defaults.image_tag || "latest"),
+        repo_url: repoUrl || defaults.default_repo_url || "",
+        branch: branch || defaults.default_branch || "main",
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,

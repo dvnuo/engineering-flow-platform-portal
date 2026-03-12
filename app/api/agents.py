@@ -27,6 +27,9 @@ def get_agent_defaults(user=Depends(get_current_user)):
     return {
         "image_repo": settings.default_agent_image_repo,
         "image_tag": settings.default_agent_image_tag,
+        "git_image": settings.default_agent_git_image,
+        "default_repo_url": settings.default_agent_repo_url,
+        "default_branch": settings.default_agent_branch,
         "disk_size_gi": settings.default_agent_disk_size_gi,
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,

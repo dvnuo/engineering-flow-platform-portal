@@ -25,8 +25,11 @@ class Settings(BaseSettings):
     k8s_agent_service_type: str = "ClusterIP"
 
     # Default agent config (image repo without tag)
-    default_agent_image_repo: str = "your-registry/agent"
+    default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"
     default_agent_image_tag: str = "latest"
+    default_agent_git_image: str = "alpine/git:latest"
+    default_agent_repo_url: str = "https://github.com/dvnuo/engineering-flow-platform"
+    default_agent_branch: str = "master"
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"
