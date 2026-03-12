@@ -202,14 +202,27 @@ async def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: 
             if not data.get("repo_url") and agent.repo_url:
                 data["repo_url"] = agent.repo_url
             return data
+        else:
+            # Non-200 from agent git-info endpoint: treat as upstream failure
+            import logging
+            logging.getLogger(__name__).error(
+                "Agent git-info endpoint returned non-200 status %s for agent %s",
+                status_code, agent.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to fetch git info from agent",
+            )
+    except HTTPException:
+        # Propagate HTTP exceptions (e.g. 502) unchanged
+        raise
     except Exception as e:
         import logging
         logging.getLogger(__name__).exception("Failed to get git-info")
-        # Fallback: return repo_url from agent config
-        return {"commit_id": None, "repo_url": agent.repo_url, "status": "error"}
-    
-    # Fallback to agent config
-    return {"commit_id": None, "repo_url": agent.repo_url, "status": "error"}
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch git info from agent",
+        )
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)
