@@ -14,6 +14,7 @@ from app.schemas.agent import (
     AgentUpdateRequest,
 )
 from app.services.k8s_service import K8sService
+from app.services.proxy_service import ProxyService
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
 
@@ -38,6 +39,7 @@ def get_agent_defaults(user=Depends(get_current_user)):
 
 
 k8s_service = K8sService()
+proxy_service = ProxyService()
 
 
 def _can_read(agent, user) -> bool:
