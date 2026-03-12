@@ -632,6 +632,7 @@ function renderAgentActions(agent, status) {
     { label: "Restart", icon: "rotate-cw", classes: "border-blue-500 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
     { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-indigo-500 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
     { label: "Edit", icon: "pencil", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: "Delete", icon: "trash-2", classes: "border-red-500 bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
     { label: "Destroy", icon: "flame", classes: "border-rose-600 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
   ];
 
