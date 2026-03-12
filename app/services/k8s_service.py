@@ -52,10 +52,79 @@ class K8sService:
             return RuntimeStatus(status="running")
         
         try:
-            self._ensure_deployment(agent)
+            self._patch_deployment(agent)
             return RuntimeStatus(status="running")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
+
+    def _patch_deployment(self, agent) -> None:
+        """Patch existing deployment with new config."""
+        from kubernetes import client
+        
+        # Build env vars for git clone
+        env = []
+        if agent.repo_url:
+            env.extend([
+                client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
+                client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or "master"),
+            ])
+        
+        # Build the init container spec
+        init_containers = []
+        code_sub_path = f"efp-agents/{agent.id}/code"
+        
+        if agent.repo_url:
+            init_containers.append(
+                client.V1Container(
+                    name="git-clone",
+                    image=getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest",
+                    command=["sh", "-c"],
+                    args=[
+                        "mkdir -p /app && "
+                        "cd /app && rm -rf .[!.]* * && "
+                        "git clone --depth 1 --branch ${GIT_BRANCH} ${GIT_REPO_URL} ."
+                    ],
+                    env=env,
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
+                )
+            )
+        
+        # Build volume mounts
+        volume_mounts = []
+        if agent.repo_url:
+            volume_mounts.append(
+                client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)
+            )
+        volume_mounts.append(
+            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=f"efp-agents/{agent.id}/data")
+        )
+        
+        # Patch the deployment
+        patch = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "initContainers": init_containers,
+                        "containers": [{
+                            "name": "agent",
+                            "image": agent.image,
+                            "ports": [{"containerPort": 8000}],
+                            "volumeMounts": volume_mounts,
+                        }],
+                    }
+                }
+            }
+        }
+        
+        try:
+            self.apps_api.patch_namespaced_deployment(
+                name=agent.deployment_name,
+                namespace=agent.namespace,
+                body=patch,
+            )
+        except Exception as exc:
+            if not self._is_already_exists(exc):
+                raise
 
     def start_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
@@ -165,16 +234,23 @@ class K8sService:
             git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
             code_sub_path = f"efp-agents/{agent.id}/code"
             # Clone git repo to /app (will be mounted)
+            # Add environment variables for git clone
+            env = [
+                client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
+                client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or "master"),
+            ]
+            
             init_containers.append(
                 client.V1Container(
                     name="git-clone",
                     image=git_image,
                     command=["sh", "-c"],
                     args=[
-                        f"mkdir -p /app && "
-                        f"cd /app && rm -rf .[!.]* * && "
-                        f"git clone --depth 1 --branch {branch} {agent.repo_url} ."
+                        "mkdir -p /app && "
+                        "cd /app && rm -rf .[!.]* * && "
+                        "git clone --depth 1 --branch ${GIT_BRANCH} ${GIT_REPO_URL} ."
                     ],
+                    env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
                 )
             )
