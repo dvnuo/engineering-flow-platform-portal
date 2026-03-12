@@ -76,6 +76,7 @@ def _settings_view_payload(config_data: dict) -> dict:
         "github": config_data.get("github") if isinstance(config_data.get("github"), dict) else {},
         "git": config_data.get("git") if isinstance(config_data.get("git"), dict) else {},
         "ssh": config_data.get("ssh") if isinstance(config_data.get("ssh"), dict) else {},
+        "proxy": config_data.get("proxy") if isinstance(config_data.get("proxy"), dict) else {},
         "debug": config_data.get("debug") if isinstance(config_data.get("debug"), dict) else {},
     }
 
@@ -490,6 +491,12 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     ssh_cfg["enabled"] = as_bool(form.get("ssh_enabled"))
     ssh_cfg["private_key_path"] = (form.get("ssh_private_key_path") or "").strip()
 
+    proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
+    proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
+    proxy_cfg["url"] = (form.get("proxy_url") or "").strip()
+    proxy_cfg["username"] = (form.get("proxy_username") or "").strip()
+    proxy_cfg["password"] = (form.get("proxy_password") or "").strip()
+
     debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
     debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
 
@@ -499,6 +506,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     config_payload["github"] = github_cfg
     config_payload["git"] = git_cfg
     config_payload["ssh"] = ssh_cfg
+    config_payload["proxy"] = proxy_cfg
     config_payload["debug"] = debug_cfg
 
     db = SessionLocal()

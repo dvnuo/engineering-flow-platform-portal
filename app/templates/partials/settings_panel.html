@@ -165,6 +165,34 @@
       </div>
     </section>
 
+    <!-- Proxy Section -->
+    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
+          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Proxy</h6>
+        </div>
+        <label class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+          <input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} class="rounded border-slate-300 dark:border-slate-600 text-blue-600 dark:bg-slate-700" />
+          <span>Enabled</span>
+        </label>
+      </div>
+      <label class="block text-xs">
+        <span class="mb-1 block text-slate-600 dark:text-slate-400">Proxy URL</span>
+        <input type="text" name="proxy_url" value="{{ proxy.get('url', '') }}" placeholder="http://proxy.example.com:8080" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+      </label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-xs">
+          <span class="mb-1 block text-slate-600 dark:text-slate-400">Username</span>
+          <input type="text" name="proxy_username" value="{{ proxy.get('username', '') }}" placeholder="Optional" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </label>
+        <label class="block text-xs">
+          <span class="mb-1 block text-slate-600 dark:text-slate-400">Password</span>
+          <input type="password" name="proxy_password" value="{{ proxy.get('password', '') }}" placeholder="Optional" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </label>
+      </div>
+    </section>
+
     <!-- SSH Section -->
     <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
       <div class="flex items-center gap-2">
