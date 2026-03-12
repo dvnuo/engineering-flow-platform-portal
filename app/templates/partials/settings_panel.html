@@ -450,10 +450,15 @@
     // Initialize existing password toggles
     initPasswordToggles();
     
-    // Re-initialize after htmx swaps (only once)
+    // Re-initialize after htmx swaps (only once, scoped to settings panel)
     if (!window.__passwordToggleBound) {
       window.__passwordToggleBound = true;
-      document.body.addEventListener('htmx:afterSwap', initPasswordToggles);
+      document.body.addEventListener('htmx:afterSwap', function(event) {
+        const settingsPanel = document.getElementById('settings-panel-root');
+        if (settingsPanel && settingsPanel.contains(event.target)) {
+          initPasswordToggles();
+        }
+      });
     }
     
     initSettings();

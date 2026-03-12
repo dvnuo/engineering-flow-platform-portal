@@ -417,6 +417,11 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     if not isinstance(config_payload, dict):
         config_payload = {}
     
+    # Save existing proxy password before filtering
+    existing_proxy_password = None
+    if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
+        existing_proxy_password = config_payload["proxy"].get("password")
+    
     # Remove sensitive fields from config before sending to client
     if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
         config_payload["proxy"] = {k: v for k, v in config_payload["proxy"].items() if k != "password"}
@@ -503,6 +508,8 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     new_password = (form.get("proxy_password") or "").strip()
     if new_password:
         proxy_cfg["password"] = new_password
+    elif existing_proxy_password:
+        proxy_cfg["password"] = existing_proxy_password
 
     debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
     debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
