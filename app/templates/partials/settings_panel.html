@@ -415,8 +415,8 @@
       }
     }
     
-    // Password toggle functionality
-    function initPasswordToggles() {
+    // Password toggle functionality - expose globally for dynamic content
+    window.initPasswordToggles = function() {
       document.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach(function(input) {
         input.classList.add('pr-8', 'password-toggle-initialized');
         
@@ -450,8 +450,11 @@
     // Initialize existing password toggles
     initPasswordToggles();
     
-    // Re-initialize after htmx swaps
-    document.body.addEventListener('htmx:afterSwap', initPasswordToggles);
+    // Re-initialize after htmx swaps (only once)
+    if (!window.__passwordToggleBound) {
+      window.__passwordToggleBound = true;
+      document.body.addEventListener('htmx:afterSwap', initPasswordToggles);
+    }
     
     initSettings();
   })();

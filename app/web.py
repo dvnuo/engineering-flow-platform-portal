@@ -416,6 +416,10 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         config_payload = {}
     if not isinstance(config_payload, dict):
         config_payload = {}
+    
+    # Remove sensitive fields from config before sending to client
+    if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
+        config_payload["proxy"] = {k: v for k, v in config_payload["proxy"].items() if k != "password"}
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     llm["provider"] = (form.get("llm_provider") or "").strip()

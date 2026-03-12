@@ -1401,6 +1401,11 @@ function addInstanceRow(group) {
   `;
   container.append(div);
   normalizeInstanceInputs(group);
+  
+  // Initialize password toggles for newly added inputs
+  if (window.initPasswordToggles) {
+    window.initPasswordToggles();
+  }
 }
 
 function initializeSettingsPanel() {
