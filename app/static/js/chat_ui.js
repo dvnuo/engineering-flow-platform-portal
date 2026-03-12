@@ -458,6 +458,7 @@ function renderAgentMeta(agent) {
         <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Repository</div>
         <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.repo_url)}</div>
         <div class="text-xs text-slate-500 mt-1">Branch: <span class="text-slate-700 dark:text-slate-300">${safe(branch)}</span></div>
+        <div id="agent-git-commit" class="text-xs text-slate-400 mt-1">Loading commit...</div>
       </div>
     `;
   }
@@ -500,6 +501,29 @@ function renderAgentMeta(agent) {
 
   // Fetch usage data
   fetchUsageForAgent(agent.id);
+  
+  // Fetch git info if repo is configured
+  if (agent.repo_url) {
+    fetchGitInfo(agent.id);
+  }
+}
+
+async function fetchGitInfo(agentId) {
+  const commitEl = document.getElementById("agent-git-commit");
+  if (!commitEl) return;
+  
+  try {
+    const data = await api(`/api/agents/${agentId}/git-info`);
+    if (data.commit_id) {
+      commitEl.innerHTML = `Commit: <a href="${data.repo_url}/commit/${data.commit_id}" target="_blank" class="text-blue-500 hover:underline font-mono">${data.commit_id.substring(0, 7)}</a>`;
+    } else if (data.status === 'running') {
+      commitEl.textContent = "Commit: Not available";
+    } else {
+      commitEl.textContent = "Agent not running";
+    }
+  } catch (e) {
+    commitEl.textContent = "Failed to load commit";
+  }
 }
 
 async function fetchUsageForAgent(agentId) {

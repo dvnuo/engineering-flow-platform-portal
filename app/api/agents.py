@@ -171,6 +171,37 @@ def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depen
     return AgentResponse.model_validate(agent)
 
 
+@router.get("/{agent_id}/git-info")
+def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Get git commit info from running agent."""
+    agent = AgentRepository(db).get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not _can_read(agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    
+    if agent.status != "running":
+        return {"commit_id": None, "repo_url": None, "status": agent.status}
+    
+    # Try to get git info from agent
+    try:
+        status_code, content, _ = proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/git-info",
+            query_items=[],
+            body=None,
+            headers={},
+        )
+        if status_code == 200:
+            import json
+            return json.loads(content.decode("utf-8"))
+    except Exception:
+        pass
+    
+    return {"commit_id": None, "repo_url": None, "status": "error"}
+
+
 @router.post("/{agent_id}/start", response_model=AgentResponse)
 def start_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, agent = _load_writable_agent(agent_id, user, db)
