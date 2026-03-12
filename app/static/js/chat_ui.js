@@ -1703,7 +1703,8 @@ function bindEvents() {
     const form = e.target;
     const formData = new FormData(form);
     const name = formData.get("name");
-    const version = formData.get("version") || "latest";
+    const repoUrl = formData.get("repo_url") || "";
+    const branch = formData.get("branch") || "main";
     
     const msgEl = document.getElementById("create-msg");
     
@@ -1721,7 +1722,9 @@ function bindEvents() {
       
       const data = {
         name: name,
-        image: `${defaults.image_repo}:${version}`,
+        image: defaults.image_repo,
+        repo_url: repoUrl,
+        branch: branch,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,

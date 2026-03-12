@@ -46,6 +46,17 @@ class K8sService:
         except Exception as exc:
             return RuntimeStatus(status="failed", message=str(exc))
 
+    def update_agent_runtime(self, agent) -> RuntimeStatus:
+        """Update agent runtime (deployment) with new config."""
+        if not self.enabled:
+            return RuntimeStatus(status="running")
+        
+        try:
+            self._ensure_deployment(agent)
+            return RuntimeStatus(status="running")
+        except Exception as exc:
+            return RuntimeStatus(status="failed", message=str(exc))
+
     def start_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="running")
@@ -144,6 +155,26 @@ class K8sService:
         from kubernetes import client
 
         labels = {"app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id)}
+        
+        # Build init container if repo_url is provided
+        init_containers = []
+        if agent.repo_url:
+            branch = agent.branch or "main"
+            # Clone git repo to agent data directory
+            init_containers.append(
+                client.V1Container(
+                    name="git-clone",
+                    image="alpine/git:latest",
+                    command=["sh", "-c"],
+                    args=[
+                        f"cd {agent.mount_path}/workspace && "
+                        f"git clone --depth 1 --branch {branch} {agent.repo_url} . || "
+                        f"(git fetch --all && git checkout {branch})"
+                    ],
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path="efp-agents/" + agent.id)],
+                )
+            )
+        
         body = client.V1Deployment(
             metadata=client.V1ObjectMeta(name=agent.deployment_name, namespace=agent.namespace, labels=labels),
             spec=client.V1DeploymentSpec(
@@ -152,6 +183,7 @@ class K8sService:
                 template=client.V1PodTemplateSpec(
                     metadata=client.V1ObjectMeta(labels=labels),
                     spec=client.V1PodSpec(
+                        init_containers=init_containers,
                         containers=[
                             client.V1Container(
                                 name="agent",

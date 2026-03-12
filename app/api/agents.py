@@ -140,6 +140,11 @@ def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(get_cu
         setattr(agent, field, value)
 
     repo.save(agent)
+    
+    # Update K8s runtime if repo_url or branch changed
+    if "repo_url" in changes or "branch" in changes:
+        k8s_service.update_agent_runtime(agent)
+
     AuditRepository(db).create(
         action="update_agent",
         target_type="agent",
