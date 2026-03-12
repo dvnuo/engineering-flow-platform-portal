@@ -531,7 +531,6 @@ async function fetchGitInfo(agentId) {
   } catch (e) {
     commitEl.textContent = "Failed to load commit";
   }
-  }
 }
 
 async function fetchUsageForAgent(agentId) {
