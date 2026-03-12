@@ -273,13 +273,13 @@ def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = D
         agent.status = runtime.status
         agent.last_error = runtime.message
         repo.save(agent)
-        
-        if not can_transition(agent.status, "running"):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Cannot start agent from status '{agent.status}'",
-            )
-    
+
+    # Always enforce state-machine guard before starting
+    if not can_transition(agent.status, "running"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot start agent from status '{agent.status}'",
+        )
     runtime = k8s_service.start_agent(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
