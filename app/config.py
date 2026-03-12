@@ -15,11 +15,11 @@ class Settings(BaseSettings):
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = Field(default="", validation_alias="BOOTSTRAP_ADMIN_PASSWORD")
 
-    agents_namespace: str = "agents"
+    agents_namespace: str = "efp-agents"
     k8s_enabled: bool = False
-    k8s_storage_class: str = "local-path"
+    k8s_storage_class: str = "efp-agents-storage"
     k8s_shared_pvc_size: str = "100Gi"
-    k8s_shared_pvc_access_modes: list = ["ReadWriteOnce"]
+    k8s_shared_pvc_access_modes: list = ["ReadWriteMany"]
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = None
     k8s_agent_service_type: str = "ClusterIP"

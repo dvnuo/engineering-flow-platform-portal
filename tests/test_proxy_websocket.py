@@ -71,7 +71,7 @@ def test_ws_proxy_events_passthrough(monkeypatch):
             deployment_name="d",
             service_name="svc",
             pvc_name="pvc",
-            namespace="agents",
+            namespace="efp-agents",
             disk_size_gi=20,
             mount_path="/data",
         )
