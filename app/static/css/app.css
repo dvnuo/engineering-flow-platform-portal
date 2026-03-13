@@ -534,33 +534,12 @@ html[data-theme="light"] #tool-panel .bg-slate-800\/50 {
 }
 
 /* Composer + Menu */
-#composer-menu {
-  background: #1e293b;
-  border-color: #334155;
-}
-
-html[data-theme="light"] #composer-menu {
-  background: #ffffff;
-  border-color: #e5e7eb;
-}
-
-.composer-menu-item {
-  color: #e2e8f0;
-}
-
-html[data-theme="light"] .composer-menu-item {
-  color: #111827;
-}
-
-html[data-theme="light"] .composer-menu-item:hover {
   background: #f3f4f6;
 }
 
-#composer-plus-btn {
   border-color: #334155;
 }
 
-html[data-theme="light"] #composer-plus-btn {
   background: #ffffff;
   border-color: #d1d5db;
 }
@@ -570,7 +549,6 @@ html[data-theme="light"] #composer-plus-btn {
   align-items: flex-end;
 }
 
-#chat-form #composer-plus-btn,
 #chat-form #send-chat-btn {
   flex-shrink: 0;
 }
@@ -588,7 +566,6 @@ html[data-theme="light"] #composer-plus-btn {
   align-items: flex-end;
 }
 
-#composer-plus-btn {
   align-self: flex-end;
   height: 40px;
   width: 40px;
