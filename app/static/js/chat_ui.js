@@ -632,6 +632,8 @@ function renderAgentActions(agent, status) {
     { label: "Restart", icon: "rotate-cw", classes: "border-blue-500 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
     { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-indigo-500 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
     { label: "Edit", icon: "pencil", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: "Copy", icon: "copy", classes: "border-cyan-500 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => copyAgentConfig(agent.id) },
+    { label: "Paste", icon: "clipboard", classes: "border-purple-500 bg-purple-500 hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => pasteAgentConfig(agent.id) },
     { label: "Delete", icon: "trash-2", classes: "border-red-500 bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
     { label: "Destroy", icon: "flame", classes: "border-rose-600 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
   ];
@@ -1613,6 +1615,49 @@ async function openEditDialog(agent) {
   if (editModal) {
     editModal.classList.remove("hidden");
     editModal.setAttribute("aria-hidden", "false");
+  }
+}
+
+// Copy agent config to clipboard
+async function copyAgentConfig(agentId) {
+  try {
+    // Fetch config from agent
+    const resp = await fetch(`/a/${agentId}/api/config`);
+    if (!resp.ok) throw new Error('Failed to fetch config');
+    const data = await resp.json();
+    
+    // Copy to clipboard
+    await navigator.clipboard.writeText(JSON.stringify(data.config, null, 2));
+    alert('Configuration copied to clipboard!');
+  } catch (e) {
+    console.error('Failed to copy config:', e);
+    alert('Failed to copy configuration: ' + e.message);
+  }
+}
+
+// Paste agent config from clipboard
+async function pasteAgentConfig(agentId) {
+  try {
+    // Read from clipboard
+    const text = await navigator.clipboard.readText();
+    const config = JSON.parse(text);
+    
+    // Save to agent via proxy
+    const resp = await fetch(`/a/${agentId}/api/config/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || 'Failed to save config');
+    }
+    
+    alert('Configuration applied successfully!');
+  } catch (e) {
+    console.error('Failed to paste config:', e);
+    alert('Failed to apply configuration: ' + e.message);
   }
 }
 
