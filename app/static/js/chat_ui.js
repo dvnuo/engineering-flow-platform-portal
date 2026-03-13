@@ -2076,7 +2076,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   document.getElementById('quick-new-chat-btn')?.addEventListener('click', () => {
     if (state.selectedAgentId) {
-      startNewChat(state.selectedAgentId);
+      startNewChatForSelectedAgent();
     }
   });
   
