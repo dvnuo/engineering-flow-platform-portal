@@ -1676,6 +1676,11 @@ function setupPasteModal() {
   if (!modal) return;
   
   function closePasteModal() {
+    const successMsg = document.getElementById('paste-success-msg');
+    if (successMsg) {
+      successMsg.classList.add('hidden');
+      successMsg.textContent = '';
+    }
     modal.classList.add('hidden');
     modal.setAttribute('aria-hidden', 'true');
     pasteModalAgentId = null;
