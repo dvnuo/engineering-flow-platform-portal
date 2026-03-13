@@ -1657,15 +1657,9 @@ async function pasteAgentConfig(agentId) {
     if (navigator.clipboard && window.isSecureContext) {
       text = await navigator.clipboard.readText();
     } else {
-      // Fallback for non-secure context
-      const textarea = document.createElement('textarea');
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('paste');
-      text = textarea.value;
-      document.body.removeChild(textarea);
+      // Fallback: use prompt
+      text = prompt('Paste your configuration JSON here:');
+      if (!text) throw new Error('No config provided');
     }
     
     const config = JSON.parse(text);
