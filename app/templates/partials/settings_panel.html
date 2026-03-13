@@ -310,7 +310,8 @@
       
       try {
         if (!state.selectedAgentId) {
-          alert('Please select an agent first');
+          if (typeof showToast === 'function') showToast('Please select an agent first');
+          else alert('Please select an agent first');
           return;
         }
         // Capture agentId to avoid drift during polling
@@ -320,7 +321,8 @@
         const data = await response.json();
 
         if (data.error) {
-          alert('Failed to start authorization: ' + data.error);
+          if (typeof showToast === 'function') showToast('Failed: ' + data.error);
+          else alert('Failed to start authorization: ' + data.error);
           return;
         }
 
@@ -399,7 +401,8 @@
         }, (data.interval || 5) * 1000);
 
       } catch (e) {
-        alert('Failed to start authorization: ' + e);
+        if (typeof showToast === 'function') showToast('Failed: ' + e);
+        else alert('Failed to start authorization: ' + e);
       }
     }
 

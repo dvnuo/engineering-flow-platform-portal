@@ -1645,7 +1645,7 @@ async function copyAgentConfig(agentId) {
     showToast('Configuration copied to clipboard!');
   } catch (e) {
     console.error('Failed to copy config:', e);
-    alert('Failed to copy configuration: ' + e.message);
+    showToast('Failed to copy: ' + e.message);
   }
 }
 
@@ -1657,7 +1657,7 @@ async function pasteAgentConfig(agentId) {
   const modal = document.getElementById('paste-modal');
   const textarea = document.getElementById('paste-config-text');
   if (!modal || !textarea) {
-    alert('Paste modal not available');
+    showToast('Paste modal not available');
     return;
   }
   textarea.value = '';
@@ -1701,7 +1701,7 @@ function setupPasteModal() {
       
       const text = textarea.value.trim();
       if (!text) {
-        alert('Please paste configuration JSON');
+        showToast('Please paste configuration JSON');
         return;
       }
       
@@ -1723,7 +1723,7 @@ function setupPasteModal() {
         showToast('Configuration applied successfully!');
         setTimeout(closePasteModal, 1500);
       } catch (e) {
-        alert('Failed to apply configuration: ' + e.message);
+        showToast('Failed to apply: ' + e.message);
       }
     });
   }
