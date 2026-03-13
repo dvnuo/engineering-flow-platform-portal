@@ -47,14 +47,14 @@
         </div>
         <div id="copilot_instructions" class="hidden space-y-2">
           <p class="text-xs text-slate-500">Step 1: Click the link below to authorize</p>
-          <a id="copilot_verify_link" href="#" target="_blank" class="text-xs text-blue-500 hover:underline break-all"></a>
+          <a id="copilot_verify_link" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-500 hover:underline break-all"></a>
           <p class="text-xs text-slate-500 mt-2">Step 2: Copy this code</p>
           <div class="flex items-center gap-2">
             <span id="copilot_user_code" class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200"></span>
             <button type="button" id="copilot_copy_btn" class="text-xs text-blue-500 hover:underline">Copy</button>
           </div>
           <p class="text-xs text-slate-500 mt-2">Step 3: Click to complete authorization</p>
-          <a id="copilot_device_link" href="#" target="_blank" class="text-xs text-blue-500 hover:underline break-all">Complete Authorization →</a>
+          <a id="copilot_device_link" href="#" target="_blank" rel="noopener noreferrer" class="hidden text-xs text-blue-500 hover:underline break-all">Complete Authorization →</a>
           <div class="flex items-center gap-2 mt-2">
             <span id="copilot_timer" class="text-xs text-slate-500"></span>
           </div>
@@ -331,9 +331,13 @@
         // Update UI
         verifyLink.href = data.verification_url;
         verifyLink.textContent = data.verification_url;
-        if (deviceLink && data.verification_complete_url) {
-          deviceLink.href = data.verification_complete_url;
-          deviceLink.textContent = 'Complete Authorization →';
+        if (deviceLink) {
+          if (data.verification_complete_url) {
+            deviceLink.href = data.verification_complete_url;
+            deviceLink.classList.remove('hidden');
+          } else {
+            deviceLink.classList.add('hidden');
+          }
         }
         userCode.textContent = data.user_code;
         timer.textContent = data.expires_in + 's';
