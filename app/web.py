@@ -77,7 +77,7 @@ def _settings_view_payload(config_data: dict) -> dict:
         "github": config_data.get("github") if isinstance(config_data.get("github"), dict) else {},
         "git": config_data.get("git") if isinstance(config_data.get("git"), dict) else {},
         "ssh": config_data.get("ssh") if isinstance(config_data.get("ssh"), dict) else {},
-        "proxy": {k: v for k, v in (config_data.get("proxy") or {}).items() if k != "password"},
+        "proxy": config_data.get("proxy") if isinstance(config_data.get("proxy"), dict) else {},
         "debug": config_data.get("debug") if isinstance(config_data.get("debug"), dict) else {},
     }
 
