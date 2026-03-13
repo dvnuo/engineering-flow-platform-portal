@@ -4,6 +4,8 @@
       {{ status_message }}
     </div>
   {% endif %}
+  
+  <div id="copy-success-toast" class="hidden rounded-lg border border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-3 py-2 text-sm">Configuration copied to clipboard!</div>
 
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }" class="space-y-4">
     <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
@@ -220,7 +222,6 @@
     <div class="flex gap-2">
       <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 shadow-sm transition-colors">Copy</button>
       <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 shadow-sm transition-colors">Paste</button>
-      <span id="copy-success-msg" class="flex items-center text-xs text-green-500 dark:text-green-400 hidden">Copied!</span>
     </div>
   </form>
 

@@ -1641,11 +1641,11 @@ async function copyAgentConfig(agentId) {
       document.body.removeChild(textarea);
     }
     
-    // Show success message in settings panel
-    const msg = document.getElementById('copy-success-msg');
-    if (msg) {
-      msg.classList.remove('hidden');
-      setTimeout(() => msg.classList.add('hidden'), 2000);
+    // Show success toast in settings panel
+    const toast = document.getElementById('copy-success-toast');
+    if (toast) {
+      toast.classList.remove('hidden');
+      setTimeout(() => toast.classList.add('hidden'), 2000);
     }
   } catch (e) {
     console.error('Failed to copy config:', e);
