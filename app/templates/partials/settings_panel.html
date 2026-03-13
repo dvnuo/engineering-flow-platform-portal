@@ -213,7 +213,7 @@
       <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 shadow-sm transition-colors">Copy</button>
       <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 shadow-sm transition-colors">Paste</button>
     </div>
-    <button type="submit" onclick="if(typeof showToast === 'function') showToast('Settings saved!');" class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 shadow-sm transition-colors">Save Settings</button>
+    <button type="submit" onclick="if(typeof showToast === 'function') showToast('Settings saved!'); setTimeout(closeToolPanel, 500);" class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 shadow-sm transition-colors">Save Settings</button>
   </form>
 
   <script>
