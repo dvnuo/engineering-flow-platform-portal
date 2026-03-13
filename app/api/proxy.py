@@ -59,40 +59,6 @@ async def proxy_agent(
     return Response(status_code=status_code, content=content, media_type=content_type)
 
 
-# EFP proxy endpoint - forwards to EFP service
-@router.api_route("/efp/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-@router.api_route("/efp", methods=["GET", "POST"])
-async def proxy_efp(
-    request: Request,
-    path: str = "",
-    user=Depends(get_current_user),
-):
-    """Proxy requests to EFP service."""
-    efp_url = settings.efp_endpoint.rstrip("/")
-    target_url = f"{efp_url}/{path}"
-    
-    # Forward the request to EFP
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        try:
-            resp = await client.request(
-                method=request.method,
-                url=target_url,
-                params=request.query_params,
-                content=await request.body(),
-                headers={k: v for k, v in request.headers.items() 
-                       if k.lower() not in ["host", "content-length"]},
-            )
-        except Exception as exc:
-            logger.exception("EFP proxy error")
-            raise HTTPException(status_code=502, detail=f"Failed to connect to EFP: {exc}")
-    
-    return Response(
-        status_code=resp.status_code,
-        content=resp.content,
-        media_type=resp.headers.get("content-type", "application/json"),
-    )
-
-
 @router.websocket("/a/{agent_id}/api/events")
 async def proxy_agent_events(agent_id: str, websocket: WebSocket):
     db = SessionLocal()
