@@ -1,10 +1,4 @@
 <div class="space-y-4" id="settings-panel-root">
-  {% if status_message %}
-    <div class="rounded-lg border px-3 py-2 text-xs {{ 'border-emerald-600 bg-emerald-100 text-emerald-700' if status_type == 'success' else 'border-red-600 bg-red-100 text-red-700' }}">
-      {{ status_message }}
-    </div>
-  {% endif %}
-
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }" class="space-y-4">
     <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
 
@@ -219,7 +213,7 @@
       <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 shadow-sm transition-colors">Copy</button>
       <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 shadow-sm transition-colors">Paste</button>
     </div>
-    <button type="submit" class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 shadow-sm transition-colors">Save Settings</button>
+    <button type="submit" onclick="if(typeof showToast === 'function') showToast('Settings saved!'); setTimeout(function(){closeToolPanel();}, 500); return true;" class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 shadow-sm transition-colors">Save Settings</button>
   </form>
 
   <script>
@@ -486,6 +480,16 @@
     }
     
     initSettings();
+    
+    // Remove inline status message after HTMX swap
+    document.body.addEventListener("htmx:afterSwap", function(event) {
+      if (event.target.id === "tool-panel-body") {
+        var statusDiv = event.target.querySelector(".border-emerald-600, .border-red-600");
+        if (statusDiv) {
+          statusDiv.remove();
+        }
+      }
+    });
   })();
   </script>
 </div>
