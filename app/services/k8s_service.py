@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import logging
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 from app.config import get_settings
@@ -44,6 +46,7 @@ class K8sService:
             self._ensure_service(agent)
             return RuntimeStatus(status="running")
         except Exception as exc:
+            logger.exception("Failed to start agent")
             return RuntimeStatus(status="failed", message=str(exc))
 
     def update_agent_runtime(self, agent) -> RuntimeStatus:
@@ -55,6 +58,7 @@ class K8sService:
             self._patch_deployment(agent)
             return RuntimeStatus(status="running")
         except Exception as exc:
+            logger.exception("Failed to update agent runtime")
             return RuntimeStatus(status="failed", message=str(exc))
 
     def _patch_deployment(self, agent) -> None:
@@ -178,6 +182,7 @@ class K8sService:
             )
             return RuntimeStatus(status="stopped")
         except Exception as exc:
+            logger.exception("Failed to stop agent")
             return RuntimeStatus(status="failed", message=str(exc))
 
     def delete_agent_runtime(self, agent, destroy_data: bool = False) -> RuntimeStatus:

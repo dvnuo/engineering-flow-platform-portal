@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+import logging
 from sqlalchemy.orm import Session
 
 from app.config import get_settings

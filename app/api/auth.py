@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+import logging
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -27,6 +29,7 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     try:
         user = repo.create(payload.username, hash_password(payload.password), "user")
     except Exception as e:
+        logger.exception("Auth error")
         db.rollback()
         # Check if it's a duplicate key error
         if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
