@@ -1,8 +1,5 @@
 """Copilot auth endpoints - deprecated, use agent proxy instead."""
 
-import logging
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
