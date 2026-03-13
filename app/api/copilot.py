@@ -1,4 +1,6 @@
 import httpx
+import logging
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import uuid
@@ -83,6 +85,7 @@ async def start_auth(request: Request):
             )
             
     except Exception as e:
+            logger.exception("Copilot error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -131,4 +134,5 @@ async def check_auth(request: AuthCheckRequest):
                 return AuthCheckResponse(status="failed", message=f"GitHub API error: {response.status_code}")
                 
     except Exception as e:
+            logger.exception("Copilot error")
         return AuthCheckResponse(status="failed", message=str(e))

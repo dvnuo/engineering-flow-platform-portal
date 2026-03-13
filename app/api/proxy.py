@@ -1,4 +1,6 @@
 import asyncio
+import logging
+logger = logging.getLogger(__name__)
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
@@ -50,6 +52,7 @@ async def proxy_agent(
             headers=dict(request.headers),
         )
     except Exception as exc:
+            logger.exception("Proxy error")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Proxy upstream failure: {exc}") from exc
 
     return Response(status_code=status_code, content=content, media_type=content_type)
