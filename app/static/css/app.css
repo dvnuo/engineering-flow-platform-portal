@@ -309,7 +309,8 @@ html[data-theme="light"] #detail-close,
 html[data-theme="light"] #btn-files,
 html[data-theme="light"] #btn-sessions,
 html[data-theme="light"] #quick-upload-btn,
-html[data-theme="light"] #quick-new-chat-btn {
+html[data-theme="light"] #quick-new-chat-btn,
+html[data-theme="light"] #quick-uploads-btn {
   background: #ffffff;
   border: 1px solid #e5e7eb;
   color: #6b7280;
@@ -325,7 +326,8 @@ html[data-theme="light"] #top-settings:hover,
 html[data-theme="light"] #btn-files:hover,
 html[data-theme="light"] #btn-sessions:hover,
 html[data-theme="light"] #quick-upload-btn:hover,
-html[data-theme="light"] #quick-new-chat-btn:hover {
+html[data-theme="light"] #quick-new-chat-btn:hover,
+html[data-theme="light"] #quick-uploads-btn:hover {
   background: #e5e7eb !important;
   color: #111827;
 }

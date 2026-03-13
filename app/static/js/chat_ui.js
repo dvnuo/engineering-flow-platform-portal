@@ -2105,8 +2105,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   
   // Quick action buttons
-  document.getElementById('quick-upload-btn')?.addEventListener('click', () => {
-    document.getElementById('upload-input')?.click();
+  document.getElementById('quick-uploads-btn')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openMyUploads();
   });
   
   document.getElementById('quick-new-chat-btn')?.addEventListener('click', () => {
