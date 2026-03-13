@@ -37,8 +37,6 @@ const dom = {
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
   topSettings: document.getElementById("top-settings"),
-  composerPlusBtn: document.getElementById("composer-plus-btn"),
-  composerMenu: document.getElementById("composer-menu"),
   uploadInput: document.getElementById("upload-input"),
   topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
@@ -1894,43 +1892,6 @@ function bindEvents() {
     }
   });
 
-  // Composer + menu
-  dom.composerPlusBtn?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    dom.composerMenu?.classList.toggle("hidden");
-  });
-
-  // Close menu when clicking outside
-  document.addEventListener("click", (e) => {
-    if (!dom.composerMenu?.contains(e.target) && e.target !== dom.composerPlusBtn) {
-      dom.composerMenu?.classList.add("hidden");
-    }
-  });
-
-  // Composer menu items
-  document.querySelectorAll(".composer-menu-item").forEach((item, idx) => {
-    item.addEventListener("click", () => {
-      dom.composerMenu?.classList.add("hidden");
-      switch (idx) {
-        case 0: // New Chat
-          startNewChatForSelectedAgent();
-          break;
-        case 1: // Upload File
-          dom.uploadInput?.click();
-          break;
-        case 2: // My Uploads
-          openMyUploads();
-          break;
-        case 3: // Server Files
-          openServerFiles();
-          break;
-        case 4: // Sessions
-          openSessionsPanel();
-          break;
-      }
-    });
-  });
-
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", async () => {
@@ -2103,6 +2064,39 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     });
   }
+  
+  // Quick action buttons
+  document.getElementById('quick-uploads-btn')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openMyUploads();
+  });
+  
+  document.getElementById('quick-new-chat-btn')?.addEventListener('click', () => {
+    if (state.selectedAgentId) {
+      startNewChatForSelectedAgent();
+    }
+  });
+  
+  // Server Files button in header
+  document.getElementById('btn-files')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openServerFiles();
+  });
+  
+  // Sessions button in header
+  document.getElementById('btn-sessions')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openSessionsPanel();
+  });
   
   await refreshAll();
   renderMarkdown(document);

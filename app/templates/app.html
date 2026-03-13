@@ -6,7 +6,7 @@
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-semibold">Agents</h2>
         <button id="add-agent-btn" class="h-8 w-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Add Agent">
-          <i data-lucide="plus" class="w-4 h-4"></i>
+          <i data-lucide="plus" class="w-5 h-5"></i>
         </button>
       </div>
 
@@ -15,7 +15,7 @@
       {% if role == "admin" %}
       <div class="mt-4 pt-4 border-t border-slate-700 dark:border-slate-800">
         <button id="users-menu-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 dark:text-slate-300 hover:bg-slate-700 dark:hover:bg-slate-800">
-          <i data-lucide="users" class="w-4 h-4"></i>
+          <i data-lucide="users" class="w-5 h-5"></i>
           Users
         </button>
       </div>
@@ -28,10 +28,10 @@
         </div>
         <div class="flex items-center gap-1">
           <button id="theme-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Toggle theme">
-            <i data-lucide="moon" class="w-4 h-4"></i>
+            <i data-lucide="moon" class="w-5 h-5"></i>
           </button>
           <button id="logout-btn" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Logout">
-            <i data-lucide="log-out" class="w-4 h-4"></i>
+            <i data-lucide="log-out" class="w-5 h-5"></i>
           </button>
         </div>
     </aside>
@@ -44,7 +44,13 @@
         </div>
         <div class="flex items-center gap-2">
           <span id="selected-status" class="px-3 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">idle</span>
-          <button id="top-settings" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700" title="Settings"><i data-lucide="settings"></i></button>
+          <button id="btn-sessions" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Sessions">
+            <i data-lucide="clock" class="w-5 h-5"></i>
+          </button>
+          <button id="btn-files" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Server Files">
+            <i data-lucide="folder" class="w-5 h-5"></i>
+          </button>
+          <button id="top-settings" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Settings"><i data-lucide="settings" class="w-5 h-5"></i></button>
           <button id="detail-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Agent Details">
             <i data-lucide="panel-left" class="w-5 h-5"></i>
           </button>
@@ -76,29 +82,13 @@
             <input type="hidden" id="chat-agent-id" name="agent_id" value="" />
             <input type="hidden" id="chat-session-id" name="session_id" value="" />
             
-            <!-- Discord-style + Menu -->
-            <div class="relative">
-              <button type="button" id="composer-plus-btn" class="w-9 h-9 rounded-lg border bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Actions">
-                <i data-lucide="plus" class="w-5 h-5"></i>
-              </button>
-              <div id="composer-menu" class="hidden absolute bottom-full left-0 mb-2 w-48 rounded-lg border bg-slate-800 shadow-lg py-1 z-50">
-                <button type="button" class="composer-menu-item w-full px-3 py-2 text-left text-sm hover:bg-slate-700 flex items-center gap-2">
-                  <i data-lucide="plus" class="w-4 h-4"></i> New Chat
-                </button>
-                <button type="button" class="composer-menu-item w-full px-3 py-2 text-left text-sm hover:bg-slate-700 flex items-center gap-2">
-                  <i data-lucide="paperclip" class="w-4 h-4"></i> Upload File
-                </button>
-                <button type="button" class="composer-menu-item w-full px-3 py-2 text-left text-sm hover:bg-slate-700 flex items-center gap-2">
-                  <i data-lucide="files" class="w-4 h-4"></i> My Uploads
-                </button>
-                <button type="button" class="composer-menu-item w-full px-3 py-2 text-left text-sm hover:bg-slate-700 flex items-center gap-2">
-                  <i data-lucide="folder" class="w-4 h-4"></i> Server Files
-                </button>
-                <button type="button" class="composer-menu-item w-full px-3 py-2 text-left text-sm hover:bg-slate-700 flex items-center gap-2">
-                  <i data-lucide="history" class="w-4 h-4"></i> Sessions
-                </button>
-              </div>
-            </div>
+            <!-- Quick Actions -->
+            <button type="button" id="quick-new-chat-btn" class="w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="New Chat">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="plus" aria-hidden="true" class="lucide lucide-plus w-5 h-5"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+            </button>
+            <button type="button" id="quick-uploads-btn" class="w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="My Uploads">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="library" aria-hidden="true" class="lucide lucide-library w-5 h-5"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M2 12h20"/><path d="M2 18h20"/><path d="M2 6h20v12h-20Z"/></svg>
+            </button>
             
             <div class="relative flex-1">
               <textarea id="chat-input" name="message" rows="1" required

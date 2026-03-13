@@ -305,7 +305,13 @@ html[data-theme="light"] .toolbar-btn,
 html[data-theme="light"] #theme-toggle,
 html[data-theme="light"] #detail-toggle,
 html[data-theme="light"] #close-tool-panel,
-html[data-theme="light"] #detail-close {
+html[data-theme="light"] #detail-close,
+html[data-theme="light"] #btn-files,
+html[data-theme="light"] #btn-sessions,
+html[data-theme="light"] #quick-upload-btn,
+html[data-theme="light"] #quick-new-chat-btn,
+html[data-theme="light"] #quick-uploads-btn,
+html[data-theme="light"] #quick-uploads-btn {
   background: #ffffff;
   border: 1px solid #e5e7eb;
   color: #6b7280;
@@ -317,7 +323,12 @@ html[data-theme="light"] #theme-toggle:hover,
 html[data-theme="light"] #detail-toggle:hover,
 html[data-theme="light"] #close-tool-panel:hover,
 html[data-theme="light"] #detail-close:hover,
-html[data-theme="light"] #top-settings:hover {
+html[data-theme="light"] #top-settings:hover,
+html[data-theme="light"] #btn-files:hover,
+html[data-theme="light"] #btn-sessions:hover,
+html[data-theme="light"] #quick-upload-btn:hover,
+html[data-theme="light"] #quick-new-chat-btn:hover,
+html[data-theme="light"] #quick-uploads-btn:hover {
   background: #e5e7eb !important;
   color: #111827;
 }
@@ -523,33 +534,12 @@ html[data-theme="light"] #tool-panel .bg-slate-800\/50 {
 }
 
 /* Composer + Menu */
-#composer-menu {
-  background: #1e293b;
-  border-color: #334155;
-}
-
-html[data-theme="light"] #composer-menu {
-  background: #ffffff;
-  border-color: #e5e7eb;
-}
-
-.composer-menu-item {
-  color: #e2e8f0;
-}
-
-html[data-theme="light"] .composer-menu-item {
-  color: #111827;
-}
-
-html[data-theme="light"] .composer-menu-item:hover {
   background: #f3f4f6;
 }
 
-#composer-plus-btn {
   border-color: #334155;
 }
 
-html[data-theme="light"] #composer-plus-btn {
   background: #ffffff;
   border-color: #d1d5db;
 }
@@ -559,7 +549,6 @@ html[data-theme="light"] #composer-plus-btn {
   align-items: flex-end;
 }
 
-#chat-form #composer-plus-btn,
 #chat-form #send-chat-btn {
   flex-shrink: 0;
 }
@@ -577,7 +566,9 @@ html[data-theme="light"] #composer-plus-btn {
   align-items: flex-end;
 }
 
-#composer-plus-btn {
+/* Quick action buttons */
+#quick-new-chat-btn,
+#quick-uploads-btn {
   align-self: flex-end;
   height: 40px;
   width: 40px;
