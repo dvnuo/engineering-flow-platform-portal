@@ -1,4 +1,4 @@
-import app.logger  # Ensure logging is configured
+import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 
 from fastapi import APIRouter, HTTPException, Request, status
