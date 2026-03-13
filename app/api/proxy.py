@@ -1,5 +1,4 @@
 import asyncio
-import httpx
 import logging
 logger = logging.getLogger(__name__)
 from urllib.parse import urlencode
