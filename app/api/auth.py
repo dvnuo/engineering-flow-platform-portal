@@ -48,7 +48,8 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
         key=settings.session_cookie_name,
         value=token,
         httponly=True,
-        samesite="lax",
+        samesite="lax"
+        max_age=365 * 24 * 60 * 60,  # 1 year,
     )
     return {"ok": True, "username": user.username, "role": user.role}
 
@@ -65,7 +66,8 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
         key=settings.session_cookie_name,
         value=token,
         httponly=True,
-        samesite="lax",
+        samesite="lax"
+        max_age=365 * 24 * 60 * 60,  # 1 year,
     )
     return {"ok": True}
 
