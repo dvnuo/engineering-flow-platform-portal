@@ -181,5 +181,22 @@
   </div>
 </div>
 
+<div id="paste-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-card panel">
+    <div class="modal-head">
+      <h3>Paste Configuration</h3>
+      <button id="close-paste-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+    </div>
+    <div class="stack">
+      <p class="text-sm text-slate-400">Paste your configuration JSON below:</p>
+      <textarea id="paste-config-text" class="w-full h-48 px-3 py-2 rounded-lg border border-slate-600 bg-slate-800 text-slate-200 font-mono text-xs resize-none" placeholder='{"llm": {...}, "jira": {...}}'></textarea>
+      <div class="flex gap-2">
+        <button id="cancel-paste-btn" type="button" class="flex-1 rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700">Cancel</button>
+        <button id="confirm-paste-btn" type="button" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="/static/js/chat_ui.js"></script>
 {% endblock %}

@@ -1648,21 +1648,86 @@ async function copyAgentConfig(agentId) {
   }
 }
 
-// Paste agent config from clipboard
+// Paste agent config from clipboard - shows modal
+let pasteModalAgentId = null;
+
 async function pasteAgentConfig(agentId) {
-  try {
-    let text;
-    
-    // Use clipboard API or fallback
-    if (navigator.clipboard && window.isSecureContext) {
-      text = await navigator.clipboard.readText();
-    } else {
-      // Fallback: use prompt
-      text = prompt('Paste your configuration JSON here:');
-      if (!text) throw new Error('No config provided');
-    }
-    
-    const config = JSON.parse(text);
+  pasteModalAgentId = agentId;
+  const modal = document.getElementById('paste-modal');
+  const textarea = document.getElementById('paste-config-text');
+  if (!modal || !textarea) {
+    alert('Paste modal not available');
+    return;
+  }
+  textarea.value = '';
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  textarea.focus();
+}
+
+// Setup paste modal event listeners (call once on load)
+function setupPasteModal() {
+  const modal = document.getElementById('paste-modal');
+  const closeBtn = document.getElementById('close-paste-modal');
+  const cancelBtn = document.getElementById('cancel-paste-btn');
+  const confirmBtn = document.getElementById('confirm-paste-btn');
+  const textarea = document.getElementById('paste-config-text');
+  
+  if (!modal) return;
+  
+  function closePasteModal() {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    pasteModalAgentId = null;
+  }
+  
+  if (closeBtn) closeBtn.addEventListener('click', closePasteModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closePasteModal);
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) closePasteModal();
+    });
+  }
+  
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async function() {
+      if (!pasteModalAgentId) return;
+      
+      const text = textarea.value.trim();
+      if (!text) {
+        alert('Please paste configuration JSON');
+        return;
+      }
+      
+      try {
+        const config = JSON.parse(text);
+        
+        const resp = await fetch(`/a/${pasteModalAgentId}/api/config/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config),
+        });
+        
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || 'Failed to save config');
+        }
+        
+        alert('Configuration applied successfully!');
+        closePasteModal();
+      } catch (e) {
+        alert('Failed to apply configuration: ' + e.message);
+      }
+    });
+  }
+}
+
+// Initialize paste modal on load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupPasteModal);
+} else {
+  setupPasteModal();
+}
     
     // Save to agent via proxy
     const resp = await fetch(`/a/${agentId}/api/config/save`, {
