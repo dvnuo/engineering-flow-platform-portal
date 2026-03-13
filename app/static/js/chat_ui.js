@@ -1892,10 +1892,6 @@ function bindEvents() {
     }
   });
 
-      }
-    });
-  });
-
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", async () => {
