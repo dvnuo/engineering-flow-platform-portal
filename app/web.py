@@ -1,3 +1,4 @@
+import app.logger  # Ensure logging is configured
 import json
 
 from fastapi import APIRouter, HTTPException, Request, status

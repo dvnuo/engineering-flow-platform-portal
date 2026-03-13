@@ -1,6 +1,4 @@
 from itsdangerous import BadSignature, URLSafeSerializer
-import logging
-logger = logging.getLogger(__name__)
 from passlib.context import CryptContext
 
 from app.config import get_settings
