@@ -1641,12 +1641,8 @@ async function copyAgentConfig(agentId) {
       document.body.removeChild(textarea);
     }
     
-    // Show success toast in settings panel
-    const toast = document.getElementById('copy-success-toast');
-    if (toast) {
-      toast.classList.remove('hidden');
-      setTimeout(() => toast.classList.add('hidden'), 2000);
-    }
+    // Show global toast
+    showToast('Configuration copied to clipboard!');
   } catch (e) {
     console.error('Failed to copy config:', e);
     alert('Failed to copy configuration: ' + e.message);
@@ -1723,12 +1719,8 @@ function setupPasteModal() {
           throw new Error(err.error || 'Failed to save config');
         }
         
-        // Show success in modal
-        const successMsg = document.getElementById('paste-success-msg');
-        if (successMsg) {
-          successMsg.textContent = 'Configuration applied successfully!';
-          successMsg.classList.remove('hidden');
-        }
+        // Show global toast and close modal
+        showToast('Configuration applied successfully!');
         setTimeout(closePasteModal, 1500);
       } catch (e) {
         alert('Failed to apply configuration: ' + e.message);
@@ -1743,7 +1735,16 @@ if (document.readyState === 'loading') {
 } else {
   setupPasteModal();
 }
-    
+
+// Global toast notification
+function showToast(message, duration = 2000) {
+  const toast = document.getElementById('global-toast');
+  if (!toast) return;
+  toast.querySelector('div').textContent = message;
+  toast.classList.remove('hidden');
+  setTimeout(() => toast.classList.add('hidden'), duration);
+}
+
 // ===== wiring =====
 function bindEvents() {
   // Edit modal events
