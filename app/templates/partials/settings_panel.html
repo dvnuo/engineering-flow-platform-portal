@@ -1,11 +1,7 @@
 <div class="space-y-4" id="settings-panel-root">
-  {% if status_message %}
-    <div class="rounded-lg border px-3 py-2 text-xs {{ 'border-emerald-600 bg-emerald-100 text-emerald-700' if status_type == 'success' else 'border-red-600 bg-red-100 text-red-700' }}">
-      {{ status_message }}
-    </div>
-  {% endif %}
+  <!-- Status messages now shown via global Toast -->
 
-  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }" class="space-y-4">
+  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { if(typeof showToast === 'function') showToast('Settings saved!'); closeToolPanel(); }" class="space-y-4">
     <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
 
     <!-- LLM Model Section -->
