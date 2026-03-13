@@ -95,9 +95,11 @@ async function deleteFile(fileId, row) {
     });
     if (!resp.ok) throw new Error('Delete failed');
     row.remove();
+    if (typeof showToast === 'function') showToast('File deleted');
   } catch (e) {
     row.style.opacity = '1';
-    alert('Delete failed: ' + e.message);
+    if (typeof showToast === 'function') showToast('Delete failed: ' + e.message);
+    else alert('Delete failed: ' + e.message);
   }
 }
 

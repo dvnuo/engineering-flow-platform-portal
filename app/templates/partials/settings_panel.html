@@ -215,6 +215,10 @@
       </label>
     </section>
 
+    <div class="flex gap-2">
+      <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 shadow-sm transition-colors">Copy</button>
+      <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 shadow-sm transition-colors">Paste</button>
+    </div>
     <button type="submit" class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 shadow-sm transition-colors">Save Settings</button>
   </form>
 
@@ -306,7 +310,8 @@
       
       try {
         if (!state.selectedAgentId) {
-          alert('Please select an agent first');
+          if (typeof showToast === 'function') showToast('Please select an agent first');
+          else alert('Please select an agent first');
           return;
         }
         // Capture agentId to avoid drift during polling
@@ -316,7 +321,8 @@
         const data = await response.json();
 
         if (data.error) {
-          alert('Failed to start authorization: ' + data.error);
+          if (typeof showToast === 'function') showToast('Failed: ' + data.error);
+          else alert('Failed to start authorization: ' + data.error);
           return;
         }
 
@@ -395,7 +401,8 @@
         }, (data.interval || 5) * 1000);
 
       } catch (e) {
-        alert('Failed to start authorization: ' + e);
+        if (typeof showToast === 'function') showToast('Failed: ' + e);
+        else alert('Failed to start authorization: ' + e);
       }
     }
 
