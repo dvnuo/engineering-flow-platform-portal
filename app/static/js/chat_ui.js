@@ -1641,8 +1641,6 @@ async function copyAgentConfig(agentId) {
       document.body.removeChild(textarea);
     }
     
-    alert('Configuration copied to clipboard!');
-    
     // Show success message in settings panel
     const msg = document.getElementById('copy-success-msg');
     if (msg) {
