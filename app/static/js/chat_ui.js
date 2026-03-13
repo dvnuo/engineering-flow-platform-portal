@@ -1718,8 +1718,13 @@ function setupPasteModal() {
           throw new Error(err.error || 'Failed to save config');
         }
         
-        alert('Configuration applied successfully!');
-        closePasteModal();
+        // Show success in modal
+        const successMsg = document.getElementById('paste-success-msg');
+        if (successMsg) {
+          successMsg.textContent = 'Configuration applied successfully!';
+          successMsg.classList.remove('hidden');
+        }
+        setTimeout(closePasteModal, 1500);
       } catch (e) {
         alert('Failed to apply configuration: ' + e.message);
       }
