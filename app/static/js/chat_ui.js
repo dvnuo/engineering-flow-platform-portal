@@ -1624,8 +1624,23 @@ async function copyAgentConfig(agentId) {
     if (!resp.ok) throw new Error('Failed to fetch config');
     const data = await resp.json();
     
-    // Copy to clipboard
-    await navigator.clipboard.writeText(JSON.stringify(data.config, null, 2));
+    const configStr = JSON.stringify(data.config, null, 2);
+    
+    // Use clipboard API or fallback
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(configStr);
+    } else {
+      // Fallback for non-secure context
+      const textarea = document.createElement('textarea');
+      textarea.value = configStr;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    
     alert('Configuration copied to clipboard!');
   } catch (e) {
     console.error('Failed to copy config:', e);
@@ -1636,8 +1651,23 @@ async function copyAgentConfig(agentId) {
 // Paste agent config from clipboard
 async function pasteAgentConfig(agentId) {
   try {
-    // Read from clipboard
-    const text = await navigator.clipboard.readText();
+    let text;
+    
+    // Use clipboard API or fallback
+    if (navigator.clipboard && window.isSecureContext) {
+      text = await navigator.clipboard.readText();
+    } else {
+      // Fallback for non-secure context
+      const textarea = document.createElement('textarea');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('paste');
+      text = textarea.value;
+      document.body.removeChild(textarea);
+    }
+    
     const config = JSON.parse(text);
     
     // Save to agent via proxy
