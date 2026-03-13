@@ -2104,6 +2104,35 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
   
+  // Quick action buttons
+  document.getElementById('quick-upload-btn')?.addEventListener('click', () => {
+    document.getElementById('upload-input')?.click();
+  });
+  
+  document.getElementById('quick-new-chat-btn')?.addEventListener('click', () => {
+    if (state.selectedAgentId) {
+      startNewChat(state.selectedAgentId);
+    }
+  });
+  
+  // Server Files button in header
+  document.getElementById('btn-files')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openServerFiles();
+  });
+  
+  // Sessions button in header
+  document.getElementById('btn-sessions')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openSessionsPanel();
+  });
+  
   await refreshAll();
   renderMarkdown(document);
   renderIcons();
