@@ -305,7 +305,11 @@ html[data-theme="light"] .toolbar-btn,
 html[data-theme="light"] #theme-toggle,
 html[data-theme="light"] #detail-toggle,
 html[data-theme="light"] #close-tool-panel,
-html[data-theme="light"] #detail-close {
+html[data-theme="light"] #detail-close,
+html[data-theme="light"] #btn-files,
+html[data-theme="light"] #btn-sessions,
+html[data-theme="light"] #quick-upload-btn,
+html[data-theme="light"] #quick-new-chat-btn {
   background: #ffffff;
   border: 1px solid #e5e7eb;
   color: #6b7280;
@@ -317,7 +321,11 @@ html[data-theme="light"] #theme-toggle:hover,
 html[data-theme="light"] #detail-toggle:hover,
 html[data-theme="light"] #close-tool-panel:hover,
 html[data-theme="light"] #detail-close:hover,
-html[data-theme="light"] #top-settings:hover {
+html[data-theme="light"] #top-settings:hover,
+html[data-theme="light"] #btn-files:hover,
+html[data-theme="light"] #btn-sessions:hover,
+html[data-theme="light"] #quick-upload-btn:hover,
+html[data-theme="light"] #quick-new-chat-btn:hover {
   background: #e5e7eb !important;
   color: #111827;
 }
