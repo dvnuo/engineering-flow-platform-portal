@@ -4,7 +4,7 @@ import logging
 import sys
 
 # Detailed format with module/function/line info
-DEFAULT_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
+DEFAULT_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s.%(funcName)s:%(lineno)d | %(message)s"
 
 
 def setup_logging(level: int = logging.INFO):
