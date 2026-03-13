@@ -217,10 +217,10 @@
 
     <button type="submit" class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 shadow-sm transition-colors">Save Settings</button>
     
-    <div class="flex items-center gap-2 mt-2">
-      <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="px-2 py-1 text-xs bg-cyan-600 hover:bg-cyan-700 text-white rounded">Copy</button>
-      <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded">Paste</button>
-      <span id="copy-success-msg" class="text-xs text-green-500 dark:text-green-400 hidden">Copied!</span>
+    <div class="flex gap-2">
+      <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 shadow-sm transition-colors">Copy</button>
+      <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 shadow-sm transition-colors">Paste</button>
+      <span id="copy-success-msg" class="flex items-center text-xs text-green-500 dark:text-green-400 hidden">Copied!</span>
     </div>
   </form>
 
