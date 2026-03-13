@@ -310,6 +310,7 @@ html[data-theme="light"] #btn-files,
 html[data-theme="light"] #btn-sessions,
 html[data-theme="light"] #quick-upload-btn,
 html[data-theme="light"] #quick-new-chat-btn,
+html[data-theme="light"] #quick-uploads-btn,
 html[data-theme="light"] #quick-uploads-btn {
   background: #ffffff;
   border: 1px solid #e5e7eb;
