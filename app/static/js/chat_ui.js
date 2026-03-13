@@ -1642,6 +1642,13 @@ async function copyAgentConfig(agentId) {
     }
     
     alert('Configuration copied to clipboard!');
+    
+    // Show success message in settings panel
+    const msg = document.getElementById('copy-success-msg');
+    if (msg) {
+      msg.classList.remove('hidden');
+      setTimeout(() => msg.classList.add('hidden'), 2000);
+    }
   } catch (e) {
     console.error('Failed to copy config:', e);
     alert('Failed to copy configuration: ' + e.message);
