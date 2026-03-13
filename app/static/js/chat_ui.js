@@ -1729,25 +1729,6 @@ if (document.readyState === 'loading') {
   setupPasteModal();
 }
     
-    // Save to agent via proxy
-    const resp = await fetch(`/a/${agentId}/api/config/save`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
-    });
-    
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.error || 'Failed to save config');
-    }
-    
-    alert('Configuration applied successfully!');
-  } catch (e) {
-    console.error('Failed to paste config:', e);
-    alert('Failed to apply configuration: ' + e.message);
-  }
-}
-
 // ===== wiring =====
 function bindEvents() {
   // Edit modal events
