@@ -566,6 +566,9 @@ html[data-theme="light"] #tool-panel .bg-slate-800\/50 {
   align-items: flex-end;
 }
 
+/* Quick action buttons */
+#quick-new-chat-btn,
+#quick-uploads-btn {
   align-self: flex-end;
   height: 40px;
   width: 40px;
