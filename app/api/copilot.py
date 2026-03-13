@@ -1,15 +1,18 @@
+"""Proxy copilot auth to EFP."""
+
 import httpx
 import logging
 logger = logging.getLogger(__name__)
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import uuid
 from datetime import datetime
 
-router = APIRouter(prefix="/api/copilot/auth", tags=["copilot"])
+from app.config import get_settings
 
-# In-memory store for pending authorizations
-_pending_authorizations = {}
+router = APIRouter(prefix="/api/copilot/auth", tags=["copilot"])
+settings = get_settings()
 
 
 class AuthStartResponse(BaseModel):
@@ -33,106 +36,56 @@ class AuthCheckResponse(BaseModel):
     token: str = ""
 
 
+def get_efp_url() -> str:
+    """Get EFP endpoint URL."""
+    return settings.efp_endpoint.rstrip("/")
+
+
 @router.post("/start")
 async def start_auth(request: Request):
-    """Start GitHub Copilot device authorization."""
+    """Forward GitHub Copilot auth start to EFP."""
     try:
-        # Get GitHub base URL from config (need to fetch from agent's config)
-        # For now, use default GitHub API
-        api_base_url = "https://api.github.com"
+        efp_url = get_efp_url()
         
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{api_base_url}/copilot/token_verification",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json={"action": "create"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Read body if present
+            body = await request.body()
+            
+            resp = await client.post(
+                f"{efp_url}/api/copilot/auth/start",
+                content=body,
+                headers={"Content-Type": "application/json"},
             )
             
-            if response.status_code != 201:
-                return {
-                    "error": f"GitHub API returned {response.status_code}",
-                    "details": response.text
-                }
+            if resp.status_code != 200:
+                logger.error(f"EFP copilot auth start failed: {resp.status_code}")
+                return {"error": f"EFP returned {resp.status_code}"}
             
-            data = response.json()
-            
-            auth_id = str(uuid.uuid4())[:8]
-            device_code = data.get("device_code", str(uuid.uuid4()))
-            
-            _pending_authorizations[auth_id] = {
-                "device_code": device_code,
-                "user_code": data.get("user_code", ""),
-                "verification_uri": data.get("verification_uri", ""),
-                "verification_uri_complete": data.get("verification_uri_complete", ""),
-                "expires_at": datetime.now().timestamp() + data.get("expires_in", 600),
-                "interval": data.get("interval", 5),
-                "status": "pending",
-                "token": None,
-                "created_at": datetime.now().isoformat(),
-            }
-            
-            return AuthStartResponse(
-                auth_id=auth_id,
-                device_code=device_code,
-                user_code=data.get("user_code", ""),
-                verification_url=data.get("verification_uri", ""),
-                verification_complete_url=data.get("verification_uri_complete", ""),
-                expires_in=data.get("expires_in", 600),
-                interval=data.get("interval", 5),
-            )
+            return resp.json()
             
     except Exception as e:
-        logger.exception("Copilot error")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to forward to EFP")
+        raise HTTPException(status_code=502, detail=f"Failed to connect to EFP: {e}")
 
 
 @router.post("/check")
 async def check_auth(request: AuthCheckRequest):
-    """Check if authorization is complete."""
-    auth = _pending_authorizations.get(request.auth_id)
-    
-    if not auth:
-        return AuthCheckResponse(status="expired", message="Authorization not found or expired")
-    
-    # Check if expired
-    if datetime.now().timestamp() > auth["expires_at"]:
-        _pending_authorizations.pop(request.auth_id, None)
-        return AuthCheckResponse(status="expired", message="Authorization expired")
-    
-    # Check if already authorized
-    if auth.get("token"):
-        return AuthCheckResponse(status="authorized", token=auth["token"])
-    
+    """Forward GitHub Copilot auth check to EFP."""
     try:
-        api_base_url = "https://api.github.com"
+        efp_url = get_efp_url()
         
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{api_base_url}/copilot/token_verification",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json={
-                    "action": "complete",
-                    "device_code": request.device_code,
-                }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{efp_url}/api/copilot/auth/check",
+                json=request.model_dump(),
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                token = data.get("token", "")
-                auth["token"] = token
-                auth["status"] = "authorized"
-                return AuthCheckResponse(status="authorized", token=token)
-            elif response.status_code == 202:
-                return AuthCheckResponse(status="pending", message="Still waiting for authorization...")
-            else:
-                return AuthCheckResponse(status="failed", message=f"GitHub API error: {response.status_code}")
-                
+            if resp.status_code != 200:
+                logger.error(f"EFP copilot auth check failed: {resp.status_code}")
+                return {"status": "failed", "message": f"EFP returned {resp.status_code}"}
+            
+            return resp.json()
+            
     except Exception as e:
-        logger.exception("Copilot error")
-        return AuthCheckResponse(status="failed", message=str(e))
+        logger.exception("Failed to forward to EFP")
+        raise HTTPException(status_code=502, detail=f"Failed to connect to EFP: {e}")

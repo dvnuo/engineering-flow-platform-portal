@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = None
     k8s_agent_service_type: str = "ClusterIP"
+    efp_endpoint: str = "http://efp.default.svc.cluster.local:8000"
     k8s_git_username: Optional[str] = None
     k8s_git_token: Optional[str] = None
 
