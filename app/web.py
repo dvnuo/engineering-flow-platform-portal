@@ -610,6 +610,18 @@ async def app_chat_send(request: Request):
         except:
             attachments = []
 
+    # Convert attachments to @file_ references for EFP
+    file_refs = []
+    for att in attachments:
+        file_id = att.get('file_id', '')
+        if file_id:
+            file_refs.append(f"@file_{file_id}")
+    
+    # Build message with file references
+    full_message = message
+    if file_refs:
+        full_message = f"{message} {' '.join(file_refs)}".strip()
+
     db = SessionLocal()
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
@@ -620,11 +632,9 @@ async def app_chat_send(request: Request):
         if agent.status != "running":
             raise HTTPException(status_code=409, detail="Agent not running")
 
-        payload = {"message": message}
+        payload = {"message": full_message}
         if session_id:
             payload["session_id"] = session_id
-        if attachments:
-            payload["attachments"] = attachments
 
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
