@@ -321,15 +321,12 @@ async function uploadPendingFile(pf) {
 
 // ===== Chat Submit Handler =====
 window.handleChatSubmit = async function(event) {
-  console.log('[handleChatSubmit] Starting, pendingFiles:', state.pendingFiles.length);
-  
   // If there are pending files, upload them first
   if (state.pendingFiles.length > 0) {
     const pendingFiles = [...state.pendingFiles];
     const uploadedAttachments = [];
     
     for (const pf of pendingFiles) {
-      console.log('[handleChatSubmit] Processing file:', pf.file.name, 'status:', pf.status);
       if (pf.status === 'pending' || pf.status === 'error') {
         try {
           const data = await uploadPendingFile(pf);
@@ -339,7 +336,6 @@ window.handleChatSubmit = async function(event) {
             name: data.name || pf.file.name,
             file_id: data.file_id || data.id
           });
-          console.log('[handleChatSubmit] Uploaded:', data);
         } catch (error) {
           showToast(`Failed to upload ${pf.file.name}: ${error.message}`);
           return false; // Cancel submit
@@ -2380,9 +2376,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         
         // Upload each file immediately
         for (const file of fileArray) {
-          // Find the pending file entry
-          const pf = state.pendingFiles.find(f => f.file === file);
-          if (pf) {
+          // Find the pending file entry by filename
+          const pf = state.pendingFiles.find(f => f.file.name === file.name);
+          if (pf && pf.status === 'pending') {
             try {
               await uploadPendingFile(pf);
             } catch (error) {
