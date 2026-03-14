@@ -78,9 +78,11 @@
                 hx-post="/app/chat/send"
                 hx-target="#message-list"
                 hx-swap="beforeend"
+                hx-on::submit="return handleChatSubmit(event)"
                 class="rounded-2xl border p-3 shadow-sm flex items-end gap-2 bg-transparent">
             <input type="hidden" id="chat-agent-id" name="agent_id" value="" />
             <input type="hidden" id="chat-session-id" name="session_id" value="" />
+            <input type="hidden" id="chat-attachments" name="attachments" value="" />
             
             <!-- Quick Actions -->
             <button type="button" id="quick-new-chat-btn" class="w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="New Chat">
@@ -91,6 +93,8 @@
             </button>
             
             <div class="relative flex-1">
+              <!-- File Preview Area -->
+              <div id="input-preview-area" class="hidden grid gap-2 p-2 mb-2 rounded-lg bg-slate-100 dark:bg-slate-700/50"></div>
               <textarea id="chat-input" name="message" rows="1" required
                         class="w-full resize-none rounded-xl border px-3 py-2 outline-none placeholder:"
                         placeholder="Type message, / for skills, @ for files..."></textarea>
@@ -106,6 +110,7 @@
 
   <div id="detail-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
   <div id="tool-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
+  <div id="drop-overlay" class="fixed inset-0 bg-blue-500/10 border-3 border-dashed border-blue-500 z-[100] flex items-center justify-center pointer-events-none"><span class="bg-blue-500 text-white px-6 py-4 rounded-xl text-xl font-semibold">Drop files here</span></div>
   
   <!-- Global Toast -->
   <div id="global-toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 hidden">

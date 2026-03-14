@@ -86,6 +86,7 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
+  pendingFiles: [],  // Files waiting to be sent: { id, file, previewUrl, progress, status }
 };
 
 const md = window.markdownit({
@@ -99,6 +100,213 @@ const md = window.markdownit({
     return `<pre><code class="hljs">${md.utils.escapeHtml(str)}</code></pre>`;
   },
 });
+
+// ===== File Preview Functions =====
+function generateFileId() {
+  return 'file_' + Math.random().toString(36).substr(2, 9);
+}
+
+function getFileIcon(filename) {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const iconMap = {
+    pdf: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
+    zip: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>',
+    doc: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
+    default: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+  };
+  if (['pdf'].includes(ext)) return iconMap.pdf;
+  if (['zip', 'rar', '7z'].includes(ext)) return iconMap.zip;
+  if (['doc', 'docx', 'txt', 'md', 'json', 'js', 'py', 'html', 'css'].includes(ext)) return iconMap.doc;
+  return iconMap.default;
+}
+
+function truncateFilename(name, maxLen = 12) {
+  if (name.length <= maxLen) return name;
+  const ext = name.split('.').pop() || '';
+  const base = name.slice(0, name.length - ext.length - 1);
+  const truncatedBase = base.slice(0, maxLen - ext.length - 4) + '...';
+  return truncatedBase + '.' + ext;
+}
+
+async function createLocalPreview(file) {
+  return new Promise((resolve) => {
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve({ type: 'image', url: e.target.result });
+      reader.readAsDataURL(file);
+    } else {
+      resolve({ type: 'file', name: file.name });
+    }
+  });
+}
+
+function renderInputPreview() {
+  const container = document.getElementById('input-preview-area');
+  if (!container) return;
+  
+  if (state.pendingFiles.length === 0) {
+    container.classList.add('hidden');
+    container.classList.remove('has-files');
+    container.innerHTML = '';
+    return;
+  }
+  
+  container.classList.remove('hidden');
+  container.classList.add('has-files');
+  
+  container.innerHTML = state.pendingFiles.map(pf => {
+    const isImage = pf.file.type.startsWith('image/');
+    const isUploading = pf.status === 'uploading';
+    const isError = pf.status === 'error';
+    
+    let content = '';
+    if (isImage) {
+      content = `<img src="${pf.previewUrl}" alt="${pf.file.name}" />`;
+    } else {
+      content = `<div class="file-icon">${getFileIcon(pf.file.name)}<span class="filename">${truncateFilename(pf.file.name)}</span></div>`;
+    }
+    
+    let statusContent = '';
+    if (isUploading) {
+      statusContent = `<div class="loading-spinner"><div class="spinner"></div></div>`;
+    } else if (pf.progress < 100 && pf.status === 'uploading') {
+      statusContent = `<div class="progress-bar"><div class="progress" style="width: ${pf.progress}%"></div></div>`;
+    } else if (isError) {
+      statusContent = `<div class="progress-bar"><div class="progress" style="width: 100%; background: #ef4444;"></div></div>`;
+    }
+    
+    return `<div class="input-preview-card" data-id="${pf.id}">${content}${statusContent}<button class="remove-btn" onclick="removePendingFile('${pf.id}')">×</button></div>`;
+  }).join('');
+}
+
+function addPendingFiles(files) {
+  Array.from(files).forEach(async (file) => {
+    const preview = await createLocalPreview(file);
+    state.pendingFiles.push({
+      id: generateFileId(),
+      file,
+      previewUrl: preview.url,
+      progress: 0,
+      status: 'pending'
+    });
+  });
+  renderInputPreview();
+}
+
+function removePendingFile(id) {
+  const idx = state.pendingFiles.findIndex(f => f.id === id);
+  if (idx !== -1) {
+    const pf = state.pendingFiles[idx];
+    if (pf.previewUrl && pf.file.type.startsWith('image/')) {
+      URL.revokeObjectURL(pf.previewUrl);
+    }
+    state.pendingFiles.splice(idx, 1);
+    renderInputPreview();
+  }
+}
+
+function clearPendingFiles() {
+  state.pendingFiles.forEach(pf => {
+    if (pf.previewUrl && pf.file.type.startsWith('image/')) {
+      URL.revokeObjectURL(pf.previewUrl);
+    }
+  });
+  state.pendingFiles = [];
+  renderInputPreview();
+}
+
+async function uploadPendingFile(pf) {
+  pf.status = 'uploading';
+  pf.progress = 0;
+  renderInputPreview();
+  
+  try {
+    const formData = new FormData();
+    formData.append('file', pf.file);
+    
+    const xhr = new XMLHttpRequest();
+    
+    const uploadPromise = new Promise((resolve, reject) => {
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          pf.progress = Math.round((e.loaded / e.total) * 100);
+          renderInputPreview();
+        }
+      });
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            resolve(data);
+          } catch {
+            reject(new Error('Invalid response'));
+          }
+        } else {
+          reject(new Error(`HTTP ${xhr.status}`));
+        }
+      });
+      xhr.addEventListener('error', () => reject(new Error('Network error')));
+      xhr.addEventListener('abort', () => reject(new Error('Aborted')));
+    });
+    
+    xhr.open('POST', `/a/${state.selectedAgentId}/api/files/upload`);
+    xhr.send(formData);
+    
+    const data = await uploadPromise;
+    pf.status = 'uploaded';
+    pf.uploadedData = data;
+    pf.progress = 100;
+    renderInputPreview();
+    return data;
+  } catch (error) {
+    pf.status = 'error';
+    pf.error = error.message;
+    renderInputPreview();
+    throw error;
+  }
+}
+
+// ===== Chat Submit Handler =====
+window.handleChatSubmit = async function(event) {
+  // If there are pending files, upload them first
+  if (state.pendingFiles.length > 0) {
+    const pendingFiles = [...state.pendingFiles];
+    const uploadedAttachments = [];
+    
+    for (const pf of pendingFiles) {
+      if (pf.status === 'pending' || pf.status === 'error') {
+        try {
+          const data = await uploadPendingFile(pf);
+          uploadedAttachments.push({
+            type: pf.file.type.startsWith('image/') ? 'image' : 'file',
+            url: data.url,
+            name: data.name || pf.file.name,
+            file_id: data.file_id || data.id
+          });
+        } catch (error) {
+          showToast(`Failed to upload ${pf.file.name}: ${error.message}`);
+          return false; // Cancel submit
+        }
+      } else if (pf.status === 'uploaded' && pf.uploadedData) {
+        uploadedAttachments.push({
+          type: pf.file.type.startsWith('image/') ? 'image' : 'file',
+          url: pf.uploadedData.url,
+          name: pf.uploadedData.name || pf.file.name,
+          file_id: pf.uploadedData.file_id || pf.uploadedData.id
+        });
+      }
+    }
+    
+    // Store attachments as JSON in hidden input
+    document.getElementById('chat-attachments').value = JSON.stringify(uploadedAttachments);
+    
+    // Clear pending files after successful upload
+    clearPendingFiles();
+  }
+  
+  // Continue with normal HTMX form submission
+  return true;
+};
 
 // ===== generic helpers =====
 function safe(value) {
@@ -2054,14 +2262,34 @@ document.addEventListener("DOMContentLoaded", async () => {
       e.stopPropagation();
       dragCounter = 0;
       messageList.classList.remove("drag-over");
+      document.getElementById('drop-overlay')?.classList.remove('active');
+      
       const files = e.dataTransfer?.files;
-      if (files?.length && dom.uploadInput) {
-        // Use the existing upload handler
-        const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(files[0]);
-        dom.uploadInput.files = dataTransfer.files;
-        await uploadFile();
+      if (files?.length) {
+        // Add files to preview area instead of uploading immediately
+        addPendingFiles(files);
       }
+    });
+  }
+  
+  // Drop overlay handlers
+  const dropOverlay = document.getElementById('drop-overlay');
+  if (dropOverlay) {
+    document.addEventListener('dragenter', (e) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        dropOverlay.classList.add('active');
+      }
+    });
+    document.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget === null || !document.body.contains(e.relatedTarget)) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+    });
+    document.addEventListener('drop', (e) => {
+      dropOverlay.classList.remove('active');
     });
   }
   
@@ -2104,3 +2332,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 window.addEventListener("beforeunload", disconnectEventSocket);
+
+
+// Expose functions to global scope for onclick handlers
+window.removePendingFile = removePendingFile;
+window.addPendingFiles = addPendingFiles;
+
