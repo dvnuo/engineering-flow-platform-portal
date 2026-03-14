@@ -86,6 +86,7 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
+  pendingFiles: [],
 };
 
 const md = window.markdownit({
@@ -110,6 +111,98 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// ===== File Preview Functions =====
+function generateFileId() {
+  return 'file_' + Math.random().toString(36).substr(2, 9);
+}
+
+function addPendingFiles(files) {
+  Array.from(files).forEach(file => {
+    const isImage = file.type.startsWith('image/');
+    state.pendingFiles.push({
+      id: generateFileId(),
+      file: file,
+      previewUrl: null,
+      isImage: isImage,
+      status: 'pending'
+    });
+    renderInputPreview();
+    
+    if (isImage) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const pf = state.pendingFiles.find(f => f.file === file);
+        if (pf) {
+          pf.previewUrl = e.target.result;
+          renderInputPreview();
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
+function removePendingFile(id) {
+  const idx = state.pendingFiles.findIndex(f => f.id === id);
+  if (idx !== -1) {
+    state.pendingFiles.splice(idx, 1);
+    renderInputPreview();
+  }
+}
+
+function clearPendingFiles() {
+  state.pendingFiles = [];
+  renderInputPreview();
+}
+
+function renderInputPreview() {
+  const container = document.getElementById('input-preview-area');
+  if (!container) return;
+  
+  if (state.pendingFiles.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+  
+  container.classList.remove('hidden');
+  container.innerHTML = state.pendingFiles.map(pf => {
+    let content = '';
+    if (pf.isImage && pf.previewUrl) {
+      content = `<img src="${pf.previewUrl}" alt="${pf.file.name}" />`;
+    } else if (pf.isImage) {
+      content = `<div class="file-icon"><span>...</span></div>`;
+    } else {
+      content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${pf.file.name.slice(0,8)}</span></div>`;
+    }
+    return `<div class="input-preview-card" data-id="${pf.id}">${content}<button class="remove-btn" onclick="removePendingFile('${pf.id}')">×</button></div>`;
+  }).join('');
+}
+
+async function uploadPendingFile(pf) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', pf.file);
+    
+    const xhr = new XMLHttpRequest();
+    xhr.upload.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          pf.status = 'uploaded';
+          pf.uploadedData = data;
+          resolve(data);
+        } catch { reject(new Error('Invalid response')); }
+      } else { reject(new Error('HTTP ' + xhr.status)); }
+    });
+    xhr.addEventListener('error', () => reject(new Error('Network error')));
+    xhr.open('POST', '/a/' + state.selectedAgentId + '/api/files/upload');
+    xhr.send(formData);
+  });
+}
+
+window.removePendingFile = removePendingFile;
 
 function normalizeSkillCommand(raw) {
   const skillName = String(raw || "").trim().replace(/^\/+/, "");
@@ -753,24 +846,67 @@ function handleChatBeforeRequest(event) {
     return;
   }
 
-  setChatSubmitting(true);
+  // Store message and attachments
   state.pendingMessage = dom.chatInput?.value || "";
-  removeWelcomeMessageIfPresent();
-  removePendingAssistantPlaceholder();
-  hideSuggest();
-  if (dom.messageList && state.pendingMessage.trim()) {
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage));
-    const thinkingId = `thinking-${Date.now()}`;
-    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
-    if (pending) pending.dataset.thinkingId = thinkingId;
-    state.inflightThinking = { id: thinkingId, events: [], completed: false };
-    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
-    ensureEventSocketForSelectedAgent();
-    scrollToBottom();
-  }
-  if (dom.chatInput) dom.chatInput.value = "";
-  setChatStatus("Sending...");
+  
+  // Upload pending files first, then continue with HTMX
+  const uploadFiles = async () => {
+    let attachments = [];
+    for (const pf of state.pendingFiles) {
+      if (pf.status === 'pending') {
+        try {
+          const data = await uploadPendingFile(pf);
+          attachments.push({
+            type: pf.isImage ? 'image' : 'file',
+            url: data.url,
+            name: data.name || pf.file.name,
+            file_id: data.file_id || data.id
+          });
+        } catch (error) {
+          showToast('Upload failed: ' + error.message);
+          return null;
+        }
+      }
+    }
+    return attachments;
+  };
+  
+  // Don't prevent default, but intercept after files are uploaded
+  uploadFiles().then((attachments) => {
+    if (attachments === null) return; // Upload failed
+    
+    // Set attachments in hidden input
+    document.getElementById('chat-attachments').value = JSON.stringify(attachments);
+    
+    // Update message with file references
+    if (attachments.length > 0) {
+      const fileRefs = attachments.map(a => '@file_' + a.file_id).join(' ');
+      state.pendingMessage = (state.pendingMessage + ' ' + fileRefs).trim();
+    }
+    
+    // Continue with normal flow
+    setChatSubmitting(true);
+    removeWelcomeMessageIfPresent();
+    removePendingAssistantPlaceholder();
+    hideSuggest();
+    if (dom.messageList && state.pendingMessage.trim()) {
+      dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage));
+      const thinkingId = 'thinking-' + Date.now();
+      dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+      const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
+      if (pending) pending.dataset.thinkingId = thinkingId;
+      state.inflightThinking = { id: thinkingId, events: [], completed: false };
+      if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+      ensureEventSocketForSelectedAgent();
+      scrollToBottom();
+    }
+    if (dom.chatInput) dom.chatInput.value = "";
+    clearPendingFiles();
+    setChatStatus("Sending...");
+  });
+  
+  event.preventDefault();
+  return false;
 }
 
 function handleChatResponseError(event) {
@@ -1837,7 +1973,12 @@ function bindEvents() {
     }
   });
 
-  dom.uploadInput?.addEventListener("change", uploadFile);
+  dom.uploadInput?.addEventListener("change", (e) => {
+    if (e.target.files?.length) {
+      addPendingFiles(e.target.files);
+      e.target.value = '';
+    }
+  });
 
   dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
   dom.topSettings?.addEventListener("click", openSettings);
@@ -2055,12 +2196,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       dragCounter = 0;
       messageList.classList.remove("drag-over");
       const files = e.dataTransfer?.files;
-      if (files?.length && dom.uploadInput) {
-        // Use the existing upload handler
-        const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(files[0]);
-        dom.uploadInput.files = dataTransfer.files;
-        await uploadFile();
+      if (files?.length) {
+        // Add files to preview area
+        addPendingFiles(files);
       }
     });
   }
