@@ -2218,6 +2218,23 @@ document.addEventListener("DOMContentLoaded", async () => {
         addPendingFiles(files);
       }
     });
+    
+    // Also support drag & drop on the chat form
+    const chatForm = document.getElementById('chat-form');
+    if (chatForm) {
+      chatForm.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      chatForm.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const files = e.dataTransfer?.files;
+        if (files?.length) {
+          addPendingFiles(files);
+        }
+      });
+    }
   }
   
   // Quick action buttons
