@@ -347,6 +347,50 @@ async def app_agent_files_panel(request: Request, agent_id: str):
         db.close()
 
 
+@router.post("/a/{agent_id}/api/files/upload")
+async def agent_files_upload(agent_id: str, request: Request):
+    """Proxy file upload to EFP agent"""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Read the multipart form data
+        form = await request.form()
+        file_field = form.get("file")
+        if not file_field:
+            raise HTTPException(status_code=400, detail="No file provided")
+
+        # Forward to EFP
+        from urllib.parse import urlencode
+        import io
+        
+        # Create a mock file-like object for httpx
+        content = await file_field.read()
+        
+        files = {"file": (file_field.filename, content, file_field.content_type)}
+        
+        base = proxy_service.build_agent_base_url(agent)
+        url = f"{base}/api/files/upload"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, files=files)
+        
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Upload failed: {resp.text}")
+        
+        return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"))
+    finally:
+        db.close()
+
+
 
 
 @router.get("/app/agents/{agent_id}/settings/panel")
