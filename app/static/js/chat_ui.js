@@ -853,11 +853,18 @@ async function refreshAll() {
 
 // ===== chat submit lifecycle (HTMX) =====
 function handleChatBeforeRequest(event) {
-  if (event.target?.id !== "chat-form") return;
+  console.log('[DEBUG] handleChatBeforeRequest called', event.target?.id);
+  if (event.target?.id !== "chat-form") {
+    console.log('[DEBUG] Not chat-form, returning');
+    return;
+  }
   if (state.isSubmittingChat) {
+    console.log('[DEBUG] Already submitting, preventing');
     event.preventDefault();
     return;
   }
+
+  console.log('[DEBUG] pendingFiles:', state.pendingFiles.length);
 
   // Store current message
   state.pendingMessage = dom.chatInput?.value || "";
