@@ -2368,7 +2368,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       e.stopPropagation();
       dragCounter = 0;
       messageList.classList.remove("drag-over");
-      document.getElementById('drop-overlay')?.classList.remove('active');
       
       const files = e.dataTransfer?.files;
       if (files?.length) {
@@ -2392,27 +2391,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           }
         }
       }
-    });
-  }
-  
-  // Drop overlay handlers
-  const dropOverlay = document.getElementById('drop-overlay');
-  if (dropOverlay) {
-    document.addEventListener('dragenter', (e) => {
-      if (e.dataTransfer?.types?.includes('Files')) {
-        dropOverlay.classList.add('active');
-      }
-    });
-    document.addEventListener('dragleave', (e) => {
-      if (e.relatedTarget === null || !document.body.contains(e.relatedTarget)) {
-        dropOverlay.classList.remove('active');
-      }
-    });
-    document.addEventListener('dragover', (e) => {
-      e.preventDefault();
-    });
-    document.addEventListener('drop', (e) => {
-      dropOverlay.classList.remove('active');
     });
   }
   
