@@ -412,11 +412,16 @@ function attachThinkingToLatestAssistant(events) {
 }
 
 function handleAgentEventMessage(raw) {
+  console.log('[WebSocket] Received:', raw);
   if (!state.inflightThinking) return;
 
   let payload = null;
-  try { payload = JSON.parse(raw); } catch { return; }
+  try { payload = JSON.parse(raw); } catch { 
+    console.log('[WebSocket] Failed to parse:', raw);
+    return; 
+  }
   const type = payload?.type;
+  console.log('[WebSocket] Event type:', type);
   if (!isTrackableThinkingEvent(type)) return;
 
   const entry = { type, data: payload?.data || {}, ts: payload?.ts || Date.now() / 1000 };
