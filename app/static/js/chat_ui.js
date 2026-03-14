@@ -2372,8 +2372,25 @@ document.addEventListener("DOMContentLoaded", async () => {
       
       const files = e.dataTransfer?.files;
       if (files?.length) {
-        // Add files to preview area instead of uploading immediately
-        addPendingFiles(files);
+        // Add files to preview area and upload immediately
+        const fileArray = Array.from(files);
+        for (const file of fileArray) {
+          // Add to pending files first for display
+          addPendingFiles([file]);
+        }
+        
+        // Upload each file immediately
+        for (const file of fileArray) {
+          // Find the pending file entry
+          const pf = state.pendingFiles.find(f => f.file === file);
+          if (pf) {
+            try {
+              await uploadPendingFile(pf);
+            } catch (error) {
+              showToast(`Upload failed: ${error.message}`);
+            }
+          }
+        }
       }
     });
   }
