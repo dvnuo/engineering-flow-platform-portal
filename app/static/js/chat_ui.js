@@ -160,8 +160,10 @@ function renderInputPreview() {
     const isError = pf.status === 'error';
     
     let content = '';
-    if (isImage) {
+    if (isImage && pf.previewUrl) {
       content = `<img src="${pf.previewUrl}" alt="${pf.file.name}" />`;
+    } else if (isImage && !pf.previewUrl) {
+      content = `<div class="file-icon"><div class="spinner"></div></div>`;
     } else {
       content = `<div class="file-icon">${getFileIcon(pf.file.name)}<span class="filename">${truncateFilename(pf.file.name)}</span></div>`;
     }
@@ -180,17 +182,42 @@ function renderInputPreview() {
 }
 
 function addPendingFiles(files) {
-  Array.from(files).forEach(async (file) => {
-    const preview = await createLocalPreview(file);
+  const fileArray = Array.from(files);
+  if (fileArray.length === 0) return;
+  
+  // Process each file
+  fileArray.forEach((file) => {
+    const isImage = file.type.startsWith('image/');
     state.pendingFiles.push({
       id: generateFileId(),
       file,
-      previewUrl: preview.url,
+      previewUrl: null, // Will be set after FileReader
+      isImage: isImage,
       progress: 0,
       status: 'pending'
     });
+    renderInputPreview();
+    
+    // Create preview asynchronously
+    if (isImage) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const pf = state.pendingFiles.find(f => f.file === file);
+        if (pf) {
+          pf.previewUrl = e.target.result;
+          renderInputPreview();
+        }
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // For non-images, use filename as preview
+      const pf = state.pendingFiles.find(f => f.file === file);
+      if (pf) {
+        pf.previewUrl = file.name;
+        renderInputPreview();
+      }
+    }
   });
-  renderInputPreview();
 }
 
 function removePendingFile(id) {
