@@ -2045,7 +2045,12 @@ function bindEvents() {
     }
   });
 
-  dom.uploadInput?.addEventListener("change", uploadFile);
+  dom.uploadInput?.addEventListener("change", (e) => {
+    if (e.target.files?.length) {
+      addPendingFiles(e.target.files);
+      e.target.value = ''; // Clear the input
+    }
+  });
 
   dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
   dom.topSettings?.addEventListener("click", openSettings);
