@@ -330,9 +330,9 @@ function buildUserMessageWithAttachments(text, attachments) {
   return html;
 }
 
-function buildPendingAssistantArticle() {
+function buildPendingAssistantArticle(thinkingId) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">Assistant</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
+  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1 assistant-header"><span class="text-xs font-semibold text-emerald-400">Assistant</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1" data-thinking-id="${thinkingId}"><div class="text-slate-300">Thinking...</div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -975,9 +975,8 @@ window.handleChatSubmit = function(event) {
     
     // Add thinking placeholder
     var thinkingId = 'thinking-' + Date.now();
-    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(thinkingId));
     var pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type');
-    if (pending) pending.dataset.thinkingId = thinkingId;
     state.inflightThinking = { id: thinkingId, events: [], completed: false };
     if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
     
@@ -1168,20 +1167,13 @@ function handleChatAfterSwap(target) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
-  // HTMX listeners removed - using direct fetch for chat
+  // HTMX listeners - only for tool panel, not for chat
   document.addEventListener("htmx:afterSwap", (event) => {
-    handleChatAfterSwap(event.target);
-    if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
-    if (event.target?.id === "message-list") {
-      clearPendingFiles();
-      // Refresh My Uploads if open
-      if (dom.toolPanelTitle?.textContent === "My Uploads") {
-        openMyUploads();
-      }
+    if (event.target?.id === "tool-panel-body") {
+      initializeSettingsPanel();
+      renderIcons();
     }
-    renderIcons();
   });
-  document.addEventListener("htmx:responseError", handleChatResponseError);
 }
 
 // ===== suggestion popup hooks =====
