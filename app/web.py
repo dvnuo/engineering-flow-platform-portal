@@ -368,17 +368,15 @@ async def agent_files_upload(agent_id: str, request: Request):
         if not file_field:
             raise HTTPException(status_code=400, detail="No file provided")
 
-        # Forward to EFP
-        from urllib.parse import urlencode
-        import io
-        
-        # Create a mock file-like object for httpx
+        # Read file content
         content = await file_field.read()
         
-        files = {"file": (file_field.filename, content, file_field.content_type)}
-        
+        # Build URL to EFP
         base = proxy_service.build_agent_base_url(agent)
         url = f"{base}/api/files/upload"
+        
+        # Send as multipart form using httpx
+        files = {"file": (file_field.filename, content, file_field.content_type)}
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, files=files)
