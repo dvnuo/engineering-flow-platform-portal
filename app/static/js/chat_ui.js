@@ -935,81 +935,83 @@ function handleChatBeforeRequest(event) {
     return false;
   }
   
-  // Store message before clearing
+  // Store message
   state.pendingMessage = dom.chatInput?.value || "";
   
-  // Handle pending file uploads first - return false to prevent HTMX default
-  const handleFiles = async () => {
+  // Show user message immediately (before async upload)
+  removeWelcomeMessageIfPresent();
+  removePendingAssistantPlaceholder();
+  hideSuggest();
+  
+  if (dom.messageList && state.pendingMessage.trim()) {
+    // Build attachments from pending files (not yet uploaded, but we'll show placeholder)
+    let attachments = [];
     if (state.pendingFiles.length > 0) {
-      const pendingFiles = [...state.pendingFiles];
-      const attachments = [];
-      
-      for (const pf of pendingFiles) {
+      attachments = state.pendingFiles.map(pf => ({
+        type: pf.isImage ? 'image' : 'file',
+        url: pf.previewUrl || '',
+        name: pf.file.name,
+        file_id: 'pending'
+      }));
+    }
+    
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageWithAttachments(state.pendingMessage, attachments));
+    const thinkingId = `thinking-${Date.now()}`;
+    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type');
+    if (pending) pending.dataset.thinkingId = thinkingId;
+    state.inflightThinking = { id: thinkingId, events: [], completed: false };
+    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+    ensureEventSocketForSelectedAgent();
+    scrollToBottom();
+  }
+  
+  if (dom.chatInput) dom.chatInput.value = "";
+  setChatStatus("Sending...");
+  setChatSubmitting(true);
+  
+  // Upload pending files first, then let HTMX submit
+  const uploadAndSubmit = async () => {
+    let attachments = [];
+    
+    if (state.pendingFiles.length > 0) {
+      for (const pf of state.pendingFiles) {
         if (pf.status === 'pending' || pf.status === 'error') {
           try {
             const data = await uploadPendingFile(pf);
             attachments.push({
-              type: pf.file.type.startsWith('image/') ? 'image' : 'file',
+              type: pf.isImage ? 'image' : 'file',
               url: data.url,
               name: data.name || pf.file.name,
               file_id: data.file_id || data.id
             });
           } catch (error) {
-            showToast(`Failed to upload ${pf.file.name}: ${error.message}`);
+            showToast(`Upload failed: ${error.message}`);
             setChatSubmitting(false);
             return false;
           }
         } else if (pf.status === 'uploaded' && pf.uploadedData) {
           attachments.push({
-            type: pf.file.type.startsWith('image/') ? 'image' : 'file',
+            type: pf.isImage ? 'image' : 'file',
             url: pf.uploadedData.url,
             name: pf.uploadedData.name || pf.file.name,
             file_id: pf.uploadedData.file_id || pf.uploadedData.id
           });
         }
       }
-      
-      // Store attachments
-      document.getElementById('chat-attachments').value = JSON.stringify(attachments);
     }
+    
+    // Set attachments in hidden input
+    document.getElementById('chat-attachments').value = JSON.stringify(attachments);
+    
+    // Now trigger HTMX form submission
+    htmx.trigger("#chat-form", "submit");
     return true;
   };
   
-  // Prevent default HTMX submit
+  // Prevent default and handle async upload
   event.preventDefault();
-  
-  handleFiles().then((success) => {
-    if (!success) return;
-    
-    setChatSubmitting(true);
-    
-    // Show user message immediately
-    removeWelcomeMessageIfPresent();
-    removePendingAssistantPlaceholder();
-    hideSuggest();
-    
-    if (dom.messageList && state.pendingMessage.trim()) {
-      const attInput = document.getElementById('chat-attachments');
-      let attachments = [];
-      try { attachments = attInput?.value ? JSON.parse(attInput.value) : []; } catch {}
-      
-      dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageWithAttachments(state.pendingMessage, attachments));
-      const thinkingId = `thinking-${Date.now()}`;
-      dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-      const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type');
-      if (pending) pending.dataset.thinkingId = thinkingId;
-      state.inflightThinking = { id: thinkingId, events: [], completed: false };
-      if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
-      ensureEventSocketForSelectedAgent();
-      scrollToBottom();
-    }
-    
-    if (dom.chatInput) dom.chatInput.value = "";
-    setChatStatus("Sending...");
-    
-    // Now submit via HTMX
-    htmx.trigger("#chat-form", "submit");
-  });
+  uploadAndSubmit();
   
   return false;
 }
@@ -2110,7 +2112,9 @@ function bindEvents() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (state.isSubmittingChat) return;
-      htmx.trigger("#chat-form", "submit");
+      // Trigger form submission
+      const form = document.getElementById('chat-form');
+      if (form) form.dispatchEvent(new Event('submit', { bubbles: true }));
     }
   });
 
