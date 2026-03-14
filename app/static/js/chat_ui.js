@@ -321,16 +321,28 @@ async function uploadPendingFile(pf) {
 
 // ===== Chat Submit Handler =====
 window.handleChatSubmit = async function(event) {
+  const agentId = state.selectedAgentId;
+  if (!agentId) {
+    showToast('Please select an agent first');
+    return false;
+  }
+  
+  const message = dom.chatInput?.value?.trim() || '';
+  const attachmentsInput = document.getElementById('chat-attachments');
+  let attachments = [];
+  try {
+    attachments = attachmentsInput?.value ? JSON.parse(attachmentsInput.value) : [];
+  } catch {}
+  
   // If there are pending files, upload them first
   if (state.pendingFiles.length > 0) {
     const pendingFiles = [...state.pendingFiles];
-    const uploadedAttachments = [];
     
     for (const pf of pendingFiles) {
       if (pf.status === 'pending' || pf.status === 'error') {
         try {
           const data = await uploadPendingFile(pf);
-          uploadedAttachments.push({
+          attachments.push({
             type: pf.file.type.startsWith('image/') ? 'image' : 'file',
             url: data.url,
             name: data.name || pf.file.name,
@@ -338,10 +350,10 @@ window.handleChatSubmit = async function(event) {
           });
         } catch (error) {
           showToast(`Failed to upload ${pf.file.name}: ${error.message}`);
-          return false; // Cancel submit
+          return false;
         }
       } else if (pf.status === 'uploaded' && pf.uploadedData) {
-        uploadedAttachments.push({
+        attachments.push({
           type: pf.file.type.startsWith('image/') ? 'image' : 'file',
           url: pf.uploadedData.url,
           name: pf.uploadedData.name || pf.file.name,
@@ -350,16 +362,103 @@ window.handleChatSubmit = async function(event) {
       }
     }
     
-    console.log('[handleChatSubmit] Uploading attachments:', uploadedAttachments);
-    
-    // Store attachments as JSON in hidden input
-    document.getElementById('chat-attachments').value = JSON.stringify(uploadedAttachments);
-    console.log('[handleChatSubmit] Set chat-attachments to:', document.getElementById('chat-attachments').value);
+    attachmentsInput.value = JSON.stringify(attachments);
   }
   
-  // Continue with normal HTMX form submission
-  return true;
+  // Build payload for EFP
+  const payload = { message };
+  if (attachments.length > 0) {
+    const fileRefs = attachments.map(a => `@file_${a.file_id}`).join(' ');
+    payload.message = `${message} ${fileRefs}`.trim();
+  }
+  
+  const sessionId = dom.chatSessionId?.value;
+  if (sessionId) {
+    payload.session_id = sessionId;
+  }
+  
+  // Send directly to EFP via fetch
+  try {
+    const response = await fetch(`/a/${agentId}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Render user message with attachments
+    const userMsgHtml = renderUserMessage(message, attachments);
+    dom.messageList?.insertAdjacentHTML('beforeend', userMsgHtml);
+    
+    // Render assistant response
+    const assistantMsgHtml = renderAssistantMessage(data.response || '(empty response)', data.session_id);
+    dom.messageList?.insertAdjacentHTML('beforeend', assistantMsgHtml);
+    
+    if (data.session_id) {
+      dom.chatSessionId.value = data.session_id;
+    }
+    
+    dom.chatInput.value = '';
+    clearPendingFiles();
+    attachmentsInput.value = '';
+    scrollToBottom();
+    renderIcons();
+    
+  } catch (error) {
+    showToast(`Error: ${error.message}`);
+  }
+  
+  return false;
 };
+
+function renderUserMessage(message, attachments) {
+  let html = `<div class="flex flex-col items-end">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-xs font-semibold text-blue-400">You</span>
+    </div>
+    <article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50">`;
+  
+  if (message) {
+    html += `<div class="whitespace-pre-wrap text-sm">${escapeHtml(message)}</div>`;
+  }
+  
+  if (attachments?.length) {
+    html += `<div class="mt-2 flex flex-wrap gap-2">`;
+    for (const att of attachments) {
+      const isImage = att.type === 'image';
+      if (isImage) {
+        html += `<div class="attachment-preview rounded-lg overflow-hidden border border-slate-500 bg-slate-800" data-url="${att.url}" data-type="${att.type}" data-name="${att.name || ''}">
+          <img src="${att.url}" alt="${att.name || ''}" class="w-24 h-24 object-cover cursor-pointer" onclick="previewAttachment('${att.url}', '${att.type}')" />
+        </div>`;
+      } else {
+        html += `<div class="attachment-preview rounded-lg overflow-hidden border border-slate-500 bg-slate-800 w-24 h-24 flex flex-col items-center justify-center cursor-pointer" onclick="previewAttachment('${att.url}', '${att.type}')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="text-xs text-slate-400 mt-1 truncate max-w-full px-1">${att.name || 'file'}</span>
+        </div>`;
+      }
+    }
+    html += `</div>`;
+  }
+  
+  html += `</article></div>`;
+  return html;
+}
+
+function renderAssistantMessage(response, sessionId) {
+  return `<div class="flex flex-col items-start">
+    <div class="flex items-center gap-2 mb-1 assistant-header">
+      <span class="text-xs font-semibold text-emerald-400">Assistant</span>
+    </div>
+    <article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message">
+      <div class="md-render prose prose-invert max-w-none text-sm">${escapeHtml(response)}</div>
+    </article>
+  </div>`;
+}
 
 // ===== generic helpers =====
 function safe(value) {
