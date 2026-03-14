@@ -853,18 +853,11 @@ async function refreshAll() {
 
 // ===== chat submit lifecycle =====
 function handleChatBeforeRequest(event) {
-  console.log('[DEBUG] handleChatBeforeRequest called', event.target?.id);
-  if (event.target?.id !== "chat-form") {
-    console.log('[DEBUG] Not chat-form, returning');
-    return;
-  }
+  if (event.target?.id !== "chat-form") return;
   if (state.isSubmittingChat) {
-    console.log('[DEBUG] Already submitting, preventing');
     event.preventDefault();
     return;
   }
-
-  console.log('[DEBUG] pendingFiles:', state.pendingFiles.length);
 
   // Store current message
   state.pendingMessage = dom.chatInput?.value || "";
@@ -2226,7 +2219,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const chatForm = document.getElementById('chat-form');
   if (chatForm) {
     chatForm.addEventListener('submit', function(e) {
-      console.log('[DEBUG] Direct form submit intercepted');
       handleChatBeforeRequest({ target: this, preventDefault: function() { e.preventDefault(); } });
     });
   }
