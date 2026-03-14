@@ -327,8 +327,8 @@ window.handleChatSubmit = async function(event) {
     // Store attachments as JSON in hidden input
     document.getElementById('chat-attachments').value = JSON.stringify(uploadedAttachments);
     
-    // Clear pending files after successful upload
-    clearPendingFiles();
+    // Clear pending files after successful upload (keep for display until HTMX swap)
+    // We'll clear after swap in htmx:afterSwap
   }
   
   // Continue with normal HTMX form submission
