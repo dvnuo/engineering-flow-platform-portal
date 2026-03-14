@@ -377,9 +377,32 @@ window.handleChatSubmit = async function(event) {
     payload.session_id = sessionId;
   }
   
-  // Send directly to EFP via fetch
+  // Render user message immediately
+  const userMsgHtml = renderUserMessage(message, attachments);
+  dom.messageList?.insertAdjacentHTML('beforeend', userMsgHtml);
+  
+  // Create placeholder for assistant response
+  const placeholderId = 'assistant_' + Date.now();
+  const placeholderHtml = `<div id="${placeholderId}" class="flex flex-col items-start">
+    <div class="flex items-center gap-2 mb-1 assistant-header">
+      <span class="text-xs font-semibold text-emerald-400">Assistant</span>
+      <span class="text-xs text-slate-500 animate-pulse">...</span>
+    </div>
+    <article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message">
+      <div class="md-render prose prose-invert max-w-none text-sm"></div>
+    </article>
+  </div>`;
+  dom.messageList?.insertAdjacentHTML('beforeend', placeholderHtml);
+  
+  // Clear input
+  dom.chatInput.value = '';
+  clearPendingFiles();
+  attachmentsInput.value = '';
+  scrollToBottom();
+  
+  // Use SSE streaming
   try {
-    const response = await fetch(`/a/${agentId}/api/chat`, {
+    const response = await fetch(`/a/${agentId}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -389,27 +412,84 @@ window.handleChatSubmit = async function(event) {
       throw new Error(`HTTP ${response.status}`);
     }
     
-    const data = await response.json();
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullResponse = '';
+    let currentSessionId = sessionId;
     
-    // Render user message with attachments
-    const userMsgHtml = renderUserMessage(message, attachments);
-    dom.messageList?.insertAdjacentHTML('beforeend', userMsgHtml);
+    const placeholder = document.getElementById(placeholderId);
+    const contentDiv = placeholder?.querySelector('.md-render');
     
-    // Render assistant response
-    const assistantMsgHtml = renderAssistantMessage(data.response || '(empty response)', data.session_id);
-    dom.messageList?.insertAdjacentHTML('beforeend', assistantMsgHtml);
-    
-    if (data.session_id) {
-      dom.chatSessionId.value = data.session_id;
+    if (!reader) {
+      throw new Error('Cannot read response stream');
     }
     
-    dom.chatInput.value = '';
-    clearPendingFiles();
-    attachmentsInput.value = '';
-    scrollToBottom();
-    renderIcons();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.session_id && !currentSessionId) {
+              currentSessionId = data.session_id;
+            }
+            
+            // Handle progress events (thinking)
+            if (data.thinking || data.progress) {
+              const thinking = data.thinking || data.progress || '';
+              if (contentDiv && thinking) {
+                contentDiv.innerHTML = escapeHtml(thinking).replace(/\n/g, '<br>');
+                scrollToBottom();
+              }
+            }
+            
+            // Accumulate response
+            if (data.response) {
+              fullResponse += data.response;
+              if (contentDiv) {
+                contentDiv.innerHTML = fullResponse;
+                scrollToBottom();
+              }
+            }
+          } catch (e) {
+            // Try plain text
+            const text = line.slice(6);
+            if (text && text !== '[DONE]') {
+              fullResponse += text;
+              if (contentDiv) {
+                contentDiv.innerHTML = fullResponse;
+                scrollToBottom();
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Update session_id
+    if (currentSessionId) {
+      dom.chatSessionId.value = currentSessionId;
+    }
+    
+    // Final render
+    if (contentDiv) {
+      contentDiv.innerHTML = fullResponse || '(empty response)';
+      renderMarkdown(placeholder);
+    }
     
   } catch (error) {
+    const placeholder = document.getElementById(placeholderId);
+    if (placeholder) {
+      placeholder.querySelector('.md-render').innerHTML = `<span class="text-red-500">Error: ${escapeHtml(error.message)}</span>`;
+    }
     showToast(`Error: ${error.message}`);
   }
   
