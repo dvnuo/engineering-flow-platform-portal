@@ -182,12 +182,14 @@ function renderInputPreview() {
 }
 
 async function uploadPendingFile(pf) {
+  console.log('[UPLOAD] Starting upload for', pf.file.name, 'to agent', state.selectedAgentId);
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append('file', pf.file);
     
     const xhr = new XMLHttpRequest();
     xhr.upload.addEventListener('load', () => {
+      console.log('[UPLOAD] Load event, status:', xhr.status);
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const data = JSON.parse(xhr.responseText);
@@ -197,8 +199,11 @@ async function uploadPendingFile(pf) {
         } catch { reject(new Error('Invalid response')); }
       } else { reject(new Error('HTTP ' + xhr.status)); }
     });
-    xhr.addEventListener('error', () => reject(new Error('Network error')));
-    xhr.open('POST', '/a/' + state.selectedAgentId + '/api/files/upload');
+    xhr.addEventListener('error', () => { console.log('[UPLOAD] Error'); reject(new Error('Network error')); });
+    xhr.addEventListener('loadend', () => { console.log('[UPLOAD] Ended, status:', xhr.status, 'response:', xhr.responseText.substring(0, 100)); });
+    const url = '/a/' + state.selectedAgentId + '/api/files/upload';
+    console.log('[UPLOAD] URL:', url);
+    xhr.open('POST', url);
     xhr.send(formData);
   });
 }
