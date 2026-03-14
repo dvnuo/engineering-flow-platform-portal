@@ -372,8 +372,8 @@ async def agent_files_upload(agent_id: str, request: Request):
         # Read file content
         content = await file_field.read()
         
-        # Send to EFP directly (running on localhost:8001)
-        url = "http://localhost:8001/api/files/upload"
+        # Send to EFP via NodePort (32161)
+        url = "http://192.168.8.237:32161/api/files/upload"
         files = {"file": (file_field.filename, content, file_field.content_type)}
         
         async with httpx.AsyncClient(timeout=30.0) as client:
