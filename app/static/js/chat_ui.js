@@ -86,7 +86,6 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
-  pendingFiles: [],  // Files waiting to be sent: { id, file, previewUrl, progress, status }
 };
 
 const md = window.markdownit({
@@ -100,445 +99,6 @@ const md = window.markdownit({
     return `<pre><code class="hljs">${md.utils.escapeHtml(str)}</code></pre>`;
   },
 });
-
-// ===== File Preview Functions =====
-function generateFileId() {
-  return 'file_' + Math.random().toString(36).substr(2, 9);
-}
-
-function getFileIcon(filename) {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  const iconMap = {
-    pdf: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
-    zip: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>',
-    doc: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
-    default: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
-  };
-  if (['pdf'].includes(ext)) return iconMap.pdf;
-  if (['zip', 'rar', '7z'].includes(ext)) return iconMap.zip;
-  if (['doc', 'docx', 'txt', 'md', 'json', 'js', 'py', 'html', 'css'].includes(ext)) return iconMap.doc;
-  return iconMap.default;
-}
-
-function truncateFilename(name, maxLen = 12) {
-  if (name.length <= maxLen) return name;
-  const ext = name.split('.').pop() || '';
-  const base = name.slice(0, name.length - ext.length - 1);
-  const truncatedBase = base.slice(0, maxLen - ext.length - 4) + '...';
-  return truncatedBase + '.' + ext;
-}
-
-async function createLocalPreview(file) {
-  return new Promise((resolve) => {
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve({ type: 'image', url: e.target.result });
-      reader.readAsDataURL(file);
-    } else {
-      resolve({ type: 'file', name: file.name });
-    }
-  });
-}
-
-function renderInputPreview() {
-  const container = document.getElementById('input-preview-area');
-  if (!container) return;
-  
-  if (state.pendingFiles.length === 0) {
-    container.classList.add('hidden');
-    container.classList.remove('has-files');
-    container.innerHTML = '';
-    return;
-  }
-  
-  container.classList.remove('hidden');
-  container.classList.add('has-files');
-  
-  container.innerHTML = state.pendingFiles.map(pf => {
-    const isImage = pf.file.type.startsWith('image/');
-    const isUploading = pf.status === 'uploading';
-    const isError = pf.status === 'error';
-    
-    let content = '';
-    if (isImage && pf.previewUrl) {
-      content = `<img src="${pf.previewUrl}" alt="${pf.file.name}" />`;
-    } else if (isImage && !pf.previewUrl) {
-      content = `<div class="file-icon"><div class="spinner"></div></div>`;
-    } else {
-      content = `<div class="file-icon">${getFileIcon(pf.file.name)}<span class="filename">${truncateFilename(pf.file.name)}</span></div>`;
-    }
-    
-    let statusContent = '';
-    if (isUploading) {
-      statusContent = `<div class="loading-spinner"><div class="spinner"></div></div>`;
-    } else if (pf.progress < 100 && pf.status === 'uploading') {
-      statusContent = `<div class="progress-bar"><div class="progress" style="width: ${pf.progress}%"></div></div>`;
-    } else if (isError) {
-      statusContent = `<div class="progress-bar"><div class="progress" style="width: 100%; background: #ef4444;"></div></div>`;
-    }
-    
-    return `<div class="input-preview-card" data-id="${pf.id}">${content}${statusContent}<button class="remove-btn" onclick="removePendingFile('${pf.id}')">×</button></div>`;
-  }).join('');
-}
-
-function addPendingFiles(files) {
-  const fileArray = Array.from(files);
-  if (fileArray.length === 0) return;
-  
-  // Process each file
-  fileArray.forEach((file) => {
-    const isImage = file.type.startsWith('image/');
-    state.pendingFiles.push({
-      id: generateFileId(),
-      file,
-      previewUrl: null, // Will be set after FileReader
-      isImage: isImage,
-      progress: 0,
-      status: 'pending'
-    });
-    renderInputPreview();
-    
-    // Create preview asynchronously
-    if (isImage) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const pf = state.pendingFiles.find(f => f.file === file);
-        if (pf) {
-          pf.previewUrl = e.target.result;
-          renderInputPreview();
-        }
-      };
-      reader.readAsDataURL(file);
-    } else {
-      // For non-images, use filename as preview
-      const pf = state.pendingFiles.find(f => f.file === file);
-      if (pf) {
-        pf.previewUrl = file.name;
-        renderInputPreview();
-      }
-    }
-  });
-}
-
-// Add file from My Uploads (already uploaded to EFP)
-window.addFileFromUpload = function(fileId, filename) {
-  // Add to pending files as "already uploaded" 
-  // We'll use the fileId to construct the reference for EFP
-  const isImage = filename.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
-  
-  state.pendingFiles.push({
-    id: generateFileId(),
-    file: {
-      name: filename,
-      type: isImage ? 'image/png' : 'application/octet-stream'
-    },
-    previewUrl: filename, // Show filename as preview
-    isImage: false, // Don't try to load as image
-    progress: 100,
-    status: 'uploaded',
-    uploadedData: {
-      file_id: fileId,
-      id: fileId,
-      name: filename
-    }
-  });
-  renderInputPreview();
-  showToast(`Added ${filename} to message`);
-};
-
-function removePendingFile(id) {
-  const idx = state.pendingFiles.findIndex(f => f.id === id);
-  if (idx !== -1) {
-    const pf = state.pendingFiles[idx];
-    if (pf.previewUrl && pf.file.type.startsWith('image/')) {
-      URL.revokeObjectURL(pf.previewUrl);
-    }
-    state.pendingFiles.splice(idx, 1);
-    renderInputPreview();
-  }
-}
-
-function clearPendingFiles() {
-  state.pendingFiles.forEach(pf => {
-    if (pf.previewUrl && pf.file.type.startsWith('image/')) {
-      URL.revokeObjectURL(pf.previewUrl);
-    }
-  });
-  state.pendingFiles = [];
-  renderInputPreview();
-}
-
-async function uploadPendingFile(pf) {
-  pf.status = 'uploading';
-  pf.progress = 0;
-  renderInputPreview();
-  
-  try {
-    const formData = new FormData();
-    formData.append('file', pf.file);
-    
-    const xhr = new XMLHttpRequest();
-    
-    const uploadPromise = new Promise((resolve, reject) => {
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          pf.progress = Math.round((e.loaded / e.total) * 100);
-          renderInputPreview();
-        }
-      });
-      xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const data = JSON.parse(xhr.responseText);
-            resolve(data);
-          } catch {
-            reject(new Error('Invalid response'));
-          }
-        } else {
-          reject(new Error(`HTTP ${xhr.status}`));
-        }
-      });
-      xhr.addEventListener('error', () => reject(new Error('Network error')));
-      xhr.addEventListener('abort', () => reject(new Error('Aborted')));
-    });
-    
-    xhr.open('POST', `/a/${state.selectedAgentId}/api/files/upload`);
-    xhr.send(formData);
-    
-    const data = await uploadPromise;
-    pf.status = 'uploaded';
-    pf.uploadedData = data;
-    pf.progress = 100;
-    renderInputPreview();
-    return data;
-  } catch (error) {
-    pf.status = 'error';
-    pf.error = error.message;
-    renderInputPreview();
-    throw error;
-  }
-}
-
-// ===== Chat Submit Handler =====
-window.handleChatSubmit = async function(event) {
-  const agentId = state.selectedAgentId;
-  if (!agentId) {
-    showToast('Please select an agent first');
-    return false;
-  }
-  
-  const message = dom.chatInput?.value?.trim() || '';
-  const attachmentsInput = document.getElementById('chat-attachments');
-  let attachments = [];
-  try {
-    attachments = attachmentsInput?.value ? JSON.parse(attachmentsInput.value) : [];
-  } catch {}
-  
-  // If there are pending files, upload them first
-  if (state.pendingFiles.length > 0) {
-    const pendingFiles = [...state.pendingFiles];
-    
-    for (const pf of pendingFiles) {
-      if (pf.status === 'pending' || pf.status === 'error') {
-        try {
-          const data = await uploadPendingFile(pf);
-          attachments.push({
-            type: pf.file.type.startsWith('image/') ? 'image' : 'file',
-            url: data.url,
-            name: data.name || pf.file.name,
-            file_id: data.file_id || data.id
-          });
-        } catch (error) {
-          showToast(`Failed to upload ${pf.file.name}: ${error.message}`);
-          return false;
-        }
-      } else if (pf.status === 'uploaded' && pf.uploadedData) {
-        attachments.push({
-          type: pf.file.type.startsWith('image/') ? 'image' : 'file',
-          url: pf.uploadedData.url,
-          name: pf.uploadedData.name || pf.file.name,
-          file_id: pf.uploadedData.file_id || pf.uploadedData.id
-        });
-      }
-    }
-    
-    attachmentsInput.value = JSON.stringify(attachments);
-  }
-  
-  // Build payload for EFP
-  const payload = { message };
-  if (attachments.length > 0) {
-    const fileRefs = attachments.map(a => `@file_${a.file_id}`).join(' ');
-    payload.message = `${message} ${fileRefs}`.trim();
-  }
-  
-  const sessionId = dom.chatSessionId?.value;
-  if (sessionId) {
-    payload.session_id = sessionId;
-  }
-  
-  // Render user message immediately
-  const userMsgHtml = renderUserMessage(message, attachments);
-  dom.messageList?.insertAdjacentHTML('beforeend', userMsgHtml);
-  
-  // Create placeholder for assistant response
-  const placeholderId = 'assistant_' + Date.now();
-  const placeholderHtml = `<div id="${placeholderId}" class="flex flex-col items-start">
-    <div class="flex items-center gap-2 mb-1 assistant-header">
-      <span class="text-xs font-semibold text-emerald-400">Assistant</span>
-      <span class="text-xs text-slate-500 animate-pulse">...</span>
-    </div>
-    <article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message">
-      <div class="md-render prose prose-invert max-w-none text-sm"></div>
-    </article>
-  </div>`;
-  dom.messageList?.insertAdjacentHTML('beforeend', placeholderHtml);
-  
-  // Clear input
-  dom.chatInput.value = '';
-  clearPendingFiles();
-  attachmentsInput.value = '';
-  scrollToBottom();
-  
-  // Use SSE streaming
-  try {
-    const response = await fetch(`/a/${agentId}/api/chat/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let fullResponse = '';
-    let currentSessionId = sessionId;
-    
-    const placeholder = document.getElementById(placeholderId);
-    const contentDiv = placeholder?.querySelector('.md-render');
-    
-    if (!reader) {
-      throw new Error('Cannot read response stream');
-    }
-    
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            
-            if (data.session_id && !currentSessionId) {
-              currentSessionId = data.session_id;
-            }
-            
-            // Handle progress events (thinking)
-            if (data.thinking || data.progress) {
-              const thinking = data.thinking || data.progress || '';
-              if (contentDiv && thinking) {
-                contentDiv.innerHTML = escapeHtml(thinking).replace(/\n/g, '<br>');
-                scrollToBottom();
-              }
-            }
-            
-            // Accumulate response
-            if (data.response) {
-              fullResponse += data.response;
-              if (contentDiv) {
-                contentDiv.innerHTML = fullResponse;
-                scrollToBottom();
-              }
-            }
-          } catch (e) {
-            // Try plain text
-            const text = line.slice(6);
-            if (text && text !== '[DONE]') {
-              fullResponse += text;
-              if (contentDiv) {
-                contentDiv.innerHTML = fullResponse;
-                scrollToBottom();
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // Update session_id
-    if (currentSessionId) {
-      dom.chatSessionId.value = currentSessionId;
-    }
-    
-    // Final render
-    if (contentDiv) {
-      contentDiv.innerHTML = fullResponse || '(empty response)';
-      renderMarkdown(placeholder);
-    }
-    
-  } catch (error) {
-    const placeholder = document.getElementById(placeholderId);
-    if (placeholder) {
-      placeholder.querySelector('.md-render').innerHTML = `<span class="text-red-500">Error: ${escapeHtml(error.message)}</span>`;
-    }
-    showToast(`Error: ${error.message}`);
-  }
-  
-  return false;
-};
-
-function renderUserMessage(message, attachments) {
-  let html = `<div class="flex flex-col items-end">
-    <div class="flex items-center gap-2 mb-1">
-      <span class="text-xs font-semibold text-blue-400">You</span>
-    </div>
-    <article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50">`;
-  
-  if (message) {
-    html += `<div class="whitespace-pre-wrap text-sm">${escapeHtml(message)}</div>`;
-  }
-  
-  if (attachments?.length) {
-    html += `<div class="mt-2 flex flex-wrap gap-2">`;
-    for (const att of attachments) {
-      const isImage = att.type === 'image';
-      if (isImage) {
-        html += `<div class="attachment-preview rounded-lg overflow-hidden border border-slate-500 bg-slate-800" data-url="${att.url}" data-type="${att.type}" data-name="${att.name || ''}">
-          <img src="${att.url}" alt="${att.name || ''}" class="w-24 h-24 object-cover cursor-pointer" onclick="previewAttachment('${att.url}', '${att.type}')" />
-        </div>`;
-      } else {
-        html += `<div class="attachment-preview rounded-lg overflow-hidden border border-slate-500 bg-slate-800 w-24 h-24 flex flex-col items-center justify-center cursor-pointer" onclick="previewAttachment('${att.url}', '${att.type}')">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <span class="text-xs text-slate-400 mt-1 truncate max-w-full px-1">${att.name || 'file'}</span>
-        </div>`;
-      }
-    }
-    html += `</div>`;
-  }
-  
-  html += `</article></div>`;
-  return html;
-}
-
-function renderAssistantMessage(response, sessionId) {
-  return `<div class="flex flex-col items-start">
-    <div class="flex items-center gap-2 mb-1 assistant-header">
-      <span class="text-xs font-semibold text-emerald-400">Assistant</span>
-    </div>
-    <article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message">
-      <div class="md-render prose prose-invert max-w-none text-sm">${escapeHtml(response)}</div>
-    </article>
-  </div>`;
-}
 
 // ===== generic helpers =====
 function safe(value) {
@@ -572,8 +132,37 @@ function canWriteAgent(agent) {
 }
 
 function buildUserMessageArticle(text) {
+  return buildUserMessageWithAttachments(text, []);
+}
+
+function buildUserMessageWithAttachments(text, attachments) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div></article></div>`;
+  let html = `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1">`;
+  
+  if (text) {
+    html += `<div class="whitespace-pre-wrap text-sm">${safe(text)}</div>`;
+  }
+  
+  if (attachments?.length) {
+    html += `<div class="mt-2 flex flex-wrap gap-2">`;
+    for (const att of attachments) {
+      const isImage = att.type === 'image';
+      if (isImage) {
+        html += `<div class="attachment-preview rounded-lg overflow-hidden border border-slate-500 bg-slate-800">
+          <img src="${att.url}" alt="${att.name || ''}" class="w-24 h-24 object-cover cursor-pointer" onclick="previewAttachment('${att.url}', '${att.type}')" />
+        </div>`;
+      } else {
+        html += `<div class="attachment-preview rounded-lg overflow-hidden border border-slate-500 bg-slate-800 w-24 h-24 flex flex-col items-center justify-center cursor-pointer" onclick="previewAttachment('${att.url}', '${att.type}')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="text-xs text-slate-400 mt-1 truncate max-w-full px-1">${att.name || 'file'}</span>
+        </div>`;
+      }
+    }
+    html += `</div>`;
+  }
+  
+  html += `</article></div>`;
+  return html;
 }
 
 function buildPendingAssistantArticle() {
@@ -1099,13 +688,6 @@ async function selectAgentById(agentId) {
   disconnectEventSocket();
 
   if (dom.chatAgentId) dom.chatAgentId.value = agentId || "";
-  
-  // Update form action dynamically
-  const chatForm = document.getElementById('chat-form');
-  if (chatForm && agentId) {
-    chatForm.setAttribute('hx-post', `/a/${agentId}/api/chat`);
-  }
-  
   syncHiddenSessionInputFromState();
   clearMessageListToWelcome();
 
@@ -1135,13 +717,6 @@ async function syncSelectedAgentState() {
   }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
-  
-  // Update form action dynamically
-  const chatForm = document.getElementById('chat-form');
-  if (chatForm && agent.id) {
-    chatForm.setAttribute('hx-post', `/a/${agent.id}/api/chat`);
-  }
-  
   syncHiddenSessionInputFromState();
 
   renderAgentMeta(agent);
@@ -1208,23 +783,76 @@ function handleChatBeforeRequest(event) {
   }
 
   setChatSubmitting(true);
-  state.pendingMessage = dom.chatInput?.value || "";
-  removeWelcomeMessageIfPresent();
-  removePendingAssistantPlaceholder();
-  hideSuggest();
-  if (dom.messageList && state.pendingMessage.trim()) {
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage));
-    const thinkingId = `thinking-${Date.now()}`;
-    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
-    if (pending) pending.dataset.thinkingId = thinkingId;
-    state.inflightThinking = { id: thinkingId, events: [], completed: false };
-    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
-    ensureEventSocketForSelectedAgent();
-    scrollToBottom();
-  }
-  if (dom.chatInput) dom.chatInput.value = "";
-  setChatStatus("Sending...");
+  
+  // Handle pending file uploads first
+  const handleFiles = async () => {
+    if (state.pendingFiles.length > 0) {
+      const pendingFiles = [...state.pendingFiles];
+      const attachments = [];
+      
+      for (const pf of pendingFiles) {
+        if (pf.status === 'pending' || pf.status === 'error') {
+          try {
+            const data = await uploadPendingFile(pf);
+            attachments.push({
+              type: pf.file.type.startsWith('image/') ? 'image' : 'file',
+              url: data.url,
+              name: data.name || pf.file.name,
+              file_id: data.file_id || data.id
+            });
+          } catch (error) {
+            showToast(`Failed to upload ${pf.file.name}: ${error.message}`);
+            setChatSubmitting(false);
+            return false;
+          }
+        } else if (pf.status === 'uploaded' && pf.uploadedData) {
+          attachments.push({
+            type: pf.file.type.startsWith('image/') ? 'image' : 'file',
+            url: pf.uploadedData.url,
+            name: pf.uploadedData.name || pf.file.name,
+            file_id: pf.uploadedData.file_id || pf.uploadedData.id
+          });
+        }
+      }
+      
+      // Store attachments
+      document.getElementById('chat-attachments').value = JSON.stringify(attachments);
+    }
+    return true;
+  };
+  
+  // Async file upload before HTMX submit
+  event.preventDefault();
+  
+  handleFiles().then((success) => {
+    if (!success) return;
+    
+    state.pendingMessage = dom.chatInput?.value || "";
+    removeWelcomeMessageIfPresent();
+    removePendingAssistantPlaceholder();
+    hideSuggest();
+    if (dom.messageList && state.pendingMessage.trim()) {
+      // Build user message with attachments
+      const attInput = document.getElementById('chat-attachments');
+      let attachments = [];
+      try { attachments = attInput?.value ? JSON.parse(attInput.value) : []; } catch {}
+      
+      dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageWithAttachments(state.pendingMessage, attachments));
+      const thinkingId = `thinking-${Date.now()}`;
+      dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+      const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
+      if (pending) pending.dataset.thinkingId = thinkingId;
+      state.inflightThinking = { id: thinkingId, events: [], completed: false };
+      if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+      ensureEventSocketForSelectedAgent();
+      scrollToBottom();
+    }
+    if (dom.chatInput) dom.chatInput.value = "";
+    setChatStatus("Sending...");
+    
+    // Now submit via HTMX
+    htmx.trigger("#chat-form", "submit");
+  });
 }
 
 function handleChatResponseError(event) {
@@ -1327,13 +955,8 @@ function initializeRenderLifecycle() {
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
     if (event.target?.id === "message-list") {
-      // Clear attachments after message sent
-      const attInput = document.getElementById('chat-attachments');
-      if (attInput) attInput.value = '';
-      // Clear pending files display
       clearPendingFiles();
-      
-      // Refresh My Uploads if panel is open
+      // Refresh My Uploads if open
       if (dom.toolPanelTitle?.textContent === "My Uploads") {
         openMyUploads();
       }
@@ -2226,7 +1849,6 @@ window.previewAttachment = function(url, type) {
     downloadBtn.download = url.split('/').pop();
     downloadBtn.classList.remove('hidden');
   } else {
-    // For non-image files, just download
     window.open(url, '_blank');
     return;
   }
@@ -2236,9 +1858,7 @@ window.previewAttachment = function(url, type) {
 
 window.closeAttachmentPreview = function() {
   const modal = document.getElementById('attachment-preview-modal');
-  if (modal) {
-    modal.classList.add('hidden');
-  }
+  if (modal) modal.classList.add('hidden');
 };
 
 // ===== wiring =====
@@ -2331,16 +1951,11 @@ function bindEvents() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (state.isSubmittingChat) return;
-      handleChatSubmit(event);
+      htmx.trigger("#chat-form", "submit");
     }
   });
 
-  dom.uploadInput?.addEventListener("change", (e) => {
-    if (e.target.files?.length) {
-      addPendingFiles(e.target.files);
-      e.target.value = ''; // Clear the input
-    }
-  });
+  dom.uploadInput?.addEventListener("change", uploadFile);
 
   dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
   dom.topSettings?.addEventListener("click", openSettings);
@@ -2557,28 +2172,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       e.stopPropagation();
       dragCounter = 0;
       messageList.classList.remove("drag-over");
-      
       const files = e.dataTransfer?.files;
-      if (files?.length) {
-        // Add files to preview area and upload immediately
-        const fileArray = Array.from(files);
-        for (const file of fileArray) {
-          // Add to pending files first for display
-          addPendingFiles([file]);
-        }
-        
-        // Upload each file immediately
-        for (const file of fileArray) {
-          // Find the pending file entry by filename
-          const pf = state.pendingFiles.find(f => f.file.name === file.name);
-          if (pf && pf.status === 'pending') {
-            try {
-              await uploadPendingFile(pf);
-            } catch (error) {
-              showToast(`Upload failed: ${error.message}`);
-            }
-          }
-        }
+      if (files?.length && dom.uploadInput) {
+        // Use the existing upload handler
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(files[0]);
+        dom.uploadInput.files = dataTransfer.files;
+        await uploadFile();
       }
     });
   }
@@ -2622,9 +2222,3 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 window.addEventListener("beforeunload", disconnectEventSocket);
-
-
-// Expose functions to global scope for onclick handlers
-window.removePendingFile = removePendingFile;
-window.addPendingFiles = addPendingFiles;
-
