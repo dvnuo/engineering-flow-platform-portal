@@ -851,7 +851,7 @@ async function refreshAll() {
   await syncSelectedAgentState();
 }
 
-// ===== chat submit lifecycle (HTMX) =====
+// ===== chat submit lifecycle =====
 function handleChatBeforeRequest(event) {
   console.log('[DEBUG] handleChatBeforeRequest called', event.target?.id);
   if (event.target?.id !== "chat-form") {
@@ -2221,6 +2221,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   bindEvents();
   initializeRenderLifecycle();
+  
+  // Also handle form submit directly (fallback)
+  const chatForm = document.getElementById('chat-form');
+  if (chatForm) {
+    chatForm.addEventListener('submit', function(e) {
+      console.log('[DEBUG] Direct form submit intercepted');
+      handleChatBeforeRequest({ target: this, preventDefault: function() { e.preventDefault(); } });
+    });
+  }
   
   // Drag and drop file upload
   const messageList = dom.messageList;
