@@ -70,11 +70,17 @@
     
     const fileId = row.dataset.fileId;
     const fileRef = row.dataset.fileRef;
+    const filename = row.querySelector('.font-medium')?.textContent || 'file';
     
     if (e.target.closest('.insert-ref-btn')) {
-      // Use existing global function
-      if (typeof insertFileReference === 'function') {
-        insertFileReference(fileRef);
+      // Add to preview instead of inserting text reference
+      if (typeof addFileFromUpload === 'function') {
+        addFileFromUpload(fileId, filename);
+      } else {
+        // Fallback: insert reference
+        if (typeof insertFileReference === 'function') {
+          insertFileReference(fileRef);
+        }
       }
     } else if (e.target.closest('.preview-btn')) {
       await previewFile(fileId);

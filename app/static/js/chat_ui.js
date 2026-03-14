@@ -220,6 +220,32 @@ function addPendingFiles(files) {
   });
 }
 
+// Add file from My Uploads (already uploaded to EFP)
+window.addFileFromUpload = function(fileId, filename) {
+  // Add to pending files as "already uploaded" 
+  // We'll use the fileId to construct the reference for EFP
+  const isImage = filename.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+  
+  state.pendingFiles.push({
+    id: generateFileId(),
+    file: {
+      name: filename,
+      type: isImage ? 'image/png' : 'application/octet-stream'
+    },
+    previewUrl: filename, // Show filename as preview
+    isImage: false, // Don't try to load as image
+    progress: 100,
+    status: 'uploaded',
+    uploadedData: {
+      file_id: fileId,
+      id: fileId,
+      name: filename
+    }
+  });
+  renderInputPreview();
+  showToast(`Added ${filename} to message`);
+};
+
 function removePendingFile(id) {
   const idx = state.pendingFiles.findIndex(f => f.id === id);
   if (idx !== -1) {
