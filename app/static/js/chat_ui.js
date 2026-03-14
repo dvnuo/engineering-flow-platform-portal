@@ -921,14 +921,15 @@ function handleChatBeforeRequest(event) {
     clearPendingFiles();
     setChatStatus("Sending...");
     
-    // Trigger HTMX form submission
-    if (window.htmx) {
-      htmx.trigger("#chat-form", "submit");
+    // Trigger HTMX form submission using requestSubmit
+    const form = document.getElementById('chat-form');
+    if (form) {
+      form.requestSubmit();
     }
   });
   
-  event.preventDefault();
-  return false;
+  // Allow normal form submission to proceed
+  return;
 }
 
 function handleChatResponseError(event) {
