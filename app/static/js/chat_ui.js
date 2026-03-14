@@ -1019,6 +1019,13 @@ async function selectAgentById(agentId) {
   disconnectEventSocket();
 
   if (dom.chatAgentId) dom.chatAgentId.value = agentId || "";
+  
+  // Update form action dynamically
+  const chatForm = document.getElementById('chat-form');
+  if (chatForm && agentId) {
+    chatForm.setAttribute('hx-post', `/a/${agentId}/api/chat`);
+  }
+  
   syncHiddenSessionInputFromState();
   clearMessageListToWelcome();
 
@@ -1048,6 +1055,13 @@ async function syncSelectedAgentState() {
   }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
+  
+  // Update form action dynamically
+  const chatForm = document.getElementById('chat-form');
+  if (chatForm && agent.id) {
+    chatForm.setAttribute('hx-post', `/a/${agent.id}/api/chat`);
+  }
+  
   syncHiddenSessionInputFromState();
 
   renderAgentMeta(agent);
