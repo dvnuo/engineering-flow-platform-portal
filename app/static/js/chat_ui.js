@@ -926,59 +926,66 @@ async function refreshAll() {
   await syncSelectedAgentState();
 }
 
-// ===== chat submit lifecycle (HTMX) =====
-function handleChatBeforeRequest(event) {
-  console.log('[handleChatBeforeRequest] Called', event.target?.id);
-  if (event.target?.id !== "chat-form") return true;
-  if (state.isSubmittingChat) {
-    event.preventDefault();
+// ===== Chat Submit Handler (direct fetch to EFP) =====
+window.handleChatSubmit = function(event) {
+  if (event) event.preventDefault();
+  
+  var agentId = state.selectedAgentId;
+  if (!agentId) {
+    showToast('Please select an agent first');
     return false;
   }
   
-  // Store message
-  state.pendingMessage = dom.chatInput?.value || "";
+  var message = dom.chatInput?.value?.trim() || '';
+  if (!message && state.pendingFiles.length === 0) {
+    showToast('Please enter a message');
+    return false;
+  }
   
-  // Show user message immediately (before async upload)
+  if (state.isSubmittingChat) return;
+  state.isSubmittingChat = true;
+  
+  // Show user message immediately
   removeWelcomeMessageIfPresent();
   removePendingAssistantPlaceholder();
-  hideSuggest();
   
-  if (dom.messageList && state.pendingMessage.trim()) {
-    // Build attachments from pending files (not yet uploaded, but we'll show placeholder)
-    let attachments = [];
-    if (state.pendingFiles.length > 0) {
-      attachments = state.pendingFiles.map(pf => ({
-        type: pf.isImage ? 'image' : 'file',
-        url: pf.previewUrl || '',
-        name: pf.file.name,
-        file_id: 'pending'
-      }));
-    }
+  var attachments = [];
+  
+  // Build user message with attachments
+  if (dom.messageList) {
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageWithAttachments(message, attachments));
     
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageWithAttachments(state.pendingMessage, attachments));
-    const thinkingId = `thinking-${Date.now()}`;
+    // Add thinking placeholder
+    var thinkingId = 'thinking-' + Date.now();
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type');
+    var pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type');
     if (pending) pending.dataset.thinkingId = thinkingId;
     state.inflightThinking = { id: thinkingId, events: [], completed: false };
     if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+    
+    // Connect WebSocket
     ensureEventSocketForSelectedAgent();
     scrollToBottom();
   }
   
-  if (dom.chatInput) dom.chatInput.value = "";
+  // Clear input
+  if (dom.chatInput) dom.chatInput.value = '';
+  clearPendingFiles();
   setChatStatus("Sending...");
-  setChatSubmitting(true);
   
-  // Upload pending files first, then let HTMX submit
-  const uploadAndSubmit = async () => {
-    let attachments = [];
-    
+  // Build payload with @file_ references - will be added after upload
+  var payload = { message: message };
+  var sessionId = dom.chatSessionId?.value;
+  if (sessionId) payload.session_id = sessionId;
+  
+  // Upload pending files then send
+  var uploadAndSend = async function() {
+    // Upload files
     if (state.pendingFiles.length > 0) {
-      for (const pf of state.pendingFiles) {
+      for (var pf of state.pendingFiles) {
         if (pf.status === 'pending' || pf.status === 'error') {
           try {
-            const data = await uploadPendingFile(pf);
+            var data = await uploadPendingFile(pf);
             attachments.push({
               type: pf.isImage ? 'image' : 'file',
               url: data.url,
@@ -986,9 +993,9 @@ function handleChatBeforeRequest(event) {
               file_id: data.file_id || data.id
             });
           } catch (error) {
-            showToast(`Upload failed: ${error.message}`);
-            setChatSubmitting(false);
-            return false;
+            showToast('Upload failed: ' + error.message);
+            state.isSubmittingChat = false;
+            return;
           }
         } else if (pf.status === 'uploaded' && pf.uploadedData) {
           attachments.push({
@@ -1001,20 +1008,53 @@ function handleChatBeforeRequest(event) {
       }
     }
     
-    // Set attachments in hidden input
-    document.getElementById('chat-attachments').value = JSON.stringify(attachments);
+    // Add file references to message
+    if (attachments.length > 0) {
+      var fileRefs = attachments.map(function(a) { return '@file_' + a.file_id; }).join(' ');
+      payload.message = (message + ' ' + fileRefs).trim();
+    }
     
-    // Now trigger HTMX form submission
-    htmx.trigger("#chat-form", "submit");
-    return true;
+    // Send to EFP
+    try {
+      var response = await fetch('/a/' + agentId + '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      
+      var data = await response.json();
+      
+      // Update session
+      if (data.session_id) {
+        dom.chatSessionId.value = data.session_id;
+      }
+      
+      // Remove thinking placeholder and show response
+      removePendingAssistantPlaceholder();
+      
+      if (dom.messageList && data.response) {
+        dom.messageList.insertAdjacentHTML("beforeend", buildAssistantMessageArticle(data.response));
+        renderMarkdown(dom.messageList);
+        decorateToolMessages(dom.messageList);
+        scrollToBottom();
+      }
+      
+      setChatStatus("Ready");
+    } catch (error) {
+      removePendingAssistantPlaceholder();
+      setChatStatus('Error: ' + error.message, true);
+      showToast('Error: ' + error.message);
+    }
+    
+    state.isSubmittingChat = false;
   };
   
-  // Prevent default and handle async upload
-  event.preventDefault();
-  uploadAndSubmit();
+  uploadAndSend();
   
   return false;
-}
+};
 
 function handleChatResponseError(event) {
   if (event.target?.id !== "chat-form") return;
@@ -1110,8 +1150,7 @@ function handleChatAfterSwap(target) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
-  document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
-  document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
+  // HTMX listeners removed - using direct fetch for chat
   document.addEventListener("htmx:afterSwap", (event) => {
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();

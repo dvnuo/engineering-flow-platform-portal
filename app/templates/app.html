@@ -74,12 +74,7 @@
 
         <div class="px-5 pb-4">
           <input id="upload-input" type="file" class="hidden" />
-          <form id="chat-form"
-                hx-post="/app/chat/send"
-                hx-target="#message-list"
-                hx-swap="beforeend"
-                hx-on::before-request="handleChatBeforeRequest(event)"
-                class="rounded-2xl border p-3 shadow-sm flex items-end gap-2 bg-transparent">
+          <form id="chat-form" class="rounded-2xl border p-3 shadow-sm flex items-end gap-2 bg-transparent">
             <input type="hidden" id="chat-agent-id" name="agent_id" value="" />
             <input type="hidden" id="chat-session-id" name="session_id" value="" />
             <input type="hidden" id="chat-attachments" name="attachments" value="" />
@@ -100,7 +95,7 @@
               <div id="chat-suggest" class="hidden absolute bottom-full mb-2 w-full rounded-xl border p-2 space-y-1 max-h-56 overflow-auto shadow-lg"></div>
             </div>
             
-            <button id="send-chat-btn" type="submit" class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold disabled:cursor-not-allowed disabled:opacity-60">Send</button>
+            <button id="send-chat-btn" type="button" onclick="handleChatSubmit(event)" class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold disabled:cursor-not-allowed disabled:opacity-60">Send</button>
           </form>
         </div>
       </section>
