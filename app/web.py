@@ -372,11 +372,8 @@ async def agent_files_upload(agent_id: str, request: Request):
         # Read file content
         content = await file_field.read()
         
-        # Build URL to EFP
-        base = proxy_service.build_agent_base_url(agent)
-        url = f"{base}/api/files/upload"
-        
-        # Send as multipart form using httpx
+        # Send to EFP directly (running on localhost:8001)
+        url = "http://localhost:8001/api/files/upload"
         files = {"file": (file_field.filename, content, file_field.content_type)}
         
         async with httpx.AsyncClient(timeout=30.0) as client:
