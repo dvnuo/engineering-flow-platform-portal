@@ -295,12 +295,15 @@ async function uploadPendingFile(pf) {
 
 // ===== Chat Submit Handler =====
 window.handleChatSubmit = async function(event) {
+  console.log('[handleChatSubmit] Starting, pendingFiles:', state.pendingFiles.length);
+  
   // If there are pending files, upload them first
   if (state.pendingFiles.length > 0) {
     const pendingFiles = [...state.pendingFiles];
     const uploadedAttachments = [];
     
     for (const pf of pendingFiles) {
+      console.log('[handleChatSubmit] Processing file:', pf.file.name, 'status:', pf.status);
       if (pf.status === 'pending' || pf.status === 'error') {
         try {
           const data = await uploadPendingFile(pf);
@@ -310,6 +313,7 @@ window.handleChatSubmit = async function(event) {
             name: data.name || pf.file.name,
             file_id: data.file_id || data.id
           });
+          console.log('[handleChatSubmit] Uploaded:', data);
         } catch (error) {
           showToast(`Failed to upload ${pf.file.name}: ${error.message}`);
           return false; // Cancel submit
@@ -324,11 +328,11 @@ window.handleChatSubmit = async function(event) {
       }
     }
     
+    console.log('[handleChatSubmit] Uploading attachments:', uploadedAttachments);
+    
     // Store attachments as JSON in hidden input
     document.getElementById('chat-attachments').value = JSON.stringify(uploadedAttachments);
-    
-    // Clear pending files after successful upload (keep for display until HTMX swap)
-    // We'll clear after swap in htmx:afterSwap
+    console.log('[handleChatSubmit] Set chat-attachments to:', document.getElementById('chat-attachments').value);
   }
   
   // Continue with normal HTMX form submission
