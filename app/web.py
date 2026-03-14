@@ -1,6 +1,7 @@
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
