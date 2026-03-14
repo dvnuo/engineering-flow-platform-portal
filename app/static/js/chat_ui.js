@@ -928,15 +928,16 @@ async function refreshAll() {
 
 // ===== chat submit lifecycle (HTMX) =====
 function handleChatBeforeRequest(event) {
-  if (event.target?.id !== "chat-form") return;
+  if (event.target?.id !== "chat-form") return true;
   if (state.isSubmittingChat) {
     event.preventDefault();
-    return;
+    return false;
   }
-
-  setChatSubmitting(true);
   
-  // Handle pending file uploads first
+  // Store message before clearing
+  state.pendingMessage = dom.chatInput?.value || "";
+  
+  // Handle pending file uploads first - return false to prevent HTMX default
   const handleFiles = async () => {
     if (state.pendingFiles.length > 0) {
       const pendingFiles = [...state.pendingFiles];
@@ -973,18 +974,20 @@ function handleChatBeforeRequest(event) {
     return true;
   };
   
-  // Async file upload before HTMX submit
+  // Prevent default HTMX submit
   event.preventDefault();
   
   handleFiles().then((success) => {
     if (!success) return;
     
-    state.pendingMessage = dom.chatInput?.value || "";
+    setChatSubmitting(true);
+    
+    // Show user message immediately
     removeWelcomeMessageIfPresent();
     removePendingAssistantPlaceholder();
     hideSuggest();
+    
     if (dom.messageList && state.pendingMessage.trim()) {
-      // Build user message with attachments
       const attInput = document.getElementById('chat-attachments');
       let attachments = [];
       try { attachments = attInput?.value ? JSON.parse(attInput.value) : []; } catch {}
@@ -992,19 +995,22 @@ function handleChatBeforeRequest(event) {
       dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageWithAttachments(state.pendingMessage, attachments));
       const thinkingId = `thinking-${Date.now()}`;
       dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-      const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
+      const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type');
       if (pending) pending.dataset.thinkingId = thinkingId;
       state.inflightThinking = { id: thinkingId, events: [], completed: false };
       if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
       ensureEventSocketForSelectedAgent();
       scrollToBottom();
     }
+    
     if (dom.chatInput) dom.chatInput.value = "";
     setChatStatus("Sending...");
     
     // Now submit via HTMX
     htmx.trigger("#chat-form", "submit");
   });
+  
+  return false;
 }
 
 function handleChatResponseError(event) {
