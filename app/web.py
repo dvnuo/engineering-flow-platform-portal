@@ -2,7 +2,7 @@ import app.logger  # Ensure logging is configured (intentional side-effect impor
 import json
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
