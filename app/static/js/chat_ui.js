@@ -928,6 +928,7 @@ async function refreshAll() {
 
 // ===== chat submit lifecycle (HTMX) =====
 function handleChatBeforeRequest(event) {
+  console.log('[handleChatBeforeRequest] Called', event.target?.id);
   if (event.target?.id !== "chat-form") return true;
   if (state.isSubmittingChat) {
     event.preventDefault();
