@@ -2151,9 +2151,7 @@ function bindEvents() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (state.isSubmittingChat) return;
-      // Trigger form submission
-      const form = document.getElementById('chat-form');
-      if (form) form.dispatchEvent(new Event('submit', { bubbles: true }));
+      handleChatSubmit(event);
     }
   });
 
