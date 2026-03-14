@@ -903,6 +903,11 @@ function handleChatBeforeRequest(event) {
     if (dom.chatInput) dom.chatInput.value = "";
     clearPendingFiles();
     setChatStatus("Sending...");
+    
+    // Trigger HTMX form submission
+    if (window.htmx) {
+      htmx.trigger("#chat-form", "submit");
+    }
   });
   
   event.preventDefault();
