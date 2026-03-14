@@ -1107,6 +1107,11 @@ function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
+    if (event.target?.id === "message-list") {
+      // Clear attachments after message sent
+      const attInput = document.getElementById('chat-attachments');
+      if (attInput) attInput.value = '';
+    }
     renderIcons();
   });
   document.addEventListener("htmx:responseError", handleChatResponseError);
@@ -1977,6 +1982,38 @@ function showToast(message, duration = 2000) {
   toast.classList.remove('hidden');
   setTimeout(() => toast.classList.add('hidden'), duration);
 }
+
+// Attachment preview (lightbox)
+window.previewAttachment = function(url, type) {
+  const modal = document.getElementById('attachment-preview-modal');
+  const img = document.getElementById('attachment-preview-img');
+  const fileInfo = document.getElementById('attachment-preview-info');
+  const downloadBtn = document.getElementById('attachment-preview-download');
+  
+  if (!modal) return;
+  
+  if (type === 'image') {
+    img.src = url;
+    img.classList.remove('hidden');
+    fileInfo.textContent = url.split('/').pop();
+    downloadBtn.href = url;
+    downloadBtn.download = url.split('/').pop();
+    downloadBtn.classList.remove('hidden');
+  } else {
+    // For non-image files, just download
+    window.open(url, '_blank');
+    return;
+  }
+  
+  modal.classList.remove('hidden');
+};
+
+window.closeAttachmentPreview = function() {
+  const modal = document.getElementById('attachment-preview-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+};
 
 // ===== wiring =====
 function bindEvents() {

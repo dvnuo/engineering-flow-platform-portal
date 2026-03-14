@@ -595,11 +595,20 @@ async def app_chat_send(request: Request):
     agent_id = (form.get("agent_id") or "").strip()
     message = (form.get("message") or "").strip()
     session_id = (form.get("session_id") or "").strip() or None
+    attachments_json = (form.get("attachments") or "").strip()
 
     if not agent_id:
         raise HTTPException(status_code=400, detail="Agent not selected")
-    if not message:
-        raise HTTPException(status_code=400, detail="Message required")
+    if not message and not attachments_json:
+        raise HTTPException(status_code=400, detail="Message or attachments required")
+
+    # Parse attachments
+    attachments = []
+    if attachments_json:
+        try:
+            attachments = json.loads(attachments_json)
+        except:
+            attachments = []
 
     db = SessionLocal()
     try:
@@ -614,6 +623,8 @@ async def app_chat_send(request: Request):
         payload = {"message": message}
         if session_id:
             payload["session_id"] = session_id
+        if attachments:
+            payload["attachments"] = attachments
 
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
@@ -633,6 +644,7 @@ async def app_chat_send(request: Request):
             {
                 "request": request,
                 "user_message": message,
+                "user_attachments": attachments,
                 "assistant_message": data.get("response") or "(empty response)",
                 "session_id": data.get("session_id") or session_id or "",
             },

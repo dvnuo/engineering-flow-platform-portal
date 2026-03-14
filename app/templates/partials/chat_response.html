@@ -1,3 +1,37 @@
+{# User message with attachments #}
+{% if user_message or user_attachments %}
+<div class="flex flex-col items-end">
+  <div class="flex items-center gap-2 mb-1">
+    <span class="text-xs font-semibold text-blue-400">You</span>
+  </div>
+  <article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-700 px-4 py-3">
+    {% if user_message %}
+    <div class="md-render prose prose-invert max-w-none text-sm text-white">{{ user_message }}</div>
+    {% endif %}
+    {% if user_attachments %}
+    <div class="mt-2 flex flex-wrap gap-2">
+      {% for att in user_attachments %}
+      <div class="attachment-preview rounded-lg overflow-hidden border border-slate-500 bg-slate-800" 
+           data-url="{{ att.url }}" 
+           data-type="{{ att.type }}"
+           data-name="{{ att.name | e }}">
+        {% if att.type == 'image' %}
+        <img src="{{ att.url }}" alt="{{ att.name | e }}" class="w-24 h-24 object-cover cursor-pointer" onclick="previewAttachment('{{ att.url }}', '{{ att.type }}')" />
+        {% else %}
+        <div class="w-24 h-24 flex flex-col items-center justify-center p-2 cursor-pointer" onclick="previewAttachment('{{ att.url }}', '{{ att.type }}')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="text-xs text-slate-400 mt-1 truncate max-w-full">{{ att.name | e }}</span>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </article>
+</div>
+{% endif %}
+
+{# Assistant response #}
 <div class="flex flex-col items-start">
   <div class="flex items-center gap-2 mb-1 assistant-header">
     <span class="text-xs font-semibold text-emerald-400">Assistant</span>
