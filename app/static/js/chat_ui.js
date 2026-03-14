@@ -86,7 +86,159 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
+  pendingFiles: [],  // Files waiting to be sent
 };
+
+// ===== File Preview Functions =====
+function generateFileId() {
+  return 'file_' + Math.random().toString(36).substr(2, 9);
+}
+
+function getFileIcon(filename) {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const iconMap = {
+    pdf: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    default: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+  };
+  return iconMap[ext] || iconMap.default;
+}
+
+function truncateFilename(name, maxLen = 12) {
+  if (name.length <= maxLen) return name;
+  const ext = name.split('.').pop() || '';
+  const base = name.slice(0, name.length - ext.length - 1);
+  return base.slice(0, maxLen - ext.length - 4) + '...' + ext;
+}
+
+function addPendingFiles(files) {
+  const fileArray = Array.from(files);
+  if (fileArray.length === 0) return;
+  
+  fileArray.forEach((file) => {
+    const isImage = file.type.startsWith('image/');
+    state.pendingFiles.push({
+      id: generateFileId(),
+      file,
+      previewUrl: null,
+      isImage: isImage,
+      progress: 0,
+      status: 'pending'
+    });
+    renderInputPreview();
+    
+    if (isImage) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const pf = state.pendingFiles.find(f => f.file === file);
+        if (pf) {
+          pf.previewUrl = e.target.result;
+          renderInputPreview();
+        }
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const pf = state.pendingFiles.find(f => f.file === file);
+      if (pf) {
+        pf.previewUrl = file.name;
+        renderInputPreview();
+      }
+    }
+  });
+}
+
+function removePendingFile(id) {
+  const idx = state.pendingFiles.findIndex(f => f.id === id);
+  if (idx !== -1) {
+    const pf = state.pendingFiles[idx];
+    if (pf.previewUrl && pf.isImage) URL.revokeObjectURL(pf.previewUrl);
+    state.pendingFiles.splice(idx, 1);
+    renderInputPreview();
+  }
+}
+
+function clearPendingFiles() {
+  state.pendingFiles.forEach(pf => {
+    if (pf.previewUrl && pf.isImage) URL.revokeObjectURL(pf.previewUrl);
+  });
+  state.pendingFiles = [];
+  renderInputPreview();
+}
+
+function renderInputPreview() {
+  const container = document.getElementById('input-preview-area');
+  if (!container) return;
+  
+  if (state.pendingFiles.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+  
+  container.classList.remove('hidden');
+  container.innerHTML = state.pendingFiles.map(pf => {
+    const isUploading = pf.status === 'uploading';
+    let content = '';
+    if (pf.isImage && pf.previewUrl) {
+      content = `<img src="${pf.previewUrl}" alt="${pf.file.name}" />`;
+    } else if (pf.isImage) {
+      content = `<div class="file-icon"><div class="spinner"></div></div>`;
+    } else {
+      content = `<div class="file-icon">${getFileIcon(pf.file.name)}<span class="filename">${truncateFilename(pf.file.name)}</span></div>`;
+    }
+    
+    let statusContent = '';
+    if (isUploading) {
+      statusContent = `<div class="loading-spinner"><div class="spinner"></div></div>`;
+    }
+    
+    return `<div class="input-preview-card" data-id="${pf.id}">${content}${statusContent}<button class="remove-btn" onclick="removePendingFile('${pf.id}')">×</button></div>`;
+  }).join('');
+}
+
+async function uploadPendingFile(pf) {
+  pf.status = 'uploading';
+  pf.progress = 0;
+  renderInputPreview();
+  
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', pf.file);
+    
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        pf.progress = Math.round((e.loaded / e.total) * 100);
+        renderInputPreview();
+      }
+    });
+    
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          pf.status = 'uploaded';
+          pf.uploadedData = data;
+          pf.progress = 100;
+          renderInputPreview();
+          resolve(data);
+        } catch {
+          reject(new Error('Invalid response'));
+        }
+      } else {
+        reject(new Error(`HTTP ${xhr.status}`));
+      }
+    });
+    
+    xhr.addEventListener('error', () => reject(new Error('Network error')));
+    
+    xhr.open('POST', `/a/${state.selectedAgentId}/api/files/upload`);
+    xhr.send(formData);
+  });
+}
+
+window.removePendingFile = removePendingFile;
+window.addPendingFiles = addPendingFiles;
 
 const md = window.markdownit({
   html: false,
