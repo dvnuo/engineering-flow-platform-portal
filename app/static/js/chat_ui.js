@@ -1143,6 +1143,11 @@ function initializeRenderLifecycle() {
       if (attInput) attInput.value = '';
       // Clear pending files display
       clearPendingFiles();
+      
+      // Refresh My Uploads if panel is open
+      if (dom.toolPanelTitle?.textContent === "My Uploads") {
+        openMyUploads();
+      }
     }
     renderIcons();
   });
