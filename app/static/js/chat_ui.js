@@ -224,9 +224,21 @@ function canWriteAgent(agent) {
   return state.currentUserRole === "admin" || Number(agent.owner_user_id) === state.currentUserId;
 }
 
-function buildUserMessageArticle(text) {
+function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div></article></div>`;
+  
+  let attachmentHtml = '';
+  if (attachments.length > 0) {
+    attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
+      if (a.type === 'image') {
+        return `<img src="${a.previewUrl || a.url}" class="max-w-32 max-h-32 rounded-lg border border-slate-500" alt="${a.name}" />`;
+      } else {
+        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs">📄 ${a.name}</div>`;
+      }
+    }).join('')}</div>`;
+  }
+  
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
@@ -890,7 +902,12 @@ function handleChatBeforeRequest(event) {
     removePendingAssistantPlaceholder();
     hideSuggest();
     if (dom.messageList && state.pendingMessage.trim()) {
-      dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage));
+      // Add preview URLs to attachments
+      const attachmentsWithPreviews = attachments.map(a => {
+        const pf = state.pendingFiles.find(pf => pf.file.name === a.name);
+        return { ...a, previewUrl: pf?.previewUrl || null };
+      });
+      dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage, attachmentsWithPreviews));
       const thinkingId = 'thinking-' + Date.now();
       dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
       const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
