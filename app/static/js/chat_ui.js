@@ -1115,6 +1115,8 @@ function initializeRenderLifecycle() {
       // Clear attachments after message sent
       const attInput = document.getElementById('chat-attachments');
       if (attInput) attInput.value = '';
+      // Clear pending files display
+      clearPendingFiles();
     }
     renderIcons();
   });
