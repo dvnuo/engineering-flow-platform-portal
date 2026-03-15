@@ -192,6 +192,9 @@ async function addPendingFilesAndUpload(files) {
       pf.file_id = data.file_id || data.id;
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
+      
+      // Connect WebSocket after upload completes (so it's ready when user sends message)
+      ensureEventSocketForSelectedAgent();
     } catch (error) {
       pf.status = 'failed';
       renderInputPreview();
@@ -996,34 +999,11 @@ function continueSubmit(attachments = []) {
   clearPendingFiles();
   setChatStatus("Sending...");
   
-  // Connect WebSocket and wait for it to be ready before submitting
+  // Ensure WebSocket is connected before submitting
   ensureEventSocketForSelectedAgent();
   
-  // Wait for WebSocket to be open before submitting
-  const waitForWs = () => {
-    return new Promise((resolve) => {
-      if (state.eventWs && state.eventWs.readyState === WebSocket.OPEN) {
-        resolve();
-        return;
-      }
-      // Wait for the 'open' event
-      const checkInterval = setInterval(() => {
-        if (state.eventWs && state.eventWs.readyState === WebSocket.OPEN) {
-          clearInterval(checkInterval);
-          resolve();
-        }
-      }, 50);
-      // Timeout after 2 seconds
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        resolve(); // Resolve anyway to not block
-      }, 2000);
-    });
-  };
-  
-  waitForWs().then(() => {
-    document.getElementById('chat-form').requestSubmit();
-  });
+  // Submit the form
+  document.getElementById('chat-form').requestSubmit();
 }
 
 function handleChatResponseError(event) {
