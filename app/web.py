@@ -648,7 +648,7 @@ async def app_chat_send(request: Request):
     message = (form.get("message") or "").strip()
     session_id = (form.get("session_id") or "").strip() or None
     attachments_str = (form.get("attachments") or "").strip()
-        print(f"[DEBUG] Form data: agent_id={agent_id}, message={message}, attachments_str={attachments_str}")
+    print(f"[DEBUG] Form data: agent_id={agent_id}, message={message}, attachments_str={attachments_str}")
 
     if not agent_id:
         raise HTTPException(status_code=400, detail="Agent not selected")
