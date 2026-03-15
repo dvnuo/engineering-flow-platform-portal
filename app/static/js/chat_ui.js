@@ -128,14 +128,6 @@ function removePendingFile(id) {
       pf.xhr.abort();
       pf.cancelled = true;
     }
-    // Remove @file_ token from textarea if uploaded
-    if (pf.file_id) {
-      const chatInput = dom.chatInput;
-      if (chatInput) {
-        const fileRef = '@file_' + pf.file_id;
-        chatInput.value = chatInput.value.replace(fileRef, '').replace(/\s+/g, ' ').trim();
-      }
-    }
   }
   const idx = state.pendingFiles.findIndex(f => f.id === id);
   if (idx !== -1) {
@@ -194,26 +186,16 @@ async function addPendingFilesAndUpload(files) {
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
       
-      // Add file reference to chat input so HTMX will submit it naturally
-      const fileRef = '@file_' + pf.file_id;
-      const chatInput = dom.chatInput;
-      if (chatInput) {
-        const currentVal = chatInput.value.trim();
-        chatInput.value = currentVal ? currentVal + ' ' + fileRef : fileRef;
-      }
-      
-      // Also populate attachments field for cleaner API
+      // Add file reference to attachments field (for cleaner API)
       const attachmentsInput = document.getElementById('chat-attachments');
-      console.log('[DEBUG] Upload success, pf.file_id:', pf.file_id);
       if (attachmentsInput) {
         const existing = attachmentsInput.value ? JSON.parse(attachmentsInput.value) : [];
-        console.log('[DEBUG] Existing attachments:', existing);
         existing.push(pf.file_id);
         attachmentsInput.value = JSON.stringify(existing);
-        console.log('[DEBUG] attachmentsInput value after push:', attachmentsInput.value);
-      } else {
-        console.log('[DEBUG] attachmentsInput not found!');
       }
+      
+      // Note: Do NOT add @file_xxx to chatInput - use attachments field instead
+      // Image will be shown in input-preview-area via renderInputPreview()
       
       // Connect WebSocket after upload completes
       ensureEventSocketForSelectedAgent();
@@ -1194,12 +1176,29 @@ function pickCurrentSuggestion() {
 }
 
 function insertFileReference(fileRef) {
-  // Runtime expects @file_<short_or_full_id>; using short id mirrors runtime webchat behavior.
-  if (!dom.chatInput || !fileRef) return;
-
-  const reference = `${fileRef} `;
-  dom.chatInput.setRangeText(reference, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
-  dom.chatInput.focus();
+  // fileRef format: @file_<file_id>
+  // Now add to attachments field instead of chat input
+  const fileIdMatch = fileRef.match(/@file_(.+)/);
+  if (fileIdMatch) {
+    const fileId = fileIdMatch[1];
+    const attachmentsInput = document.getElementById('chat-attachments');
+    if (attachmentsInput) {
+      const existing = attachmentsInput.value ? JSON.parse(attachmentsInput.value) : [];
+      if (!existing.includes(fileId)) {
+        existing.push(fileId);
+        attachmentsInput.value = JSON.stringify(existing);
+      }
+    }
+    // Show preview in input-preview-area if it's an image
+    // For now just focus the input - the user can see their files in input-preview-area after upload
+  }
+  
+  // Legacy: also add to chat input for backward compatibility
+  if (dom.chatInput && fileRef) {
+    const reference = `${fileRef} `;
+    dom.chatInput.setRangeText(reference, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
+    dom.chatInput.focus();
+  }
 }
 
 async function maybeShowSuggest() {
