@@ -87,6 +87,9 @@ const state = {
   eventWsAgentId: null,
   inflightThinking: null,
   pendingFiles: [],
+  // Backup for restore on error
+  pendingFilesBackup: [],
+  messageBackup: "",
 };
 
 const md = window.markdownit({
@@ -936,12 +939,24 @@ function handleChatBeforeRequest(event) {
     return;
   }
 
+  // Block submission if any files are still uploading
+  const uploadingFiles = state.pendingFiles.filter(pf => pf.status === 'uploading');
+  if (uploadingFiles.length > 0) {
+    event.preventDefault();
+    showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
+    return;
+  }
+
   // Get the message (already contains @file_xxx if files were uploaded)
   const message = dom.chatInput?.value?.trim() || "";
   if (!message) {
     event.preventDefault();
     return;
   }
+
+  // Backup message and files for potential restore on error
+  messageBackup = message;
+  pendingFilesBackup = [...state.pendingFiles];
 
   // Show user message immediately (optimistic UI)
   setChatSubmitting(true);
@@ -977,10 +992,6 @@ function handleChatBeforeRequest(event) {
   // Let HTMX submit naturally - the form will send the message including @file_xxx
   // The message already contains @file_xxx references from the upload
 }
-
-// Store backup for restore on error
-let pendingFilesBackup = [];
-let messageBackup = "";
 
 function handleChatResponseError(event) {
   if (event.target?.id !== "chat-form") return;
