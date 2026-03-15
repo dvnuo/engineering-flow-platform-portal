@@ -978,12 +978,25 @@ function handleChatBeforeRequest(event) {
   // The message already contains @file_xxx references from the upload
 }
 
+// Store backup for restore on error
+let pendingFilesBackup = [];
+let messageBackup = "";
+
 function handleChatResponseError(event) {
   if (event.target?.id !== "chat-form") return;
 
   removePendingAssistantPlaceholder();
   setChatSubmitting(false);
   state.inflightThinking = null;
+  
+  // Restore message and files from backup
+  if (messageBackup || pendingFilesBackup.length > 0) {
+    if (dom.chatInput) dom.chatInput.value = messageBackup;
+    state.pendingFiles = pendingFilesBackup;
+    renderInputPreview();
+    pendingFilesBackup = [];
+    messageBackup = "";
+  }
   
   // Extract error message from response
   let errorMsg = "Send failed";
