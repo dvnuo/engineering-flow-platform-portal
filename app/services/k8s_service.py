@@ -75,14 +75,14 @@ class K8sService:
             ])
             
             # Add git credentials from secret if configured
-            if self.settings.k8s_git_username and self.settings.k8s_git_token:
+            if self.settings.k8s_git_username_key and self.settings.k8s_git_token_key:
                 env.extend([
                     client.V1EnvVar(
                         name="GIT_USERNAME",
                         value_from=client.V1EnvVarSource(
                             secret_key_ref=client.V1SecretKeySelector(
-                                name="git-credentials",
-                                key="username",
+                                name="efp-agents-secret",
+                                key=self.settings.k8s_git_username_key,
                                 optional=True,
                             )
                         )
@@ -91,8 +91,8 @@ class K8sService:
                         name="GIT_TOKEN",
                         value_from=client.V1EnvVarSource(
                             secret_key_ref=client.V1SecretKeySelector(
-                                name="git-credentials",
-                                key="token",
+                                name="efp-agents-secret",
+                                key=self.settings.k8s_git_token_key,
                                 optional=True,
                             )
                         )
@@ -111,11 +111,13 @@ class K8sService:
                     command=["sh", "-c"],
                     args=[
                         "mkdir -p /app && "
-                        "cd /app && rm -rf .[!.]* * && "
+                        "mkdir -p /tmp/app && cd /tmp/app && "
                         "REPO_URL=\"${GIT_REPO_URL}\" && "
+                        "REPO_URL=\"$(echo ${REPO_URL} | sed 's#^\\(https://[^/]*\\)\\(/.*\\)#\\1:6443\\2#')\" && "
                         "[ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && "
                         "REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && "
-                        "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" ."
+                        "git -c http.sslVerify=false clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
+                        "cp -rf /tmp/app/. /app/ "
                     ],
                     env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
@@ -125,9 +127,9 @@ class K8sService:
         # Build volume mounts
         volume_mounts = []
         if agent.repo_url:
-            volume_mounts.append(
-                client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)
-            )
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{code_sub_path}/src"))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{code_sub_path}/.git"))
         volume_mounts.append(
             client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=f"efp-agents/{agent.id}/data")
         )
