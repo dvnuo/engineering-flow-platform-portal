@@ -922,10 +922,9 @@ function handleChatBeforeRequest(event) {
   }
 
   // If message was already prepared (e.g., with attachments), don't overwrite
-  // and let HTMX proceed with the actual submission
+  // and let the continueSubmit handle it
   if (state.messagePrepared) {
     state.messagePrepared = false;
-    // Let HTMX submit the form normally
     return;
   }
   
@@ -959,13 +958,13 @@ function handleChatBeforeRequest(event) {
       state.pendingMessage = (state.pendingMessage + ' ' + fileRefs).trim();
     }
     
-    // Continue with submission
+    // Continue with submission (fetch instead of HTMX)
     continueSubmit(attachments);
     return;
   }
   
-  // No files, proceed normally
-  continueSubmit([]);
+  // No files, proceed normally with HTMX
+  state.messagePrepared = true; // Mark as prepared so we don't process twice
 }
 
 function continueSubmit(attachments = []) {
@@ -1002,11 +1001,35 @@ function continueSubmit(attachments = []) {
   // Ensure WebSocket is connected before submitting
   ensureEventSocketForSelectedAgent();
   
-  // Submit the form via HTMX
-  const form = document.getElementById('chat-form');
-  if (form) {
-    htmx.trigger(form, 'submit');
-  }
+  // Submit message directly via fetch (bypass HTMX form submission issues)
+  const agentId = state.selectedAgentId;
+  const sessionId = document.getElementById('chat-session-id')?.value || '';
+  const message = state.pendingMessage;
+  
+  fetch('/app/chat/send', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: `agent_id=${encodeURIComponent(agentId)}&session_id=${encodeURIComponent(sessionId)}&message=${encodeURIComponent(message)}`
+  })
+  .then(response => response.text())
+  .then(html => {
+    // Append the response to message list
+    const messageList = document.getElementById('message-list');
+    if (messageList) {
+      messageList.insertAdjacentHTML('beforeend', html);
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+    setChatSubmitting(false);
+    state.pendingMessage = "";
+    state.messagePrepared = false;
+  })
+  .catch(error => {
+    console.error('Send error:', error);
+    setChatStatus('Send failed: ' + error.message, true);
+    setChatSubmitting(false);
+  });
 }
 
 function handleChatResponseError(event) {
