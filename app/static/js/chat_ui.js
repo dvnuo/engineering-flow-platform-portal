@@ -156,6 +156,12 @@ function clearPendingFiles() {
   });
   state.pendingFiles = [];
   renderInputPreview();
+  
+  // Clear attachments field
+  const attachmentsInput = document.getElementById('chat-attachments');
+  if (attachmentsInput) {
+    attachmentsInput.value = '';
+  }
 }
 
 // Add files and upload immediately
@@ -194,6 +200,14 @@ async function addPendingFilesAndUpload(files) {
       if (chatInput) {
         const currentVal = chatInput.value.trim();
         chatInput.value = currentVal ? currentVal + ' ' + fileRef : fileRef;
+      }
+      
+      // Also populate attachments field for cleaner API
+      const attachmentsInput = document.getElementById('chat-attachments');
+      if (attachmentsInput) {
+        const existing = attachmentsInput.value ? JSON.parse(attachmentsInput.value) : [];
+        existing.push(pf.file_id);
+        attachmentsInput.value = JSON.stringify(existing);
       }
       
       // Connect WebSocket after upload completes
