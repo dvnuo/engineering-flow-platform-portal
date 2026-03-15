@@ -1002,8 +1002,11 @@ function continueSubmit(attachments = []) {
   // Ensure WebSocket is connected before submitting
   ensureEventSocketForSelectedAgent();
   
-  // Submit the form
-  document.getElementById('chat-form').requestSubmit();
+  // Submit the form via HTMX
+  const form = document.getElementById('chat-form');
+  if (form) {
+    htmx.trigger(form, 'submit');
+  }
 }
 
 function handleChatResponseError(event) {
