@@ -82,7 +82,7 @@ const state = {
   isSubmittingChat: false,
   pendingMessage: "",
   currentUserId: Number(dom.appRoot?.dataset.userId || 0),
-  currentUserName: dom.appRoot?.dataset.username || "You",,
+  currentUserName: dom.appRoot?.dataset.username || "You",
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
   eventWs: null,
   eventWsAgentId: null,
