@@ -1189,12 +1189,19 @@ function pickCurrentSuggestion() {
   return true;
 }
 
-function insertFileReference(fileRef) {
-  // fileRef format: @file_<file_id>
-  const fileIdMatch = fileRef.match(/@file_(.+)/);
+function insertFileReference(fileIdOrRef) {
+  // fileIdOrRef can be either:
+  // - Full file_id (e.g., "1f516fcb...")
+  // - File reference like "@file_xxx"
+  let fileId = fileIdOrRef;
+  
+  // If it's a reference format, extract the ID
+  const fileIdMatch = fileIdOrRef.match(/@file_(.+)/);
   if (fileIdMatch) {
-    const fileId = fileIdMatch[1];
-    
+    fileId = fileIdMatch[1];
+  }
+  
+  if (fileId) {
     // Add to pendingFiles state and render preview in input-preview-area
     // Attachments will be built from pendingFiles when sending the message
     const existingPf = state.pendingFiles.find(pf => pf.file_id === fileId);

@@ -72,9 +72,9 @@
     const fileRef = row.dataset.fileRef;
     
     if (e.target.closest('.insert-ref-btn')) {
-      // Use existing global function
+      // Use existing global function - pass full file_id
       if (typeof insertFileReference === 'function') {
-        insertFileReference(fileRef);
+        insertFileReference(fileId);
       }
     } else if (e.target.closest('.preview-btn')) {
       await previewFile(fileId);
