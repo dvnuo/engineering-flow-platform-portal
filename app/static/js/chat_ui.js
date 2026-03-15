@@ -989,7 +989,6 @@ function continueSubmit(attachments = []) {
     if (pending) pending.dataset.thinkingId = thinkingId;
     state.inflightThinking = { id: thinkingId, events: [], completed: false };
     if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
-    ensureEventSocketForSelectedAgent();
     scrollToBottom();
   }
   
@@ -997,8 +996,34 @@ function continueSubmit(attachments = []) {
   clearPendingFiles();
   setChatStatus("Sending...");
   
-  // Now submit the form manually
-  document.getElementById('chat-form').requestSubmit();
+  // Connect WebSocket and wait for it to be ready before submitting
+  ensureEventSocketForSelectedAgent();
+  
+  // Wait for WebSocket to be open before submitting
+  const waitForWs = () => {
+    return new Promise((resolve) => {
+      if (state.eventWs && state.eventWs.readyState === WebSocket.OPEN) {
+        resolve();
+        return;
+      }
+      // Wait for the 'open' event
+      const checkInterval = setInterval(() => {
+        if (state.eventWs && state.eventWs.readyState === WebSocket.OPEN) {
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 50);
+      // Timeout after 2 seconds
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        resolve(); // Resolve anyway to not block
+      }, 2000);
+    });
+  };
+  
+  waitForWs().then(() => {
+    document.getElementById('chat-form').requestSubmit();
+  });
 }
 
 function handleChatResponseError(event) {
