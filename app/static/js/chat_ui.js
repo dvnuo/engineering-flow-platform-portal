@@ -962,12 +962,11 @@ function handleChatBeforeRequest(event) {
     scrollToBottom();
   }
   
-  // Clear input and pending files, but let HTMX submit the form naturally
-  if (dom.chatInput) dom.chatInput.value = "";
+  // Clear pending files (but let HTMX handle input clearing on submit)
   clearPendingFiles();
   setChatStatus("Sending...");
   
-  // Let HTMX submit naturally - don't prevent default
+  // Let HTMX submit naturally - the form will send the message including @file_xxx
   // The message already contains @file_xxx references from the upload
 }
 
