@@ -963,6 +963,13 @@ async function refreshAll() {
     window.selectedAgentId = state.selectedAgentId;
   }
 
+  // Update owner-only button visibility after restoring last agent
+  const selectedAgent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
+  const isOwner = !selectedAgent || Number(selectedAgent?.owner_user_id) === state.currentUserId;
+  document.querySelectorAll('[data-owner-only]').forEach(btn => {
+    btn.style.display = isOwner ? '' : 'none';
+  });
+
   renderAgentList();
   await syncSelectedAgentState();
 }
