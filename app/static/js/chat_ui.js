@@ -186,15 +186,7 @@ async function addPendingFilesAndUpload(files) {
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
       
-      // Add file reference to attachments field (for cleaner API)
-      const attachmentsInput = document.getElementById('chat-attachments');
-      if (attachmentsInput) {
-        const existing = attachmentsInput.value ? JSON.parse(attachmentsInput.value) : [];
-        existing.push(pf.file_id);
-        attachmentsInput.value = JSON.stringify(existing);
-      }
-      
-      // Note: Do NOT add @file_xxx to chatInput - use attachments field instead
+      // Note: Do NOT add to attachments here - will be built from pendingFiles when sending
       // Image will be shown in input-preview-area via renderInputPreview()
       
       // Connect WebSocket after upload completes
@@ -979,6 +971,15 @@ function handleChatBeforeRequest(event) {
   // Backup message and files for potential restore on error
   messageBackup = message;
   pendingFilesBackup = [...state.pendingFiles];
+  
+  // Build attachments from pendingFiles (only uploaded ones with file_id)
+  const attachmentsInput = document.getElementById('chat-attachments');
+  if (attachmentsInput) {
+    const uploadedFiles = state.pendingFiles
+      .filter(pf => pf.file_id && pf.status === 'uploaded')
+      .map(pf => pf.file_id);
+    attachmentsInput.value = JSON.stringify(uploadedFiles);
+  }
 
   // Show user message immediately (optimistic UI)
   setChatSubmitting(true);
@@ -1181,18 +1182,9 @@ function insertFileReference(fileRef) {
   if (fileIdMatch) {
     const fileId = fileIdMatch[1];
     
-    // Add to attachments field (for cleaner API)
-    const attachmentsInput = document.getElementById('chat-attachments');
-    if (attachmentsInput) {
-      const existing = attachmentsInput.value ? JSON.parse(attachmentsInput.value) : [];
-      if (!existing.includes(fileId)) {
-        existing.push(fileId);
-        attachmentsInput.value = JSON.stringify(existing);
-      }
-    }
-    
     // Add to pendingFiles state and render preview in input-preview-area
     // This makes it behave like an uploaded file
+    // Attachments will be built from pendingFiles when sending the message
     const existingPf = state.pendingFiles.find(pf => pf.file_id === fileId);
     if (!existingPf) {
       // Check if it's an image (based on file_id - we'll fetch preview later if needed)
