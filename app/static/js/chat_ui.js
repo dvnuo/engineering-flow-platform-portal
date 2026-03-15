@@ -974,15 +974,12 @@ function handleChatBeforeRequest(event) {
   pendingFilesBackup = [...state.pendingFiles];
   
   // Build attachments from pendingFiles (only uploaded ones with file_id)
-  const attachmentsInput = document.getElementById('chat-attachments');
-  if (attachmentsInput) {
-    const uploadedFiles = state.pendingFiles
-      .filter(pf => pf.file_id && pf.status === 'uploaded')
-      .map(pf => pf.file_id);
-    console.log('[DEBUG] Building attachments - pendingFiles:', state.pendingFiles);
-    console.log('[DEBUG] Built attachments:', uploadedFiles);
-    attachmentsInput.value = JSON.stringify(uploadedFiles);
-  }
+  // Save to variable FIRST before clearing pendingFiles
+  const uploadedFileIds = state.pendingFiles
+    .filter(pf => pf.file_id && pf.status === 'uploaded')
+    .map(pf => pf.file_id);
+  console.log('[DEBUG] Building attachments - pendingFiles:', state.pendingFiles);
+  console.log('[DEBUG] Built attachments:', uploadedFileIds);
 
   // Show user message immediately (optimistic UI)
   setChatSubmitting(true);
@@ -1014,6 +1011,13 @@ function handleChatBeforeRequest(event) {
   clearPendingFiles();
   if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Sending...");
+  
+  // Set attachments AFTER clearing pendingFiles (so it's not cleared)
+  const attachmentsInput = document.getElementById('chat-attachments');
+  if (attachmentsInput) {
+    attachmentsInput.value = JSON.stringify(uploadedFileIds);
+    console.log('[DEBUG] Set attachments value:', attachmentsInput.value);
+  }
   
   // Let HTMX submit naturally - the form will send the message including @file_xxx
   // The message already contains @file_xxx references from the upload
