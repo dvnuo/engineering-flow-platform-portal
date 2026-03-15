@@ -840,7 +840,9 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
-    state.selectedAgentName = agent.name;
+    // Get agent name from state or lookup
+    const agent = state.mineAgents?.find(a => a.id === agentId) || publicAgents?.find(a => a.id === agentId);
+    state.selectedAgentName = agent?.name || null;
   window.selectedAgentId = agentId;  // Expose for inline scripts
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
@@ -2012,7 +2014,7 @@ function bindEvents() {
     } else {
       setDetailOpen(true);
       // Render agent details to tool panel
-      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || state.publicAgents.find(a => a.id === state.selectedAgentId);
+      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || publicAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
         dom.toolPanelTitle.textContent = "Agent Details";
         dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
