@@ -680,6 +680,7 @@ async def app_chat_send(request: Request):
 
         # DEBUG
         import logging
+        logging.info(f"[Portal] form data: agent_id={agent_id}, message={message}, session_id={session_id}, attachments_str={attachments_str}")
         logging.info(f"[Portal] Sending payload: {payload}")
 
         status_code, content, _ = await proxy_service.forward(
