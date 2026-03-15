@@ -931,7 +931,9 @@ function handleChatBeforeRequest(event) {
 
   // Get the message (already contains @file_xxx if files were uploaded)
   const message = dom.chatInput?.value?.trim() || "";
+  console.log("handleChatBeforeRequest, message:", message);
   if (!message) {
+    console.log("No message, preventing submit");
     event.preventDefault();
     return;
   }
@@ -2109,9 +2111,10 @@ function bindEvents() {
       if (pickCurrentSuggestion()) return;
     }
     if (event.key === "Enter" && !event.shiftKey) {
+      console.log("Enter pressed, submitting form");
       event.preventDefault();
       if (state.isSubmittingChat) return;
-      document.getElementById('chat-form').submit();
+      htmx.trigger("#chat-form", "submit");
     }
   });
 
