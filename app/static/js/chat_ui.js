@@ -841,8 +841,9 @@ function renderAgentActions(agent, status) {
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
     // Get agent name from state or lookup
-    const agent = state.mineAgents?.find(a => a.id === agentId) || publicAgents?.find(a => a.id === agentId);
-    state.selectedAgentName = agent?.name || null;
+    const allAgents = state.mineAgents || [];
+    const selectedAgent = allAgents.find(a => a.id === agentId);
+    state.selectedAgentName = selectedAgent?.name || null;
   window.selectedAgentId = agentId;  // Expose for inline scripts
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
