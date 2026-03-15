@@ -1210,14 +1210,12 @@ function insertFileReference(fileIdOrRef) {
         id: fileId,
         file_id: fileId,
         file: { name: 'Uploaded file' },
-        previewUrl: null,
-        isImage: true,  // Show as image placeholder
+        previewUrl: `/a/${state.selectedAgentId}/api/files/${fileId}`,
+        isImage: true,
         status: 'uploaded'
       };
       state.pendingFiles.push(pf);
       renderInputPreview();
-      
-      // Note: Preview fetching disabled - files may be in different agent storage
     }
   }
   
