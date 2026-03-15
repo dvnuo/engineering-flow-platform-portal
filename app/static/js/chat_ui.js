@@ -1015,15 +1015,32 @@ function continueSubmit(attachments = []) {
   })
   .then(response => response.text())
   .then(html => {
+    // Remove the "Thinking..." placeholder first
+    removePendingAssistantPlaceholder();
+    
     // Append the response to message list
     const messageList = document.getElementById('message-list');
     if (messageList) {
       messageList.insertAdjacentHTML('beforeend', html);
-      window.scrollTo(0, document.body.scrollHeight);
+      renderMarkdown(messageList);
+      decorateToolMessages(messageList);
+      renderIcons();
+      scrollToBottom();
     }
+    
+    // Update session ID if present
+    const sessionMatch = html.match(/name="session_id" value="([^"]*)"/);
+    if (sessionMatch && sessionMatch[1]) {
+      const sessionInput = document.getElementById('chat-session-id');
+      if (sessionInput) sessionInput.value = sessionMatch[1];
+      updateSelectedAgentSession(sessionMatch[1]);
+    }
+    
     setChatSubmitting(false);
     state.pendingMessage = "";
     state.messagePrepared = false;
+    state.inflightThinking = null;
+    setChatStatus("Ready");
   })
   .catch(error => {
     console.error('Send error:', error);
