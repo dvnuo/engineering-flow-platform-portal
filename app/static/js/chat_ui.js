@@ -193,7 +193,15 @@ async function addPendingFilesAndUpload(files) {
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
       
-      // Connect WebSocket after upload completes (so it's ready when user sends message)
+      // Add file reference to chat input so HTMX will submit it naturally
+      const fileRef = '@file_' + pf.file_id;
+      const chatInput = dom.chatInput;
+      if (chatInput) {
+        const currentVal = chatInput.value.trim();
+        chatInput.value = currentVal ? currentVal + ' ' + fileRef : fileRef;
+      }
+      
+      // Connect WebSocket after upload completes
       ensureEventSocketForSelectedAgent();
     } catch (error) {
       pf.status = 'failed';
@@ -921,50 +929,46 @@ function handleChatBeforeRequest(event) {
     return;
   }
 
-  // If message was already prepared (e.g., with attachments), don't overwrite
-  // and let the continueSubmit handle it
-  if (state.messagePrepared) {
-    state.messagePrepared = false;
-    return;
-  }
-  
-  state.pendingMessage = dom.chatInput?.value || "";
-  
-  // If there are pending files that need uploading, handle first
-  if (state.pendingFiles.length > 0) {
-    const pendingUploads = state.pendingFiles.filter(pf => pf.status === 'pending' || pf.status === 'uploading');
-    
-    if (pendingUploads.length > 0) {
-      event.preventDefault();
-      showToast('Waiting for upload...');
-      return;
-    }
-    
-    // All files already uploaded, add file refs to message
+  // Get the message (already contains @file_xxx if files were uploaded)
+  const message = dom.chatInput?.value?.trim() || "";
+  if (!message) {
     event.preventDefault();
-    const attachments = state.pendingFiles
-      .filter(pf => pf.status === 'uploaded')
-      .map(pf => ({
-        type: pf.isImage ? 'image' : 'file',
-        url: pf.uploadedData?.url,
-        name: pf.file.name,
-        file_id: pf.file_id || pf.uploadedData?.file_id || pf.uploadedData?.id,
-        previewUrl: pf.previewUrl
-      }));
-    
-    // Add file references to message
-    if (attachments.length > 0) {
-      const fileRefs = attachments.map(a => '@file_' + a.file_id).join(' ');
-      state.pendingMessage = (state.pendingMessage + ' ' + fileRefs).trim();
-    }
-    
-    // Continue with submission (fetch instead of HTMX)
-    continueSubmit(attachments);
     return;
   }
+
+  // Show user message immediately (optimistic UI)
+  setChatSubmitting(true);
+  removeWelcomeMessageIfPresent();
+  removePendingAssistantPlaceholder();
+  hideSuggest();
   
-  // No files, proceed normally with HTMX
-  state.messagePrepared = true; // Mark as prepared so we don't process twice
+  // Build attachments from pending files for display
+  const displayAttachments = state.pendingFiles.map(pf => ({
+    name: pf.file.name,
+    type: pf.isImage ? 'image' : 'file',
+    previewUrl: pf.previewUrl,
+    url: pf.uploadedData?.url
+  }));
+  
+  if (dom.messageList && message) {
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
+    const thinkingId = 'thinking-' + Date.now();
+    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
+    if (pending) pending.dataset.thinkingId = thinkingId;
+    state.inflightThinking = { id: thinkingId, events: [], completed: false };
+    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+    ensureEventSocketForSelectedAgent();
+    scrollToBottom();
+  }
+  
+  // Clear input and pending files, but let HTMX submit the form naturally
+  if (dom.chatInput) dom.chatInput.value = "";
+  clearPendingFiles();
+  setChatStatus("Sending...");
+  
+  // Let HTMX submit naturally - don't prevent default
+  // The message already contains @file_xxx references from the upload
 }
 
 function continueSubmit(attachments = []) {
@@ -1054,9 +1058,6 @@ function handleChatResponseError(event) {
 
   removePendingAssistantPlaceholder();
   setChatSubmitting(false);
-  if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
-  state.pendingMessage = "";
-  state.messagePrepared = false;
   state.inflightThinking = null;
   
   // Extract error message from response
