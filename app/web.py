@@ -394,7 +394,7 @@ async def agent_files_upload(agent_id: str, request: Request):
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"Upload failed: {resp.text}")
         
-        return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"))
+        return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"), status_code=resp.status_code)
     finally:
         db.close()
 

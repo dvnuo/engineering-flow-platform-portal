@@ -1,4 +1,8 @@
-:root { color-scheme: dark; }
+:root { 
+  color-scheme: dark; 
+  --bg-secondary: rgb(30 41 59);
+  --text-muted: rgb(148 163 184);
+}
 * { box-sizing: border-box; }
 body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 

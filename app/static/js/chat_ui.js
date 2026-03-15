@@ -125,24 +125,28 @@ function removePendingFile(id) {
       pf.xhr.abort();
       pf.cancelled = true;
     }
+    // Remove @file_ token from textarea if uploaded
+    if (pf.file_id) {
+      const chatInput = dom.chatInput;
+      if (chatInput) {
+        const fileRef = '@file_' + pf.file_id;
+        chatInput.value = chatInput.value.replace(fileRef, '').replace(/\s+/g, ' ').trim();
+      }
+    }
   }
   const idx = state.pendingFiles.findIndex(f => f.id === id);
   if (idx !== -1) {
-    // Revoke object URL to free memory
-    if (state.pendingFiles[idx].previewUrl && state.pendingFiles[idx].previewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(state.pendingFiles[idx].previewUrl);
-    }
+    // Don't revoke immediately - wait for message to be sent
+    // The blob URLs are needed for the optimistic UI message
     state.pendingFiles.splice(idx, 1);
     renderInputPreview();
   }
 }
 
 function clearPendingFiles() {
-  // Revoke all object URLs to free memory
+  // Abort any in-progress uploads but don't revoke blob URLs yet
+  // They're needed for the optimistic UI message that was just rendered
   state.pendingFiles.forEach(pf => {
-    if (pf.previewUrl && pf.previewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(pf.previewUrl);
-    }
     if (pf.xhr && pf.xhr.abort) {
       pf.xhr.abort();
     }
@@ -233,7 +237,7 @@ function renderInputPreview() {
       content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
     }
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
-    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button type="button" class="remove-btn" onclick="removePendingFile('${safeId}')">×</button></div>`;
+    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" onclick="removePendingFile('${safeId}')">×</button></div>`;
   }).join('');
 }
 
