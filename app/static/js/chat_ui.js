@@ -717,22 +717,22 @@ async function syncSelectedAgentState() {
 // Load last session from remote agent runtime
 async function loadLastSessionFromRemote(agentId) {
   try {
-    const resp = await api();
-    if (resp.ok) {
-      const data = await resp.json();
-      const sessions = data.sessions || [];
-      if (sessions.length > 0) {
-        const lastSessionId = sessions[0].id;
+    const data = await agentApi("/api/sessions?limit=1");
+    const sessions = data.sessions || [];
+    if (sessions.length > 0) {
+      // Use session_id (not id) for session objects
+      const lastSessionId = sessions[0].session_id;
+      if (lastSessionId) {
         setLastSessionId(agentId, lastSessionId);
         await loadSession(lastSessionId);
       }
     }
   } catch (e) {
-    console.log(Failed to load last session from remote:, e);
+    console.log("Failed to load last session from remote:", e);
   }
 }
 
-async function refreshAll() {async function refreshAll() {
+async function refreshAll() {
   const [mine, publicAgents] = await Promise.all([
     api("/api/agents/mine"),
     api("/api/agents/public"),
