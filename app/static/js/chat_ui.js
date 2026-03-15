@@ -1389,6 +1389,14 @@ function renderChatHistory(messages, metadata = {}) {
           img.src = `/a/${state.selectedAgentId}/api/files/${fileId}`;
           img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
           img.alt = fileId;
+          // Show placeholder on error
+          img.onerror = () => {
+            img.style.display = 'none';
+            const placeholder = document.createElement("div");
+            placeholder.className = "flex items-center justify-center w-20 h-20 rounded-lg bg-slate-700 text-xs text-slate-400";
+            placeholder.textContent = "File not found";
+            img.parentNode?.insertBefore(placeholder, img);
+          };
           attachmentDiv.appendChild(img);
         });
         article.appendChild(attachmentDiv);
