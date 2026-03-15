@@ -1196,17 +1196,15 @@ function insertFileReference(fileRef) {
     const fileId = fileIdMatch[1];
     
     // Add to pendingFiles state and render preview in input-preview-area
-    // This makes it behave like an uploaded file
     // Attachments will be built from pendingFiles when sending the message
     const existingPf = state.pendingFiles.find(pf => pf.file_id === fileId);
     if (!existingPf) {
-      // Check if it's an image (based on file_id - we'll fetch preview later if needed)
       const pf = {
-        id: fileId,  // Use file_id as id
+        id: fileId,
         file_id: fileId,
         file: { name: 'Uploaded file' },
         previewUrl: null,
-        isImage: true,  // Assume image for now - could be improved
+        isImage: true,
         status: 'uploaded'
       };
       state.pendingFiles.push(pf);
@@ -1214,12 +1212,7 @@ function insertFileReference(fileRef) {
     }
   }
   
-  // Also add to chat input for backward compatibility (so user sees what was added)
-  if (dom.chatInput && fileRef) {
-    const reference = `${fileRef} `;
-    dom.chatInput.setRangeText(reference, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
-    dom.chatInput.focus();
-  }
+  // Don't add to chat input - use attachments field instead
 }
 
 async function maybeShowSuggest() {
