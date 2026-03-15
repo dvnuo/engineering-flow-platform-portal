@@ -2111,7 +2111,7 @@ function bindEvents() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (state.isSubmittingChat) return;
-      htmx.trigger("#chat-form", "submit");
+      document.getElementById('chat-form').submit();
     }
   });
 
