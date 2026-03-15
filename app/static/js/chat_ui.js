@@ -1376,6 +1376,11 @@ async function loadSession(sessionId) {
 }
 
 async function openServerFiles() {
+  const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
+  if (agent && Number(agent.owner_user_id) !== state.currentUserId) {
+    setToolPanel('Server Files', '<div class="text-xs text-red-500">You do not have permission to access files of this shared agent.</div>');
+    return;
+  }
   const workspacePath = '/root/.efp/workspace';
   await loadServerFiles(workspacePath);
 }
