@@ -372,12 +372,19 @@ async def agent_files_upload(agent_id: str, request: Request):
         # Read file content
         content = await file_field.read()
         
-        # Send to EFP via ClusterIP
-        url = "http://10.43.225.243:8000/api/files/upload"
-        files = {"file": (file_field.filename, content, file_field.content_type)}
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, files=files)
+        # Send to EFP - try localhost first (for dev), fallback to k8s service
+        try:
+            # Try localhost first
+            url = "http://127.0.0.1:8001/api/files/upload"
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, files=files)
+                if resp.status_code >= 400:
+                    raise Exception("Failed")
+        except Exception:
+            # Fallback to k8s service
+            url = "http://10.43.225.243:8000/api/files/upload"
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, files=files)
         
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"Upload failed: {resp.text}")
