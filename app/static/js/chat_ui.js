@@ -918,83 +918,47 @@ function handleChatBeforeRequest(event) {
     return;
   }
 
-  // Store current message
-  state.pendingMessage = dom.chatInput?.value || "";
+  // If message was already prepared (e.g., with attachments), don't overwrite
+  if (!state.messagePrepared) {
+    state.pendingMessage = dom.chatInput?.value || "";
+  }
+  state.messagePrepared = false;  // Reset for next time
   
-  // If there are pending files, we need to upload first then submit
+  // If there are pending files that need uploading, handle first
   if (state.pendingFiles.length > 0) {
-    event.preventDefault(); // Stop HTMX from submitting
-    
-    // Check if any files need uploading
-    const pendingUploads = state.pendingFiles.filter(pf => pf.status === 'pending');
+    const pendingUploads = state.pendingFiles.filter(pf => pf.status === 'pending' || pf.status === 'uploading');
     
     if (pendingUploads.length > 0) {
-      // Still uploading, wait for all to complete
-      const uploadAndSubmit = async () => {
-        let attachments = [];
-        for (const pf of state.pendingFiles) {
-          if (pf.status === 'pending') {
-            try {
-              const data = await uploadPendingFile(pf);
-              attachments.push({
-                type: pf.isImage ? 'image' : 'file',
-                url: data.url,
-                name: data.name || pf.file.name,
-                file_id: data.file_id || data.id,
-                previewUrl: pf.previewUrl
-              });
-            } catch (error) {
-              showToast('Upload failed: ' + error.message);
-              return;
-            }
-          }
-        }
-        
-        // Add file references to message
-        if (attachments.length > 0) {
-          const fileRefs = attachments.map(a => '@file_' + a.file_id).join(' ');
-          state.pendingMessage = (state.pendingMessage + ' ' + fileRefs).trim();
-        }
-        
-        // If message is empty but has files, use a default message
-        if (!state.pendingMessage.trim() && attachments.length > 0) {
-          state.pendingMessage = attachments.map(a => '@file_' + a.file_id).join(' ');
-        }
-        
-        // Continue with sending
-        continueSubmit(attachments);
-      };
-      
-      uploadAndSubmit();
-    } else {
-      // All files already uploaded, just add references
-      const attachments = state.pendingFiles
-        .filter(pf => pf.status === 'uploaded')
-        .map(pf => ({
-          type: pf.isImage ? 'image' : 'file',
-          url: pf.uploadedData?.url,
-          name: pf.file.name,
-          file_id: pf.file_id || pf.uploadedData?.file_id || pf.uploadedData?.id,
-          previewUrl: pf.previewUrl
-        }));
-      
-      // Add file references to message
-      if (attachments.length > 0) {
-        const fileRefs = attachments.map(a => '@file_' + a.file_id).join(' ');
-        state.pendingMessage = (state.pendingMessage + ' ' + fileRefs).trim();
-      }
-      
-      // If message is empty but has files, use a default message
-      if (!state.pendingMessage.trim() && attachments.length > 0) {
-        state.pendingMessage = attachments.map(a => '@file_' + a.file_id).join(' ');
-      }
-      
-      continueSubmit(attachments);
+      event.preventDefault();
+      showToast('Waiting for upload...');
+      return;
     }
-  } else {
-    // No files, proceed normally
-    continueSubmit([]);
+    
+    // All files already uploaded, add file refs to message
+    event.preventDefault();
+    const attachments = state.pendingFiles
+      .filter(pf => pf.status === 'uploaded')
+      .map(pf => ({
+        type: pf.isImage ? 'image' : 'file',
+        url: pf.uploadedData?.url,
+        name: pf.file.name,
+        file_id: pf.file_id || pf.uploadedData?.file_id || pf.uploadedData?.id,
+        previewUrl: pf.previewUrl
+      }));
+    
+    // Add file references to message
+    if (attachments.length > 0) {
+      const fileRefs = attachments.map(a => '@file_' + a.file_id).join(' ');
+      state.pendingMessage = (state.pendingMessage + ' ' + fileRefs).trim();
+    }
+    
+    // Continue with submission
+    continueSubmit(attachments);
+    return;
   }
+  
+  // No files, proceed normally
+  continueSubmit([]);
 }
 
 function continueSubmit(attachments = []) {
@@ -1002,6 +966,9 @@ function continueSubmit(attachments = []) {
   removeWelcomeMessageIfPresent();
   removePendingAssistantPlaceholder();
   hideSuggest();
+  
+  // Mark message as prepared so subsequent htmx:beforeRequest doesn't overwrite
+  state.messagePrepared = true;
   
   const displayAttachments = state.pendingFiles.map(pf => ({
     name: pf.file.name,
@@ -1037,6 +1004,7 @@ function handleChatResponseError(event) {
   setChatSubmitting(false);
   if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
   state.pendingMessage = "";
+  state.messagePrepared = false;
   state.inflightThinking = null;
   
   // Extract error message from response
@@ -1076,6 +1044,7 @@ function handleChatAfterRequest(event) {
 
   setChatSubmitting(false);
   state.pendingMessage = "";
+  state.messagePrepared = false;
 }
 
 function handleChatAfterSwap(target) {
