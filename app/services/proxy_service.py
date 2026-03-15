@@ -56,8 +56,8 @@ class ProxyService:
             except Exception:
                 pass
         
-        # Fallback to localhost:8001 (for dev when EFP runs outside K8s)
-        return "http://127.0.0.1:8001"
+        # No fallback - raise error if can't determine URL
+        raise ValueError(f"Cannot determine EFP URL for agent {agent.service_name}. Ensure agent is running in K8s with proper service.")
 
     async def forward(
         self,
