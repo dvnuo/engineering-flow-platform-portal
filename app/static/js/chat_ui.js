@@ -1713,13 +1713,6 @@ async function openSettings() {
   }
 }
 
-  } catch (error) {
-    setChatStatus(`Upload failed: ${safe(error.message)}`);
-  } finally {
-    dom.uploadInput.value = "";
-  }
-}
-
 async function clearChat() {
   try {
     if (dom.chatSessionId?.value) {
