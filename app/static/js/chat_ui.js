@@ -1364,6 +1364,7 @@ function renderChatHistory(messages, metadata = {}) {
       const matches = message.content.match(/@file_([a-zA-Z0-9]+)/g);
       if (matches) {
         fileIds = matches.map(m => m.replace('@file_', ''));
+        console.log('[DEBUG] Extracted fileIds from message:', fileIds);
       }
     }
     // Also check message.attachments (new format)
