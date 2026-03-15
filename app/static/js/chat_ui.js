@@ -117,26 +117,6 @@ function generateFileId() {
   return 'file_' + Math.random().toString(36).substr(2, 9);
 }
 
-function addPendingFiles(files) {
-  Array.from(files).forEach(file => {
-    const isImage = file.type.startsWith('image/');
-    const pf = {
-      id: generateFileId(),
-      file: file,
-      previewUrl: null,
-      isImage: isImage,
-      status: 'pending'
-    };
-    state.pendingFiles.push(pf);
-    renderInputPreview();
-    
-    if (isImage) {
-      // Use URL.createObjectURL for better memory efficiency
-      pf.previewUrl = URL.createObjectURL(file);
-    }
-  });
-}
-
 function removePendingFile(id) {
   const pf = state.pendingFiles.find(f => f.id === id);
   if (pf) {
@@ -189,6 +169,7 @@ async function addPendingFilesAndUpload(files) {
     if (isImage) {
       // Use URL.createObjectURL for better memory efficiency
       pf.previewUrl = URL.createObjectURL(file);
+      renderInputPreview();  // Re-render to show preview
     }
     
     // Upload immediately
@@ -243,7 +224,8 @@ function renderInputPreview() {
     }
     
     if (pf.isImage && pf.previewUrl) {
-      content = `<img src="${pf.previewUrl}" alt="${pf.file.name}" class="w-full h-full object-cover" />`;
+      const safeAlt = (pf.file.name || '').replace(/[<>"'&]/g, '');
+      content = `<img src="${pf.previewUrl}" alt="${safeAlt}" class="w-full h-full object-cover" />`;
     } else if (pf.isImage) {
       content = `<div class="file-icon"><span>...</span></div>`;
     } else {
@@ -251,7 +233,7 @@ function renderInputPreview() {
       content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
     }
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
-    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button class="remove-btn" onclick="removePendingFile('${safeId}')">×</button></div>`;
+    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button type="button" class="remove-btn" onclick="removePendingFile('${safeId}')">×</button></div>`;
   }).join('');
 }
 
@@ -990,88 +972,6 @@ function handleChatBeforeRequest(event) {
   
   // Let HTMX submit naturally - the form will send the message including @file_xxx
   // The message already contains @file_xxx references from the upload
-}
-
-function continueSubmit(attachments = []) {
-  setChatSubmitting(true);
-  removeWelcomeMessageIfPresent();
-  removePendingAssistantPlaceholder();
-  hideSuggest();
-  
-  // Mark message as prepared so subsequent htmx:beforeRequest doesn't overwrite
-  state.messagePrepared = true;
-  
-  const displayAttachments = state.pendingFiles.map(pf => ({
-    name: pf.file.name,
-    type: pf.isImage ? 'image' : 'file',
-    previewUrl: pf.previewUrl,
-    url: pf.uploadedData?.url
-  }));
-  
-  if (dom.messageList && state.pendingMessage.trim()) {
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage, displayAttachments));
-    const thinkingId = 'thinking-' + Date.now();
-    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
-    if (pending) pending.dataset.thinkingId = thinkingId;
-    state.inflightThinking = { id: thinkingId, events: [], completed: false };
-    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
-    scrollToBottom();
-  }
-  
-  if (dom.chatInput) dom.chatInput.value = "";
-  clearPendingFiles();
-  setChatStatus("Sending...");
-  
-  // Ensure WebSocket is connected before submitting
-  ensureEventSocketForSelectedAgent();
-  
-  // Submit message directly via fetch (bypass HTMX form submission issues)
-  const agentId = state.selectedAgentId;
-  const sessionId = document.getElementById('chat-session-id')?.value || '';
-  const message = state.pendingMessage;
-  
-  fetch('/app/chat/send', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: `agent_id=${encodeURIComponent(agentId)}&session_id=${encodeURIComponent(sessionId)}&message=${encodeURIComponent(message)}`
-  })
-  .then(response => response.text())
-  .then(html => {
-    // Remove the "Thinking..." placeholder first
-    removePendingAssistantPlaceholder();
-    
-    // Append the response to message list
-    const messageList = document.getElementById('message-list');
-    if (messageList) {
-      messageList.insertAdjacentHTML('beforeend', html);
-      renderMarkdown(messageList);
-      decorateToolMessages(messageList);
-      renderIcons();
-      scrollToBottom();
-    }
-    
-    // Update session ID if present
-    const sessionMatch = html.match(/name="session_id" value="([^"]*)"/);
-    if (sessionMatch && sessionMatch[1]) {
-      const sessionInput = document.getElementById('chat-session-id');
-      if (sessionInput) sessionInput.value = sessionMatch[1];
-      updateSelectedAgentSession(sessionMatch[1]);
-    }
-    
-    setChatSubmitting(false);
-    state.pendingMessage = "";
-    state.messagePrepared = false;
-    state.inflightThinking = null;
-    setChatStatus("Ready");
-  })
-  .catch(error => {
-    console.error('Send error:', error);
-    setChatStatus('Send failed: ' + error.message, true);
-    setChatSubmitting(false);
-  });
 }
 
 function handleChatResponseError(event) {
@@ -2302,13 +2202,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   initializeRenderLifecycle();
   
-  // Also handle form submit directly (fallback)
-  const chatForm = document.getElementById('chat-form');
-  if (chatForm) {
-    chatForm.addEventListener('submit', function(e) {
-      handleChatBeforeRequest({ target: this, preventDefault: function() { e.preventDefault(); } });
-    });
-  }
+  // Form submit is handled by HTMX via hx-on::before-request
   
   // Drag and drop file upload
   const messageList = dom.messageList;
