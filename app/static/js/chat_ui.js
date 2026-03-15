@@ -188,7 +188,7 @@ async function uploadPendingFile(pf) {
     formData.append('file', pf.file);
     
     const xhr = new XMLHttpRequest();
-    xhr.upload.addEventListener('load', () => {
+    xhr.addEventListener('load', () => {
       console.log('[UPLOAD] Load event, status:', xhr.status);
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
