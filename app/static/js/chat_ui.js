@@ -1017,7 +1017,15 @@ function handleChatBeforeRequest(event) {
   if (attachmentsInput) {
     attachmentsInput.value = JSON.stringify(uploadedFileIds);
     console.log('[DEBUG] Set attachments value:', attachmentsInput.value);
+  } else {
+    console.log('[DEBUG] attachmentsInput NOT FOUND!');
   }
+  
+  // Force HTMX to pick up the new value by triggering input event
+  attachmentsInput?.dispatchEvent(new Event('input', { bubbles: true }));
+  
+  // Log final form state before submit
+  console.log('[DEBUG] Final attachments input value:', document.getElementById('chat-attachments')?.value);
   
   // Let HTMX submit naturally - the form will send the message including @file_xxx
   // The message already contains @file_xxx references from the upload
