@@ -372,15 +372,27 @@ async def agent_files_upload(agent_id: str, request: Request):
         # Read file content
         content = await file_field.read()
         
+        # Limit file size to 10MB to prevent memory issues
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"File too large. Maximum size is 10MB.")
+        
         # Prepare files for upload
         files = {"file": (file_field.filename, content, file_field.content_type)}
         
         # Use proxy_service to get the correct EFP URL
-        efp_base_url = proxy_service.build_agent_base_url(agent)
+        try:
+            efp_base_url = proxy_service.build_agent_base_url(agent)
+        except ValueError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        
         url = f"{efp_base_url}/api/files/upload"
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, files=files)
+        
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Upload failed: {resp.text}")
         
         return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"))
     finally:

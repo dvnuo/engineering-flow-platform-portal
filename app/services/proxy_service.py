@@ -68,7 +68,13 @@ class ProxyService:
         body: Optional[bytes],
         headers: dict[str, str],
     ) -> tuple[int, bytes, str]:
-        base = self.build_agent_base_url(agent).rstrip("/")
+        try:
+            base = self.build_agent_base_url(agent).rstrip("/")
+        except ValueError as e:
+            # Return 502 error when EFP URL cannot be determined
+            error_msg = str(e).encode('utf-8')
+            return 502, error_msg, "text/plain"
+        
         path = f"/{subpath}" if subpath else "/"
         url = f"{base}{path}"
 
