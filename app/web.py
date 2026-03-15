@@ -1,7 +1,8 @@
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 
-from fastapi import APIRouter, HTTPException, Request, status
+import httpx
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -343,6 +344,57 @@ async def app_agent_files_panel(request: Request, agent_id: str):
                 "files": payload.get("files") or [],
             },
         )
+    finally:
+        db.close()
+
+
+@router.post("/a/{agent_id}/api/files/upload")
+async def agent_files_upload(agent_id: str, request: Request):
+    """Proxy file upload to EFP agent"""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Read the multipart form data
+        form = await request.form()
+        file_field = form.get("file")
+        if not file_field:
+            raise HTTPException(status_code=400, detail="No file provided")
+
+        # Read file content
+        content = await file_field.read()
+        
+        # Limit file size to 10MB to prevent memory issues
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"File too large. Maximum size is 10MB.")
+        
+        # Prepare files for upload
+        files = {"file": (file_field.filename, content, file_field.content_type)}
+        
+        # Use proxy_service to get the correct EFP URL
+        try:
+            efp_base_url = proxy_service.build_agent_base_url(agent)
+        except ValueError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        
+        url = f"{efp_base_url}/api/files/upload"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, files=files)
+        
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Upload failed: {resp.text}")
+        
+        return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"), status_code=resp.status_code)
     finally:
         db.close()
 

@@ -86,6 +86,10 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
+  pendingFiles: [],
+  // Backup for restore on error
+  pendingFilesBackup: [],
+  messageBackup: "",
 };
 
 const md = window.markdownit({
@@ -111,6 +115,174 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// ===== File Preview Functions =====
+function generateFileId() {
+  return 'file_' + Math.random().toString(36).substr(2, 9);
+}
+
+function removePendingFile(id) {
+  const pf = state.pendingFiles.find(f => f.id === id);
+  if (pf) {
+    // Abort upload if in progress
+    if (pf.xhr && pf.xhr.abort) {
+      pf.xhr.abort();
+      pf.cancelled = true;
+    }
+    // Remove @file_ token from textarea if uploaded
+    if (pf.file_id) {
+      const chatInput = dom.chatInput;
+      if (chatInput) {
+        const fileRef = '@file_' + pf.file_id;
+        chatInput.value = chatInput.value.replace(fileRef, '').replace(/\s+/g, ' ').trim();
+      }
+    }
+  }
+  const idx = state.pendingFiles.findIndex(f => f.id === id);
+  if (idx !== -1) {
+    // Don't revoke immediately - wait for message to be sent
+    // The blob URLs are needed for the optimistic UI message
+    state.pendingFiles.splice(idx, 1);
+    renderInputPreview();
+  }
+}
+
+function clearPendingFiles() {
+  // Abort any in-progress uploads but don't revoke blob URLs yet
+  // They're needed for the optimistic UI message that was just rendered
+  state.pendingFiles.forEach(pf => {
+    if (pf.xhr && pf.xhr.abort) {
+      pf.xhr.abort();
+    }
+  });
+  state.pendingFiles = [];
+  renderInputPreview();
+}
+
+// Add files and upload immediately
+async function addPendingFilesAndUpload(files) {
+  for (const file of files) {
+    const isImage = file.type.startsWith('image/');
+    const pf = {
+      id: generateFileId(),
+      file: file,
+      previewUrl: null,
+      isImage: isImage,
+      status: 'uploading'
+    };
+    state.pendingFiles.push(pf);
+    renderInputPreview();
+    
+    // Generate preview
+    if (isImage) {
+      // Use URL.createObjectURL for better memory efficiency
+      pf.previewUrl = URL.createObjectURL(file);
+      renderInputPreview();  // Re-render to show preview
+    }
+    
+    // Upload immediately
+    try {
+      const data = await uploadPendingFile(pf);
+      pf.status = 'uploaded';
+      pf.uploadedData = data;
+      pf.file_id = data.file_id || data.id;
+      renderInputPreview();
+      showToast('File uploaded: ' + file.name);
+      
+      // Add file reference to chat input so HTMX will submit it naturally
+      const fileRef = '@file_' + pf.file_id;
+      const chatInput = dom.chatInput;
+      if (chatInput) {
+        const currentVal = chatInput.value.trim();
+        chatInput.value = currentVal ? currentVal + ' ' + fileRef : fileRef;
+      }
+      
+      // Connect WebSocket after upload completes
+      ensureEventSocketForSelectedAgent();
+    } catch (error) {
+      pf.status = 'failed';
+      renderInputPreview();
+      showToast('Upload failed: ' + error.message);
+    }
+  }
+}
+
+function renderInputPreview() {
+  const container = document.getElementById('input-preview-area');
+  if (!container) return;
+  
+  if (state.pendingFiles.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+  
+  container.classList.remove('hidden');
+  container.innerHTML = state.pendingFiles.map(pf => {
+    let content = '';
+    let statusBadge = '';
+    
+    // Status badge
+    if (pf.status === 'uploading') {
+      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-yellow-500 text-white px-1 rounded">⏳</span>';
+    } else if (pf.status === 'uploaded') {
+      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-green-500 text-white px-1 rounded">✓</span>';
+    } else if (pf.status === 'failed') {
+      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-red-500 text-white px-1 rounded">✗</span>';
+    }
+    
+    if (pf.isImage && pf.previewUrl) {
+      const safeAlt = (pf.file.name || '').replace(/[<>"'&]/g, '');
+      content = `<img src="${pf.previewUrl}" alt="${safeAlt}" class="w-full h-full object-cover" />`;
+    } else if (pf.isImage) {
+      content = `<div class="file-icon"><span>...</span></div>`;
+    } else {
+      const safeName = (pf.file.name.slice(0, 8) || '').replace(/[<>"'&]/g, '');
+      content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
+    }
+    const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
+    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
+  }).join('');
+}
+
+async function uploadPendingFile(pf) {
+  return new Promise((resolve, reject) => {
+    // Check if already cancelled
+    if (pf.cancelled) {
+      reject(new Error('Upload cancelled'));
+      return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', pf.file);
+    
+    const xhr = new XMLHttpRequest();
+    pf.xhr = xhr;  // Store reference for cancellation
+    
+    xhr.addEventListener('load', () => {
+      // Check if cancelled during upload
+      if (pf.cancelled) {
+        reject(new Error('Upload cancelled'));
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          pf.status = 'uploaded';
+          pf.uploadedData = data;
+          resolve(data);
+        } catch { reject(new Error('Invalid response')); }
+      } else { reject(new Error('HTTP ' + xhr.status)); }
+    });
+    xhr.addEventListener('error', () => { reject(new Error('Network error')); });
+    xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')); });
+    const url = '/a/' + state.selectedAgentId + '/api/files/upload';
+    xhr.open('POST', url);
+    xhr.send(formData);
+  });
+}
+
+window.removePendingFile = removePendingFile;
+
 function normalizeSkillCommand(raw) {
   const skillName = String(raw || "").trim().replace(/^\/+/, "");
   return skillName ? `/${skillName}` : "";
@@ -131,9 +303,23 @@ function canWriteAgent(agent) {
   return state.currentUserRole === "admin" || Number(agent.owner_user_id) === state.currentUserId;
 }
 
-function buildUserMessageArticle(text) {
+function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div></article></div>`;
+  
+  let attachmentHtml = '';
+  if (attachments.length > 0) {
+    attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
+      const safeName = (a.name || '').replace(/[<>"'&]/g, '');
+      const safeUrl = (a.previewUrl || a.url || '').replace(/[<>"'&]/g, '');
+      if (a.type === 'image') {
+        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500" alt="${safeName}" />`;
+      } else {
+        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs">📄 ${safeName}</div>`;
+      }
+    }).join('')}</div>`;
+  }
+  
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
@@ -745,7 +931,7 @@ async function refreshAll() {
   await syncSelectedAgentState();
 }
 
-// ===== chat submit lifecycle (HTMX) =====
+// ===== chat submit lifecycle =====
 function handleChatBeforeRequest(event) {
   if (event.target?.id !== "chat-form") return;
   if (state.isSubmittingChat) {
@@ -753,14 +939,42 @@ function handleChatBeforeRequest(event) {
     return;
   }
 
+  // Block submission if any files are still uploading
+  const uploadingFiles = state.pendingFiles.filter(pf => pf.status === 'uploading');
+  if (uploadingFiles.length > 0) {
+    event.preventDefault();
+    showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
+    return;
+  }
+
+  // Get the message (already contains @file_xxx if files were uploaded)
+  const message = dom.chatInput?.value?.trim() || "";
+  if (!message) {
+    event.preventDefault();
+    return;
+  }
+
+  // Backup message and files for potential restore on error
+  messageBackup = message;
+  pendingFilesBackup = [...state.pendingFiles];
+
+  // Show user message immediately (optimistic UI)
   setChatSubmitting(true);
-  state.pendingMessage = dom.chatInput?.value || "";
   removeWelcomeMessageIfPresent();
   removePendingAssistantPlaceholder();
   hideSuggest();
-  if (dom.messageList && state.pendingMessage.trim()) {
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(state.pendingMessage));
-    const thinkingId = `thinking-${Date.now()}`;
+  
+  // Build attachments from pending files for display
+  const displayAttachments = state.pendingFiles.map(pf => ({
+    name: pf.file.name,
+    type: pf.isImage ? 'image' : 'file',
+    previewUrl: pf.previewUrl,
+    url: pf.uploadedData?.url
+  }));
+  
+  if (dom.messageList && message) {
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
+    const thinkingId = 'thinking-' + Date.now();
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
     const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
     if (pending) pending.dataset.thinkingId = thinkingId;
@@ -769,8 +983,14 @@ function handleChatBeforeRequest(event) {
     ensureEventSocketForSelectedAgent();
     scrollToBottom();
   }
+  
+  // Clear pending files and input (message is already captured in 'message' variable)
+  clearPendingFiles();
   if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Sending...");
+  
+  // Let HTMX submit naturally - the form will send the message including @file_xxx
+  // The message already contains @file_xxx references from the upload
 }
 
 function handleChatResponseError(event) {
@@ -778,9 +998,16 @@ function handleChatResponseError(event) {
 
   removePendingAssistantPlaceholder();
   setChatSubmitting(false);
-  if (dom.chatInput && state.pendingMessage && !dom.chatInput.value.trim()) dom.chatInput.value = state.pendingMessage;
-  state.pendingMessage = "";
   state.inflightThinking = null;
+  
+  // Restore message and files from backup
+  if (messageBackup || pendingFilesBackup.length > 0) {
+    if (dom.chatInput) dom.chatInput.value = messageBackup;
+    state.pendingFiles = pendingFilesBackup;
+    renderInputPreview();
+    pendingFilesBackup = [];
+    messageBackup = "";
+  }
   
   // Extract error message from response
   let errorMsg = "Send failed";
@@ -819,6 +1046,7 @@ function handleChatAfterRequest(event) {
 
   setChatSubmitting(false);
   state.pendingMessage = "";
+  state.messagePrepared = false;
 }
 
 function handleChatAfterSwap(target) {
@@ -1513,42 +1741,6 @@ async function openSettings() {
   }
 }
 
-async function uploadFile() {
-  const file = dom.uploadInput?.files?.[0];
-  if (!file) return;
-
-  const fileName = file.name;
-  setChatStatus(`Uploading ${fileName}...`);
-
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    const response = await fetch(`/a/${state.selectedAgentId}/api/files/upload`, { method: "POST", body: formData });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Insert file reference into chat input
-    const fileRef = `@file_${data.file_id || data.id}`;
-    insertFileReference(fileRef);
-    
-    setChatStatus(`Uploaded ${fileName}`);
-    state.cachedMentionFiles = [];
-    
-    if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "My Uploads") {
-      await openMyUploads();
-    }
-  } catch (error) {
-    setChatStatus(`Upload failed: ${safe(error.message)}`);
-  } finally {
-    dom.uploadInput.value = "";
-  }
-}
-
 async function clearChat() {
   try {
     if (dom.chatSessionId?.value) {
@@ -1837,7 +2029,12 @@ function bindEvents() {
     }
   });
 
-  dom.uploadInput?.addEventListener("change", uploadFile);
+  dom.uploadInput?.addEventListener("change", (e) => {
+    if (e.target.files?.length) {
+      addPendingFilesAndUpload(e.target.files);
+      e.target.value = ''; // Clear to allow re-uploading same file
+    }
+  });
 
   dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
   dom.topSettings?.addEventListener("click", openSettings);
@@ -2026,6 +2223,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   initializeRenderLifecycle();
   
+  // Event delegation for remove buttons (replace inline onclick)
+  const previewArea = document.getElementById('input-preview-area');
+  if (previewArea) {
+    previewArea.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-remove-id]');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const fileId = btn.dataset.removeId;
+        if (fileId) removePendingFile(fileId);
+      }
+    });
+  }
+  
+  // Form submit is handled by HTMX via hx-on::before-request
+  
   // Drag and drop file upload
   const messageList = dom.messageList;
   let dragCounter = 0;
@@ -2055,14 +2268,29 @@ document.addEventListener("DOMContentLoaded", async () => {
       dragCounter = 0;
       messageList.classList.remove("drag-over");
       const files = e.dataTransfer?.files;
-      if (files?.length && dom.uploadInput) {
-        // Use the existing upload handler
-        const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(files[0]);
-        dom.uploadInput.files = dataTransfer.files;
-        await uploadFile();
+      if (files?.length) {
+        // Add files and upload immediately
+        await addPendingFilesAndUpload(files);
       }
     });
+    
+    // Also support drag & drop on the chat form
+    const chatForm = document.getElementById('chat-form');
+    if (chatForm) {
+      chatForm.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      chatForm.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const files = e.dataTransfer?.files;
+        if (files?.length) {
+          // Add files and upload immediately
+          await addPendingFilesAndUpload(files);
+        }
+      });
+    }
   }
   
   // Quick action buttons
