@@ -1121,7 +1121,8 @@ function handleChatAfterSwap(target) {
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:configRequest", (event) => {
     // This fires right before HTMX makes the request - perfect time to set attachments
-    if (event.detail.requestConfig.elt?.id === "chat-form") {
+    const elt = event.detail.requestConfig?.elt || event.target;
+    if (elt?.id === "chat-form") {
       const uploadedFileIds = state.pendingFiles
         .filter(pf => pf.file_id && pf.status === 'uploaded')
         .map(pf => pf.file_id);
