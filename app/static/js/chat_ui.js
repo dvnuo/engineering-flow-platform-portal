@@ -1364,6 +1364,11 @@ async function loadSession(sessionId) {
 
   const data = await agentApi(`/api/sessions/${encodeURIComponent(normalized)}`);
   updateSelectedAgentSession(normalized);
+  // Ensure agent name is set
+  if (!state.selectedAgentName && state.selectedAgentId) {
+    const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
+    state.selectedAgentName = agent?.name || null;
+  }
   renderChatHistory(data.messages || [], data.metadata || {});
 
   setChatStatus(`Loaded session ${normalized}`);
