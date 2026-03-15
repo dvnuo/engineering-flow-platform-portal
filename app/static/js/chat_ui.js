@@ -1012,21 +1012,7 @@ function handleChatBeforeRequest(event) {
   if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Sending...");
   
-  // Set attachments AFTER clearing pendingFiles (so it's not cleared)
-  const attachmentsInput = document.getElementById('chat-attachments');
-  if (attachmentsInput) {
-    attachmentsInput.value = JSON.stringify(uploadedFileIds);
-    console.log('[DEBUG] Set attachments value:', attachmentsInput.value);
-  } else {
-    console.log('[DEBUG] attachmentsInput NOT FOUND!');
-  }
-  
-  // Force HTMX to pick up the new value by triggering input event
-  attachmentsInput?.dispatchEvent(new Event('input', { bubbles: true }));
-  
-  // Log final form state before submit
-  console.log('[DEBUG] Final attachments input value:', document.getElementById('chat-attachments')?.value);
-  
+  // Note: attachments is now set via htmx:configRequest event
   // Let HTMX submit naturally - the form will send the message including @file_xxx
   // The message already contains @file_xxx references from the upload
 }
@@ -1133,6 +1119,17 @@ function handleChatAfterSwap(target) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
+  document.addEventListener("htmx:configRequest", (event) => {
+    // This fires right before HTMX makes the request - perfect time to set attachments
+    if (event.detail.requestConfig.elt?.id === "chat-form") {
+      const uploadedFileIds = state.pendingFiles
+        .filter(pf => pf.file_id && pf.status === 'uploaded')
+        .map(pf => pf.file_id);
+      event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+      console.log('[DEBUG] htmx:configRequest - set attachments to:', event.detail.parameters.attachments);
+    }
+  });
+  
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
   document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
