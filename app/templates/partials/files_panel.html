@@ -72,6 +72,7 @@
     const fileRef = row.dataset.fileRef;
     
     if (e.target.closest('.insert-ref-btn')) {
+      e.stopPropagation(); // Prevent bubbling to parent with data-file-ref
       // Use existing global function - pass full file_id
       if (typeof insertFileReference === 'function') {
         insertFileReference(fileId);
