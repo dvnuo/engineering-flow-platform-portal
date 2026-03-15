@@ -204,12 +204,15 @@ async function addPendingFilesAndUpload(files) {
       
       // Also populate attachments field for cleaner API
       const attachmentsInput = document.getElementById('chat-attachments');
-      console.log('[DEBUG] Upload success, populating attachments:', pf.file_id);
+      console.log('[DEBUG] Upload success, pf.file_id:', pf.file_id);
       if (attachmentsInput) {
         const existing = attachmentsInput.value ? JSON.parse(attachmentsInput.value) : [];
+        console.log('[DEBUG] Existing attachments:', existing);
         existing.push(pf.file_id);
         attachmentsInput.value = JSON.stringify(existing);
-        console.log('[DEBUG] attachmentsInput value:', attachmentsInput.value);
+        console.log('[DEBUG] attachmentsInput value after push:', attachmentsInput.value);
+      } else {
+        console.log('[DEBUG] attachmentsInput not found!');
       }
       
       // Connect WebSocket after upload completes
