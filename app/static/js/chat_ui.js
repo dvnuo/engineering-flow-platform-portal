@@ -1358,16 +1358,15 @@ function renderChatHistory(messages, metadata = {}) {
     
     container.appendChild(header);
 
-    // Extract file references from message content
+    // Extract file references from message content (@file_xxx pattern)
     let fileIds = [];
     if (isUser && message.content) {
       const matches = message.content.match(/@file_([a-zA-Z0-9]+)/g);
       if (matches) {
         fileIds = matches.map(m => m.replace('@file_', ''));
-        console.log('[DEBUG] Extracted fileIds from message:', fileIds);
       }
     }
-    // Also check message.attachments (new format)
+    // Also check message.attachments (new format - if available)
     if (message.attachments && Array.isArray(message.attachments)) {
       fileIds = [...fileIds, ...message.attachments];
     }
