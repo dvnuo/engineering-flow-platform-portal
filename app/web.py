@@ -372,6 +372,9 @@ async def agent_files_upload(agent_id: str, request: Request):
         # Read file content
         content = await file_field.read()
         
+        # Prepare files for upload
+        files = {"file": (file_field.filename, content, file_field.content_type)}
+        
         # Send to EFP - try localhost first (for dev), fallback to k8s service
         try:
             # Try localhost first
