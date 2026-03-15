@@ -399,6 +399,37 @@ async def agent_files_upload(agent_id: str, request: Request):
         db.close()
 
 
+@router.get("/a/{agent_id}/api/files/{file_id}/preview")
+async def agent_files_preview(request: Request, agent_id: str, file_id: str, max_chars: int = 5000):
+    """Proxy file preview to EFP agent"""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        try:
+            efp_base_url = proxy_service.build_agent_base_url(agent)
+        except ValueError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        
+        url = f"{efp_base_url}/api/files/{file_id}/preview?max_chars={max_chars}"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url)
+        
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Preview failed: {resp.text}")
+        
+        return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"), status_code=resp.status_code)
+    finally:
+        db.close()
 
 
 @router.get("/app/agents/{agent_id}/settings/panel")
