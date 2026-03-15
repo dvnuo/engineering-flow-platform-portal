@@ -919,10 +919,14 @@ function handleChatBeforeRequest(event) {
   }
 
   // If message was already prepared (e.g., with attachments), don't overwrite
-  if (!state.messagePrepared) {
-    state.pendingMessage = dom.chatInput?.value || "";
+  // and let HTMX proceed with the actual submission
+  if (state.messagePrepared) {
+    state.messagePrepared = false;
+    // Let HTMX submit the form normally
+    return;
   }
-  state.messagePrepared = false;  // Reset for next time
+  
+  state.pendingMessage = dom.chatInput?.value || "";
   
   // If there are pending files that need uploading, handle first
   if (state.pendingFiles.length > 0) {
