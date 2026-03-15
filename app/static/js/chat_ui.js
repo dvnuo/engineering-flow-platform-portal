@@ -237,7 +237,7 @@ function renderInputPreview() {
       content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
     }
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
-    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" onclick="removePendingFile('${safeId}')">×</button></div>`;
+    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
   }).join('');
 }
 
@@ -2198,6 +2198,20 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   bindEvents();
   initializeRenderLifecycle();
+  
+  // Event delegation for remove buttons (replace inline onclick)
+  const previewArea = document.getElementById('input-preview-area');
+  if (previewArea) {
+    previewArea.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-remove-id]');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const fileId = btn.dataset.removeId;
+        if (fileId) removePendingFile(fileId);
+      }
+    });
+  }
   
   // Form submit is handled by HTMX via hx-on::before-request
   
