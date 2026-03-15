@@ -376,21 +376,26 @@ async def agent_files_upload(agent_id: str, request: Request):
         files = {"file": (file_field.filename, content, file_field.content_type)}
         
         # Send to EFP - try localhost first (for dev), fallback to k8s service
+        resp = None
+        last_error = None
+        
+        # Try localhost first
         try:
-            # Try localhost first
             url = "http://127.0.0.1:8001/api/files/upload"
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(url, files=files)
-                if resp.status_code >= 400:
-                    raise Exception("Failed")
-        except Exception:
+        except Exception as e:
+            last_error = str(e)
             # Fallback to k8s service
-            url = "http://10.43.225.243:8000/api/files/upload"
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(url, files=files)
+            try:
+                url = "http://10.43.225.243:8000/api/files/upload"
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(url, files=files)
+            except Exception as e2:
+                last_error = str(e2)
         
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Upload failed: {resp.text}")
+        if resp is None or resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Upload failed: {last_error or resp.text if resp else 'No response'}")
         
         return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"))
     finally:
