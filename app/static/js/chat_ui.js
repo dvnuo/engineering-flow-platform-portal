@@ -844,6 +844,13 @@ async function selectAgentById(agentId) {
     const allAgents = state.mineAgents || [];
     const selectedAgent = allAgents.find(a => a.id === agentId);
     state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
+  
+  // Update owner-only button visibility
+  const isOwner = !selectedAgent || Number(selectedAgent.owner_user_id) === state.currentUserId;
+  document.querySelectorAll('[data-owner-only]').forEach(btn => {
+    btn.style.display = isOwner ? '' : 'none';
+  });
+
   window.selectedAgentId = agentId;  // Expose for inline scripts
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
