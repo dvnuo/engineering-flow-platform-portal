@@ -1094,6 +1094,9 @@ function handleChatAfterRequest(event) {
   if (event.target?.id !== "chat-form") return;
   if (!event.detail?.successful) return;
 
+  // Clear the input after successful submission
+  if (dom.chatInput) dom.chatInput.value = "";
+  
   setChatSubmitting(false);
   state.pendingMessage = "";
   state.messagePrepared = false;
