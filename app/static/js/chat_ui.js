@@ -327,7 +327,7 @@ function buildUserMessageArticle(text, attachments = []) {
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = state.selectedAgentName || "Assistant";
-  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${pendingAgentName}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
+  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${escapeHtml(pendingAgentName)}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -536,7 +536,7 @@ async function agentApi(path, options = {}) {
 
 function defaultWelcomeMessage() {
   const welcomeAgentName = state.selectedAgentName || "Assistant";
-  return `<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">${welcomeAgentName}</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>`;
+  return `<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">${escapeHtml(welcomeAgentName)}</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>`;
 }
 
 function clearMessageListToWelcome() {
@@ -843,7 +843,7 @@ async function selectAgentById(agentId) {
     // Get agent name from state or lookup
     const allAgents = state.mineAgents || [];
     const selectedAgent = allAgents.find(a => a.id === agentId);
-    state.selectedAgentName = selectedAgent?.name || null;
+    state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
   window.selectedAgentId = agentId;  // Expose for inline scripts
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
