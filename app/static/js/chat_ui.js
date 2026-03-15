@@ -697,21 +697,42 @@ async function syncSelectedAgentState() {
   dom.centerPlaceholder.classList.toggle("hidden", running);
   dom.agentChatApp.classList.toggle("hidden", !running);
   
-  // Auto-load last session if available
+  // Auto-load last session if available (localStorage or remote)
   if (running) {
     const lastSessionId = getLastSessionId(agent.id);
     if (lastSessionId) {
       try {
         await loadSession(lastSessionId);
       } catch (e) {
-        // Session not found, start fresh
-        console.log("Last session not found, starting fresh");
+        // Session not found locally, try remote
+        await loadLastSessionFromRemote(agent.id);
       }
+    } else {
+      // No local session, fetch from remote
+      await loadLastSessionFromRemote(agent.id);
     }
   }
 }
 
-async function refreshAll() {
+// Load last session from remote agent runtime
+async function loadLastSessionFromRemote(agentId) {
+  try {
+    const resp = await api();
+    if (resp.ok) {
+      const data = await resp.json();
+      const sessions = data.sessions || [];
+      if (sessions.length > 0) {
+        const lastSessionId = sessions[0].id;
+        setLastSessionId(agentId, lastSessionId);
+        await loadSession(lastSessionId);
+      }
+    }
+  } catch (e) {
+    console.log(Failed to load last session from remote:, e);
+  }
+}
+
+async function refreshAll() {async function refreshAll() {
   const [mine, publicAgents] = await Promise.all([
     api("/api/agents/mine"),
     api("/api/agents/public"),
