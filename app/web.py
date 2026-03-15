@@ -687,6 +687,7 @@ async def app_chat_send(request: Request):
                 "user_message": message,
                 "assistant_message": data.get("response") or "(empty response)",
                 "session_id": data.get("session_id") or session_id or "",
+                "agent_name": agent.name if agent else "Assistant",
             },
         )
     finally:

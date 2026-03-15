@@ -69,6 +69,7 @@ function setLastSessionId(agentId, sessionId) {
 // ===== app state =====
 const state = {
   selectedAgentId: null,
+  selectedAgentName: null,
   mineAgents: [],
   agentStatus: new Map(),
   detailOpen: false,
@@ -82,6 +83,7 @@ const state = {
   isSubmittingChat: false,
   pendingMessage: "",
   currentUserId: Number(dom.appRoot?.dataset.userId || 0),
+  currentUserName: dom.appRoot?.dataset.username || "You",
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
   eventWs: null,
   eventWsAgentId: null,
@@ -319,12 +321,13 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
   
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">You</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">Assistant</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
+  const pendingAgentName = state.selectedAgentName || "Assistant";
+  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${escapeHtml(pendingAgentName)}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -532,7 +535,8 @@ async function agentApi(path, options = {}) {
 }
 
 function defaultWelcomeMessage() {
-  return '<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Assistant</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>';
+  const welcomeAgentName = state.selectedAgentName || "Assistant";
+  return `<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">${escapeHtml(welcomeAgentName)}</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>`;
 }
 
 function clearMessageListToWelcome() {
@@ -836,6 +840,10 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
+    // Get agent name from state or lookup
+    const allAgents = state.mineAgents || [];
+    const selectedAgent = allAgents.find(a => a.id === agentId);
+    state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
   window.selectedAgentId = agentId;  // Expose for inline scripts
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
@@ -1305,7 +1313,8 @@ function renderChatHistory(messages, metadata = {}) {
     
     const roleLabel = document.createElement("span");
     roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
-    roleLabel.textContent = isUser ? "You" : "Assistant";
+    const agentName = state.selectedAgentName || "Assistant";
+    roleLabel.textContent = isUser ? (state.currentUserName || "You") : agentName;
     
     header.appendChild(roleLabel);
     
@@ -1355,6 +1364,11 @@ async function loadSession(sessionId) {
 
   const data = await agentApi(`/api/sessions/${encodeURIComponent(normalized)}`);
   updateSelectedAgentSession(normalized);
+  // Ensure agent name is set
+  if (!state.selectedAgentName && state.selectedAgentId) {
+    const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
+    state.selectedAgentName = agent?.name || null;
+  }
   renderChatHistory(data.messages || [], data.metadata || {});
 
   setChatStatus(`Loaded session ${normalized}`);
@@ -2006,7 +2020,7 @@ function bindEvents() {
     } else {
       setDetailOpen(true);
       // Render agent details to tool panel
-      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || state.publicAgents.find(a => a.id === state.selectedAgentId);
+      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || publicAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
         dom.toolPanelTitle.textContent = "Agent Details";
         dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
