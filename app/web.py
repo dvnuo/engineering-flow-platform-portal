@@ -647,20 +647,11 @@ async def app_chat_send(request: Request):
     agent_id = (form.get("agent_id") or "").strip()
     message = (form.get("message") or "").strip()
     session_id = (form.get("session_id") or "").strip() or None
-    attachments_str = (form.get("attachments") or "").strip()
 
     if not agent_id:
         raise HTTPException(status_code=400, detail="Agent not selected")
     if not message:
         raise HTTPException(status_code=400, detail="Message required")
-
-    # Parse attachments from JSON
-    attachments = []
-    if attachments_str:
-        try:
-            attachments = json.loads(attachments_str)
-        except:
-            pass
 
     db = SessionLocal()
     try:
@@ -675,8 +666,6 @@ async def app_chat_send(request: Request):
         payload = {"message": message}
         if session_id:
             payload["session_id"] = session_id
-        if attachments:
-            payload["attachments"] = attachments
 
         # DEBUG
         import logging
