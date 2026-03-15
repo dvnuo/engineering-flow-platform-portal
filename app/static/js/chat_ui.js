@@ -183,6 +183,7 @@ async function addPendingFilesAndUpload(files) {
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
+      console.log('[DEBUG] Upload success, pf.file_id:', pf.file_id, 'pf.status:', pf.status);
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
       
@@ -978,6 +979,8 @@ function handleChatBeforeRequest(event) {
     const uploadedFiles = state.pendingFiles
       .filter(pf => pf.file_id && pf.status === 'uploaded')
       .map(pf => pf.file_id);
+    console.log('[DEBUG] Building attachments - pendingFiles:', state.pendingFiles);
+    console.log('[DEBUG] Built attachments:', uploadedFiles);
     attachmentsInput.value = JSON.stringify(uploadedFiles);
   }
 
