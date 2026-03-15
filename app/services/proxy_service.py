@@ -37,6 +37,11 @@ class ProxyService:
         return self._node_ip
 
     def build_agent_base_url(self, agent) -> str:
+        # For now, always use localhost:8001 (EFP runs directly on host)
+        # TODO: Re-enable K8s service discovery when cluster is stable
+        return "http://127.0.0.1:8001"
+        
+        # The following K8s service discovery code is disabled for now
         # Try to get NodePort from K8s service first (for external access)
         if self.core_api:
             try:
@@ -56,8 +61,8 @@ class ProxyService:
             except Exception:
                 pass
         
-        # No fallback - raise error if can't determine URL
-        raise ValueError(f"Cannot determine EFP URL for agent {agent.service_name}. Ensure agent is running in K8s with proper service.")
+        # Fallback for dev environment (EFP running outside K8s)
+        return "http://127.0.0.1:8001"
 
     async def forward(
         self,

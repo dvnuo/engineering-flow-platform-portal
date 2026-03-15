@@ -130,14 +130,6 @@ function removePendingFile(id) {
       pf.xhr.abort();
       pf.cancelled = true;
     }
-    // Remove @file_ token from textarea if uploaded
-    if (pf.file_id) {
-      const chatInput = dom.chatInput;
-      if (chatInput) {
-        const fileRef = '@file_' + pf.file_id;
-        chatInput.value = chatInput.value.replace(fileRef, '').replace(/\s+/g, ' ').trim();
-      }
-    }
   }
   const idx = state.pendingFiles.findIndex(f => f.id === id);
   if (idx !== -1) {
@@ -158,6 +150,12 @@ function clearPendingFiles() {
   });
   state.pendingFiles = [];
   renderInputPreview();
+  
+  // Clear attachments field
+  const attachmentsInput = document.getElementById('chat-attachments');
+  if (attachmentsInput) {
+    attachmentsInput.value = '';
+  }
 }
 
 // Add files and upload immediately
@@ -187,16 +185,12 @@ async function addPendingFilesAndUpload(files) {
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
+      console.log('[DEBUG] Upload success, pf.file_id:', pf.file_id, 'pf.status:', pf.status);
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
       
-      // Add file reference to chat input so HTMX will submit it naturally
-      const fileRef = '@file_' + pf.file_id;
-      const chatInput = dom.chatInput;
-      if (chatInput) {
-        const currentVal = chatInput.value.trim();
-        chatInput.value = currentVal ? currentVal + ' ' + fileRef : fileRef;
-      }
+      // Note: Do NOT add to attachments here - will be built from pendingFiles when sending
+      // Image will be shown in input-preview-area via renderInputPreview()
       
       // Connect WebSocket after upload completes
       ensureEventSocketForSelectedAgent();
@@ -986,6 +980,14 @@ function handleChatBeforeRequest(event) {
   // Backup message and files for potential restore on error
   messageBackup = message;
   pendingFilesBackup = [...state.pendingFiles];
+  
+  // Build attachments from pendingFiles (only uploaded ones with file_id)
+  // Save to variable FIRST before clearing pendingFiles
+  const uploadedFileIds = state.pendingFiles
+    .filter(pf => pf.file_id && pf.status === 'uploaded')
+    .map(pf => pf.file_id);
+  console.log('[DEBUG] Building attachments - pendingFiles:', state.pendingFiles);
+  console.log('[DEBUG] Built attachments:', uploadedFileIds);
 
   // Show user message immediately (optimistic UI)
   setChatSubmitting(true);
@@ -1018,6 +1020,7 @@ function handleChatBeforeRequest(event) {
   if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Sending...");
   
+  // Note: attachments is now set via htmx:configRequest event
   // Let HTMX submit naturally - the form will send the message including @file_xxx
   // The message already contains @file_xxx references from the upload
 }
@@ -1124,6 +1127,18 @@ function handleChatAfterSwap(target) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
+  document.addEventListener("htmx:configRequest", (event) => {
+    // This fires right before HTMX makes the request - perfect time to set attachments
+    const elt = event.detail.requestConfig?.elt || event.target;
+    if (elt?.id === "chat-form") {
+      const uploadedFileIds = state.pendingFiles
+        .filter(pf => pf.file_id && pf.status === 'uploaded')
+        .map(pf => pf.file_id);
+      event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+      console.log('[DEBUG] htmx:configRequest - set attachments to:', event.detail.parameters.attachments);
+    }
+  });
+  
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
   document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
@@ -1182,15 +1197,40 @@ function pickCurrentSuggestion() {
   return true;
 }
 
-function insertFileReference(fileRef) {
-  // Runtime expects @file_<short_or_full_id>; using short id mirrors runtime webchat behavior.
-  if (!dom.chatInput || !fileRef) return;
-
-  const reference = `${fileRef} `;
-  dom.chatInput.setRangeText(reference, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
-  dom.chatInput.focus();
+function insertFileReference(fileIdOrRef) {
+  // fileIdOrRef can be either:
+  // - Full file_id (e.g., "1f516fcb...")
+  // - File reference like "@file_xxx"
+  let fileId = fileIdOrRef;
+  
+  // If it's a reference format, extract the ID
+  const fileIdMatch = fileIdOrRef.match(/@file_(.+)/);
+  if (fileIdMatch) {
+    fileId = fileIdMatch[1];
+  }
+  
+  if (fileId) {
+    // Add to pendingFiles state and render preview in input-preview-area
+    // Attachments will be built from pendingFiles when sending the message
+    const existingPf = state.pendingFiles.find(pf => pf.file_id === fileId);
+    if (!existingPf) {
+      const pf = {
+        id: fileId,
+        file_id: fileId,
+        file: { name: 'Uploaded file' },
+        previewUrl: `/a/${state.selectedAgentId}/api/files/${fileId}`,
+        isImage: true,
+        status: 'uploaded'
+      };
+      state.pendingFiles.push(pf);
+      renderInputPreview();
+    }
+  }
+  
+  // Don't add to chat input - use attachments field instead
 }
 
+// Fetch file preview and update pendingFile
 async function maybeShowSuggest() {
   if (!dom.chatInput) return;
 
