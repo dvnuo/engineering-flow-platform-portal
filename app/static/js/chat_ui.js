@@ -1177,10 +1177,11 @@ function pickCurrentSuggestion() {
 
 function insertFileReference(fileRef) {
   // fileRef format: @file_<file_id>
-  // Now add to attachments field instead of chat input
   const fileIdMatch = fileRef.match(/@file_(.+)/);
   if (fileIdMatch) {
     const fileId = fileIdMatch[1];
+    
+    // Add to attachments field (for cleaner API)
     const attachmentsInput = document.getElementById('chat-attachments');
     if (attachmentsInput) {
       const existing = attachmentsInput.value ? JSON.parse(attachmentsInput.value) : [];
@@ -1189,11 +1190,26 @@ function insertFileReference(fileRef) {
         attachmentsInput.value = JSON.stringify(existing);
       }
     }
-    // Show preview in input-preview-area if it's an image
-    // For now just focus the input - the user can see their files in input-preview-area after upload
+    
+    // Add to pendingFiles state and render preview in input-preview-area
+    // This makes it behave like an uploaded file
+    const existingPf = state.pendingFiles.find(pf => pf.file_id === fileId);
+    if (!existingPf) {
+      // Check if it's an image (based on file_id - we'll fetch preview later if needed)
+      const pf = {
+        id: fileId,  // Use file_id as id
+        file_id: fileId,
+        file: { name: 'Uploaded file' },
+        previewUrl: null,
+        isImage: true,  // Assume image for now - could be improved
+        status: 'uploaded'
+      };
+      state.pendingFiles.push(pf);
+      renderInputPreview();
+    }
   }
   
-  // Legacy: also add to chat input for backward compatibility
+  // Also add to chat input for backward compatibility (so user sees what was added)
   if (dom.chatInput && fileRef) {
     const reference = `${fileRef} `;
     dom.chatInput.setRangeText(reference, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
