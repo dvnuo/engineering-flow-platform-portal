@@ -1211,14 +1211,13 @@ function insertFileReference(fileIdOrRef) {
         file_id: fileId,
         file: { name: 'Uploaded file' },
         previewUrl: null,
-        isImage: true,
+        isImage: true,  // Show as image placeholder
         status: 'uploaded'
       };
       state.pendingFiles.push(pf);
       renderInputPreview();
       
-      // Fetch preview for the file
-      fetchFilePreview(fileId, pf);
+      // Note: Preview fetching disabled - files may be in different agent storage
     }
   }
   
@@ -1226,28 +1225,6 @@ function insertFileReference(fileIdOrRef) {
 }
 
 // Fetch file preview and update pendingFile
-async function fetchFilePreview(fileId, pf) {
-  if (!state.selectedAgentId) return;
-  
-  try {
-    const resp = await fetch(`/a/${state.selectedAgentId}/api/files/${fileId}/preview?max_chars=100`);
-    if (!resp.ok) return;
-    const data = await resp.json();
-    
-    if (data.preview_image || data.image_url) {
-      pf.previewUrl = data.preview_image || data.image_url;
-      pf.isImage = true;
-    } else if (data.preview) {
-      // It's a text file - show text preview
-      pf.previewText = data.preview;
-      pf.isImage = false;
-    }
-    renderInputPreview();
-  } catch (e) {
-    console.log('[DEBUG] Failed to fetch preview:', e);
-  }
-}
-
 async function maybeShowSuggest() {
   if (!dom.chatInput) return;
 
