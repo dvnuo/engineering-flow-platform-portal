@@ -538,12 +538,18 @@ html[data-theme="light"] #tool-panel .bg-slate-800\/50 {
 }
 
 /* Composer + Menu */
+html[data-theme="light"] #chat-input,
+html[data-theme="light"] .chat-input {
   background: #f3f4f6;
 }
 
+html[data-theme="light"] #chat-input,
+html[data-theme="light"] .chat-input {
   border-color: #334155;
 }
 
+html[data-theme="light"] #quick-new-chat-btn,
+html[data-theme="light"] #quick-uploads-btn {
   background: #ffffff;
   border-color: #d1d5db;
 }
