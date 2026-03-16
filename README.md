@@ -50,13 +50,15 @@ Access `http://localhost:8000/login`
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `database_url` | SQLite database path | `sqlite:///./portal.db` |
-| `secret_key` | Session secret key | `change-me-in-production` |
-| `bootstrap_admin_username` | Admin username | `admin` |
-| `bootstrap_admin_password` | Admin password | (empty - must be set) |
-| `k8s_enabled` | Enable Kubernetes integration | `false` |
-| `agents_namespace` | Agents namespace | `efp-agents` |
-| `k8s_storage_class` | Storage class for PVC | `local-path` |
+| `DATABASE_URL` | SQLite database path | `sqlite:///./portal.db` |
+| `SECRET_KEY` | Session secret key | `change-me-in-production` |
+| `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
+| `K8S_ENABLED` | Enable Kubernetes integration | `false` |
+| `K8S_INCLUSTER` | Use in-cluster config | `true` |
+| `K8S_KUBECONFIG` | Path to kubeconfig | `/etc/rancher/k3s/k3s.yaml` |
+| `AGENTS_NAMESPACE` | Agents namespace | `efp-agents` |
+| `K8S_STORAGE_CLASS` | Storage class for PVC | `local-path` |
 
 ---
 
@@ -153,7 +155,7 @@ file: <binary>
 ### Kubernetes
 
 ```yaml
-# portal-deployment.yaml
+# See k8s/portal-deployment.yaml for full example
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -235,14 +237,18 @@ uvicorn app.main:app --reload --log-level debug
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/agents` | GET | List user's agents |
+| `/api/agents/mine` | GET | List user's agents |
+| `/api/agents/public` | GET | List public agents |
 | `/api/agents` | POST | Create agent |
 | `/api/agents/{id}` | GET | Get agent details |
 | `/api/agents/{id}` | DELETE | Delete agent |
 | `/api/agents/{id}/start` | POST | Start agent |
 | `/api/agents/{id}/stop` | POST | Stop agent |
+| `/api/agents/{id}/restart` | POST | Restart agent |
 | `/api/agents/{id}/share` | POST | Share agent |
 | `/api/agents/{id}/unshare` | POST | Unshare agent |
+| `/api/agents/{id}/status` | GET | Get agent status |
+| `/api/agents/{id}/destroy` | POST | Destroy agent |
 
 ### Agent Proxy
 
