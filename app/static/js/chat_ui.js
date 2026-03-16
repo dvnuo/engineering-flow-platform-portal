@@ -1394,7 +1394,7 @@ async function loadSession(sessionId) {
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel('Server Files', '<div class="text-xs text-red-500">You do not have permission to access this agent files.</div>');
+    setToolPanel("Server Files", `<div class="text-xs text-red-500">You do not have permission to access this agent's files.</div>`);
     return;
   }
   const workspacePath = '/root/.efp/workspace';
@@ -1784,7 +1784,7 @@ async function openSettings() {
   if (!state.selectedAgentId) return;
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel('Settings', '<div class="text-xs text-red-500">You do not have permission to modify this agent settings.</div>');
+    setToolPanel("Settings", `<div class="text-xs text-red-500">You do not have permission to modify this agent's settings.</div>`);
     return;
   }
 
