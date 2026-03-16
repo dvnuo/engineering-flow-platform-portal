@@ -185,7 +185,7 @@ async function addPendingFilesAndUpload(files) {
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
- 
+
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
 
@@ -314,7 +314,7 @@ function buildUserMessageArticle(text, attachments = []) {
       }
     }).join('')}</div>`;
   }
-  
+
   return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
@@ -981,15 +981,7 @@ function handleChatBeforeRequest(event) {
   messageBackup = message;
   pendingFilesBackup = [...state.pendingFiles];
 
-  // Build attachments from pendingFiles (only uploaded ones with file_id)
-  // Save to variable FIRST before clearing pendingFiles
-  const uploadedFileIds = state.pendingFiles
-    .filter(pf => pf.file_id && pf.status === 'uploaded')
-    .map(pf => pf.file_id);
- 
- 
-
-  // Show user message immediately (optimistic UI)
+  // Build attachments from pendingFiles for display
   setChatSubmitting(true);
   removeWelcomeMessageIfPresent();
   removePendingAssistantPlaceholder();
@@ -1134,7 +1126,7 @@ function initializeRenderLifecycle() {
         .filter(pf => pf.file_id && pf.status === 'uploaded')
         .map(pf => pf.file_id);
       event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
- 
+
     }
   });
 
@@ -1332,7 +1324,7 @@ function renderChatHistory(messages, metadata = {}) {
     if (message.role !== "user" && message.role !== "assistant") return;
 
     const isUser = message.role === "user";
-    
+
     // Format timestamp
     let timeStr = "";
     if (message.timestamp) {
@@ -1345,25 +1337,25 @@ function renderChatHistory(messages, metadata = {}) {
     // Create message container
     const container = document.createElement("div");
     container.className = isUser ? "flex flex-col items-end" : "flex flex-col items-start";
-    
+
     // Role label and timestamp
     const header = document.createElement("div");
     header.className = "flex items-center gap-2 mb-1";
-    
+
     const roleLabel = document.createElement("span");
     roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
     const agentName = state.selectedAgentName || "Assistant";
     roleLabel.textContent = isUser ? (state.currentUserName || "You") : agentName;
-    
+
     header.appendChild(roleLabel);
-    
+
     if (timeStr) {
       const timeLabel = document.createElement("span");
       timeLabel.className = "text-xs text-slate-500";
       timeLabel.textContent = timeStr;
       header.appendChild(timeLabel);
     }
-    
+
     container.appendChild(header);
 
     // Message bubble
@@ -1374,7 +1366,7 @@ function renderChatHistory(messages, metadata = {}) {
       content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
       article.appendChild(content);
-      
+
       // Render attachments from message.attachments (new format)
       const msgAttachments = message.attachments || [];
       if (msgAttachments.length > 0) {
@@ -1400,7 +1392,7 @@ function renderChatHistory(messages, metadata = {}) {
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
-    
+
     container.appendChild(article);
     dom.messageList.appendChild(container);
   });

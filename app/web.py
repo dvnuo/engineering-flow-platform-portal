@@ -417,21 +417,20 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        import urllib.parse
-
-        efp_base_url = proxy_service.build_agent_base_url(agent)
-        # URL-encode file_id in path and use params for query string
-        encoded_file_id = urllib.parse.quote(file_id, safe='')
-        url = f"{efp_base_url}/api/files/{encoded_file_id}/preview"
+        # Use proxy_service.forward for consistent proxy behavior
+        status_code, content, content_type = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath=f"api/files/{file_id}/preview",
+            query_items=[("max_chars", str(max_chars))],
+            body=None,
+            headers={},
+        )
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, params={"max_chars": max_chars})
-        
-        if resp.status_code >= 400:
-            # Don't leak upstream error details
+        if status_code >= 400:
             raise HTTPException(status_code=502, detail="Preview failed")
         
-        return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"), status_code=resp.status_code)
+        return Response(content=content, media_type=content_type, status_code=status_code)
     finally:
         db.close()
 
