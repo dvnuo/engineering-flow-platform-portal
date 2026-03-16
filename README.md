@@ -127,13 +127,13 @@ The proxy validates:
 Each agent can configure:
 
 ### LLM Configuration
-- Provider selection (OpenAI, GitHub Copilot)
+- Provider selection (OpenAI, GitHub Copilot, Anthropic)
 - Model selection
 - API key
 
 ### Integrations
 - **Jira** - Multiple instances supported
-  - Bearer Token, Basic Auth (username+password), or Basic Auth (username+api_token)
+  - Basic Auth (username + API token)
 - **Confluence** - Multiple instances supported
   - Username + API token
 - **GitHub** - Personal access token
@@ -155,7 +155,7 @@ file: <binary>
 ### Kubernetes
 
 ```yaml
-# See k8s/portal-deployment.yaml for full example
+# See k8s/portal-deployment-nfs.yaml for full example
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -270,4 +270,4 @@ uvicorn app.main:app --reload --log-level debug
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License
