@@ -38,9 +38,9 @@ uvicorn app.main:app --reload
 
 Access `http://localhost:8000/login`
 
-**Default admin account** (first startup):
+**Admin account** (first startup - requires env vars):
 - Username: `admin`
-- Password: `admin123`
+- Password: Set `BOOTSTRAP_ADMIN_PASSWORD=admin123` env var
 
 ---
 
@@ -50,14 +50,13 @@ Access `http://localhost:8000/login`
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | SQLite database path | `portal.db` |
-| `SECRET_KEY` | Session secret key | `change-me` |
-| `ADMIN_USERNAME` | Admin username | `admin` |
-| `ADMIN_PASSWORD` | Admin password | `admin123` |
-| `K8S_ENABLED` | Enable Kubernetes integration | `false` |
-| `AGENTS_NAMESPACE` | Agents namespace | `agents` |
-| `K8S_STORAGE_CLASS` | Storage class for PVC | `gp3` |
-| `EFP_BASE_URL` | Default EFP runtime URL | `http://localhost:8001` |
+| `database_url` | SQLite database path | `sqlite:///./portal.db` |
+| `secret_key` | Session secret key | `change-me-in-production` |
+| `bootstrap_admin_username` | Admin username | `admin` |
+| `bootstrap_admin_password` | Admin password | (empty - must be set) |
+| `k8s_enabled` | Enable Kubernetes integration | `false` |
+| `agents_namespace` | Agents namespace | `efp-agents` |
+| `k8s_storage_class` | Storage class for PVC | `local-path` |
 
 ---
 
@@ -68,7 +67,7 @@ Access `http://localhost:8000/login`
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌──────────────┐
 │   Portal    │────▶│  Proxy Service  │────▶│ EFP Runtime  │
-│  (FastAPI)  │     │  (/a/{id}/*)    │     │  (Port 8001) │
+│  (FastAPI)  │     │  (/a/{id}/*)    │     │  (Port 8000) │
 └─────────────┘     └─────────────────┘     └──────────────┘
        │                                              │
        ▼                                              ▼
@@ -128,7 +127,7 @@ Each agent can configure:
 ### LLM Configuration
 - Provider selection (OpenAI, GitHub Copilot)
 - Model selection
-- API key (stored encrypted)
+- API key
 
 ### Integrations
 - **Jira** - Multiple instances supported
@@ -139,7 +138,7 @@ Each agent can configure:
 
 ### File Upload
 
-Files are uploaded to Portal and proxied to EFP runtime:
+Files are proxied to EFP runtime:
 
 ```
 POST /a/{agent_id}/api/files/upload
