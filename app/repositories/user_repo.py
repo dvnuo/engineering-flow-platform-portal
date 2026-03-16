@@ -18,8 +18,8 @@ class UserRepository:
     def list_all(self) -> list[User]:
         return list(self.db.scalars(select(User).order_by(User.id.asc())).all())
 
-    def create(self, username: str, password_hash: str, role: str = "user") -> User:
-        user = User(username=username, password_hash=password_hash, role=role)
+    def create(self, username: str, password_hash: str, role: str = "user", nickname: str = None) -> User:
+        user = User(username=username, password_hash=password_hash, role=role, nickname=nickname)
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)

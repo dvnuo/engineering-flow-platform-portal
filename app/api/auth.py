@@ -27,7 +27,7 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     # Create new user (default role: user)
     # Use transaction to prevent race condition
     try:
-        user = repo.create(payload.username, hash_password(payload.password), "user")
+        user = repo.create(payload.username, hash_password(payload.password), "user", payload.nickname)
     except Exception as e:
         logger.exception("Auth error")
         db.rollback()
