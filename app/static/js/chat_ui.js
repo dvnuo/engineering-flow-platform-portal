@@ -1358,19 +1358,6 @@ function renderChatHistory(messages, metadata = {}) {
     
     container.appendChild(header);
 
-    // Extract file references from message content (@file_xxx pattern)
-    let fileIds = [];
-    if (isUser && message.content) {
-      const matches = message.content.match(/@file_([a-zA-Z0-9]+)/g);
-      if (matches) {
-        fileIds = matches.map(m => m.replace('@file_', ''));
-      }
-    }
-    // Also check message.attachments (new format - if available)
-    if (message.attachments && Array.isArray(message.attachments)) {
-      fileIds = [...fileIds, ...message.attachments];
-    }
-    
     // Message bubble
     const article = document.createElement("article");
     if (isUser) {
@@ -1379,28 +1366,6 @@ function renderChatHistory(messages, metadata = {}) {
       content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
       article.appendChild(content);
-      
-      // Render file attachments
-      if (fileIds.length > 0) {
-        const attachmentDiv = document.createElement("div");
-        attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
-        fileIds.forEach(fileId => {
-          const img = document.createElement("img");
-          img.src = `/a/${state.selectedAgentId}/api/files/${fileId}`;
-          img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
-          img.alt = fileId;
-          // Show placeholder on error
-          img.onerror = () => {
-            img.style.display = 'none';
-            const placeholder = document.createElement("div");
-            placeholder.className = "flex items-center justify-center w-20 h-20 rounded-lg bg-slate-700 text-xs text-slate-400";
-            placeholder.textContent = "File not found";
-            img.parentNode?.insertBefore(placeholder, img);
-          };
-          attachmentDiv.appendChild(img);
-        });
-        article.appendChild(attachmentDiv);
-      }
     } else {
       article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
       const content = document.createElement("div");
