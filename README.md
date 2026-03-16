@@ -1,7 +1,7 @@
 # Engineering Flow Platform Portal
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115.0-green.svg)](https://fastapi.tiangolo.com/)
 
 Portal is the web interface for Engineering Flow Platform. It provides agent management, chat UI, and integration with EFP runtime.
 
@@ -199,17 +199,13 @@ docker run -d \
 
 ### Local Development
 
+See Quick Start section for setup. Run with debug logging:
+
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run with auto-reload
 uvicorn app.main:app --reload --log-level debug
-
-# Access
-# http://localhost:8000
-# http://localhost:8000/app
 ```
+
+Access `http://localhost:8000/app`
 
 ### Adding New Features
 
@@ -232,6 +228,7 @@ uvicorn app.main:app --reload --log-level debug
 | `/api/auth/login` | POST | Login |
 | `/api/auth/register` | POST | Register |
 | `/api/auth/logout` | POST | Logout |
+| `/api/auth/me` | GET | Get current user |
 
 ### Agents
 
