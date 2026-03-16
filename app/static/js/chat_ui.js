@@ -1366,6 +1366,25 @@ function renderChatHistory(messages, metadata = {}) {
       content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
       article.appendChild(content);
+      
+      // Render attachments from message.attachments (new format)
+      const msgAttachments = message.attachments || [];
+      if (msgAttachments.length > 0) {
+        const attachmentDiv = document.createElement("div");
+        attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
+        msgAttachments.forEach(fileId => {
+          const img = document.createElement("img");
+          img.src = `/a/${state.selectedAgentId}/api/files/${fileId}`;
+          img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
+          img.alt = fileId;
+          // Show placeholder on error
+          img.onerror = () => {
+            img.style.display = 'none';
+          };
+          attachmentDiv.appendChild(img);
+        });
+        article.appendChild(attachmentDiv);
+      }
     } else {
       article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
       const content = document.createElement("div");
