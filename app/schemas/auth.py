@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -15,5 +16,5 @@ class RegisterRequest(BaseModel):
 class MeResponse(BaseModel):
     id: int
     username: str
-    nickname: str = None
+    nickname: Optional[str] = None
     role: str
