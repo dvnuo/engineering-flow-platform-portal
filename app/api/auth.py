@@ -27,7 +27,7 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     # Create new user (default role: user)
     # Use transaction to prevent race condition
     try:
-        user = repo.create(payload.username, hash_password(payload.password), "user")
+        user = repo.create(payload.username, hash_password(payload.password), "user", payload.nickname)
     except Exception as e:
         logger.exception("Auth error")
         db.rollback()
@@ -83,4 +83,4 @@ def logout(response: Response):
 
 @router.get("/me", response_model=MeResponse)
 def me(user=Depends(get_current_user)):
-    return MeResponse(id=user.id, username=user.username, role=user.role)
+    return MeResponse(id=user.id, username=user.username, nickname=user.nickname, role=user.role)
