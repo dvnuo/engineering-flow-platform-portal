@@ -583,6 +583,15 @@ function updateSelectedAgentSession(sessionId) {
   syncHiddenSessionInputFromState();
 }
 
+// Helper to update owner-only button visibility
+function updateOwnerOnlyButtons(agentId) {
+  const agent = state.mineAgents?.find(a => a.id === agentId);
+  const isOwner = canWriteAgent(agent);
+  document.querySelectorAll('[data-owner-only]').forEach(btn => {
+    btn.style.display = isOwner ? '' : 'none';
+  });
+}
+
 // ===== selected agent state sync =====
 function renderAgentList() {
   if (!dom.mineList) return;
@@ -846,10 +855,7 @@ async function selectAgentById(agentId) {
     state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
   
   // Update owner-only button visibility
-  const isOwner = !selectedAgent || Number(selectedAgent.owner_user_id) === state.currentUserId;
-  document.querySelectorAll('[data-owner-only]').forEach(btn => {
-    btn.style.display = isOwner ? '' : 'none';
-  });
+  updateOwnerOnlyButtons(agentId);
 
   window.selectedAgentId = agentId;  // Expose for inline scripts
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
@@ -964,11 +970,7 @@ async function refreshAll() {
   }
 
   // Update owner-only button visibility after restoring last agent
-  const selectedAgent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
-  const isOwner = !selectedAgent || Number(selectedAgent?.owner_user_id) === state.currentUserId;
-  document.querySelectorAll('[data-owner-only]').forEach(btn => {
-    btn.style.display = isOwner ? '' : 'none';
-  });
+  updateOwnerOnlyButtons(state.selectedAgentId);
 
   renderAgentList();
   await syncSelectedAgentState();
@@ -1391,7 +1393,7 @@ async function loadSession(sessionId) {
 
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
-  if (agent && Number(agent.owner_user_id) !== state.currentUserId) {
+  if (!canWriteAgent(agent)) {
     setToolPanel('Server Files', '<div class="text-xs text-red-500">You do not have permission to access files of this shared agent.</div>');
     return;
   }
@@ -1780,7 +1782,7 @@ function initializeSettingsPanel() {
 
 async function openSettings() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
-  if (agent && Number(agent.owner_user_id) !== state.currentUserId) {
+  if (!canWriteAgent(agent)) {
     setToolPanel(Settings, '<div class=text-xs text-red-500>You do not have permission to modify this shared agent.</div>');
     return;
   }
