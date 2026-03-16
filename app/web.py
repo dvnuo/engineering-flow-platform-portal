@@ -399,6 +399,40 @@ async def agent_files_upload(agent_id: str, request: Request):
         db.close()
 
 
+@router.get("/a/{agent_id}/api/files/{file_id}/preview")
+async def agent_files_preview(request: Request, agent_id: str, file_id: str, max_chars: int = 5000):
+    """Proxy file preview to EFP agent"""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    
+    # Validate and cap max_chars
+    max_chars = max(0, min(max_chars, 20000))  # Clamp between 0 and 20000
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Use proxy_service.forward for consistent proxy behavior
+        status_code, content, content_type = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath=f"api/files/{file_id}/preview",
+            query_items=[("max_chars", str(max_chars))],
+            body=None,
+            headers={},
+        )
+        
+        if status_code >= 400:
+            raise HTTPException(status_code=502, detail="Preview failed")
+        
+        return Response(content=content, media_type=content_type, status_code=status_code)
+    finally:
+        db.close()
 
 
 @router.get("/app/agents/{agent_id}/settings/panel")
@@ -647,11 +681,22 @@ async def app_chat_send(request: Request):
     agent_id = (form.get("agent_id") or "").strip()
     message = (form.get("message") or "").strip()
     session_id = (form.get("session_id") or "").strip() or None
+    attachments_str = (form.get("attachments") or "").strip()
 
     if not agent_id:
         raise HTTPException(status_code=400, detail="Agent not selected")
     if not message:
         raise HTTPException(status_code=400, detail="Message required")
+
+    # Parse attachments from JSON
+    attachments = []
+    if attachments_str:
+        try:
+            parsed = json.loads(attachments_str)
+            if isinstance(parsed, list):
+                attachments = parsed
+        except json.JSONDecodeError:
+            pass  # Invalid JSON, ignore attachments
 
     db = SessionLocal()
     try:
@@ -666,6 +711,8 @@ async def app_chat_send(request: Request):
         payload = {"message": message}
         if session_id:
             payload["session_id"] = session_id
+        if attachments:
+            payload["attachments"] = attachments
 
         status_code, content, _ = await proxy_service.forward(
             agent=agent,

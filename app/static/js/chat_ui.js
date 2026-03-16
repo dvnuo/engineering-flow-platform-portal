@@ -130,14 +130,6 @@ function removePendingFile(id) {
       pf.xhr.abort();
       pf.cancelled = true;
     }
-    // Remove @file_ token from textarea if uploaded
-    if (pf.file_id) {
-      const chatInput = dom.chatInput;
-      if (chatInput) {
-        const fileRef = '@file_' + pf.file_id;
-        chatInput.value = chatInput.value.replace(fileRef, '').replace(/\s+/g, ' ').trim();
-      }
-    }
   }
   const idx = state.pendingFiles.findIndex(f => f.id === id);
   if (idx !== -1) {
@@ -158,6 +150,12 @@ function clearPendingFiles() {
   });
   state.pendingFiles = [];
   renderInputPreview();
+
+  // Clear attachments field
+  const attachmentsInput = document.getElementById('chat-attachments');
+  if (attachmentsInput) {
+    attachmentsInput.value = '';
+  }
 }
 
 // Add files and upload immediately
@@ -173,31 +171,27 @@ async function addPendingFilesAndUpload(files) {
     };
     state.pendingFiles.push(pf);
     renderInputPreview();
-    
+
     // Generate preview
     if (isImage) {
       // Use URL.createObjectURL for better memory efficiency
       pf.previewUrl = URL.createObjectURL(file);
       renderInputPreview();  // Re-render to show preview
     }
-    
+
     // Upload immediately
     try {
       const data = await uploadPendingFile(pf);
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
+
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
-      
-      // Add file reference to chat input so HTMX will submit it naturally
-      const fileRef = '@file_' + pf.file_id;
-      const chatInput = dom.chatInput;
-      if (chatInput) {
-        const currentVal = chatInput.value.trim();
-        chatInput.value = currentVal ? currentVal + ' ' + fileRef : fileRef;
-      }
-      
+
+      // Note: Do NOT add to attachments here - will be built from pendingFiles when sending
+      // Image will be shown in input-preview-area via renderInputPreview()
+
       // Connect WebSocket after upload completes
       ensureEventSocketForSelectedAgent();
     } catch (error) {
@@ -211,18 +205,18 @@ async function addPendingFilesAndUpload(files) {
 function renderInputPreview() {
   const container = document.getElementById('input-preview-area');
   if (!container) return;
-  
+
   if (state.pendingFiles.length === 0) {
     container.classList.add('hidden');
     container.innerHTML = '';
     return;
   }
-  
+
   container.classList.remove('hidden');
   container.innerHTML = state.pendingFiles.map(pf => {
     let content = '';
     let statusBadge = '';
-    
+
     // Status badge
     if (pf.status === 'uploading') {
       statusBadge = '<span class="absolute top-1 left-1 text-xs bg-yellow-500 text-white px-1 rounded">⏳</span>';
@@ -231,7 +225,7 @@ function renderInputPreview() {
     } else if (pf.status === 'failed') {
       statusBadge = '<span class="absolute top-1 left-1 text-xs bg-red-500 text-white px-1 rounded">✗</span>';
     }
-    
+
     if (pf.isImage && pf.previewUrl) {
       const safeAlt = (pf.file.name || '').replace(/[<>"'&]/g, '');
       content = `<img src="${pf.previewUrl}" alt="${safeAlt}" class="w-full h-full object-cover" />`;
@@ -253,13 +247,13 @@ async function uploadPendingFile(pf) {
       reject(new Error('Upload cancelled'));
       return;
     }
-    
+
     const formData = new FormData();
     formData.append('file', pf.file);
-    
+
     const xhr = new XMLHttpRequest();
     pf.xhr = xhr;  // Store reference for cancellation
-    
+
     xhr.addEventListener('load', () => {
       // Check if cancelled during upload
       if (pf.cancelled) {
@@ -307,7 +301,7 @@ function canWriteAgent(agent) {
 
 function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  
+
   let attachmentHtml = '';
   if (attachments.length > 0) {
     attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
@@ -320,7 +314,7 @@ function buildUserMessageArticle(text, attachments = []) {
       }
     }).join('')}</div>`;
   }
-  
+
   return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
@@ -362,13 +356,13 @@ function getThinkingEventDisplay(event) {
 
 function renderThinkingProcess(article, events) {
   if (!article) return;
-  
+
   const isDark = document.documentElement.classList.contains("dark");
   let host = article.querySelector('[data-thinking-process="1"]');
   if (!host) {
     host = document.createElement("div");
     host.dataset.thinkingProcess = "1";
-    host.className = isDark 
+    host.className = isDark
       ? "mt-3 rounded-xl border border-slate-600 bg-slate-800/50 p-2"
       : "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
     article.append(host);
@@ -385,11 +379,11 @@ function renderThinkingProcess(article, events) {
     return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border ${iconBg}"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold ${titleColor}">${safe(view.title)}</div><div class="text-xs ${detailColor} whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
   }).join("");
 
-  const btnClass = isDark 
+  const btnClass = isDark
     ? "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-600 bg-slate-700 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-600"
     : "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100";
   const waitingMsg = isDark ? "text-slate-400" : "text-slate-500";
-  
+
   host.innerHTML = `
     <button type="button" data-thinking-toggle="1" class="${btnClass}">
       <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
@@ -583,6 +577,15 @@ function updateSelectedAgentSession(sessionId) {
   syncHiddenSessionInputFromState();
 }
 
+// Helper to update owner-only button visibility
+function updateOwnerOnlyButtons(agentId) {
+  const agent = state.mineAgents?.find(a => a.id === agentId);
+  const isOwner = canWriteAgent(agent);
+  document.querySelectorAll('[data-owner-only]').forEach(btn => {
+    btn.style.display = isOwner ? '' : 'none';
+  });
+}
+
 // ===== selected agent state sync =====
 function renderAgentList() {
   if (!dom.mineList) return;
@@ -631,7 +634,7 @@ function renderAgentMeta(agent) {
   // Format date nicely
   const created = new Date(agent.created_at);
   const dateStr = created.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  
+
   // Format resources as pills
   const cpu = agent.cpu || 'N/A';
   const mem = agent.memory || 'N/A';
@@ -689,7 +692,7 @@ function renderAgentMeta(agent) {
 
   // Fetch usage data
   fetchUsageForAgent(agent.id);
-  
+
   // Fetch git info if repo is configured
   if (agent.repo_url) {
     fetchGitInfo(agent.id);
@@ -699,16 +702,16 @@ function renderAgentMeta(agent) {
 async function fetchGitInfo(agentId) {
   const commitEl = document.getElementById("agent-git-commit");
   if (!commitEl) return;
-  
+
   // Check if still viewing same agent (prevent stale response overwriting wrong agent)
   if (state.selectedAgentId !== agentId) return;
-  
+
   try {
     const data = await api(`/api/agents/${agentId}/git-info`);
     if (data.commit_id) {
       const shortCommit = data.commit_id.substring(0, 7);
       commitEl.textContent = 'Commit: ';
-      
+
       // Validate URL to prevent XSS
       let safeUrl = null;
       if (data.repo_url) {
@@ -721,7 +724,7 @@ async function fetchGitInfo(agentId) {
           // Invalid URL, use plain text
         }
       }
-      
+
       if (safeUrl) {
         const commitLink = document.createElement('a');
         commitLink.href = `${safeUrl}/commit/${data.commit_id}`;
@@ -840,10 +843,14 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
-    // Get agent name from state or lookup
-    const allAgents = state.mineAgents || [];
-    const selectedAgent = allAgents.find(a => a.id === agentId);
-    state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
+  // Get agent name from state or lookup
+  const allAgents = state.mineAgents || [];
+  const selectedAgent = allAgents.find(a => a.id === agentId);
+  state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
+  
+  // Update owner-only button visibility
+  updateOwnerOnlyButtons(agentId);
+
   window.selectedAgentId = agentId;  // Expose for inline scripts
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
@@ -890,7 +897,7 @@ async function syncSelectedAgentState() {
   const running = status === "running";
   dom.centerPlaceholder.classList.toggle("hidden", running);
   dom.agentChatApp.classList.toggle("hidden", !running);
-  
+
   // Auto-load last session if available (localStorage or remote)
   if (running) {
     const lastSessionId = getLastSessionId(agent.id);
@@ -956,6 +963,9 @@ async function refreshAll() {
     window.selectedAgentId = state.selectedAgentId;
   }
 
+  // Update owner-only button visibility after restoring last agent
+  updateOwnerOnlyButtons(state.selectedAgentId);
+
   renderAgentList();
   await syncSelectedAgentState();
 }
@@ -976,7 +986,7 @@ function handleChatBeforeRequest(event) {
     return;
   }
 
-  // Get the message (already contains @file_xxx if files were uploaded)
+  // Get the message
   const message = dom.chatInput?.value?.trim() || "";
   if (!message) {
     event.preventDefault();
@@ -987,12 +997,12 @@ function handleChatBeforeRequest(event) {
   messageBackup = message;
   pendingFilesBackup = [...state.pendingFiles];
 
-  // Show user message immediately (optimistic UI)
+  // Build attachments from pendingFiles for display
   setChatSubmitting(true);
   removeWelcomeMessageIfPresent();
   removePendingAssistantPlaceholder();
   hideSuggest();
-  
+
   // Build attachments from pending files for display
   const displayAttachments = state.pendingFiles.map(pf => ({
     name: pf.file.name,
@@ -1000,7 +1010,7 @@ function handleChatBeforeRequest(event) {
     previewUrl: pf.previewUrl,
     url: pf.uploadedData?.url
   }));
-  
+
   if (dom.messageList && message) {
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
     const thinkingId = 'thinking-' + Date.now();
@@ -1012,14 +1022,14 @@ function handleChatBeforeRequest(event) {
     ensureEventSocketForSelectedAgent();
     scrollToBottom();
   }
-  
+
   // Clear pending files and input (message is already captured in 'message' variable)
   clearPendingFiles();
   if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Sending...");
-  
-  // Let HTMX submit naturally - the form will send the message including @file_xxx
-  // The message already contains @file_xxx references from the upload
+
+  // Note: attachments is now set via htmx:configRequest event
+  // HTMX will submit the form with attachments in the payload
 }
 
 function handleChatResponseError(event) {
@@ -1028,7 +1038,7 @@ function handleChatResponseError(event) {
   removePendingAssistantPlaceholder();
   setChatSubmitting(false);
   state.inflightThinking = null;
-  
+
   // Restore message and files from backup
   if (messageBackup || pendingFilesBackup.length > 0) {
     if (dom.chatInput) dom.chatInput.value = messageBackup;
@@ -1037,7 +1047,7 @@ function handleChatResponseError(event) {
     pendingFilesBackup = [];
     messageBackup = "";
   }
-  
+
   // Extract error message from response
   let errorMsg = "Send failed";
   const xhr = event.detail?.xhr;
@@ -1050,7 +1060,7 @@ function handleChatResponseError(event) {
     }
   }
   setChatStatus(errorMsg, true);
-  
+
   // Also show error in message list
   if (dom.messageList) {
     const errorDiv = document.createElement("div");
@@ -1124,6 +1134,18 @@ function handleChatAfterSwap(target) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
+  document.addEventListener("htmx:configRequest", (event) => {
+    // This fires right before HTMX makes the request - perfect time to set attachments
+    const elt = event.detail.requestConfig?.elt || event.target;
+    if (elt?.id === "chat-form") {
+      const uploadedFileIds = state.pendingFiles
+        .filter(pf => pf.file_id && pf.status === 'uploaded')
+        .map(pf => pf.file_id);
+      event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+
+    }
+  });
+
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
   document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
@@ -1182,15 +1204,40 @@ function pickCurrentSuggestion() {
   return true;
 }
 
-function insertFileReference(fileRef) {
-  // Runtime expects @file_<short_or_full_id>; using short id mirrors runtime webchat behavior.
-  if (!dom.chatInput || !fileRef) return;
+function insertFileReference(fileIdOrRef) {
+  // fileIdOrRef can be either:
+  // - Full file_id (e.g., "1f516fcb...")
+  // - File reference like "@file_xxx"
+  let fileId = fileIdOrRef;
 
-  const reference = `${fileRef} `;
-  dom.chatInput.setRangeText(reference, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
-  dom.chatInput.focus();
+  // If it's a reference format, extract the ID
+  const fileIdMatch = fileIdOrRef.match(/@file_(.+)/);
+  if (fileIdMatch) {
+    fileId = fileIdMatch[1];
+  }
+
+  if (fileId) {
+    // Add to pendingFiles state and render preview in input-preview-area
+    // Attachments will be built from pendingFiles when sending the message
+    const existingPf = state.pendingFiles.find(pf => pf.file_id === fileId);
+    if (!existingPf) {
+      const pf = {
+        id: fileId,
+        file_id: fileId,
+        file: { name: 'Uploaded file' },
+        previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
+        isImage: true,
+        status: 'uploaded'
+      };
+      state.pendingFiles.push(pf);
+      renderInputPreview();
+    }
+  }
+
+  // Don't add to chat input - use attachments field instead
 }
 
+// Fetch file preview and update pendingFile
 async function maybeShowSuggest() {
   if (!dom.chatInput) return;
 
@@ -1293,7 +1340,7 @@ function renderChatHistory(messages, metadata = {}) {
     if (message.role !== "user" && message.role !== "assistant") return;
 
     const isUser = message.role === "user";
-    
+
     // Format timestamp
     let timeStr = "";
     if (message.timestamp) {
@@ -1306,25 +1353,25 @@ function renderChatHistory(messages, metadata = {}) {
     // Create message container
     const container = document.createElement("div");
     container.className = isUser ? "flex flex-col items-end" : "flex flex-col items-start";
-    
+
     // Role label and timestamp
     const header = document.createElement("div");
     header.className = "flex items-center gap-2 mb-1";
-    
+
     const roleLabel = document.createElement("span");
     roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
     const agentName = state.selectedAgentName || "Assistant";
     roleLabel.textContent = isUser ? (state.currentUserName || "You") : agentName;
-    
+
     header.appendChild(roleLabel);
-    
+
     if (timeStr) {
       const timeLabel = document.createElement("span");
       timeLabel.className = "text-xs text-slate-500";
       timeLabel.textContent = timeStr;
       header.appendChild(timeLabel);
     }
-    
+
     container.appendChild(header);
 
     // Message bubble
@@ -1335,6 +1382,25 @@ function renderChatHistory(messages, metadata = {}) {
       content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
       article.appendChild(content);
+
+      // Render attachments from message.attachments (new format)
+      const msgAttachments = message.attachments || [];
+      if (msgAttachments.length > 0) {
+        const attachmentDiv = document.createElement("div");
+        attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
+        msgAttachments.forEach(fileId => {
+          const img = document.createElement("img");
+          img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
+          img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
+          img.alt = fileId;
+          // Show placeholder on error
+          img.onerror = () => {
+            img.style.display = 'none';
+          };
+          attachmentDiv.appendChild(img);
+        });
+        article.appendChild(attachmentDiv);
+      }
     } else {
       article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
       const content = document.createElement("div");
@@ -1342,7 +1408,7 @@ function renderChatHistory(messages, metadata = {}) {
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
-    
+
     container.appendChild(article);
     dom.messageList.appendChild(container);
   });
@@ -1376,17 +1442,22 @@ async function loadSession(sessionId) {
 }
 
 async function openServerFiles() {
+  const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
+  if (!canWriteAgent(agent)) {
+    setToolPanel("Server Files", `<div class="text-xs text-red-500">You do not have permission to access this agent's files.</div>`);
+    return;
+  }
   const workspacePath = '/root/.efp/workspace';
   await loadServerFiles(workspacePath);
 }
 
 async function loadServerFiles(path) {
   setToolPanel("Server Files", '<div class="text-xs text-slate-400">Loading files…</div>');
-  
+
   try {
     const data = await agentApi(`/api/files?path=${encodeURIComponent(path)}`);
     const items = data.items || [];
-    
+
     // Build breadcrumb with data attributes for event delegation
     const parts = path.split('/').filter(Boolean);
     let breadcrumb = '<a href="#" class="breadcrumb-link" data-path="/">/</a>';
@@ -1396,7 +1467,7 @@ async function loadServerFiles(path) {
       const escapedPath = escapeHtml(currentPath);
       breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapedPath.replace(/"/g, '&quot;') + '">' + escapeHtml(part) + '</a>';
     }
-    
+
     // Build file rows with checkboxes and data attributes
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
@@ -1411,9 +1482,9 @@ async function loadServerFiles(path) {
         `</div>`
       );
     }).join("");
-    
+
     // Set panel content with toolbar
-    setToolPanel("Server Files", 
+    setToolPanel("Server Files",
       `<div class="space-y-3" id="server-files-panel">` +
         // Toolbar
         `<div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">` +
@@ -1429,7 +1500,7 @@ async function loadServerFiles(path) {
         `<div class="space-y-1">${rows || "Empty directory"}</div>` +
       `</div>`
     );
-    
+
     // Add event delegation and handlers
     const panel = document.getElementById('server-files-panel');
     if (panel) {
@@ -1442,20 +1513,20 @@ async function loadServerFiles(path) {
           updateDownloadButton(panel);
         });
       }
-      
+
       // File row click handler (toggle checkbox + navigate)
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
           const filePath = row.dataset.path;
           const isDir = row.dataset.isDir === 'true';
           const isCheckbox = e.target.type === 'checkbox';
-          
+
           // For directories (with or without checkbox click), navigate directly
           if (isDir) {
             loadServerFiles(filePath);
             return;
           }
-          
+
           // For files, toggle checkbox (skip if directly clicking checkbox)
           if (!isCheckbox) {
             const checkbox = row.querySelector('.file-checkbox');
@@ -1465,25 +1536,25 @@ async function loadServerFiles(path) {
           updateDownloadButton(panel);
         });
       });
-      
+
       // Checkbox change handler
       panel.querySelectorAll('.file-checkbox').forEach(cb => {
         cb.addEventListener('change', () => updateDownloadButton(panel));
       });
-      
+
       // Upload button handler
       panel.querySelector('.sf-upload-btn')?.addEventListener('click', () => {
         uploadZipToServer(path);
       });
-      
-      // Download button handler  
+
+      // Download button handler
       panel.querySelector('.sf-download-btn')?.addEventListener('click', () => {
         const selected = getSelectedFiles(panel);
         if (selected.length > 0) {
           downloadSelectedFiles(selected);
         }
       });
-      
+
       // Breadcrumb click
       panel.querySelectorAll('.breadcrumb-link').forEach(link => {
         link.addEventListener('click', (e) => {
@@ -1491,7 +1562,7 @@ async function loadServerFiles(path) {
           loadServerFiles(link.dataset.path);
         });
       });
-      
+
       // Initialize button state
       updateDownloadButton(panel);
     }
@@ -1515,13 +1586,13 @@ function updateDownloadButton(panel) {
   const selectAll = document.getElementById('sf-select-all');
   const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
   const checkedBoxes = panel.querySelectorAll('.file-checkbox:not([disabled]):checked');
-  
+
   const selected = getSelectedFiles(panel);
   if (btn) {
     btn.disabled = selected.length === 0;
     btn.textContent = selected.length > 0 ? `Download (${selected.length})` : 'Download';
   }
-  
+
   // Update select all checkbox state
   if (selectAll) {
     selectAll.disabled = checkboxes.length === 0;
@@ -1548,25 +1619,25 @@ async function uploadZipToServer(targetPath) {
   input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     setToolPanel("Server Files", `<div class="text-xs text-slate-400">Uploading ${escapeHtml(file.name)}…</div>`);
-    
+
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('path', targetPath);
-      
+
       const resp = await fetch(`/a/${state.selectedAgentId}/api/files/upload-zip`, {
         method: 'POST',
         body: formData
       });
-      
+
       if (!resp.ok) {
         const errText = await resp.text();
         setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(errText)}</div>`);
         return;
       }
-      
+
       const data = await resp.json();
       if (data.success) {
         const safeCount = Number.isFinite(Number(data.count)) ? Number(data.count) : 0;
@@ -1584,7 +1655,7 @@ async function uploadZipToServer(targetPath) {
 
 function downloadSelectedFiles(paths) {
   if (paths.length === 0) return;
-  
+
   // Use repeated query params to avoid comma ambiguity
   const url = new URL(`${window.location.origin}/a/${state.selectedAgentId}/api/files/download`);
   paths.forEach(p => url.searchParams.append('paths', p));
@@ -1596,7 +1667,7 @@ async function previewServerFile(filePath, currentDir) {
     const encodedPath = encodeURIComponent(filePath);
     const dir = currentDir || filePath.substring(0, filePath.lastIndexOf('/'));
     const resp = await agentApi(`/api/files/read?path=${encodedPath}`);
-    
+
     // Build breadcrumb for navigation
     const parts = dir.split('/').filter(Boolean);
     let breadcrumb = '<a href="#" onclick="loadServerFiles(\'/\'); event.preventDefault();">/</a>';
@@ -1606,22 +1677,22 @@ async function previewServerFile(filePath, currentDir) {
       breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + part + '</a> /';
     }
     breadcrumb = breadcrumb.replace(/ \/$/, '');
-    
+
     if (resp.error) {
       // Check if it's a binary file error - show file info instead
       if (resp.error.includes('binary')) {
         const size = resp.size || 'Unknown';
         const ext = filePath.split('.').pop().toLowerCase();
         const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
-        
+
         if (isImage) {
           // Show image directly
-          setToolPanel("File: " + filePath.split('/').pop(), 
+          setToolPanel("File: " + filePath.split('/').pop(),
             `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
             `<div class="text-center"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
           );
         } else {
-          setToolPanel("File: " + filePath.split('/').pop(), 
+          setToolPanel("File: " + filePath.split('/').pop(),
             `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
             `<div class="text-slate-500 dark:text-slate-400">Binary file (${size} bytes)</div>` +
             `<div class="text-xs text-slate-400 mt-2">Type: ${ext.toUpperCase()}</div>`
@@ -1632,10 +1703,10 @@ async function previewServerFile(filePath, currentDir) {
       }
       return;
     }
-    
+
     const content = resp.content || "(empty file)";
     const language = resp.language || 'text';
-    setToolPanel("File: " + filePath.split('/').pop(), 
+    setToolPanel("File: " + filePath.split('/').pop(),
       `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
       `<pre class="whitespace-pre-wrap text-xs bg-slate-100 dark:bg-slate-900 p-2 rounded overflow-auto max-h-96">${escapeHtml(content)}</pre>`
     );
@@ -1647,7 +1718,7 @@ async function previewServerFile(filePath, currentDir) {
 async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
-  
+
   setToolPanel("Skills", '<div class="text-xs text-slate-400">Loading skills…</div>');
 
   try {
@@ -1671,7 +1742,7 @@ async function openSkillsPanel() {
 async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
-  
+
   setToolPanel("Usage", '<div class="text-xs text-slate-400">Loading usage…</div>');
 
   try {
@@ -1688,7 +1759,7 @@ async function openUsagePanel() {
 async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
-  
+
   setToolPanel("My Uploads", '<div class="text-xs text-slate-400">Loading files…</div>');
 
   try {
@@ -1726,14 +1797,14 @@ function addInstanceRow(group) {
   const div = document.createElement("div");
   div.className = "rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-2";
   div.dataset.instanceItem = group;
-  
+
   // Build fields HTML matching server-rendered format
   const nameProjectHtml = group === "jira"
     ? `<input type="text" data-field="name" value="" placeholder="Name" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /><input type="text" data-field="project" value="" placeholder="Project" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`
     : `<input type="text" data-field="name" value="" placeholder="Name" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /><input type="text" data-field="space" value="" placeholder="Space Key" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`;
-  
+
   const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /><input type="password" data-field="password" value="" placeholder="API Token" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`;
-  
+
   div.innerHTML = `
     <div class="flex justify-between items-center">
       <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Instance</span>
@@ -1745,7 +1816,7 @@ function addInstanceRow(group) {
   `;
   container.append(div);
   normalizeInstanceInputs(group);
-  
+
   // Initialize password toggles for newly added inputs
   if (window.initPasswordToggles) {
     window.initPasswordToggles();
@@ -1766,8 +1837,13 @@ async function openSettings() {
     return;
   }
   if (!state.selectedAgentId) return;
+  const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
+  if (!canWriteAgent(agent)) {
+    setToolPanel("Settings", `<div class="text-xs text-red-500">You do not have permission to modify this agent's settings.</div>`);
+    return;
+  }
 
-  
+
   setToolPanel("Settings", '<div class="text-xs text-slate-400">Loading settings…</div>');
 
   try {
@@ -1853,9 +1929,9 @@ async function copyAgentConfig(agentId) {
     const resp = await fetch(`/a/${agentId}/api/config`);
     if (!resp.ok) throw new Error('Failed to fetch config');
     const data = await resp.json();
-    
+
     const configStr = JSON.stringify(data.config, null, 2);
-    
+
     // Use clipboard API or fallback
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(configStr);
@@ -1870,7 +1946,7 @@ async function copyAgentConfig(agentId) {
       document.execCommand('copy');
       document.body.removeChild(textarea);
     }
-    
+
     // Show global toast
     showToast('Configuration copied to clipboard!');
   } catch (e) {
@@ -1903,9 +1979,9 @@ function setupPasteModal() {
   const cancelBtn = document.getElementById('cancel-paste-btn');
   const confirmBtn = document.getElementById('confirm-paste-btn');
   const textarea = document.getElementById('paste-config-text');
-  
+
   if (!modal) return;
-  
+
   function closePasteModal() {
     const successMsg = document.getElementById('paste-success-msg');
     if (successMsg) {
@@ -1916,7 +1992,7 @@ function setupPasteModal() {
     modal.setAttribute('aria-hidden', 'true');
     pasteModalAgentId = null;
   }
-  
+
   if (closeBtn) closeBtn.addEventListener('click', closePasteModal);
   if (cancelBtn) cancelBtn.addEventListener('click', closePasteModal);
   if (modal) {
@@ -1924,31 +2000,31 @@ function setupPasteModal() {
       if (e.target === modal) closePasteModal();
     });
   }
-  
+
   if (confirmBtn) {
     confirmBtn.addEventListener('click', async function() {
       if (!pasteModalAgentId) return;
-      
+
       const text = textarea.value.trim();
       if (!text) {
         showToast('Please paste configuration JSON');
         return;
       }
-      
+
       try {
         const config = JSON.parse(text);
-        
+
         const resp = await fetch(`/a/${pasteModalAgentId}/api/config/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(config),
         });
-        
+
         if (!resp.ok) {
           const err = await resp.json();
           throw new Error(err.error || 'Failed to save config');
         }
-        
+
         // Show global toast and close modal
         showToast('Configuration applied successfully!');
         setTimeout(closePasteModal, 1500);
@@ -1983,19 +2059,19 @@ function bindEvents() {
     const form = e.target;
     const formData = new FormData(form);
     const id = formData.get("id");
-    
+
     const updates = { name: formData.get("name")?.trim() };
     const repoUrl = formData.get("repo_url")?.trim();
     const branch = formData.get("branch")?.trim();
-    
+
     // Always include repo_url and branch (empty string to clear)
     if (repoUrl !== undefined) updates.repo_url = repoUrl || null;
     if (branch !== undefined) updates.branch = branch || null;
-    
+
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
     msgEl.className = "muted tiny";
-    
+
     try {
       await api(`/api/agents/${id}`, {
         method: "PATCH",
@@ -2013,7 +2089,7 @@ function bindEvents() {
       msgEl.className = "text-red-400 tiny";
     }
   });
-  
+
   document.getElementById("close-edit-modal")?.addEventListener("click", () => {
     document.getElementById("edit-modal").classList.add("hidden");
     document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
@@ -2173,9 +2249,9 @@ function bindEvents() {
     const name = formData.get("name");
     const repoUrl = formData.get("repo_url");
     const branch = formData.get("branch");
-    
+
     const msgEl = document.getElementById("create-msg");
-    
+
     try {
       // Get defaults from config
       const defaultsResp = await fetch("/api/agents/defaults");
@@ -2183,11 +2259,11 @@ function bindEvents() {
         throw new Error(await handleErrorResponse(defaultsResp));
       }
       const defaults = await defaultsResp.json();
-      
+
       if (!defaults.image_repo || !defaults.disk_size_gi) {
         throw new Error("Invalid defaults configuration");
       }
-      
+
       // Use form values if provided, or null to skip repo
       const data = {
         name: name,
@@ -2199,7 +2275,7 @@ function bindEvents() {
         memory: defaults.memory,
         mount_path: defaults.mount_path,
       };
-      
+
       msgEl.textContent = "Creating...";
       msgEl.className = "muted tiny";
       const resp = await fetch("/api/agents", {
@@ -2262,7 +2338,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   bindEvents();
   initializeRenderLifecycle();
-  
+
   // Event delegation for remove buttons (replace inline onclick)
   const previewArea = document.getElementById('input-preview-area');
   if (previewArea) {
@@ -2276,9 +2352,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     });
   }
-  
+
   // Form submit is handled by HTMX via hx-on::before-request
-  
+
   // Drag and drop file upload
   const messageList = dom.messageList;
   let dragCounter = 0;
@@ -2313,7 +2389,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         await addPendingFilesAndUpload(files);
       }
     });
-    
+
     // Also support drag & drop on the chat form
     const chatForm = document.getElementById('chat-form');
     if (chatForm) {
@@ -2332,7 +2408,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     }
   }
-  
+
   // Quick action buttons
   document.getElementById('quick-uploads-btn')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
@@ -2341,13 +2417,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     openMyUploads();
   });
-  
+
   document.getElementById('quick-new-chat-btn')?.addEventListener('click', () => {
     if (state.selectedAgentId) {
       startNewChatForSelectedAgent();
     }
   });
-  
+
   // Server Files button in header
   document.getElementById('btn-files')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
@@ -2356,7 +2432,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     openServerFiles();
   });
-  
+
   // Sessions button in header
   document.getElementById('btn-sessions')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
@@ -2365,7 +2441,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     openSessionsPanel();
   });
-  
+
   await refreshAll();
   renderMarkdown(document);
   renderIcons();
