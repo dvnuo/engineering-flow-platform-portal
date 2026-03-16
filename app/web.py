@@ -405,6 +405,9 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    
+    # Validate and cap max_chars
+    max_chars = max(0, min(max_chars, 20000))  # Clamp between 0 and 20000
 
     db = SessionLocal()
     try:
@@ -679,7 +682,6 @@ async def app_chat_send(request: Request):
     message = (form.get("message") or "").strip()
     session_id = (form.get("session_id") or "").strip() or None
     attachments_str = (form.get("attachments") or "").strip()
-    print(f"[DEBUG] Form data: agent_id={agent_id}, message={message}, attachments_str={attachments_str}")
 
     if not agent_id:
         raise HTTPException(status_code=400, detail="Agent not selected")
