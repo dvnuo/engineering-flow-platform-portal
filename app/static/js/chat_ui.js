@@ -83,7 +83,7 @@ const state = {
   isSubmittingChat: false,
   pendingMessage: "",
   currentUserId: Number(dom.appRoot?.dataset.userId || 0),
-  currentUserName: dom.appRoot?.dataset.username || "You",
+  currentUserName: dom.appRoot?.dataset.nickname || dom.appRoot?.dataset.username || "You",
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
   eventWs: null,
   eventWsAgentId: null,
@@ -718,7 +718,7 @@ async function fetchGitInfo(agentId) {
         try {
           const parsed = new URL(data.repo_url);
           if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-            safeUrl = data.repo_url;
+            safeUrl = data.repo_url.replace(/\.git$/, "");
           }
         } catch (e) {
           // Invalid URL, use plain text
@@ -801,7 +801,7 @@ function renderAgentActions(agent, status) {
   container.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
 
   const grid = document.createElement("div");
-  grid.className = "grid grid-cols-3 gap-2";
+  grid.className = "grid grid-cols-4 gap-2";
 
   const buildIconBtn = ({ label, icon, classes, onClick, disabled = false }) => {
     const button = document.createElement("button");

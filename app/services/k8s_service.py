@@ -75,14 +75,14 @@ class K8sService:
             ])
             
             # Add git credentials from secret if configured
-            if self.settings.k8s_git_username and self.settings.k8s_git_token:
+            if self.settings.k8s_git_username_key and self.settings.k8s_git_token_key:
                 env.extend([
                     client.V1EnvVar(
                         name="GIT_USERNAME",
                         value_from=client.V1EnvVarSource(
                             secret_key_ref=client.V1SecretKeySelector(
-                                name="git-credentials",
-                                key="username",
+                                name="efp-agents-secret",
+                                key=self.settings.k8s_git_username_key,
                                 optional=True,
                             )
                         )
@@ -91,8 +91,8 @@ class K8sService:
                         name="GIT_TOKEN",
                         value_from=client.V1EnvVarSource(
                             secret_key_ref=client.V1SecretKeySelector(
-                                name="git-credentials",
-                                key="token",
+                                name="efp-agents-secret",
+                                key=self.settings.k8s_git_token_key,
                                 optional=True,
                             )
                         )
@@ -111,11 +111,13 @@ class K8sService:
                     command=["sh", "-c"],
                     args=[
                         "mkdir -p /app && "
-                        "cd /app && rm -rf .[!.]* * && "
+                        "mkdir -p /tmp/app && cd /tmp/app && "
                         "REPO_URL=\"${GIT_REPO_URL}\" && "
+                        "REPO_URL=\"$(echo ${REPO_URL} | sed 's#^\\(https://[^/]*\\)\\(/.*\\)#\\1:6443\\2#')\" && "
                         "[ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && "
                         "REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && "
-                        "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" ."
+                        "git -c http.sslVerify=false clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
+                        "cp -rf /tmp/app/. /app/ "
                     ],
                     env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
@@ -125,9 +127,9 @@ class K8sService:
         # Build volume mounts
         volume_mounts = []
         if agent.repo_url:
-            volume_mounts.append(
-                client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)
-            )
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{code_sub_path}/src"))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{code_sub_path}/.git"))
         volume_mounts.append(
             client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=f"efp-agents/{agent.id}/data")
         )
@@ -142,6 +144,16 @@ class K8sService:
                             "name": "agent",
                             "image": agent.image,
                             "ports": [{"containerPort": 8000}],
+                            "env": [client.V1EnvVar(
+                                name="EFP_CONFIG_KEY",
+                                value_from=client.V1EnvVarSource(
+                                    secret_key_ref=client.V1SecretKeySelector(
+                                        name="efp-agents-secret",
+                                        key="EFP_CONFIG_KEY",
+                                        optional=True,
+                                    )
+                                )
+                            )],
                             "volumeMounts": volume_mounts,
                         }],
                     }
@@ -237,7 +249,7 @@ class K8sService:
 
         body = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
-                name=agent.pvc_name,
+                name="efp-agents-efs-pvc",
                 namespace=agent.namespace,
                 labels={"app": "agent", "agent-id": agent.id, "managed-by": "portal"},
             ),
@@ -274,14 +286,14 @@ class K8sService:
             ]
             
             # Add git credentials from secret if configured
-            if self.settings.k8s_git_username and self.settings.k8s_git_token:
+            if self.settings.k8s_git_username_key and self.settings.k8s_git_token_key:
                 env.extend([
                     client.V1EnvVar(
                         name="GIT_USERNAME",
                         value_from=client.V1EnvVarSource(
                             secret_key_ref=client.V1SecretKeySelector(
-                                name="git-credentials",
-                                key="username",
+                                name="efp-agents-secret",
+                                key=self.settings.k8s_git_username_key,
                                 optional=True,
                             )
                         )
@@ -290,8 +302,8 @@ class K8sService:
                         name="GIT_TOKEN",
                         value_from=client.V1EnvVarSource(
                             secret_key_ref=client.V1SecretKeySelector(
-                                name="git-credentials",
-                                key="token",
+                                name="efp-agents-secret",
+                                key=self.settings.k8s_git_token_key,
                                 optional=True,
                             )
                         )
@@ -304,18 +316,18 @@ class K8sService:
                     image=git_image,
                     command=["sh", "-c"],
                     args=[
-                        "mkdir -p /app && "
-                        "cd /app && rm -rf .[!.]* * && "
-                        "REPO_URL=\"${GIT_REPO_URL}\" && [ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" ."
+                        "mkdir -p /app && mkdir -p /tmp/app && cd /tmp/app &&"
+                        "REPO_URL=\"${GIT_REPO_URL}\" && REPO_URL=\"$(echo ${REPO_URL} | sed 's#^\\(https://[^/]*\\)\\(/.*\\)#\\1:6443\\2#')\" && [ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && git -c http.sslVerify=false clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . &&"
+                        "cp -rf /tmp/app/. /app/ "
                     ],
                     env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
                 )
             )
             # Mount code to /app in main container
-            volume_mounts.append(
-                client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)
-            )
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{code_sub_path}/.git"))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{code_sub_path}/src"))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
         
         # Always add the data mount
         data_sub_path = f"efp-agents/{agent.id}/data"
@@ -337,13 +349,23 @@ class K8sService:
                                 name="agent",
                                 image=agent.image,
                                 ports=[client.V1ContainerPort(container_port=8000)],
+                                env=[client.V1EnvVar(
+                                        name="EFP_CONFIG_KEY",
+                                        value_from=client.V1EnvVarSource(
+                                            secret_key_ref=client.V1SecretKeySelector(
+                                                name="efp-agents-secret",
+                                                key="EFP_CONFIG_KEY",
+                                                optional=True,
+                                            )
+                                        )
+                                    )],
                                 volume_mounts=volume_mounts,
                             )
                         ],
                         volumes=[
                             client.V1Volume(
                                 name="agent-data",
-                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=agent.pvc_name),
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name="efp-agents-efs-pvc"),
                             )
                         ],
                     ),
