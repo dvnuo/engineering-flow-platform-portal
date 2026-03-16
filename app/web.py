@@ -68,15 +68,6 @@ def _settings_view_payload(config_data: dict) -> dict:
             "space": confluence.get("space") or "",
         }]
 
-    proxy = config_data.get("proxy") if isinstance(config_data.get("proxy"), dict) else {}
-    # Avoid exposing the actual proxy password to the frontend; use a masked placeholder instead.
-    sanitized_proxy = {}
-    for key, value in proxy.items():
-        if key == "password" and value:
-            sanitized_proxy[key] = "••••••"
-        else:
-            sanitized_proxy[key] = value
-
     return {
         "config": config_data,
         "llm": llm,
@@ -87,7 +78,7 @@ def _settings_view_payload(config_data: dict) -> dict:
         "github": config_data.get("github") if isinstance(config_data.get("github"), dict) else {},
         "git": config_data.get("git") if isinstance(config_data.get("git"), dict) else {},
         "ssh": config_data.get("ssh") if isinstance(config_data.get("ssh"), dict) else {},
-        "proxy": sanitized_proxy,
+        "proxy": config_data.get("proxy") if isinstance(config_data.get("proxy"), dict) else {},
         "debug": config_data.get("debug") if isinstance(config_data.get("debug"), dict) else {},
     }
 
