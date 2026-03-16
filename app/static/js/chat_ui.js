@@ -1784,7 +1784,7 @@ async function openSettings() {
   if (!state.selectedAgentId) return;
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel(Settings, '<div class=text-xs text-red-500>You do not have permission to modify this shared agent.</div>');
+    setToolPanel('Settings', '<div class="text-xs text-red-500">You do not have permission to modify this shared agent.</div>');
     return;
   }
 
