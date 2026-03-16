@@ -417,18 +417,23 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        try:
+        import urllib.parse
+
+try:
             efp_base_url = proxy_service.build_agent_base_url(agent)
         except ValueError as e:
             raise HTTPException(status_code=502, detail=str(e))
         
-        url = f"{efp_base_url}/api/files/{file_id}/preview?max_chars={max_chars}"
+        # URL-encode file_id in path and use params for query string
+        encoded_file_id = urllib.parse.quote(file_id, safe='')
+        url = f"{efp_base_url}/api/files/{encoded_file_id}/preview"
         
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, params={"max_chars": max_chars})
         
         if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Preview failed: {resp.text}")
+            # Don't leak upstream error details
+            raise HTTPException(status_code=502, detail="Preview failed")
         
         return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"), status_code=resp.status_code)
     finally:
@@ -692,9 +697,11 @@ async def app_chat_send(request: Request):
     attachments = []
     if attachments_str:
         try:
-            attachments = json.loads(attachments_str)
-        except:
-            pass
+            parsed = json.loads(attachments_str)
+            if isinstance(parsed, list):
+                attachments = parsed
+        except json.JSONDecodeError:
+            pass  # Invalid JSON, ignore attachments
 
     db = SessionLocal()
     try:

@@ -185,7 +185,7 @@ async function addPendingFilesAndUpload(files) {
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
-      console.log('[DEBUG] Upload success, pf.file_id:', pf.file_id, 'pf.status:', pf.status);
+ 
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
 
@@ -970,7 +970,7 @@ function handleChatBeforeRequest(event) {
     return;
   }
 
-  // Get the message (already contains @file_xxx if files were uploaded)
+  // Get the message
   const message = dom.chatInput?.value?.trim() || "";
   if (!message) {
     event.preventDefault();
@@ -986,8 +986,8 @@ function handleChatBeforeRequest(event) {
   const uploadedFileIds = state.pendingFiles
     .filter(pf => pf.file_id && pf.status === 'uploaded')
     .map(pf => pf.file_id);
-  console.log('[DEBUG] Building attachments - pendingFiles:', state.pendingFiles);
-  console.log('[DEBUG] Built attachments:', uploadedFileIds);
+ 
+ 
 
   // Show user message immediately (optimistic UI)
   setChatSubmitting(true);
@@ -1021,8 +1021,7 @@ function handleChatBeforeRequest(event) {
   setChatStatus("Sending...");
 
   // Note: attachments is now set via htmx:configRequest event
-  // Let HTMX submit naturally - the form will send the message including @file_xxx
-  // The message already contains @file_xxx references from the upload
+  // HTMX will submit the form with attachments in the payload
 }
 
 function handleChatResponseError(event) {
@@ -1135,7 +1134,7 @@ function initializeRenderLifecycle() {
         .filter(pf => pf.file_id && pf.status === 'uploaded')
         .map(pf => pf.file_id);
       event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
-      console.log('[DEBUG] htmx:configRequest - set attachments to:', event.detail.parameters.attachments);
+ 
     }
   });
 
@@ -1218,7 +1217,7 @@ function insertFileReference(fileIdOrRef) {
         id: fileId,
         file_id: fileId,
         file: { name: 'Uploaded file' },
-        previewUrl: `/a/${state.selectedAgentId}/api/files/${fileId}`,
+        previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
         isImage: true,
         status: 'uploaded'
       };
@@ -1383,7 +1382,7 @@ function renderChatHistory(messages, metadata = {}) {
         attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
         msgAttachments.forEach(fileId => {
           const img = document.createElement("img");
-          img.src = `/a/${state.selectedAgentId}/api/files/${fileId}`;
+          img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
           img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
           img.alt = fileId;
           // Show placeholder on error
