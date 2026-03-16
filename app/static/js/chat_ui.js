@@ -849,10 +849,10 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
-    // Get agent name from state or lookup
-    const allAgents = state.mineAgents || [];
-    const selectedAgent = allAgents.find(a => a.id === agentId);
-    state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
+  // Get agent name from state or lookup
+  const allAgents = state.mineAgents || [];
+  const selectedAgent = allAgents.find(a => a.id === agentId);
+  state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
   
   // Update owner-only button visibility
   updateOwnerOnlyButtons(agentId);
@@ -1394,7 +1394,7 @@ async function loadSession(sessionId) {
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel('Server Files', '<div class="text-xs text-red-500">You do not have permission to access files of this shared agent.</div>');
+    setToolPanel('Server Files', '<div class="text-xs text-red-500">You do not have permission to access this agent's files.</div>');
     return;
   }
   const workspacePath = '/root/.efp/workspace';
@@ -1784,7 +1784,7 @@ async function openSettings() {
   if (!state.selectedAgentId) return;
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel('Settings', '<div class="text-xs text-red-500">You do not have permission to modify this shared agent.</div>');
+    setToolPanel('Settings', '<div class="text-xs text-red-500">You do not have permission to modify this agent's settings.</div>');
     return;
   }
 
