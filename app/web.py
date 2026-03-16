@@ -419,11 +419,7 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
 
         import urllib.parse
 
-try:
-            efp_base_url = proxy_service.build_agent_base_url(agent)
-        except ValueError as e:
-            raise HTTPException(status_code=502, detail=str(e))
-        
+        efp_base_url = proxy_service.build_agent_base_url(agent)
         # URL-encode file_id in path and use params for query string
         encoded_file_id = urllib.parse.quote(file_id, safe='')
         url = f"{efp_base_url}/api/files/{encoded_file_id}/preview"
