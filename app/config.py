@@ -7,7 +7,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     app_name: str = "Engineering Flow Platform Portal"
-    debug: bool = False
+    debug: bool = True
     database_url: str = "sqlite:///./portal.db"
     secret_key: str = "change-me-in-production"
     session_cookie_name: str = "portal_session"
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     k8s_enabled: bool = False
     k8s_storage_class: str = "local-path"
     k8s_pvc_size: str = "20Gi"
-    k8s_pvc_access_modes: list = ["ReadWriteOnce"]
+    k8s_pvc_access_modes: list = ["ReadWriteMany"]
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = "/etc/rancher/k3s/k3s.yaml"
     k8s_agent_service_type: str = "ClusterIP"

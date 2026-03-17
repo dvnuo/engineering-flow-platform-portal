@@ -41,7 +41,7 @@ class ProxyService:
                 # 2. Auto-detect via hostname -I (with timeout to prevent hangs)
                 try:
                     result = subprocess.run(
-                        ['hostname', '-I'], capture_output=True, text=True, timeout=5
+                        ['hostname', '-I'], capture_output=True, text=True, timeout=30
                     )
                     if result.returncode == 0:
                         # Filter for IPv4 addresses only (exclude IPv6, link-local, etc.)
@@ -111,7 +111,7 @@ class ProxyService:
         if headers.get("content-type"):
             outbound_headers["content-type"] = headers["content-type"]
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=None) as client:
             resp = await client.request(
                 method=method,
                 url=url,
