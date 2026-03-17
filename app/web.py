@@ -294,7 +294,7 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
         if not settings.k8s_enabled:
             return templates.TemplateResponse(
                 "partials/usage_panel.html",
-                {"request": request, "agent_id": agent_id, "usage": {}, "total_messages": 0, "total_cost": 0},
+                {"request": request, "agent_id": agent_id, "usage": [], "total_messages": 0, "total_cost": 0},
             )
 
         status_code, content, _ = await proxy_service.forward(
@@ -559,8 +559,19 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         existing_proxy_password = config_payload["proxy"].get("password")
     
     # Preserve existing tokens for Jira and Confluence instances
-    existing_jira_instances = config_payload.get("jira", {}).get("instances", [])
-    existing_confluence_instances = config_payload.get("confluence", {}).get("instances", [])
+    jira_config = config_payload.get("jira")
+    if isinstance(jira_config, dict):
+        jira_instances = jira_config.get("instances", [])
+        existing_jira_instances = jira_instances if isinstance(jira_instances, list) else []
+    else:
+        existing_jira_instances = []
+
+    confluence_config = config_payload.get("confluence")
+    if isinstance(confluence_config, dict):
+        confluence_instances = confluence_config.get("instances", [])
+        existing_confluence_instances = confluence_instances if isinstance(confluence_instances, list) else []
+    else:
+        existing_confluence_instances = []
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     llm["provider"] = (form.get("llm_provider") or "").strip()
@@ -618,7 +629,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     # Preserve existing tokens if not provided in form
     jira_new_instances = parse_instances("jira", ["name", "url", "username", "password", "token", "project"])
     for i, inst in enumerate(jira_new_instances):
-        if not inst.get("token") and i < len(existing_jira_instances):
+        if "token" not in inst and i < len(existing_jira_instances):
             inst["token"] = existing_jira_instances[i].get("token", "")
     jira["instances"] = jira_new_instances
 
@@ -627,7 +638,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     # Preserve existing tokens if not provided in form
     confluence_new_instances = parse_instances("confluence", ["name", "url", "username", "password", "token", "space"])
     for i, inst in enumerate(confluence_new_instances):
-        if not inst.get("token") and i < len(existing_confluence_instances):
+        if "token" not in inst and i < len(existing_confluence_instances):
             inst["token"] = existing_confluence_instances[i].get("token", "")
     confluence["instances"] = confluence_new_instances
 
