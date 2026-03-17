@@ -629,7 +629,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     # Preserve existing tokens if not provided in form
     jira_new_instances = parse_instances("jira", ["name", "url", "username", "password", "token", "project"])
     for i, inst in enumerate(jira_new_instances):
-        if not inst.get("token") and i < len(existing_jira_instances):
+        if "token" not in inst and i < len(existing_jira_instances):
             inst["token"] = existing_jira_instances[i].get("token", "")
     jira["instances"] = jira_new_instances
 
@@ -638,7 +638,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     # Preserve existing tokens if not provided in form
     confluence_new_instances = parse_instances("confluence", ["name", "url", "username", "password", "token", "space"])
     for i, inst in enumerate(confluence_new_instances):
-        if not inst.get("token") and i < len(existing_confluence_instances):
+        if "token" not in inst and i < len(existing_confluence_instances):
             inst["token"] = existing_confluence_instances[i].get("token", "")
     confluence["instances"] = confluence_new_instances
 
