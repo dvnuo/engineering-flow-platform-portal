@@ -388,6 +388,28 @@ async def api_agent_ssh_generate(request: Request, agent_id: str):
         db.close()
 
 
+@router.get("/api/agents/{agent_id}/ssh/public-key")
+async def api_agent_ssh_public_key(request: Request, agent_id: str):
+    """Get existing SSH public key from EFP local runtime."""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    # Call EFP local runtime to get existing public key
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{EFP_BASE_URL}/api/ssh/public-key")
+            if resp.status_code == 200:
+                result = resp.json()
+                return result
+            elif resp.status_code == 404:
+                return {"success": False, "message": "No SSH key found"}
+            else:
+                return {"success": False, "error": "Failed to get SSH key"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @router.get("/app/agents/{agent_id}/usage/panel")
 async def app_agent_usage_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)

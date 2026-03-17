@@ -196,6 +196,11 @@
         <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
         <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">SSH</h6>
       </div>
+      <div id="ssh-existing-key" class="hidden p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+        <p class="text-xs text-blue-700 dark:text-blue-300 mb-2">✅ Existing SSH key found:</p>
+        <textarea id="ssh-existing-public-key" readonly class="w-full h-16 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-800 dark:text-slate-200" rows="2"></textarea>
+        <p class="text-xs text-blue-600 dark:text-blue-400 mt-2">This key is already configured. Use regenerate to create a new one.</p>
+      </div>
       <label class="block text-xs">
         <span class="mb-1 block text-slate-600 dark:text-slate-400">Private Key Path</span>
         <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa or ~/.efp/.ssh/id_rsa" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
@@ -203,9 +208,13 @@
       <button type="button" onclick="generateSSHKey('{{ agent_id }}')" class="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500 shadow-sm transition-colors">
         Generate RSA Key
       </button>
-      <div id="ssh-key-result" class="hidden mt-2 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
-        <p class="text-xs text-slate-600 dark:text-slate-400 mb-2">Public Key (add to GitHub/GitLab):</p>
+      <div id="ssh-key-result" class="hidden mt-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+        <p class="text-xs font-semibold text-green-700 dark:text-green-300 mb-2">🔐 Public Key (add to GitHub/GitLab):</p>
         <textarea id="ssh-public-key" readonly class="w-full h-20 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-800 dark:text-slate-200" rows="3"></textarea>
+        <div class="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-200 dark:border-yellow-800">
+          <p class="text-xs text-yellow-700 dark:text-yellow-300 font-semibold">⚠️ Important: Add the above public key to your GitHub/GitLab account:</p>
+          <p class="text-xs text-yellow-600 dark:text-yellow-400 mt-1">GitHub: Settings → SSH and GPG keys → New SSH key</p>
+        </div>
         <p class="text-xs text-green-600 dark:text-green-400 mt-2" id="ssh-key-message"></p>
       </div>
     </section>
@@ -227,8 +236,25 @@
   </form>
 
   <script>
+  // Check for existing SSH key on page load
+  async function checkExistingSSHKey(agentId) {
+    try {
+      const response = await fetch(`/api/agents/${agentId}/ssh/public-key`);
+      const data = await response.json();
+      if (data.success && data.public_key) {
+        document.getElementById('ssh-existing-key').classList.remove('hidden');
+        document.getElementById('ssh-existing-public-key').value = data.public_key;
+      }
+    } catch (e) {
+      // No existing key, ignore
+    }
+  }
+  
   // Generate SSH Key function
   async function generateSSHKey(agentId) {
+    // Check existing first
+    await checkExistingSSHKey(agentId);
+    
     const resultDiv = document.getElementById('ssh-key-result');
     const publicKeyTextarea = document.getElementById('ssh-public-key');
     const messageDiv = document.getElementById('ssh-key-message');
@@ -251,6 +277,9 @@
         
         // Update the private key path input
         document.querySelector('input[name="ssh_private_key_path"]').value = data.private_key_path;
+        
+        // Hide existing key indicator since we generated new one
+        document.getElementById('ssh-existing-key').classList.add('hidden');
       } else {
         publicKeyTextarea.value = '';
         messageDiv.textContent = '❌ Error: ' + (data.detail || data.error);
@@ -260,6 +289,14 @@
       messageDiv.textContent = '❌ Error: ' + err.message;
     }
   }
+  
+  // Initialize: check for existing SSH key when page loads
+  (function() {
+    const agentId = '{{ agent_id }}';
+    if (agentId) {
+      checkExistingSSHKey(agentId);
+    }
+  })();
   
   (function() {
     // Provider-Model mapping (from EFP) - define only once
