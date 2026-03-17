@@ -898,50 +898,47 @@ html[data-theme="light"] .toggle-slider:before {
 }
 
 /* ===== Dark Mode Markdown Styles ===== */
-:root {
-  --md-color: #e2e8f0;
-  --md-bg-code: #1e293b;
-  --md-color-code: #f472b6;
-  --md-link: #60a5fa;
-  --md-blockquote-border: #475569;
-  --md-blockquote-color: #94a3b8;
-}
-
-.prose,
-.md-render {
-  color: var(--md-color);
-}
-
-.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+html[data-theme="dark"] .prose,
+html[data-theme="dark"] .md-render {
   color: #e2e8f0;
 }
 
-.prose code {
-  background: var(--md-bg-code);
-  color: var(--md-color-code);
+html[data-theme="dark"] .prose h1,
+html[data-theme="dark"] .prose h2,
+html[data-theme="dark"] .prose h3,
+html[data-theme="dark"] .prose h4,
+html[data-theme="dark"] .prose h5,
+html[data-theme="dark"] .prose h6 {
+  color: #e2e8f0;
 }
 
-.prose pre {
-  background: var(--md-bg-code);
+html[data-theme="dark"] .prose code {
+  background: #1e293b;
+  color: #f472b6;
 }
 
-.prose a {
-  color: var(--md-link);
+html[data-theme="dark"] .prose pre {
+  background: #1e293b;
 }
 
-.prose blockquote {
-  border-left-color: var(--md-blockquote-border);
-  color: var(--md-blockquote-color);
+html[data-theme="dark"] .prose a {
+  color: #60a5fa;
 }
 
-.prose strong {
+html[data-theme="dark"] .prose blockquote {
+  border-left-color: #475569;
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] .prose strong {
   color: #f1f5f9;
 }
 
-.prose hr {
+html[data-theme="dark"] .prose hr {
   border-color: #475569;
 }
 
-.prose th, .prose td {
+html[data-theme="dark"] .prose th,
+html[data-theme="dark"] .prose td {
   border-color: #475569;
 }
