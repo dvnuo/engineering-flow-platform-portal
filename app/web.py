@@ -1,5 +1,8 @@
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
+import os
+import shutil
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -39,6 +42,11 @@ def _current_user_from_cookie(request: Request):
 
 def _can_access(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
+
+
+def _can_modify(agent, user) -> bool:
+    """Check if user can modify agent settings (write operations)."""
+    return user.role == "admin" or agent.owner_user_id == user.id
 
 
 def _settings_view_payload(config_data: dict) -> dict:
@@ -274,11 +282,6 @@ async def api_agent_usage(request: Request, agent_id: str):
         db.close()
 
 
-import os
-import shutil
-from pathlib import Path
-
-
 EFP_BASE_URL = "http://localhost:8001"
 
 
@@ -298,8 +301,8 @@ async def api_agent_ssh_generate(request: Request, agent_id: str):
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
+        if not _can_modify(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden - only owner or admin can generate SSH keys")
 
         # Call EFP local runtime to generate SSH key
         try:
@@ -380,7 +383,6 @@ async def api_agent_ssh_generate(request: Request, agent_id: str):
         return {
             "success": True,
             "public_key": public_key,
-            "private_key_path": private_key_path,
             "message": "SSH key generated! Add this public key to your GitHub/GitLab account."
         }
 
@@ -395,19 +397,29 @@ async def api_agent_ssh_public_key(request: Request, agent_id: str):
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
-    # Call EFP local runtime to get existing public key
+    db = SessionLocal()
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{EFP_BASE_URL}/api/ssh/public-key")
-            if resp.status_code == 200:
-                result = resp.json()
-                return result
-            elif resp.status_code == 404:
-                return {"success": False, "message": "No SSH key found"}
-            else:
-                return {"success": False, "error": "Failed to get SSH key"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Call EFP local runtime to get existing public key
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{EFP_BASE_URL}/api/ssh/public-key")
+                if resp.status_code == 200:
+                    result = resp.json()
+                    return result
+                elif resp.status_code == 404:
+                    return {"success": False, "message": "No SSH key found"}
+                else:
+                    return {"success": False, "error": "Failed to get SSH key"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    finally:
+        db.close()
 
 
 @router.get("/app/agents/{agent_id}/usage/panel")

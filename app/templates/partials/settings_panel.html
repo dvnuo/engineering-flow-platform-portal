@@ -240,6 +240,10 @@
   async function checkExistingSSHKey(agentId) {
     try {
       const response = await fetch(`/api/agents/${agentId}/ssh/public-key`);
+      const contentType = response.headers.get('content-type');
+      if (!response.ok || !contentType || !contentType.includes('application/json')) {
+        return; // Ignore errors for existing key check
+      }
       const data = await response.json();
       if (data.success && data.public_key) {
         document.getElementById('ssh-existing-key').classList.remove('hidden');
@@ -269,14 +273,24 @@
         headers: { 'Content-Type': 'application/json' }
       });
       
-      const data = await response.json();
+      let data;
+      const contentType = response.headers.get('content-type');
+      if (response.ok && contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        // Handle non-JSON error responses
+        const text = await response.text();
+        publicKeyTextarea.value = '';
+        messageDiv.textContent = '❌ Error: ' + (response.statusText || text || 'Unknown error');
+        return;
+      }
       
       if (data.success) {
         publicKeyTextarea.value = data.public_key;
-        messageDiv.textContent = '✅ ' + data.message + ' Keys saved to: ' + data.private_key_path;
+        messageDiv.textContent = '✅ ' + data.message;
         
-        // Update the private key path input
-        document.querySelector('input[name="ssh_private_key_path"]').value = data.private_key_path;
+        // Update the private key path input (path stored internally)
+        document.querySelector('input[name="ssh_private_key_path"]').value = '/root/.efp/.ssh/id_rsa';
         
         // Hide existing key indicator since we generated new one
         document.getElementById('ssh-existing-key').classList.add('hidden');
