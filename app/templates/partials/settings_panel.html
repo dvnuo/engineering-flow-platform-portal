@@ -130,9 +130,15 @@
 
     <!-- GitHub Section -->
     <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center gap-2">
-        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">GitHub</h6>
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
+          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">GitHub</h6>
+        </div>
+        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+          <label class="toggle-switch"><input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
+          <span>Enabled</span>
+        </div>
       </div>
       <label class="block text-xs">
         <span class="mb-1 block text-slate-600 dark:text-slate-400">API Token</span>
@@ -192,9 +198,15 @@
 
     <!-- SSH Section -->
     <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center gap-2">
-        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">SSH</h6>
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
+          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">SSH</h6>
+        </div>
+        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+          <label class="toggle-switch"><input type="checkbox" name="ssh_enabled" {% if ssh.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
+          <span>Enabled</span>
+        </div>
       </div>
       <div id="ssh-existing-key" class="hidden p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
         <p class="text-xs text-blue-700 dark:text-blue-300 mb-2">✅ Existing SSH key found:</p>
@@ -220,11 +232,25 @@
     </section>
 
     <!-- Debug Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-      <label class="flex items-center gap-2 text-sm cursor-pointer text-slate-700 dark:text-slate-300">
-        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <label class="toggle-switch"><input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
-        <span class="font-semibold">Debug Mode</span>
+    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
+          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Debug</h6>
+        </div>
+        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+          <label class="toggle-switch"><input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
+          <span>Enabled</span>
+        </div>
+      </div>
+      <label class="block text-xs">
+        <span class="mb-1 block text-slate-600 dark:text-slate-400">Log Level</span>
+        <select name="debug_log_level" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none">
+          <option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+          <option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option>
+          <option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option>
+          <option value="ERROR" {% if debug.get('log_level', 'INFO') == 'ERROR' %}selected{% endif %}>ERROR</option>
+        </select>
       </label>
     </section>
 
