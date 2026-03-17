@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+import subprocess
 import httpx
 from typing import Optional
 
@@ -31,9 +32,36 @@ class ProxyService:
     @property
     def node_ip(self):
         if self._node_ip is None:
-            # Use the node IP where portal is running (hostNetwork)
+            # 1. Try environment variable override first
             import os
-            self._node_ip = os.environ.get('NODE_IP', '192.168.8.237')
+            env_ip = os.environ.get('K8S_NODE_IP') or os.environ.get('NODE_IP')
+            if env_ip:
+                self._node_ip = env_ip
+            else:
+                # 2. Auto-detect via hostname -I (with timeout to prevent hangs)
+                try:
+                    result = subprocess.run(
+                        ['hostname', '-I'], capture_output=True, text=True, timeout=5
+                    )
+                    if result.returncode == 0:
+                        # Filter for IPv4 addresses only (exclude IPv6, link-local, etc.)
+                        ips = result.stdout.strip().split()
+                        for ip in ips:
+                            # IPv4 check: contains '.' and not loopback
+                            if '.' in ip and not ip.startswith('127.'):
+                                self._node_ip = ip
+                                break
+                        # If no suitable IPv4 found, require env var instead of silent wrong fallback
+                except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+                    # hostname command failed or unavailable - will require env var
+                    pass
+                
+                # 3. Last resort: raise error instead of silent wrong fallback
+                if not self._node_ip:
+                    raise ValueError(
+                        "Cannot determine node IP for K8s proxy. "
+                        "Set K8S_NODE_IP environment variable."
+                    )
         return self._node_ip
 
     def build_agent_base_url(self, agent) -> str:
@@ -52,6 +80,9 @@ class ProxyService:
                 # For ClusterIP, try internal DNS
                 elif svc.spec.type == "ClusterIP":
                     return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+            except ValueError:
+                # Re-raise ValueError so caller can handle it with actionable message
+                raise
             except Exception:
                 pass
         # Fallback to internal DNS

@@ -294,7 +294,7 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
         if not settings.k8s_enabled:
             return templates.TemplateResponse(
                 "partials/usage_panel.html",
-                {"request": request, "agent_id": agent_id, "usage": {}, "total_messages": 0, "total_cost": 0},
+                {"request": request, "agent_id": agent_id, "usage": [], "total_messages": 0, "total_cost": 0},
             )
 
         status_code, content, _ = await proxy_service.forward(
