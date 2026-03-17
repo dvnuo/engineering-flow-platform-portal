@@ -763,6 +763,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
 
     debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
     debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
+    debug_cfg["log_level"] = form.get("debug_log_level") or "INFO"
 
     config_payload["llm"] = llm
     config_payload["jira"] = jira
