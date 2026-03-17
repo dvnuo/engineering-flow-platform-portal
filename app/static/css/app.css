@@ -896,3 +896,52 @@ html[data-theme="light"] .toggle-slider:before {
     outline: 2px solid #3b82f6;
     outline-offset: 1px;
 }
+
+/* ===== Dark Mode Markdown Styles ===== */
+:root {
+  --md-color: #e2e8f0;
+  --md-bg-code: #1e293b;
+  --md-color-code: #f472b6;
+  --md-link: #60a5fa;
+  --md-blockquote-border: #475569;
+  --md-blockquote-color: #94a3b8;
+}
+
+.prose,
+.md-render {
+  color: var(--md-color);
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  color: #e2e8f0;
+}
+
+.prose code {
+  background: var(--md-bg-code);
+  color: var(--md-color-code);
+}
+
+.prose pre {
+  background: var(--md-bg-code);
+}
+
+.prose a {
+  color: var(--md-link);
+}
+
+.prose blockquote {
+  border-left-color: var(--md-blockquote-border);
+  color: var(--md-blockquote-color);
+}
+
+.prose strong {
+  color: #f1f5f9;
+}
+
+.prose hr {
+  border-color: #475569;
+}
+
+.prose th, .prose td {
+  border-color: #475569;
+}
