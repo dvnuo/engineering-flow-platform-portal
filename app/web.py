@@ -294,7 +294,7 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
         if not settings.k8s_enabled:
             return templates.TemplateResponse(
                 "partials/usage_panel.html",
-                {"request": request, "agent_id": agent_id, "usage": [], "total_messages": 0, "total_cost": 0},
+                {"request": request, "agent_id": agent_id, "usage": {}, "total_messages": 0, "total_cost": 0},
             )
 
         status_code, content, _ = await proxy_service.forward(
@@ -518,6 +518,10 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    
+    # Check if K8s is enabled before saving settings
+    if not settings.k8s_enabled:
+        raise HTTPException(status_code=400, detail="Settings cannot be saved: Kubernetes integration is disabled")
 
     form = await request.form()
 
