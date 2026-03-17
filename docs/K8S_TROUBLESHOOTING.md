@@ -111,22 +111,21 @@ def node_ip(self):
         if env_ip:
             self._node_ip = env_ip
         else:
-            # 2. Auto-detect via hostname -I
+            # 2. Auto-detect via hostname -I (with timeout)
             import subprocess
             try:
                 result = subprocess.run(
-                    ['hostname', '-I'], capture_output=True, text=True
+                    ['hostname', '-I'], capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0:
-                    # Filter for IPv4 addresses
+                    # Filter for IPv4 addresses only
                     ips = result.stdout.strip().split()
                     for ip in ips:
                         if '.' in ip and not ip.startswith('127.'):
                             self._node_ip = ip
                             break
-                    if not self._node_ip and ips:
-                        self._node_ip = ips[0]
-            except Exception:
+                    # No IPv4 found: require env var instead of silent wrong fallback
+            except subprocess.TimeoutExpired:
                 pass
             
             # 3. Raise error if cannot determine
