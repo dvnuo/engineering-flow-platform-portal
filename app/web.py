@@ -279,11 +279,14 @@ import shutil
 from pathlib import Path
 
 
+EFP_BASE_URL = "http://localhost:8001"
+
+
 @router.post("/api/agents/{agent_id}/ssh/generate")
 async def api_agent_ssh_generate(request: Request, agent_id: str):
     """Generate SSH key for an agent.
     
-    Proxies to EFP runtime to generate SSH key, then copies to ~/.efp/.ssh
+    Calls EFP local runtime to generate SSH key, then copies to ~/.efp/.ssh
     and updates the agent's SSH settings.
     """
     user = _current_user_from_cookie(request)
@@ -298,15 +301,17 @@ async def api_agent_ssh_generate(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        # Call EFP runtime to generate SSH key
-        status_code, content, _ = await proxy_service.forward(
-            agent=agent,
-            method="POST",
-            subpath="api/ssh/generate",
-            query_items=[],
-            body=json.dumps({"key_type": "rsa"}).encode("utf-8"),
-            headers={"content-type": "application/json"},
-        )
+        # Call EFP local runtime to generate SSH key
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{EFP_BASE_URL}/api/ssh/generate",
+                    json={"key_type": "rsa"}
+                )
+                status_code = resp.status_code
+                content = resp.content
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Cannot connect to EFP runtime: {e}")
 
         if status_code >= 400:
             error_msg = content.decode("utf-8", errors="ignore")
@@ -332,6 +337,55 @@ async def api_agent_ssh_generate(request: Request, agent_id: str):
 
         if private_key_src.exists():
             shutil.copy(private_key_src, private_key_dst)
+            os.chmod(private_key_dst, 0o600)
+        
+        if public_key_src.exists():
+            shutil.copy(public_key_src, public_key_dst)
+            os.chmod(public_key_dst, 0o644)
+
+        private_key_path = str(private_key_dst)
+
+        # Update agent SSH settings via proxy
+        ssh_cfg = {"enabled": True, "private_key_path": private_key_path}
+        
+        # Get current config and update
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/config",
+            query_items=[],
+            body=None,
+            headers={},
+        )
+        
+        config = {}
+        if status_code == 200:
+            try:
+                config = json.loads(content.decode("utf-8"))
+            except:
+                pass
+        
+        config["ssh"] = ssh_cfg
+        
+        # Save config
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="POST",
+            subpath="api/config/save",
+            query_items=[],
+            body=json.dumps(config).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+
+        return {
+            "success": True,
+            "public_key": public_key,
+            "private_key_path": private_key_path,
+            "message": "SSH key generated! Add this public key to your GitHub/GitLab account."
+        }
+
+    finally:
+        db.close()
             os.chmod(private_key_dst, 0o600)
         
         if public_key_src.exists():
