@@ -78,13 +78,15 @@
             </div>
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
-            <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-            <div class="grid grid-cols-3 gap-2">
+            <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               <input type="password" data-field="password" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
               <input type="password" data-field="token" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
           </div>
         {% endfor %}
@@ -114,13 +116,15 @@
             </div>
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
-            <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-            <div class="grid grid-cols-3 gap-2">
+            <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               <input type="password" data-field="password" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
               <input type="password" data-field="token" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
           </div>
         {% endfor %}
@@ -140,15 +144,16 @@
           <span>Enabled</span>
         </div>
       </div>
-      <label class="block text-xs">
-        <span class="mb-1 block text-slate-600 dark:text-slate-400">API Token</span>
-        <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
-      </label>
-      <label class="block text-xs">
-        <span class="mb-1 block text-slate-600 dark:text-slate-400">Base URL</span>
-        <input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
-      </label>
-    </section>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-xs">
+          <span class="mb-1 block text-slate-600 dark:text-slate-400">Base URL</span>
+          <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </label>
+        <label class="block text-xs">
+          <span class="mb-1 block text-slate-600 dark:text-slate-400">API Token</span>
+          <input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </label>
+      </div>
 
     <!-- Git Section -->
     <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
@@ -559,7 +564,7 @@
     // Password toggle functionality - expose globally for dynamic content
     window.initPasswordToggles = function() {
       document.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach(function(input) {
-        input.classList.add('pr-8', 'password-toggle-initialized');
+        input.classList.add('pr-6', 'password-toggle-initialized');
         
         const wrapper = document.createElement('div');
         wrapper.className = 'relative';

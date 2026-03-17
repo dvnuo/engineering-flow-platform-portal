@@ -501,7 +501,7 @@ async def agent_files_upload(agent_id: str, request: Request):
         
         url = f"{efp_base_url}/api/files/upload"
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=None) as client:
             resp = await client.post(url, files=files)
         
         if resp.status_code >= 400:

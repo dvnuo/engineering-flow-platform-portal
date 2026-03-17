@@ -41,6 +41,9 @@ def on_startup() -> None:
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
+@app.get("/actuator/health")
+def actuator_health() -> dict[str, str]:
+    return {"status": "ok"}
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
