@@ -1,5 +1,4 @@
 """Tests for proxy_service."""
-import pytest
 from unittest.mock import MagicMock
 from app.services.proxy_service import ProxyService
 
