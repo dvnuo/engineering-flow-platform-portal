@@ -559,8 +559,19 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         existing_proxy_password = config_payload["proxy"].get("password")
     
     # Preserve existing tokens for Jira and Confluence instances
-    existing_jira_instances = config_payload.get("jira", {}).get("instances", [])
-    existing_confluence_instances = config_payload.get("confluence", {}).get("instances", [])
+    jira_config = config_payload.get("jira")
+    if isinstance(jira_config, dict):
+        jira_instances = jira_config.get("instances", [])
+        existing_jira_instances = jira_instances if isinstance(jira_instances, list) else []
+    else:
+        existing_jira_instances = []
+
+    confluence_config = config_payload.get("confluence")
+    if isinstance(confluence_config, dict):
+        confluence_instances = confluence_config.get("instances", [])
+        existing_confluence_instances = confluence_instances if isinstance(confluence_instances, list) else []
+    else:
+        existing_confluence_instances = []
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     llm["provider"] = (form.get("llm_provider") or "").strip()
