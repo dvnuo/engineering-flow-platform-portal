@@ -38,22 +38,21 @@ class ProxyService:
             if env_ip:
                 self._node_ip = env_ip
             else:
-                # 2. Auto-detect via hostname -I
+                # 2. Auto-detect via hostname -I (with timeout to prevent hangs)
                 try:
                     result = subprocess.run(
-                        ['hostname', '-I'], capture_output=True, text=True
+                        ['hostname', '-I'], capture_output=True, text=True, timeout=5
                     )
                     if result.returncode == 0:
-                        # Filter for IPv4 addresses (exclude IPv6, link-local, etc.)
+                        # Filter for IPv4 addresses only (exclude IPv6, link-local, etc.)
                         ips = result.stdout.strip().split()
                         for ip in ips:
+                            # IPv4 check: contains '.' and not loopback
                             if '.' in ip and not ip.startswith('127.'):
                                 self._node_ip = ip
                                 break
-                        # Fallback to first IP if no suitable IPv4 found
-                        if not self._node_ip and ips:
-                            self._node_ip = ips[0]
-                except Exception:
+                        # If no suitable IPv4 found, require env var instead of silent wrong fallback
+                except subprocess.TimeoutExpired:
                     pass
                 
                 # 3. Last resort: raise error instead of silent wrong fallback
