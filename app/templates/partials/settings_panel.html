@@ -198,8 +198,16 @@
       </div>
       <label class="block text-xs">
         <span class="mb-1 block text-slate-600 dark:text-slate-400">Private Key Path</span>
-        <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa or ~/.efp/.ssh/id_rsa" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
       </label>
+      <button type="button" onclick="generateSSHKey('{{ agent_id }}')" class="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500 shadow-sm transition-colors">
+        Generate RSA Key
+      </button>
+      <div id="ssh-key-result" class="hidden mt-2 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
+        <p class="text-xs text-slate-600 dark:text-slate-400 mb-2">Public Key (add to GitHub/GitLab):</p>
+        <textarea id="ssh-public-key" readonly class="w-full h-20 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-800 dark:text-slate-200" rows="3"></textarea>
+        <p class="text-xs text-green-600 dark:text-green-400 mt-2" id="ssh-key-message"></p>
+      </div>
     </section>
 
     <!-- Debug Section -->
@@ -219,6 +227,40 @@
   </form>
 
   <script>
+  // Generate SSH Key function
+  async function generateSSHKey(agentId) {
+    const resultDiv = document.getElementById('ssh-key-result');
+    const publicKeyTextarea = document.getElementById('ssh-public-key');
+    const messageDiv = document.getElementById('ssh-key-message');
+    
+    resultDiv.classList.remove('hidden');
+    publicKeyTextarea.value = 'Generating SSH key...';
+    messageDiv.textContent = '';
+    
+    try {
+      const response = await fetch(`/api/agents/${agentId}/ssh/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        publicKeyTextarea.value = data.public_key;
+        messageDiv.textContent = '✅ ' + data.message + ' Keys saved to: ' + data.private_key_path;
+        
+        // Update the private key path input
+        document.querySelector('input[name="ssh_private_key_path"]').value = data.private_key_path;
+      } else {
+        publicKeyTextarea.value = '';
+        messageDiv.textContent = '❌ Error: ' + (data.detail || data.error);
+      }
+    } catch (err) {
+      publicKeyTextarea.value = '';
+      messageDiv.textContent = '❌ Error: ' + err.message;
+    }
+  }
+  
   (function() {
     // Provider-Model mapping (from EFP) - define only once
     if (typeof window.providerModels === 'undefined') {
