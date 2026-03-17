@@ -1,4 +1,6 @@
 from collections.abc import Iterable
+import os
+import socket
 import httpx
 from typing import Optional
 
@@ -31,9 +33,17 @@ class ProxyService:
     @property
     def node_ip(self):
         if self._node_ip is None:
-            # Use the node IP where portal is running (hostNetwork)
-            import os
-            self._node_ip = os.environ.get('NODE_IP', '192.168.8.237')
+            import subprocess
+            try:
+                # Get the IP address from hostname -I command
+                result = subprocess.run(['hostname', '-I'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    # Get first IP from the list
+                    self._node_ip = result.stdout.strip().split()[0]
+                else:
+                    self._node_ip = "192.168.8.235"  # Fallback
+            except Exception:
+                self._node_ip = "192.168.8.235"  # Fallback
         return self._node_ip
 
     def build_agent_base_url(self, agent) -> str:
