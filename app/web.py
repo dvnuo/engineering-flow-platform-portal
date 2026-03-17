@@ -1,5 +1,8 @@
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
+import os
+import shutil
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -39,6 +42,11 @@ def _current_user_from_cookie(request: Request):
 
 def _can_access(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
+
+
+def _can_modify(agent, user) -> bool:
+    """Check if user can modify agent settings (write operations)."""
+    return user.role == "admin" or agent.owner_user_id == user.id
 
 
 def _settings_view_payload(config_data: dict) -> dict:
@@ -270,6 +278,146 @@ async def api_agent_usage(request: Request, agent_id: str):
 
         payload = json.loads(content.decode("utf-8"))
         return payload if isinstance(payload, dict) else {}
+    finally:
+        db.close()
+
+
+EFP_BASE_URL = "http://localhost:8001"
+
+
+@router.post("/api/agents/{agent_id}/ssh/generate")
+async def api_agent_ssh_generate(request: Request, agent_id: str):
+    """Generate SSH key for an agent.
+    
+    Calls EFP local runtime to generate SSH key, then copies to ~/.efp/.ssh
+    and updates the agent's SSH settings.
+    """
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_modify(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden - only owner or admin can generate SSH keys")
+
+        # Call EFP local runtime to generate SSH key
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{EFP_BASE_URL}/api/ssh/generate",
+                    json={"key_type": "rsa"}
+                )
+                status_code = resp.status_code
+                content = resp.content
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Cannot connect to EFP runtime: {e}")
+
+        if status_code >= 400:
+            error_msg = content.decode("utf-8", errors="ignore")
+            raise HTTPException(status_code=status_code, detail=f"Failed to generate SSH key: {error_msg}")
+
+        result = json.loads(content.decode("utf-8"))
+        public_key = result.get("public_key")
+        
+        if not public_key:
+            raise HTTPException(status_code=500, detail="No public key returned from EFP")
+
+        # Copy keys to ~/.efp/.ssh
+        efp_ssh_dir = Path.home() / ".efp" / ".ssh"
+        efp_ssh_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(efp_ssh_dir, 0o700)
+
+        # Copy from ~/.ssh to ~/.efp/.ssh
+        ssh_dir = Path.home() / ".ssh"
+        private_key_src = ssh_dir / "id_rsa"
+        private_key_dst = efp_ssh_dir / "id_rsa"
+        public_key_src = ssh_dir / "id_rsa.pub"
+        public_key_dst = efp_ssh_dir / "id_rsa.pub"
+
+        if private_key_src.exists():
+            shutil.copy(private_key_src, private_key_dst)
+            os.chmod(private_key_dst, 0o600)
+        
+        if public_key_src.exists():
+            shutil.copy(public_key_src, public_key_dst)
+            os.chmod(public_key_dst, 0o644)
+
+        private_key_path = str(private_key_dst)
+
+        # Update agent SSH settings via proxy
+        ssh_cfg = {"enabled": True, "private_key_path": private_key_path}
+        
+        # Get current config and update
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/config",
+            query_items=[],
+            body=None,
+            headers={},
+        )
+        
+        config = {}
+        if status_code == 200:
+            try:
+                config = json.loads(content.decode("utf-8"))
+            except:
+                pass
+        
+        config["ssh"] = ssh_cfg
+        
+        # Save config
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="POST",
+            subpath="api/config/save",
+            query_items=[],
+            body=json.dumps(config).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+
+        return {
+            "success": True,
+            "public_key": public_key,
+            "message": "SSH key generated! Add this public key to your GitHub/GitLab account."
+        }
+
+    finally:
+        db.close()
+
+
+@router.get("/api/agents/{agent_id}/ssh/public-key")
+async def api_agent_ssh_public_key(request: Request, agent_id: str):
+    """Get existing SSH public key from EFP local runtime."""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Call EFP local runtime to get existing public key
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{EFP_BASE_URL}/api/ssh/public-key")
+                if resp.status_code == 200:
+                    result = resp.json()
+                    return result
+                elif resp.status_code == 404:
+                    return {"success": False, "message": "No SSH key found"}
+                else:
+                    return {"success": False, "error": "Failed to get SSH key"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     finally:
         db.close()
 

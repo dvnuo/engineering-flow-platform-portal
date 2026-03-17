@@ -57,8 +57,12 @@ Access `http://localhost:8000/login`
 | `K8S_ENABLED` | Enable Kubernetes integration | `false` |
 | `K8S_INCLUSTER` | Use in-cluster config | `true` |
 | `K8S_KUBECONFIG` | Path to kubeconfig | `/etc/rancher/k3s/k3s.yaml` |
+| `K8S_AGENT_SERVICE_TYPE` | Agent service type (ClusterIP/NodePort) | `ClusterIP` |
+| `K8S_NODE_IP` | Node IP for NodePort proxy (auto-detected if not set) | (auto-detect) |
 | `AGENTS_NAMESPACE` | Agents namespace | `efp-agents` |
 | `K8S_STORAGE_CLASS` | Storage class for PVC | `local-path` |
+| `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
+| `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
 
 ---
 
