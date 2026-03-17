@@ -472,6 +472,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
         # When K8s is disabled, return empty config
         if not settings.k8s_enabled:
             # Return empty config for agents without runtime
+            view_data = _settings_view_payload({})
             return templates.TemplateResponse(
                 "partials/settings_panel.html",
                 {
@@ -479,13 +480,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "",
                     "status_message": "",
-                    "llm": {},
-                    "github": {},
-                    "jira": {},
-                    "confluence": {},
-                    "git": {},
-                    "ssh": {},
-                    "proxy": {},
+                    **view_data,
                 },
             )
 
