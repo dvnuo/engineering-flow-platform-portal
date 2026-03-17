@@ -386,53 +386,6 @@ async def api_agent_ssh_generate(request: Request, agent_id: str):
 
     finally:
         db.close()
-            os.chmod(private_key_dst, 0o600)
-        
-        if public_key_src.exists():
-            shutil.copy(public_key_src, public_key_dst)
-            os.chmod(public_key_dst, 0o644)
-
-        # Update agent SSH settings
-        ssh_cfg = {"enabled": True, "private_key_path": str(private_key_dst)}
-        
-        # Get current config and update
-        status_code, content, _ = await proxy_service.forward(
-            agent=agent,
-            method="GET",
-            subpath="api/config",
-            query_items=[],
-            body=None,
-            headers={},
-        )
-        
-        config = {}
-        if status_code == 200:
-            try:
-                config = json.loads(content.decode("utf-8"))
-            except:
-                pass
-        
-        config["ssh"] = ssh_cfg
-        
-        # Save config
-        status_code, content, _ = await proxy_service.forward(
-            agent=agent,
-            method="POST",
-            subpath="api/config/save",
-            query_items=[],
-            body=json.dumps(config).encode("utf-8"),
-            headers={"content-type": "application/json"},
-        )
-
-        return {
-            "success": True,
-            "public_key": public_key,
-            "private_key_path": str(private_key_dst),
-            "message": "SSH key generated! Add this public key to your GitHub/GitLab account."
-        }
-
-    finally:
-        db.close()
 
 
 @router.get("/app/agents/{agent_id}/usage/panel")
