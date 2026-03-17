@@ -84,6 +84,7 @@
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+            <input type="password" data-field="token" value="{{ inst.get(token,) }}" placeholder="API Token (for Atlassian)" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100" />
             </div>
           </div>
         {% endfor %}
@@ -119,6 +120,7 @@
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="API Token" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+            <input type="password" data-field="token" value="{{ inst.get(token,) }}" placeholder="API Token (for Atlassian)" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100" />
             </div>
           </div>
         {% endfor %}
