@@ -1,6 +1,15 @@
 """Tests for app config module."""
+import os
 import pytest
 from app.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def clean_env(monkeypatch):
+    """Clear relevant environment variables before each test."""
+    for key in list(os.environ.keys()):
+        if key.startswith(('SECRET_', 'DATABASE_', 'DEBUG', 'AGENTS_', 'K8S_', 'GITHUB_', 'JIRA_', 'CONFLUENCE_')):
+            monkeypatch.delenv(key, raising=False)
 
 
 def test_settings_defaults():

@@ -1,5 +1,4 @@
 """Tests for utils."""
-import pytest
 from app.utils.naming import to_k8s_name, runtime_names
 
 
@@ -29,9 +28,15 @@ def test_runtime_names():
 
 def test_to_k8s_name_special_chars():
     """Test handling of special characters."""
-    # Test underscore - should be replaced or kept
+    # Test underscore - should be replaced with dash
     result = to_k8s_name("my_agent")
-    # Should either replace underscore or keep it
+    assert "_" not in result
+    assert "-" in result
+    
+    # Test @ special char
+    result = to_k8s_name("agent@123")
+    assert "@" not in result
+    assert result.startswith("agent-")
 
 
 def test_to_k8s_name_with_prefix():

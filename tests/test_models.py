@@ -1,23 +1,26 @@
 """Tests for models."""
-import pytest
 
 
 def test_agent_status_string():
-    """Test Agent status is a string field."""
-    # Status is stored as string in the database
-    status = "running"
-    assert status == "running"
-    status = "stopped"
-    assert status == "stopped"
-    status = "creating"
-    assert status == "creating"
-    status = "failed"
-    assert status == "failed"
+    """Test Agent status field properties."""
+    from app.models.agent import Agent
+    from sqlalchemy import inspect
+    
+    mapper = inspect(Agent)
+    status_col = mapper.columns.get("status")
+    assert status_col is not None, "Agent should have status column"
+    assert status_col.type.__class__.__name__ == "String"
+    assert status_col.default.arg == "creating", "Default status should be creating"
 
 
 def test_user_fields():
     """Test User model fields."""
-    # Just test the field names that should exist
-    fields = ["id", "username", "password_hash", "is_admin"]
-    for field in fields:
-        assert field is not None
+    from app.models.user import User
+    from sqlalchemy import inspect
+    
+    mapper = inspect(User)
+    columns = [c.name for c in mapper.columns]
+    assert "id" in columns
+    assert "username" in columns
+    assert "role" in columns
+    assert "nickname" in columns

@@ -1,5 +1,4 @@
 """Tests for auth_service module."""
-import pytest
 from app.services.auth_service import (
     issue_session_token,
     parse_session_token,
