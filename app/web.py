@@ -161,6 +161,13 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
+        # When K8s is disabled, return empty sessions
+        if not settings.k8s_enabled:
+            return templates.TemplateResponse(
+                "partials/sessions_panel.html",
+                {"request": request, "agent_id": agent_id, "sessions": [], "current_session_id": current_session_id},
+            )
+
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
             method="GET",
@@ -201,6 +208,13 @@ async def app_agent_skills_panel(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+
+        # When K8s is disabled, return empty skills
+        if not settings.k8s_enabled:
+            return templates.TemplateResponse(
+                "partials/skills_panel.html",
+                {"request": request, "agent_id": agent_id, "skills": []},
+            )
 
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
@@ -276,6 +290,13 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
+        # When K8s is disabled, return empty usage
+        if not settings.k8s_enabled:
+            return templates.TemplateResponse(
+                "partials/usage_panel.html",
+                {"request": request, "agent_id": agent_id, "usage": [], "total_messages": 0, "total_cost": 0},
+            )
+
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
             method="GET",
@@ -315,6 +336,13 @@ async def app_agent_files_panel(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+
+        # When K8s is disabled, return empty files
+        if not settings.k8s_enabled:
+            return templates.TemplateResponse(
+                "partials/files_panel.html",
+                {"request": request, "agent_id": agent_id, "files": [], "path": "/"},
+            )
 
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
@@ -440,6 +468,26 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+
+        # When K8s is disabled, return empty config
+        if not settings.k8s_enabled:
+            # Return empty config for agents without runtime
+            return templates.TemplateResponse(
+                "partials/settings_panel.html",
+                {
+                    "request": request,
+                    "agent_id": agent_id,
+                    "status_type": "",
+                    "status_message": "",
+                    "llm": {},
+                    "github": {},
+                    "jira": {},
+                    "confluence": {},
+                    "git": {},
+                    "ssh": {},
+                    "proxy": {},
+                },
+            )
 
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
