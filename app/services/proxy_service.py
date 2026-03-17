@@ -52,7 +52,8 @@ class ProxyService:
                                 self._node_ip = ip
                                 break
                         # If no suitable IPv4 found, require env var instead of silent wrong fallback
-                except subprocess.TimeoutExpired:
+                except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+                    # hostname command failed or unavailable - will require env var
                     pass
                 
                 # 3. Last resort: raise error instead of silent wrong fallback
@@ -79,6 +80,9 @@ class ProxyService:
                 # For ClusterIP, try internal DNS
                 elif svc.spec.type == "ClusterIP":
                     return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+            except ValueError:
+                # Re-raise ValueError so caller can handle it with actionable message
+                raise
             except Exception:
                 pass
         # Fallback to internal DNS
