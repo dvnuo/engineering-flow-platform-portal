@@ -57,7 +57,7 @@ def test_ws_proxy_events_passthrough(monkeypatch):
 
     with TestClient(app) as client:
         db = SessionLocal()
-        user = User(username=f"ws-user-{uuid4().hex[:8]}", password_hash="x", role="user", is_active=True)
+        user = User(username=f"ws-user-{uuid4().hex[:8]}", nickname=None, password_hash="x", role="user", is_active=True)
         db.add(user)
         db.commit()
         db.refresh(user)
