@@ -1,6 +1,5 @@
 from collections.abc import Iterable
-import os
-import socket
+import subprocess
 import httpx
 from typing import Optional
 
@@ -33,17 +32,36 @@ class ProxyService:
     @property
     def node_ip(self):
         if self._node_ip is None:
-            import subprocess
-            try:
-                # Get the IP address from hostname -I command
-                result = subprocess.run(['hostname', '-I'], capture_output=True, text=True)
-                if result.returncode == 0:
-                    # Get first IP from the list
-                    self._node_ip = result.stdout.strip().split()[0]
-                else:
-                    self._node_ip = "192.168.8.235"  # Fallback
-            except Exception:
-                self._node_ip = "192.168.8.235"  # Fallback
+            # 1. Try environment variable override first
+            import os
+            env_ip = os.environ.get('K8S_NODE_IP') or os.environ.get('NODE_IP')
+            if env_ip:
+                self._node_ip = env_ip
+            else:
+                # 2. Auto-detect via hostname -I
+                try:
+                    result = subprocess.run(
+                        ['hostname', '-I'], capture_output=True, text=True
+                    )
+                    if result.returncode == 0:
+                        # Filter for IPv4 addresses (exclude IPv6, link-local, etc.)
+                        ips = result.stdout.strip().split()
+                        for ip in ips:
+                            if '.' in ip and not ip.startswith('127.'):
+                                self._node_ip = ip
+                                break
+                        # Fallback to first IP if no suitable IPv4 found
+                        if not self._node_ip and ips:
+                            self._node_ip = ips[0]
+                except Exception:
+                    pass
+                
+                # 3. Last resort: raise error instead of silent wrong fallback
+                if not self._node_ip:
+                    raise ValueError(
+                        "Cannot determine node IP for K8s proxy. "
+                        "Set K8S_NODE_IP environment variable."
+                    )
         return self._node_ip
 
     def build_agent_base_url(self, agent) -> str:
