@@ -63,7 +63,7 @@ if (dom.chatInput) {
         if (file) {
           const ext = item.type.split('/')[1] || 'png';
           const name = file.name || 'pasted-image-' + Date.now() + '.' + ext;
-          files.push({ file: file, name: name });
+          files.push({ file: file, name: name, isImage: true });
         }
       }
       else if (item.type.startsWith('application/') || item.type.startsWith('text/') || item.type.startsWith('audio/') || item.type.startsWith('video/')) {
