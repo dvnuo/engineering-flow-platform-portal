@@ -97,6 +97,7 @@ if (dom.chatInput) {
           .then(data => {
             pf.status = 'uploaded';
             pf.uploadedData = data;
+            pf.file_id = data.file_id || data.id;
             renderInputPreview();
             showToast('File uploaded: ' + name);
           })
