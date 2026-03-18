@@ -97,13 +97,13 @@ const state = {
 const md = window.markdownit({
   html: false,
   linkify: true,
-  linkifyIt: {
-    validate: function(text) {
-      // Only allow http/https URLs
-      return /^https?:\/\//.test(text);
-    }
-  },
   breaks: true,
+});
+
+// Only allow http/https URLs to be converted to links
+md.validateLink = function(text) {
+  return /^https?:\/\//.test(text);
+};
   highlight: (str, lang) => {
     if (lang && hljs.getLanguage(lang)) {
       const highlighted = hljs.highlight(str, { language: lang }).value;
@@ -490,9 +490,12 @@ function scrollToBottom() {
 function renderMarkdown(scope = document) {
   scope.querySelectorAll(".md-render").forEach((el) => {
     let html = md.render(el.dataset.md || "");
-      // Add target="_blank" to all links
-      html = html.replace(/<a href="https?:\/\/[^"]+"/g, '$& target="_blank" rel="noopener noreferrer"');
       el.innerHTML = html;
+      // Add target="_blank" to all links via DOM
+      el.querySelectorAll('a').forEach(a => {
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+      });
   });
   scope.querySelectorAll("pre code").forEach((el) => hljs.highlightElement(el));
 }
