@@ -450,15 +450,16 @@ function openThinkingProcessPanel() {
     return;
   }
   
-  // Get thinking events - prefer real-time events first
+  // Get thinking events - prefer metadata (complete data) over real-time
   let events = [];
   
-  // First check if there's current inflight thinking (real-time events)
-  if (state.inflightThinking?.events?.length) {
+  // Prefer metadata events - they have complete info including user message
+  // Only use real-time if there's an active ongoing conversation
+  if (state.inflightThinking?.events?.length && !state.inflightThinking.completed) {
     events = state.inflightThinking.events;
   }
   
-  // If no real-time events, try to get from session
+  // If no valid real-time events, try to get from session metadata
   if (events.length === 0) {
     setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading thinking process...</div>');
     
