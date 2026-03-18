@@ -12,7 +12,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany
-  storageClassMany: efp-portal-storage
+  storageClassName: efp-portal-storage
   capacity:
     storage: 20Gi
   persistentVolumeReclaimPolicy: Retain
@@ -47,7 +47,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany
-  storageClassMany: efp-agents-storage
+  storageClassName: efp-agents-storage
   capacity:
     storage: 20Gi
   persistentVolumeReclaimPolicy: Retain
