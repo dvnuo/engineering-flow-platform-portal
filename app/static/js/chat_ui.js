@@ -441,20 +441,17 @@ function openThinkingProcessPanel() {
     return;
   }
   
-  // Get thinking events from current session or state
+  // Get thinking events - prefer real-time events first
   let events = [];
   
-  // First check if there's current inflight thinking
+  // First check if there's current inflight thinking (real-time events)
   if (state.inflightThinking?.events?.length) {
     events = state.inflightThinking.events;
   }
   
-  // If no current events, we need to fetch from session
+  // If no real-time events, try to get from session
   if (events.length === 0) {
     setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading thinking process...</div>');
-    
-    // Try to get session from state or fetch latest session
-    const sessionIdToFetch = state.selectedSessionId;
     
     const fetchEvents = (sid) => {
       if (!sid) {
@@ -464,9 +461,24 @@ function openThinkingProcessPanel() {
       
       agentApi(`/api/sessions/${encodeURIComponent(sid)}`)
         .then(data => {
-          const storedEvents = Array.isArray(data.metadata?.thinking_events) 
-            ? data.metadata.thinking_events.filter(e => isTrackableThinkingEvent(e?.type))
-            : [];
+          // Get thinking events from metadata
+          let storedEvents = [];
+          if (data.metadata?.thinking_events) {
+            storedEvents = data.metadata.thinking_events.filter(e => isTrackableThinkingEvent(e?.type));
+          }
+          
+          // Also try to get events from messages (some events may be stored there)
+          if (data.messages && Array.isArray(data.messages)) {
+            for (const msg of data.messages) {
+              if (msg.extra?.thinking_events) {
+                storedEvents = [...storedEvents, ...msg.extra.thinking_events.filter(e => isTrackableThinkingEvent(e?.type))];
+              }
+              if (msg.extra?.events) {
+                storedEvents = [...storedEvents, ...msg.extra.events.filter(e => isTrackableThinkingEvent(e?.type))];
+              }
+            }
+          }
+          
           const html = renderThinkingProcessPanel(storedEvents);
           setToolPanel("Thinking Process", html);
         })
@@ -475,23 +487,23 @@ function openThinkingProcessPanel() {
         });
     };
     
-    if (sessionIdToFetch) {
-      fetchEvents(sessionIdToFetch);
+    // Try current session first
+    if (state.selectedSessionId) {
+      fetchEvents(state.selectedSessionId);
     } else {
       // No session selected, try to fetch sessions list and get latest
       agentApi('/api/sessions')
         .then(data => {
           const sessions = data.sessions || [];
           if (sessions.length > 0) {
-            // Get most recent session
             const latestSession = sessions.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))[0];
             fetchEvents(latestSession.session_id || latestSession.id);
           } else {
-            setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No sessions found. Start a conversation first.</div>');
+            setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No sessions found.</div>');
           }
         })
         .catch(err => {
-          setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error loading sessions: ${err.message}</div>`);
+          setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
         });
     }
     return;
