@@ -99,11 +99,11 @@ const md = window.markdownit({
   linkify: true,
   linkifyIt: {
     validate: function(text) {
-      // Skip .md files and similar patterns that shouldn't be links
-      if (/^[^:]+(\.md)(\s|$)/.test(text)) return false;
-      return true;
+      // Only allow http/https URLs
+      return /^https?:\/\//.test(text);
     }
   },
+  breaks: true,
   highlight: (str, lang) => {
     if (lang && hljs.getLanguage(lang)) {
       const highlighted = hljs.highlight(str, { language: lang }).value;
@@ -489,7 +489,10 @@ function scrollToBottom() {
 
 function renderMarkdown(scope = document) {
   scope.querySelectorAll(".md-render").forEach((el) => {
-    el.innerHTML = md.render(el.dataset.md || "");
+    let html = md.render(el.dataset.md || "");
+      // Add target="_blank" to all links
+      html = html.replace(/<a href="https?:\/\/[^"]+"/g, '$& target="_blank" rel="noopener noreferrer"');
+      el.innerHTML = html;
   });
   scope.querySelectorAll("pre code").forEach((el) => hljs.highlightElement(el));
 }
