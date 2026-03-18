@@ -450,22 +450,50 @@ function openThinkingProcessPanel() {
   }
   
   // If no current events, we need to fetch from session
-  if (events.length === 0 && state.selectedSessionId) {
-    // Show loading first
+  if (events.length === 0) {
     setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading thinking process...</div>');
     
-    // Fetch session data to get thinking_events
-    agentApi(`/api/sessions/${encodeURIComponent(state.selectedSessionId)}`)
-      .then(data => {
-        const storedEvents = Array.isArray(data.metadata?.thinking_events) 
-          ? data.metadata.thinking_events.filter(e => isTrackableThinkingEvent(e?.type))
-          : [];
-        const html = renderThinkingProcessPanel(storedEvents);
-        setToolPanel("Thinking Process", html);
-      })
-      .catch(err => {
-        setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
-      });
+    // Try to get session from state or fetch latest session
+    const sessionIdToFetch = state.selectedSessionId;
+    
+    const fetchEvents = (sid) => {
+      if (!sid) {
+        setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
+        return;
+      }
+      
+      agentApi(`/api/sessions/${encodeURIComponent(sid)}`)
+        .then(data => {
+          const storedEvents = Array.isArray(data.metadata?.thinking_events) 
+            ? data.metadata.thinking_events.filter(e => isTrackableThinkingEvent(e?.type))
+            : [];
+          const html = renderThinkingProcessPanel(storedEvents);
+          setToolPanel("Thinking Process", html);
+        })
+        .catch(err => {
+          setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
+        });
+    };
+    
+    if (sessionIdToFetch) {
+      fetchEvents(sessionIdToFetch);
+    } else {
+      // No session selected, try to fetch sessions list and get latest
+      agentApi('/api/sessions')
+        .then(data => {
+          const sessions = data.sessions || [];
+          if (sessions.length > 0) {
+            // Get most recent session
+            const latestSession = sessions.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))[0];
+            fetchEvents(latestSession.session_id || latestSession.id);
+          } else {
+            setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No sessions found. Start a conversation first.</div>');
+          }
+        })
+        .catch(err => {
+          setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error loading sessions: ${err.message}</div>`);
+        });
+    }
     return;
   }
   
