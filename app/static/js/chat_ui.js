@@ -380,7 +380,7 @@ function renderThinkingProcessPanel(events, llmDebug = {}) {
   </div>`;
 }
 
-// Render LLM debug content - simplified: timestamp, instructions, user inputs, response
+// Render LLM debug content - complete thinking flow
 function renderLLMDebugContent(llmDebug) {
   const isDark = document.documentElement.classList.contains("dark");
   const cardClass = isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-200";
@@ -395,41 +395,68 @@ function renderLLMDebugContent(llmDebug) {
     html += `<div class="text-xs ${mutedClass}">🕐 ${time}</div>`;
   }
   
-  // 2. Instructions (System Prompt)
-  if (llmDebug.request?.instructions) {
+  // 2. Initial LLM Request (if different from the one stored in llm_request)
+  if (llmDebug.llm_request?.request) {
+    const req = llmDebug.llm_request.request;
     html += `<div class="p-3 ${cardClass} border rounded-lg">
-      <div class="font-semibold ${textClass} mb-2">📋 System Prompt</div>
-      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-32 overflow-auto">${escapeHtml(llmDebug.request.instructions.substring(0, 1500))}</div>
-    </div>`;
+      <div class="font-semibold ${textClass} mb-2">📤 LLM Request</div>
+      <div class="text-xs ${mutedClass}">Model: ${escapeHtml(req.model || '')}</div>`;
+    
+    if (req.instructions) {
+      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">System Prompt:</div>
+        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-24 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">${escapeHtml(req.instructions.substring(0, 800))}</div>`;
+    }
+    
+    if (req.input?.length) {
+      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">Input:</div>
+        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-24 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">`;
+      for (const msg of req.input) {
+        if (msg.role === 'user') {
+          let content = typeof msg.content === 'string' ? msg.content : (msg.content[0]?.text || '');
+          html += `<div class="mt-1">👤 ${escapeHtml(content.substring(0, 200))}</div>`;
+        }
+      }
+      html += '</div></div>';
+    }
   }
   
-  // 3. User Inputs only
-  if (llmDebug.request?.input?.length) {
+  // 3. Complete Thinking Flow (Tool calls, Skills, etc.)
+  if (llmDebug.thinking_events?.length) {
     html += `<div class="p-3 ${cardClass} border rounded-lg">
-      <div class="font-semibold ${textClass} mb-2">👤 User Inputs</div>
-      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-48 overflow-auto">`;
-    for (const msg of llmDebug.request.input) {
-      if (msg.role === 'user') {
-        let content = '';
-        if (typeof msg.content === 'string') {
-          content = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          content = msg.content.map(c => c.text || JSON.stringify(c)).join(' ');
+      <div class="font-semibold ${textClass} mb-2">🔄 Thinking Flow (${llmDebug.thinking_events.length} steps)</div>
+      <div class="text-xs ${textClass} space-y-2">`;
+    
+    for (const event of llmDebug.thinking_events) {
+      const type = event.type || '';
+      const data = event.data || {};
+      
+      if (type === 'skill_matched') {
+        html += `<div class="p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">🎯 Skill: /${escapeHtml(data.skill || '')}</div>`;
+      } else if (type === 'llm_thinking') {
+        const content = data.thinking || data.message || '';
+        if (content && !content.includes('LLM is thinking')) {
+          html += `<div class="p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">🧠 ${escapeHtml(content.substring(0, 300))}</div>`;
         }
-        html += `<div class="mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">${escapeHtml(content)}</div>`;
+      } else if (type === 'tool_call') {
+        html += `<div class="p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">🔧 Tool: ${escapeHtml(data.tool || data.name || 'unknown')}</div>`;
+      } else if (type === 'tool_result') {
+        const result = data.result || data.output || '';
+        const truncated = typeof result === 'string' ? result.substring(0, 200) : JSON.stringify(result).substring(0, 200);
+        html += `<div class="p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded text-green-500">✅ ${escapeHtml(truncated)}</div>`;
       }
     }
     html += '</div></div>';
   }
   
   // 4. Final Response
-  if (llmDebug.response?.content) {
-    const resp = llmDebug.response;
+  if (llmDebug.final_response || llmDebug.llm_request?.response?.content) {
+    const resp = llmDebug.final_response || llmDebug.llm_request?.response?.content;
+    const usage = llmDebug.llm_request?.response?.usage;
     html += `<div class="p-3 ${cardClass} border rounded-lg">
-      <div class="font-semibold ${textClass} mb-2">🤖 Response</div>
-      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-40 overflow-auto">${escapeHtml(resp.content)}</div>`;
-    if (resp.usage) {
-      html += `<div class="text-xs ${mutedClass} mt-2">📊 ${resp.usage.prompt_tokens} in / ${resp.usage.completion_tokens} out ($${resp.usage.cost_usd?.toFixed(4) || '0'})</div>`;
+      <div class="font-semibold ${textClass} mb-2">🤖 Final Response</div>
+      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-40 overflow-auto">${escapeHtml(resp)}</div>`;
+    if (usage) {
+      html += `<div class="text-xs ${mutedClass} mt-2">📊 ${usage.prompt_tokens} in / ${usage.completion_tokens} out ($${usage.cost_usd?.toFixed(4) || '0'})</div>`;
     }
     html += '</div>';
   }
