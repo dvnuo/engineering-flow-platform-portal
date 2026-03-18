@@ -351,13 +351,126 @@ function getThinkingEventDisplay(event) {
   const data = event?.data || {};
   const byType = {
     iteration_start: { icon: "rotate-cw", title: "Iteration Start", detail: `Iteration ${data.iteration || 1}${data.total ? `/${data.total}` : ""}` },
-    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || "Model is reasoning" },
-    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool" },
-    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed") },
-    skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched" },
-    complete: { icon: "flag", title: "Complete", detail: "Execution complete" },
+    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
+    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
+    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
+    skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
+    complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
   };
   return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
+}
+
+// Render Thinking Process in tool panel (sidebar)
+function renderThinkingProcessPanel(events) {
+  if (!events || events.length === 0) {
+    return '<div class="text-xs text-slate-400">No thinking process data available.</div>';
+  }
+  
+  const isDark = document.documentElement.classList.contains("dark");
+  const cardClass = isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-200";
+  const textClass = isDark ? "text-slate-200" : "text-slate-700";
+  const mutedClass = isDark ? "text-slate-400" : "text-slate-500";
+  
+  let html = '<div class="space-y-4">';
+  
+  // Get the final response from complete event
+  const completeEvent = events.find(e => e.type === "complete");
+  const finalResponse = completeEvent?.data?.response || "";
+  const totalIterations = completeEvent?.data?.total_iterations || 0;
+  
+  // Show summary header
+  html += `<div class="p-3 ${cardClass} border rounded-lg">
+    <div class="font-semibold ${textClass}">Thinking Process</div>
+    <div class="text-xs ${mutedClass} mt-1">${events.length} events • ${totalIterations} iterations</div>
+  </div>`;
+  
+  // Show final response first (most important)
+  if (finalResponse) {
+    html += `<div class="p-3 ${cardClass} border rounded-lg">
+      <div class="font-semibold ${textClass} mb-2">📝 Final Response</div>
+      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-48 overflow-auto">${escapeHtml(finalResponse.substring(0, 2000))}${finalResponse.length > 2000 ? '...' : ''}</div>
+    </div>`;
+  }
+  
+  // Show all events in timeline
+  html += '<div class="space-y-2">';
+  html += `<div class="font-semibold ${textClass}">📋 Event Timeline</div>`;
+  
+  for (const event of events) {
+    const display = getThinkingEventDisplay(event);
+    const iconMap = {
+      "zap": "⚡", "brain": "🧠", "wrench": "🔧", 
+      "check-circle-2": "✅", "x-circle": "❌", "flag": "🏁",
+      "rotate-cw": "🔄", "circle": "⭕"
+    };
+    const icon = iconMap[display.icon] || "•";
+    
+    html += `<div class="p-2 ${cardClass} border rounded-lg text-xs">
+      <div class="flex items-center gap-2 ${textClass}">
+        <span>${icon}</span>
+        <span class="font-semibold">${display.title}</span>
+      </div>`;
+    
+    if (display.detail) {
+      html += `<div class="${mutedClass} mt-1">${escapeHtml(String(display.detail).substring(0, 500))}</div>`;
+    }
+    
+    // Show extra details for specific event types
+    if (event.type === "tool_call" && event.data?.args) {
+      html += `<div class="${mutedClass} mt-1 font-mono text-xs">Args: ${escapeHtml(JSON.stringify(event.data.args).substring(0, 200))}</div>`;
+    }
+    if (event.type === "tool_result" && (event.data?.result || event.data?.output)) {
+      const result = event.data.result || event.data.output || "";
+      html += `<div class="${mutedClass} mt-1 font-mono text-xs">Result: ${escapeHtml(String(result).substring(0, 300))}</div>`;
+    }
+    if (event.type === "skill_matched" && event.data?.skill) {
+      html += `<div class="${mutedClass} mt-1">Skill: /${escapeHtml(event.data.skill)}</div>`;
+    }
+    
+    html += '</div>';
+  }
+  
+  html += '</div></div>';
+  return html;
+}
+
+// Open Thinking Process panel
+function openThinkingProcessPanel() {
+  if (!state.selectedAgentId) {
+    showToast('Please select an agent first');
+    return;
+  }
+  
+  // Get thinking events from current session or state
+  let events = [];
+  
+  // First check if there's current inflight thinking
+  if (state.inflightThinking?.events?.length) {
+    events = state.inflightThinking.events;
+  }
+  
+  // If no current events, we need to fetch from session
+  if (events.length === 0 && state.selectedSessionId) {
+    // Show loading first
+    setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading thinking process...</div>');
+    
+    // Fetch session data to get thinking_events
+    agentApi(`/api/sessions/${encodeURIComponent(state.selectedSessionId)}`)
+      .then(data => {
+        const storedEvents = Array.isArray(data.metadata?.thinking_events) 
+          ? data.metadata.thinking_events.filter(e => isTrackableThinkingEvent(e?.type))
+          : [];
+        const html = renderThinkingProcessPanel(storedEvents);
+        setToolPanel("Thinking Process", html);
+      })
+      .catch(err => {
+        setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
+      });
+    return;
+  }
+  
+  const html = renderThinkingProcessPanel(events);
+  setToolPanel("Thinking Process", html);
 }
 
 function renderThinkingProcess(article, events) {
@@ -2447,6 +2560,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openSessionsPanel();
+  });
+
+  // Thinking Process button in header
+  document.getElementById('btn-thinking')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openThinkingProcessPanel();
   });
 
   await refreshAll();
