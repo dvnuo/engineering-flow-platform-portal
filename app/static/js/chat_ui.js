@@ -220,11 +220,14 @@ function removePendingFile(id) {
 }
 
 function clearPendingFiles() {
-  // Abort any in-progress uploads but don't revoke blob URLs yet
-  // They're needed for the optimistic UI message that was just rendered
+  // Abort any in-progress uploads and revoke blob URLs to prevent memory leaks
   state.pendingFiles.forEach(pf => {
     if (pf.xhr && pf.xhr.abort) {
       pf.xhr.abort();
+    }
+    // Revoke blob URL to free memory
+    if (pf.previewUrl && pf.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(pf.previewUrl);
     }
   });
   state.pendingFiles = [];
@@ -306,7 +309,7 @@ function renderInputPreview() {
     }
 
     if (pf.isImage && pf.previewUrl) {
-      const safeAlt = (pf.file.name || '').replace(/[<>"'&]/g, '');
+      const safeAlt = ((pf.name || pf.file?.name || '')).replace(/[<>"'&]/g, '');
       content = `<img src="${pf.previewUrl}" alt="${safeAlt}" class="w-full h-full object-cover" />`;
     } else if (pf.isImage) {
       content = `<div class="file-icon"><span>...</span></div>`;
