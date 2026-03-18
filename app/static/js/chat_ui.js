@@ -97,6 +97,13 @@ const state = {
 const md = window.markdownit({
   html: false,
   linkify: true,
+  linkifyIt: {
+    validate: function(text) {
+      // Skip .md files and similar patterns that shouldn't be links
+      if (/^[^:]+(\.md)(\s|$)/.test(text)) return false;
+      return true;
+    }
+  },
   highlight: (str, lang) => {
     if (lang && hljs.getLanguage(lang)) {
       const highlighted = hljs.highlight(str, { language: lang }).value;
