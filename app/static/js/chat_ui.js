@@ -362,14 +362,26 @@ function getThinkingEventDisplay(event) {
 
 // Render Thinking Process in tool panel (sidebar)
 function renderThinkingProcessPanel(events, llmDebug = {}) {
+  // Always show chatlog data (LLM request/response) - this is the main content
+  if (llmDebug.request || llmDebug.response) {
+    return renderLLMDebugContent(llmDebug);
+  }
+  
   if (!events || events.length === 0) {
-    // If no events but we have LLM debug, show that instead
-    if (llmDebug.request || llmDebug.response) {
-      return renderLLMDebugPanel(llmDebug);
-    }
     return '<div class="text-xs text-slate-400">No thinking process data available.</div>';
   }
   
+  // Fallback: show simple message count if no chatlog
+  const isDark = document.documentElement.classList.contains("dark");
+  const mutedClass = isDark ? "text-slate-400" : "text-slate-500";
+  return `<div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+    <div class="font-semibold text-slate-700">Thinking Process</div>
+    <div class="text-xs ${mutedClass} mt-1">${events.length} events</div>
+  </div>`;
+}
+
+// Render LLM debug content - simplified: timestamp, instructions, user inputs, response
+function renderLLMDebugContent(llmDebug) {
   const isDark = document.documentElement.classList.contains("dark");
   const cardClass = isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-200";
   const textClass = isDark ? "text-slate-200" : "text-slate-700";
@@ -377,159 +389,52 @@ function renderThinkingProcessPanel(events, llmDebug = {}) {
   
   let html = '<div class="space-y-4">';
   
-  // Get the final response from complete event
-  const completeEvent = events.find(e => e.type === "complete");
-  const finalResponse = completeEvent?.data?.response || "";
-  const totalIterations = completeEvent?.data?.total_iterations || 0;
+  // 1. Timestamp
+  if (llmDebug.timestamp) {
+    const time = new Date(llmDebug.timestamp).toLocaleString();
+    html += `<div class="text-xs ${mutedClass}">🕐 ${time}</div>`;
+  }
   
-  // Show summary header
-  html += `<div class="p-3 ${cardClass} border rounded-lg">
-    <div class="font-semibold ${textClass}">Thinking Process</div>
-    <div class="text-xs ${mutedClass} mt-1">${events.length} events • ${totalIterations} iterations</div>
-  </div>`;
-  
-  // Show final response first (most important)
-  if (finalResponse) {
+  // 2. Instructions (System Prompt)
+  if (llmDebug.request?.instructions) {
     html += `<div class="p-3 ${cardClass} border rounded-lg">
-      <div class="font-semibold ${textClass} mb-2">📝 Final Response</div>
-      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-48 overflow-auto">${escapeHtml(finalResponse.substring(0, 2000))}${finalResponse.length > 2000 ? '...' : ''}</div>
+      <div class="font-semibold ${textClass} mb-2">📋 System Prompt</div>
+      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-32 overflow-auto">${escapeHtml(llmDebug.request.instructions.substring(0, 1500))}</div>
     </div>`;
   }
   
-  // Show all events in timeline
-  html += '<div class="space-y-2">';
-  html += `<div class="font-semibold ${textClass}">📋 Event Timeline</div>`;
-  
-  for (const event of events) {
-    const display = getThinkingEventDisplay(event);
-    const iconMap = {
-      "zap": "⚡", "brain": "🧠", "wrench": "🔧", 
-      "check-circle-2": "✅", "x-circle": "❌", "flag": "🏁",
-      "rotate-cw": "🔄", "circle": "⭕"
-    };
-    const icon = iconMap[display.icon] || "•";
-    
-    html += `<div class="p-2 ${cardClass} border rounded-lg text-xs">
-      <div class="flex items-center gap-2 ${textClass}">
-        <span>${icon}</span>
-        <span class="font-semibold">${display.title}</span>
-        ${event.data?.iteration ? `<span class="text-xs ${mutedClass}">#${event.data.iteration}</span>` : ''}
-      </div>`;
-    
-    // For LLM thinking, show the actual content
-    if (event.type === "llm_thinking") {
-      // Check multiple possible locations for thinking content
-      const thinkingContent = event.data?.thinking || event.data?.message || display?.detail || "";
-      // Show if there's actual content (not just placeholder)
-      if (thinkingContent && !thinkingContent.includes("LLM is thinking") && !thinkingContent.includes("Processing")) {
-        html += `<div class="${mutedClass} mt-1 whitespace-pre-wrap max-h-40 overflow-auto">${escapeHtml(thinkingContent)}</div>`;
-      } else {
-        html += `<div class="${mutedClass} mt-1">${escapeHtml(String(display.detail).substring(0, 500))}</div>`;
-      }
-    } else if (display.detail) {
-      html += `<div class="${mutedClass} mt-1">${escapeHtml(String(display.detail).substring(0, 500))}</div>`;
-    }
-    
-    // Show extra details for specific event types
-    if (event.type === "tool_call" && event.data?.args) {
-      html += `<div class="${mutedClass} mt-1 font-mono text-xs">Args: ${escapeHtml(JSON.stringify(event.data.args).substring(0, 200))}</div>`;
-    }
-    if (event.type === "tool_result" && (event.data?.result || event.data?.output)) {
-      const result = event.data.result || event.data.output || "";
-      html += `<div class="${mutedClass} mt-1 font-mono text-xs">Result: ${escapeHtml(String(result).substring(0, 300))}</div>`;
-    }
-    if (event.type === "skill_matched" && event.data?.skill) {
-      html += `<div class="${mutedClass} mt-1">Skill: /${escapeHtml(event.data.skill)}</div>`;
-    }
-    
-    html += '</div>';
-  }
-  
-  // If we have LLM debug info, append it
-  if (llmDebug.request || llmDebug.response) {
-    html += renderLLMDebugContent(llmDebug);
-  }
-  
-  html += '</div></div>';
-  return html;
-}
-
-// Render LLM debug content (request/response)
-function renderLLMDebugContent(llmDebug) {
-  const isDark = document.documentElement.classList.contains("dark");
-  const cardClass = isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-200";
-  const textClass = isDark ? "text-slate-200" : "text-slate-700";
-  const mutedClass = isDark ? "text-slate-400" : "text-slate-500";
-  
-  let html = '';
-  
-  // LLM Request section
-  if (llmDebug.request) {
-    const req = llmDebug.request;
-    html += `<div class="mt-4 p-3 ${cardClass} border rounded-lg">
-      <div class="font-semibold ${textClass} mb-2">📤 LLM Request</div>
-      <div class="text-xs ${mutedClass}">Model: ${escapeHtml(req.model || '')}</div>`;
-    
-    if (req.instructions) {
-      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">System Prompt:</div>
-        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-24 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">${escapeHtml(req.instructions.substring(0, 1000))}</div>`;
-    }
-    
-    // Show conversation flow
-    if (req.input && req.input.length) {
-      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">💬 Conversation Flow:</div>
-        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-64 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded border-l-2 border-blue-500">`;
-      
-      // Show all messages in order
-      for (const msg of req.input) {
-        const role = msg.role || 'unknown';
+  // 3. User Inputs only
+  if (llmDebug.request?.input?.length) {
+    html += `<div class="p-3 ${cardClass} border rounded-lg">
+      <div class="font-semibold ${textClass} mb-2">👤 User Inputs</div>
+      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-48 overflow-auto">`;
+    for (const msg of llmDebug.request.input) {
+      if (msg.role === 'user') {
         let content = '';
         if (typeof msg.content === 'string') {
           content = msg.content;
         } else if (Array.isArray(msg.content)) {
           content = msg.content.map(c => c.text || JSON.stringify(c)).join(' ');
         }
-        
-        // Style based on role
-        const roleColor = role === 'user' ? 'text-blue-600' : (role === 'assistant' ? 'text-green-600' : 'text-slate-500');
-        const roleIcon = role === 'user' ? '👤' : (role === 'assistant' ? '🤖' : '•');
-        
-        html += `<div class="mt-2 pb-2 border-b border-slate-600 last:border-0">
-          <span class="${roleColor} font-semibold">${roleIcon} ${role}:</span>
-          <div class="mt-1 text-slate-300">${escapeHtml(content.substring(0, 800))}</div></div>`;
+        html += `<div class="mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">${escapeHtml(content)}</div>`;
       }
-      html += '</div>';
     }
-    
-    html += '</div>';
+    html += '</div></div>';
   }
   
-  // LLM Response section
-  if (llmDebug.response) {
+  // 4. Final Response
+  if (llmDebug.response?.content) {
     const resp = llmDebug.response;
-    html += `<div class="mt-4 p-3 ${cardClass} border rounded-lg">
-      <div class="font-semibold ${textClass} mb-2">📥 LLM Response</div>`;
-    
-    if (resp.content) {
-      html += `<div class="text-xs ${textClass} whitespace-pre-wrap max-h-48 overflow-auto">${escapeHtml(resp.content)}</div>`;
-    }
-    
+    html += `<div class="p-3 ${cardClass} border rounded-lg">
+      <div class="font-semibold ${textClass} mb-2">🤖 Response</div>
+      <div class="text-xs ${textClass} whitespace-pre-wrap max-h-40 overflow-auto">${escapeHtml(resp.content)}</div>`;
     if (resp.usage) {
-      html += `<div class="text-xs ${mutedClass} mt-2">Usage: ${resp.usage.prompt_tokens} in / ${resp.usage.completion_tokens} out ($${resp.usage.cost_usd?.toFixed(6) || '0'})</div>`;
+      html += `<div class="text-xs ${mutedClass} mt-2">📊 ${resp.usage.prompt_tokens} in / ${resp.usage.completion_tokens} out ($${resp.usage.cost_usd?.toFixed(4) || '0'})</div>`;
     }
-    
-    if (resp.function_calls && resp.function_calls.length) {
-      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">Tool Calls:</div>
-        <div class="text-xs ${textClass} mt-1">`;
-      for (const fc of resp.function_calls) {
-        html += `<div>• ${escapeHtml(fc.name || fc.function?.name || 'unknown')}</div>`;
-      }
-      html += '</div>';
-    }
-    
     html += '</div>';
   }
   
+  html += '</div>';
   return html;
 }
 
