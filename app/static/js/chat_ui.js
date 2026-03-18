@@ -318,7 +318,7 @@ function renderInputPreview() {
       content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
     }
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
-    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
+    return `<div class="input-preview-card" data-id="${safeId}" data-preview-url="${pf.previewUrl || ''}" data-preview-name="${encodeURIComponent(pf.name || '')}" data-is-image="${pf.isImage ? 'true' : 'false'}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
   }).join('');
 }
 
@@ -390,9 +390,9 @@ function buildUserMessageArticle(text, attachments = []) {
       const safeName = (a.name || '').replace(/[<>"'&]/g, '');
       const safeUrl = (a.previewUrl || a.url || '').replace(/[<>"'&]/g, '');
       if (a.type === 'image') {
-        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500" alt="${safeName}" />`;
+        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeName}" onclick="openFilePreview('${safeUrl}', '${safeName}', true)" />`;
       } else {
-        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs">📄 ${safeName}</div>`;
+        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" onclick="openFilePreview('${safeUrl}', '${safeName}', false)">📄 ${safeName}</div>`;
       }
     }).join('')}</div>`;
   }
@@ -2532,3 +2532,50 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 window.addEventListener("beforeunload", disconnectEventSocket);
+
+
+
+// ===== File Preview Modal =====
+let filePreviewModal = null;
+let filePreviewContent = null;
+let filePreviewBackdrop = null;
+
+function initFilePreviewModal() {
+  filePreviewModal = document.getElementById('file-preview-modal');
+  filePreviewContent = document.getElementById('file-preview-content');
+  filePreviewBackdrop = document.getElementById('file-preview-backdrop');
+  
+  document.getElementById('close-file-preview')?.addEventListener('click', closeFilePreview);
+  filePreviewBackdrop?.addEventListener('click', closeFilePreview);
+  
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && filePreviewModal && !filePreviewModal.classList.contains('hidden')) {
+      closeFilePreview();
+    }
+  });
+}
+
+function openFilePreview(url, name, isImage) {
+  if (!filePreviewModal || !filePreviewContent) return;
+  
+  if (isImage) {
+    filePreviewContent.innerHTML = '<img src="' + url + '" alt="' + (name || 'Preview') + '" />';
+  } else {
+    filePreviewContent.innerHTML = '<a href="' + url + '" target="_blank" class="file-link"><span>📄</span><span>' + (name || 'Open File') + '</span></a>';
+  }
+  
+  filePreviewModal.classList.remove('hidden');
+  filePreviewModal.setAttribute('aria-hidden', 'false');
+}
+
+function closeFilePreview() {
+  if (!filePreviewModal) return;
+  filePreviewModal.classList.add('hidden');
+  filePreviewModal.setAttribute('aria-hidden', 'true');
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initFilePreviewModal);
+} else {
+  initFilePreviewModal();
+}

@@ -942,3 +942,50 @@ html[data-theme="dark"] .prose th,
 html[data-theme="dark"] .prose td {
   border-color: #475569;
 }
+
+/* ===== File Preview Modal ===== */
+.file-preview-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 90vw;
+  max-height: 90vh;
+  background: #1e293b;
+  border-radius: 12px;
+  padding: 16px;
+  z-index: 9999;
+  overflow: auto;
+}
+
+.file-preview-content img {
+  max-width: 100%;
+  max-height: 85vh;
+  border-radius: 8px;
+}
+
+.file-preview-content .file-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #334155;
+  border-radius: 8px;
+  color: #e2e8f0;
+  text-decoration: none;
+}
+
+.file-preview-content .file-link:hover {
+  background: #475569;
+}
+
+/* Clickable attachments */
+.input-preview-card,
+.attachment-item {
+  cursor: pointer;
+}
+
+.input-preview-card:hover,
+.attachment-item:hover {
+  opacity: 0.9;
+}
