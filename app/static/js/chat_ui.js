@@ -54,47 +54,49 @@ if (dom.chatInput) {
     if (!items) return;
     
     const files = [];
-    let hasFiles = false;
     
     for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        hasFiles = true;
-        const file = item.getAsFile();
-        if (file) {
-          const ext = item.type.split('/')[1] || 'png';
-          const name = file.name || 'pasted-image-' + Date.now() + '.' + ext;
-          files.push({ file: file, name: name, isImage: true });
-        }
+      // Only process file items, not strings
+      if (item.kind !== 'file') continue;
+      
+      const file = item.getAsFile();
+      if (!file) continue;
+      
+      const isImage = item.type.startsWith('image/');
+      
+      if (isImage) {
+        const ext = item.type.split('/')[1] || 'png';
+        const name = file.name || 'pasted-image-' + Date.now() + '.' + ext;
+        files.push({ file: file, name: name, isImage: true });
       }
       else if (item.type.startsWith('application/') || item.type.startsWith('text/') || item.type.startsWith('audio/') || item.type.startsWith('video/')) {
-        hasFiles = true;
-        const file = item.getAsFile();
-        if (file) {
-          files.push({ file: file, name: file.name || 'pasted-file' });
-        }
+        files.push({ file: file, name: file.name || 'pasted-file', isImage: false });
       }
     }
     
-    if (hasFiles) {
+    // Only prevent default if there are actual files to upload
+    if (files.length > 0) {
       e.preventDefault();
       
       if (!state.selectedAgentId) {
-        showToast('Please select an agent first', 'error');
+        showToast('Please select an agent first');
         return;
       }
       
-      for (const { file, name } of files) {
+      for (const { file, name, isImage } of files) {
         const pf = {
           id: 'paste_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
           file: file,
           name: name,
-          isImage: true,
+          isImage: isImage,
           previewUrl: null,
           status: 'uploading',
         };
         
-        // Generate preview for images
-        pf.previewUrl = URL.createObjectURL(file);
+        // Generate preview for images only
+        if (isImage) {
+          pf.previewUrl = URL.createObjectURL(file);
+        }
         
         state.pendingFiles.push(pf);
         renderInputPreview();
@@ -108,10 +110,10 @@ if (dom.chatInput) {
             showToast('File uploaded: ' + name);
           })
           .catch(err => {
-            pf.status = 'error';
+            pf.status = 'failed';
             pf.error = err.message;
             renderInputPreview();
-            showToast('Upload failed: ' + err.message, 'error');
+            showToast('Upload failed: ' + err.message);
           });
       }
     }
