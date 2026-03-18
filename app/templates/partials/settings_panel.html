@@ -82,10 +82,10 @@
             </div>
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="password" data-field="password" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="password" data-field="token" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               <input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
           </div>
@@ -120,10 +120,10 @@
             </div>
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="password" data-field="password" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="password" data-field="token" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               <input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
           </div>
@@ -147,13 +147,13 @@
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-xs">
           <span class="mb-1 block text-slate-600 dark:text-slate-400">Base URL</span>
-          <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </label>
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">API Token</span>
           <input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
         </label>
+        <label class="block text-xs">
+          <span class="mb-1 block text-slate-600 dark:text-slate-400">API Token</span></label>
+          <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
       </div>
+    </section>
 
     <!-- Git Section -->
     <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
