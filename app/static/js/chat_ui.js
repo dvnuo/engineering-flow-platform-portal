@@ -361,8 +361,12 @@ function getThinkingEventDisplay(event) {
 }
 
 // Render Thinking Process in tool panel (sidebar)
-function renderThinkingProcessPanel(events) {
+function renderThinkingProcessPanel(events, llmDebug = {}) {
   if (!events || events.length === 0) {
+    // If no events but we have LLM debug, show that instead
+    if (llmDebug.request || llmDebug.response) {
+      return renderLLMDebugPanel(llmDebug);
+    }
     return '<div class="text-xs text-slate-400">No thinking process data available.</div>';
   }
   
@@ -441,7 +445,76 @@ function renderThinkingProcessPanel(events) {
     html += '</div>';
   }
   
+  // If we have LLM debug info, append it
+  if (llmDebug.request || llmDebug.response) {
+    html += renderLLMDebugContent(llmDebug);
+  }
+  
   html += '</div></div>';
+  return html;
+}
+
+// Render LLM debug content (request/response)
+function renderLLMDebugContent(llmDebug) {
+  const isDark = document.documentElement.classList.contains("dark");
+  const cardClass = isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-200";
+  const textClass = isDark ? "text-slate-200" : "text-slate-700";
+  const mutedClass = isDark ? "text-slate-400" : "text-slate-500";
+  
+  let html = '';
+  
+  // LLM Request section
+  if (llmDebug.request) {
+    const req = llmDebug.request;
+    html += `<div class="mt-4 p-3 ${cardClass} border rounded-lg">
+      <div class="font-semibold ${textClass} mb-2">📤 LLM Request</div>
+      <div class="text-xs ${mutedClass}">Model: ${escapeHtml(req.model || '')}</div>`;
+    
+    if (req.instructions) {
+      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">System Prompt:</div>
+        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-32 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">${escapeHtml(req.instructions.substring(0, 1500))}</div>`;
+    }
+    
+    if (req.input && req.input.length) {
+      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">Input Messages:</div>
+        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-40 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">`;
+      for (const msg of req.input) {
+        const role = msg.role || 'unknown';
+        const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+        html += `<div class="mt-1"><span class="font-semibold">${role}:</span> ${escapeHtml(content.substring(0, 500))}</div>`;
+      }
+      html += '</div>';
+    }
+    
+    html += '</div>';
+  }
+  
+  // LLM Response section
+  if (llmDebug.response) {
+    const resp = llmDebug.response;
+    html += `<div class="mt-4 p-3 ${cardClass} border rounded-lg">
+      <div class="font-semibold ${textClass} mb-2">📥 LLM Response</div>`;
+    
+    if (resp.content) {
+      html += `<div class="text-xs ${textClass} whitespace-pre-wrap max-h-48 overflow-auto">${escapeHtml(resp.content)}</div>`;
+    }
+    
+    if (resp.usage) {
+      html += `<div class="text-xs ${mutedClass} mt-2">Usage: ${resp.usage.prompt_tokens} in / ${resp.usage.completion_tokens} out ($${resp.usage.cost_usd?.toFixed(6) || '0'})</div>`;
+    }
+    
+    if (resp.function_calls && resp.function_calls.length) {
+      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">Tool Calls:</div>
+        <div class="text-xs ${textClass} mt-1">`;
+      for (const fc of resp.function_calls) {
+        html += `<div>• ${escapeHtml(fc.name || fc.function?.name || 'unknown')}</div>`;
+      }
+      html += '</div>';
+    }
+    
+    html += '</div>';
+  }
+  
   return html;
 }
 
@@ -485,7 +558,10 @@ function openThinkingProcessPanel() {
             }
           }
           
-          const html = renderThinkingProcessPanel(storedEvents);
+          // Get LLM debug info
+          const llmDebug = data.metadata?._llm_debug || {};
+          
+          const html = renderThinkingProcessPanel(storedEvents, llmDebug);
           setToolPanel("Thinking Process", html);
         })
         .catch(err => {
