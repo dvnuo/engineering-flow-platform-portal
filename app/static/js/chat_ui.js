@@ -46,6 +46,80 @@ const dom = {
   editForm: document.getElementById("edit-form"),
 };
 
+
+// ===== Paste to upload handler =====
+if (dom.chatInput) {
+  dom.chatInput.addEventListener('paste', async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    
+    const files = [];
+    
+    for (const item of items) {
+      // Only process file items, not strings
+      if (item.kind !== 'file') continue;
+      
+      const file = item.getAsFile();
+      if (!file) continue;
+      
+      const isImage = item.type.startsWith('image/');
+      
+      if (isImage) {
+        const ext = item.type.split('/')[1] || 'png';
+        const name = file.name || 'pasted-image-' + Date.now() + '.' + ext;
+        files.push({ file: file, name: name, isImage: true });
+      }
+      else if (item.type.startsWith('application/') || item.type.startsWith('text/') || item.type.startsWith('audio/') || item.type.startsWith('video/')) {
+        files.push({ file: file, name: file.name || 'pasted-file', isImage: false });
+      }
+    }
+    
+    // Only prevent default if there are actual files to upload
+    if (files.length > 0) {
+      e.preventDefault();
+      
+      if (!state.selectedAgentId) {
+        showToast('Please select an agent first');
+        return;
+      }
+      
+      for (const { file, name, isImage } of files) {
+        const pf = {
+          id: 'paste_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+          file: file,
+          name: name,
+          isImage: isImage,
+          previewUrl: null,
+          status: 'uploading',
+        };
+        
+        // Generate preview for images only
+        if (isImage) {
+          pf.previewUrl = URL.createObjectURL(file);
+        }
+        
+        state.pendingFiles.push(pf);
+        renderInputPreview();
+        
+        uploadPendingFile(pf)
+          .then(data => {
+            pf.status = 'uploaded';
+            pf.uploadedData = data;
+            pf.file_id = data.file_id || data.id;
+            renderInputPreview();
+            showToast('File uploaded: ' + name);
+          })
+          .catch(err => {
+            pf.status = 'failed';
+            pf.error = err.message;
+            renderInputPreview();
+            showToast('Upload failed: ' + err.message);
+          });
+      }
+    }
+  });
+}
+
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
 function getLastSessionKey(agentId) {
@@ -146,11 +220,14 @@ function removePendingFile(id) {
 }
 
 function clearPendingFiles() {
-  // Abort any in-progress uploads but don't revoke blob URLs yet
-  // They're needed for the optimistic UI message that was just rendered
+  // Abort any in-progress uploads and revoke blob URLs to prevent memory leaks
   state.pendingFiles.forEach(pf => {
     if (pf.xhr && pf.xhr.abort) {
       pf.xhr.abort();
+    }
+    // Revoke blob URL to free memory
+    if (pf.previewUrl && pf.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(pf.previewUrl);
     }
   });
   state.pendingFiles = [];
@@ -232,12 +309,12 @@ function renderInputPreview() {
     }
 
     if (pf.isImage && pf.previewUrl) {
-      const safeAlt = (pf.file.name || '').replace(/[<>"'&]/g, '');
+      const safeAlt = ((pf.name || pf.file?.name || '')).replace(/[<>"'&]/g, '');
       content = `<img src="${pf.previewUrl}" alt="${safeAlt}" class="w-full h-full object-cover" />`;
     } else if (pf.isImage) {
       content = `<div class="file-icon"><span>...</span></div>`;
     } else {
-      const safeName = (pf.file.name.slice(0, 8) || '').replace(/[<>"'&]/g, '');
+      const safeName = (pf.name || '').replace(/[<>"'&]/g, '');
       content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
     }
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
