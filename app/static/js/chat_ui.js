@@ -2578,4 +2578,26 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initFilePreviewModal);
 } else {
   initFilePreviewModal();
+  initFilePanelPreview();
+}
+
+
+// ===== File Panel Preview Handler =====
+function initFilePanelPreview() {
+  document.addEventListener('click', function(e) {
+    const previewBtn = e.target.closest('.preview-btn');
+    if (!previewBtn) return;
+    
+    const fileRow = previewBtn.closest('.file-row');
+    if (!fileRow) return;
+    
+    const fileId = fileRow.dataset.fileId;
+    const filename = fileRow.querySelector('.font-medium')?.textContent || fileId;
+    if (!fileId || !state.selectedAgentId) return;
+    
+    const url = '/a/' + state.selectedAgentId + '/api/files/' + encodeURIComponent(fileId);
+    const isImage = filename.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+    
+    openFilePreview(url, filename, !!isImage);
+  });
 }
