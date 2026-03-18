@@ -46,6 +46,71 @@ const dom = {
   editForm: document.getElementById("edit-form"),
 };
 
+
+// ===== Paste to upload handler =====
+if (dom.chatInput) {
+  dom.chatInput.addEventListener('paste', async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    
+    const files = [];
+    let hasFiles = false;
+    
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        hasFiles = true;
+        const file = item.getAsFile();
+        if (file) {
+          const ext = item.type.split('/')[1] || 'png';
+          const name = file.name || 'pasted-image-' + Date.now() + '.' + ext;
+          files.push({ file: file, name: name });
+        }
+      }
+      else if (item.type.startsWith('application/') || item.type.startsWith('text/') || item.type.startsWith('audio/') || item.type.startsWith('video/')) {
+        hasFiles = true;
+        const file = item.getAsFile();
+        if (file) {
+          files.push({ file: file, name: file.name || 'pasted-file' });
+        }
+      }
+    }
+    
+    if (hasFiles) {
+      e.preventDefault();
+      
+      if (!state.selectedAgentId) {
+        showToast('Please select an agent first', 'error');
+        return;
+      }
+      
+      for (const { file, name } of files) {
+        const pf = {
+          id: 'paste_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+          file: file,
+          name: name,
+          status: 'uploading',
+        };
+        state.pendingFiles.push(pf);
+        renderInputPreview();
+        
+        uploadPendingFile(pf)
+          .then(data => {
+            pf.status = 'uploaded';
+            pf.uploadedData = data;
+            renderInputPreview();
+            showToast('File uploaded: ' + name);
+          })
+          .catch(err => {
+            pf.status = 'error';
+            pf.error = err.message;
+            renderInputPreview();
+            showToast('Upload failed: ' + err.message, 'error');
+          });
+      }
+    }
+  });
+}
+
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
 function getLastSessionKey(agentId) {
