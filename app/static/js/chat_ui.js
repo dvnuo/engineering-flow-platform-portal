@@ -338,7 +338,7 @@ function disconnectEventSocket() {
 }
 
 function isTrackableThinkingEvent(type) {
-  return ["iteration_start", "llm_thinking", "tool_call", "tool_result", "complete"].includes(type);
+  return ["iteration_start", "llm_thinking", "tool_call", "tool_result", "skill_matched", "complete"].includes(type);
 }
 
 function getThinkingEventDisplay(event) {
@@ -349,6 +349,7 @@ function getThinkingEventDisplay(event) {
     llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || "Model is reasoning" },
     tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool" },
     tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed") },
+    skill_matched: { icon: "zap", title: "Skill Matched", detail: data.skill ? `/${data.skill}` : "Skill matched" },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete" },
   };
   return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
