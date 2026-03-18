@@ -558,11 +558,19 @@ function openThinkingProcessPanel() {
             }
           }
           
-          // Get LLM debug info
-          const llmDebug = data.metadata?._llm_debug || {};
-          
-          const html = renderThinkingProcessPanel(storedEvents, llmDebug);
-          setToolPanel("Thinking Process", html);
+          // Fetch LLM chatlog from session file
+          return agentApi(`/api/sessions/${encodeURIComponent(sid)}/chatlog`)
+            .then(chatlogData => {
+              const llmDebug = chatlogData?.llm_debug || {};
+              const html = renderThinkingProcessPanel(storedEvents, llmDebug);
+              setToolPanel("Thinking Process", html);
+            })
+            .catch(() => {
+              // Fallback to metadata if chatlog not found
+              const llmDebug = data.metadata?._llm_debug || {};
+              const html = renderThinkingProcessPanel(storedEvents, llmDebug);
+              setToolPanel("Thinking Process", html);
+            });
         })
         .catch(err => {
           setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
