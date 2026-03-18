@@ -412,10 +412,12 @@ function renderThinkingProcessPanel(events) {
         ${event.data?.iteration ? `<span class="text-xs ${mutedClass}">#${event.data.iteration}</span>` : ''}
       </div>`;
     
-    // For LLM thinking, show full content (can be long)
+    // For LLM thinking, show the actual content
     if (event.type === "llm_thinking") {
-      const thinkingContent = event.data.thinking || event.data.message || "";
-      if (thinkingContent && thinkingContent !== "LLM is thinking...") {
+      // Check multiple possible locations for thinking content
+      const thinkingContent = event.data?.thinking || event.data?.message || display?.detail || "";
+      // Show if there's actual content (not just placeholder)
+      if (thinkingContent && !thinkingContent.includes("LLM is thinking") && !thinkingContent.includes("Processing")) {
         html += `<div class="${mutedClass} mt-1 whitespace-pre-wrap max-h-40 overflow-auto">${escapeHtml(thinkingContent)}</div>`;
       } else {
         html += `<div class="${mutedClass} mt-1">${escapeHtml(String(display.detail).substring(0, 500))}</div>`;
@@ -450,16 +452,10 @@ function openThinkingProcessPanel() {
     return;
   }
   
-  // Get thinking events - prefer metadata (complete data) over real-time
+  // Always fetch from metadata - it has complete thinking data
   let events = [];
   
-  // Prefer metadata events - they have complete info including user message
-  // Only use real-time if there's an active ongoing conversation
-  if (state.inflightThinking?.events?.length && !state.inflightThinking.completed) {
-    events = state.inflightThinking.events;
-  }
-  
-  // If no valid real-time events, try to get from session metadata
+  // Always fetch from metadata (skip real-time events which may have placeholders)
   if (events.length === 0) {
     setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading thinking process...</div>');
     
