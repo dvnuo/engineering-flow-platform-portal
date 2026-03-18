@@ -409,9 +409,18 @@ function renderThinkingProcessPanel(events) {
       <div class="flex items-center gap-2 ${textClass}">
         <span>${icon}</span>
         <span class="font-semibold">${display.title}</span>
+        ${event.data?.iteration ? `<span class="text-xs ${mutedClass}">#${event.data.iteration}</span>` : ''}
       </div>`;
     
-    if (display.detail) {
+    // For LLM thinking, show full content (can be long)
+    if (event.type === "llm_thinking") {
+      const thinkingContent = event.data.thinking || event.data.message || "";
+      if (thinkingContent && thinkingContent !== "LLM is thinking...") {
+        html += `<div class="${mutedClass} mt-1 whitespace-pre-wrap max-h-40 overflow-auto">${escapeHtml(thinkingContent)}</div>`;
+      } else {
+        html += `<div class="${mutedClass} mt-1">${escapeHtml(String(display.detail).substring(0, 500))}</div>`;
+      }
+    } else if (display.detail) {
       html += `<div class="${mutedClass} mt-1">${escapeHtml(String(display.detail).substring(0, 500))}</div>`;
     }
     
