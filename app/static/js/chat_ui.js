@@ -302,7 +302,7 @@ function renderInputPreview() {
     } else if (pf.isImage) {
       content = `<div class="file-icon"><span>...</span></div>`;
     } else {
-      const safeName = (pf.name.slice(0, 16) || '').replace(/[<>"'&]/g, '');
+      const safeName = (pf.name || '').replace(/[<>"'&]/g, '');
       content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
     }
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
