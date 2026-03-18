@@ -88,8 +88,14 @@ if (dom.chatInput) {
           id: 'paste_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
           file: file,
           name: name,
+          isImage: true,
+          previewUrl: null,
           status: 'uploading',
         };
+        
+        // Generate preview for images
+        pf.previewUrl = URL.createObjectURL(file);
+        
         state.pendingFiles.push(pf);
         renderInputPreview();
         
