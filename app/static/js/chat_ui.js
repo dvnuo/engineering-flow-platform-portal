@@ -102,7 +102,7 @@ const md = window.markdownit({
 
 // Only allow http/https URLs to be converted to links
 md.validateLink = function(text) {
-  return /^https?:\/\//.test(text);
+  return /^https?:\/\//i.test(text);
 };
   highlight: (str, lang) => {
     if (lang && hljs.getLanguage(lang)) {
