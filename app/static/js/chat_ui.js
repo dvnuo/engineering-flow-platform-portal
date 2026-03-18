@@ -472,16 +472,31 @@ function renderLLMDebugContent(llmDebug) {
     
     if (req.instructions) {
       html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">System Prompt:</div>
-        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-32 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">${escapeHtml(req.instructions.substring(0, 1500))}</div>`;
+        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-24 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">${escapeHtml(req.instructions.substring(0, 1000))}</div>`;
     }
     
+    // Show conversation flow
     if (req.input && req.input.length) {
-      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">Input Messages:</div>
-        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-40 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded">`;
+      html += `<div class="text-xs ${mutedClass} mt-2 font-semibold">💬 Conversation Flow:</div>
+        <div class="text-xs ${textClass} whitespace-pre-wrap max-h-64 overflow-auto mt-1 p-2 ${isDark ? 'bg-slate-800' : 'bg-white'} rounded border-l-2 border-blue-500">`;
+      
+      // Show all messages in order
       for (const msg of req.input) {
         const role = msg.role || 'unknown';
-        const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-        html += `<div class="mt-1"><span class="font-semibold">${role}:</span> ${escapeHtml(content.substring(0, 500))}</div>`;
+        let content = '';
+        if (typeof msg.content === 'string') {
+          content = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          content = msg.content.map(c => c.text || JSON.stringify(c)).join(' ');
+        }
+        
+        // Style based on role
+        const roleColor = role === 'user' ? 'text-blue-600' : (role === 'assistant' ? 'text-green-600' : 'text-slate-500');
+        const roleIcon = role === 'user' ? '👤' : (role === 'assistant' ? '🤖' : '•');
+        
+        html += `<div class="mt-2 pb-2 border-b border-slate-600 last:border-0">
+          <span class="${roleColor} font-semibold">${roleIcon} ${role}:</span>
+          <div class="mt-1 text-slate-300">${escapeHtml(content.substring(0, 800))}</div></div>`;
       }
       html += '</div>';
     }
