@@ -16,4 +16,4 @@ spec:
               service:
                 name: efp-portal-service
                 port:
-                  number: 8000
+                  number: 80
