@@ -559,7 +559,7 @@ async def proxy_agent_sessions(request: Request, agent_id: str, limit: int = 20)
             raise HTTPException(status_code=404, detail="Agent not found")
         
         user = _current_user_from_cookie(request)
-        if not _can_access(agent, user):
+        if not user or not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
         
         status_code, content, _ = await proxy_service.forward(
@@ -580,13 +580,17 @@ async def proxy_agent_sessions(request: Request, agent_id: str, limit: int = 20)
 
 
 @router.get("/a/{agent_id}/api/sessions/{session_id}")
-async def proxy_agent_session(agent_id: str, session_id: str):
+async def proxy_agent_session(request: Request, agent_id: str, session_id: str):
     """Proxy single session to agent"""
     db = SessionLocal()
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+        
+        user = _current_user_from_cookie(request)
+        if not user or not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
         
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
@@ -606,13 +610,17 @@ async def proxy_agent_session(agent_id: str, session_id: str):
 
 
 @router.get("/a/{agent_id}/api/sessions/{session_id}/chatlog")
-async def proxy_agent_chatlog(agent_id: str, session_id: str):
+async def proxy_agent_chatlog(request: Request, agent_id: str, session_id: str):
     """Proxy chatlog to agent"""
     db = SessionLocal()
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+        
+        user = _current_user_from_cookie(request)
+        if not user or not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
         
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
