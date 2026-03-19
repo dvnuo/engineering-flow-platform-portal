@@ -1,0 +1,84 @@
+<div class="p-4 overflow-auto min-h-0 text-sm text-slate-600 dark:text-slate-300">
+{% if error %}
+  <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+    <div class="text-xs text-red-500">{{ error }}</div>
+  </div>
+{% elif not chatlog %}
+  <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+    <div class="font-semibold text-slate-700 dark:text-slate-200">Thinking Process</div>
+    <div class="text-xs text-slate-500 mt-1">No thinking data available</div>
+  </div>
+{% else %}
+  {% set llm_debug = chatlog.llm_debug %}
+  <div class="space-y-4">
+    {# 1. Timestamp #}
+    {% if chatlog.timestamp %}
+      <div class="text-xs text-slate-500">🕐 {{ chatlog.timestamp[:19]|replace('T', ' ') }}</div>
+    {% endif %}
+
+    {# 2. Initial LLM Request #}
+    {% if llm_debug.llm_request and llm_debug.llm_request.request %}
+      {% set req = llm_debug.llm_request.request %}
+      <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">📤 LLM Request</div>
+        <div class="text-xs text-slate-500">Model: {{ req.model or '' }}</div>
+        {% if req.instructions %}
+          <div class="text-xs text-slate-500 mt-2 font-semibold">System Prompt:</div>
+          <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap max-h-24 overflow-auto mt-1 p-2 bg-white dark:bg-slate-800 rounded">{{ req.instructions[:800] }}</div>
+        {% endif %}
+        {% if req.input %}
+          <div class="text-xs text-slate-500 mt-2 font-semibold">Input:</div>
+          <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap max-h-24 overflow-auto mt-1 p-2 bg-white dark:bg-slate-800 rounded">
+          {% for msg in req.input %}
+            {% if msg.role == 'user' %}
+              {% set content = msg.content[0].text if msg.content is iterable and msg.content[0].text else msg.content %}
+              <div class="mt-1">👤 {{ content[:200] }}</div>
+            {% endif %}
+          {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {# 3. Thinking Flow #}
+    {% if llm_debug.thinking_events %}
+      <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🔄 Thinking Flow ({{ llm_debug.thinking_events|length }} steps)</div>
+        <div class="text-xs text-slate-700 dark:text-slate-200 space-y-2">
+        {% for event in llm_debug.thinking_events %}
+          {% set event_type = event.type or '' %}
+          {% set event_data = event.data or {} %}
+          {% if event_type == 'skill_matched' %}
+            <div class="p-2 bg-white dark:bg-slate-800 rounded">🎯 Skill: /{{ event_data.skill or '' }}</div>
+          {% elif event_type == 'llm_thinking' %}
+            {% set thinking = event_data.thinking or event_data.message or '' %}
+            {% if thinking and 'LLM is thinking' not in thinking %}
+              <div class="p-2 bg-white dark:bg-slate-800 rounded">🧠 {{ thinking[:300] }}</div>
+            {% endif %}
+          {% elif event_type == 'tool_call' %}
+            <div class="p-2 bg-white dark:bg-slate-800 rounded">🔧 Tool: {{ event_data.tool or event_data.name or 'unknown' }}</div>
+          {% elif event_type == 'tool_result' %}
+            {% set result = event_data.result or event_data.output or '' %}
+            {% set truncated = result[:200] if result is string else (result|string)[:200] %}
+            <div class="p-2 bg-white dark:bg-slate-800 rounded text-green-500">✅ {{ truncated }}</div>
+          {% endif %}
+        {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    {# 4. Final Response #}
+    {% set final_response = llm_debug.final_response or (llm_debug.llm_request.response.content if llm_debug.llm_request and llm_debug.llm_request.response) %}
+    {% set usage = llm_debug.llm_request.response.usage if llm_debug.llm_request and llm_debug.llm_request.response %}
+    {% if final_response %}
+      <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🤖 Final Response</div>
+        <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap max-h-40 overflow-auto">{{ final_response }}</div>
+        {% if usage %}
+          <div class="text-xs text-slate-500 mt-2">📊 {{ usage.prompt_tokens }} in / {{ usage.completion_tokens }} out (${{ '%.4f'|format(usage.cost_usd or 0) }})</div>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+{% endif %}
+</div>

@@ -548,80 +548,33 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         db.close()
 
 
-# Proxy routes for agent API endpoints
-@router.get("/a/{agent_id}/api/sessions")
-async def proxy_agent_sessions(request: Request, agent_id: str, limit: int = 20):
-    """Proxy sessions list to agent"""
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        
-        user = _current_user_from_cookie(request)
-        if not user or not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-        
-        status_code, content, _ = await proxy_service.forward(
-            agent=agent,
-            method="GET",
-            subpath="api/sessions",
-            query_items=[("limit", str(limit))],
-            body=None,
-            headers={},
+@router.get("/app/agents/{agent_id}/thinking/panel")
+async def app_agent_thinking_panel(request: Request, agent_id: str, session_id: str = ""):
+    """Backend-rendered thinking process panel"""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    if not session_id:
+        return templates.TemplateResponse(
+            "partials/thinking_process_panel.html",
+            {"request": request, "agent_id": agent_id, "session_id": "", "chatlog": None, "error": "No session selected"},
         )
-        
-        if status_code >= 400:
-            return Response(content=content, status_code=status_code)
-        
-        return Response(content=content, media_type="application/json", status_code=status_code)
-    finally:
-        db.close()
 
-
-@router.get("/a/{agent_id}/api/sessions/{session_id}")
-async def proxy_agent_session(request: Request, agent_id: str, session_id: str):
-    """Proxy single session to agent"""
     db = SessionLocal()
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-        
-        user = _current_user_from_cookie(request)
-        if not user or not _can_access(agent, user):
+        if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
-        
-        status_code, content, _ = await proxy_service.forward(
-            agent=agent,
-            method="GET",
-            subpath=f"api/sessions/{session_id}",
-            query_items=[],
-            body=None,
-            headers={},
-        )
-        
-        if status_code >= 400:
-            return Response(content=content, status_code=status_code)
-        
-        return Response(content=content, media_type="application/json", status_code=status_code)
-    finally:
-        db.close()
 
+        if not settings.k8s_enabled:
+            return templates.TemplateResponse(
+                "partials/thinking_process_panel.html",
+                {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "error": "Agent not running"},
+            )
 
-@router.get("/a/{agent_id}/api/sessions/{session_id}/chatlog")
-async def proxy_agent_chatlog(request: Request, agent_id: str, session_id: str):
-    """Proxy chatlog to agent"""
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        
-        user = _current_user_from_cookie(request)
-        if not user or not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-        
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
             method="GET",
@@ -630,11 +583,18 @@ async def proxy_agent_chatlog(request: Request, agent_id: str, session_id: str):
             body=None,
             headers={},
         )
-        
+
         if status_code >= 400:
-            return Response(content=content, status_code=status_code)
-        
-        return Response(content=content, media_type="application/json", status_code=status_code)
+            return templates.TemplateResponse(
+                "partials/thinking_process_panel.html",
+                {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "error": f"Error: {status_code}"},
+            )
+
+        chatlog = json.loads(content.decode("utf-8"))
+        return templates.TemplateResponse(
+            "partials/thinking_process_panel.html",
+            {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": chatlog, "error": None},
+        )
     finally:
         db.close()
 

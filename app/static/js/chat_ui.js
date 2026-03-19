@@ -542,89 +542,18 @@ function renderLLMDebugContent(llmDebug) {
   return html;
 }
 
-// Open Thinking Process panel
-function openThinkingProcessPanel() {
+// Open Thinking Process panel - using backend rendering
+async function openThinkingProcessPanel() {
   if (!state.selectedAgentId) {
     showToast('Please select an agent first');
     return;
   }
   
-  // Always fetch from metadata - it has complete thinking data
-  let events = [];
-  
-  // Always fetch from metadata (skip real-time events which may have placeholders)
-  if (events.length === 0) {
-    setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading thinking process...</div>');
-    
-    const fetchEvents = (sid) => {
-      if (!sid) {
-        setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
-        return;
-      }
-      
-      agentApi(`/api/sessions/${encodeURIComponent(sid)}`)
-        .then(data => {
-          // Get thinking events from metadata
-          let storedEvents = [];
-          if (data.metadata?.thinking_events) {
-            storedEvents = data.metadata.thinking_events.filter(e => isTrackableThinkingEvent(e?.type));
-          }
-          
-          // Also try to get events from messages (some events may be stored there)
-          if (data.messages && Array.isArray(data.messages)) {
-            for (const msg of data.messages) {
-              if (msg.extra?.thinking_events) {
-                storedEvents = [...storedEvents, ...msg.extra.thinking_events.filter(e => isTrackableThinkingEvent(e?.type))];
-              }
-              if (msg.extra?.events) {
-                storedEvents = [...storedEvents, ...msg.extra.events.filter(e => isTrackableThinkingEvent(e?.type))];
-              }
-            }
-          }
-          
-          // Fetch LLM chatlog from session file
-          return agentApi(`/api/sessions/${encodeURIComponent(sid)}/chatlog`)
-            .then(chatlogData => {
-              const llmDebug = chatlogData?.llm_debug || {};
-              const html = renderThinkingProcessPanel(storedEvents, llmDebug);
-              setToolPanel("Thinking Process", html);
-            })
-            .catch(() => {
-              // Fallback to metadata if chatlog not found
-              const llmDebug = data.metadata?._llm_debug || {};
-              const html = renderThinkingProcessPanel(storedEvents, llmDebug);
-              setToolPanel("Thinking Process", html);
-            });
-        })
-        .catch(err => {
-          setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
-        });
-    };
-    
-    // Try current session first
-    if (state.selectedSessionId) {
-      fetchEvents(state.selectedSessionId);
-    } else {
-      // No session selected, try to fetch sessions list and get latest
-      agentApi('/api/sessions')
-        .then(data => {
-          const sessions = data.sessions || [];
-          if (sessions.length > 0) {
-            const latestSession = sessions.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))[0];
-            fetchEvents(latestSession.session_id || latestSession.id);
-          } else {
-            setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No sessions found.</div>');
-          }
-        })
-        .catch(err => {
-          setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
-        });
-    }
+  const currentSessionId = currentSessionIdForSelectedAgent();
+  if (!currentSessionId) {
+    setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
     return;
   }
-  
-  const html = renderThinkingProcessPanel(events);
-  setToolPanel("Thinking Process", html);
 }
 
 function renderThinkingProcess(article, events) {
