@@ -548,6 +548,89 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         db.close()
 
 
+# Proxy routes for agent API endpoints
+@router.get("/a/{agent_id}/api/sessions")
+async def proxy_agent_sessions(request: Request, agent_id: str, limit: int = 20):
+    """Proxy sessions list to agent"""
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        user = _current_user_from_cookie(request)
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/sessions",
+            query_items=[("limit", str(limit))],
+            body=None,
+            headers={},
+        )
+        
+        if status_code >= 400:
+            return Response(content=content, status_code=status_code)
+        
+        return Response(content=content, media_type="application/json", status_code=status_code)
+    finally:
+        db.close()
+
+
+@router.get("/a/{agent_id}/api/sessions/{session_id}")
+async def proxy_agent_session(agent_id: str, session_id: str):
+    """Proxy single session to agent"""
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath=f"api/sessions/{session_id}",
+            query_items=[],
+            body=None,
+            headers={},
+        )
+        
+        if status_code >= 400:
+            return Response(content=content, status_code=status_code)
+        
+        return Response(content=content, media_type="application/json", status_code=status_code)
+    finally:
+        db.close()
+
+
+@router.get("/a/{agent_id}/api/sessions/{session_id}/chatlog")
+async def proxy_agent_chatlog(agent_id: str, session_id: str):
+    """Proxy chatlog to agent"""
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath=f"api/sessions/{session_id}/chatlog",
+            query_items=[],
+            body=None,
+            headers={},
+        )
+        
+        if status_code >= 400:
+            return Response(content=content, status_code=status_code)
+        
+        return Response(content=content, media_type="application/json", status_code=status_code)
+    finally:
+        db.close()
+
+
 @router.get("/app/agents/{agent_id}/settings/panel")
 async def app_agent_settings_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
