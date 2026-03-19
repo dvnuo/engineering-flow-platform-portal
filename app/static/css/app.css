@@ -292,17 +292,189 @@ html[data-theme="light"] #message-list article:not(.ml-auto) div {
   color: #111827 !important;
 }
 
+
 html[data-theme="light"] [data-pending-assistant="1"] {
+  --pending-glow-soft: rgba(96, 165, 250, 0.18);
+  --pending-glow-mid: rgba(59, 130, 246, 0.24);
+  --pending-glow-strong: rgba(125, 211, 252, 0.26);
+  --pending-aura-core: rgba(147, 197, 253, 0.44);
+  --pending-aura-mid: rgba(96, 165, 250, 0.2);
+  --pending-aura-edge: rgba(96, 165, 250, 0);
   position: relative;
-  padding-left: 2.6rem !important;
+  padding-left: 2.75rem !important;
+  isolation: isolate;
 }
 
-html[data-theme="light"] [data-pending-assistant="1"]::before {
-  content: "🤖";
+html:not([data-theme="light"]) [data-pending-assistant="1"] {
+  --pending-glow-soft: rgba(96, 165, 250, 0.28);
+  --pending-glow-mid: rgba(129, 140, 248, 0.3);
+  --pending-glow-strong: rgba(196, 181, 253, 0.3);
+  --pending-aura-core: rgba(56, 189, 248, 0.28);
+  --pending-aura-mid: rgba(99, 102, 241, 0.2);
+  --pending-aura-edge: rgba(59, 130, 246, 0);
+  position: relative;
+  padding-left: 2.75rem !important;
+  isolation: isolate;
+}
+
+[data-pending-assistant="1"]::before {
+  content: "\1F914 ";
   position: absolute;
   left: 1rem;
   top: 1.05rem;
   font-size: 0.95rem;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  z-index: 1;
+  opacity: 0.94;
+  transform-origin: center;
+  text-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  will-change: transform, opacity, text-shadow;
+  animation:
+    pending-assistant-emoji 10.5s steps(1, end) infinite,
+    pending-assistant-breathe 3.2s ease-in-out infinite,
+    pending-assistant-think-glow 10.5s ease-in-out infinite;
+}
+
+[data-pending-assistant="1"]::after {
+  content: "";
+  position: absolute;
+  left: 0.82rem;
+  top: 0.9rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle, var(--pending-aura-core) 0%, var(--pending-aura-mid) 42%, var(--pending-aura-edge) 74%);
+  filter: blur(6px);
+  opacity: 0.38;
+  transform: scale(0.84);
+  will-change: transform, opacity, filter;
+  animation:
+    pending-assistant-aura 3.2s ease-in-out infinite,
+    pending-assistant-aura-state 10.5s ease-in-out infinite;
+}
+
+@keyframes pending-assistant-emoji {
+  0%, 19.99% {
+    content: "\1F914 ";
+  }
+
+  20%, 39.99% {
+    content: "\1F4AD ";
+  }
+
+  40%, 59.99% {
+    content: "\1F50E ";
+  }
+
+  60%, 79.99% {
+    content: "\2728 ";
+  }
+
+  80%, 100% {
+    content: "\1F9E0 ";
+  }
+}
+
+@keyframes pending-assistant-breathe {
+  0%, 100% {
+    opacity: 0.78;
+    transform: translateY(0) scale(0.97);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.035);
+  }
+}
+
+@keyframes pending-assistant-think-glow {
+  0%, 19.99% {
+    text-shadow:
+      0 0 0 rgba(0, 0, 0, 0),
+      0 0 0 rgba(0, 0, 0, 0);
+  }
+
+  20%, 39.99% {
+    text-shadow:
+      0 0 8px var(--pending-glow-soft),
+      0 0 16px rgba(255, 255, 255, 0.04);
+  }
+
+  40%, 59.99% {
+    text-shadow:
+      0 0 10px var(--pending-glow-mid),
+      0 0 18px var(--pending-glow-soft);
+  }
+
+  60%, 79.99% {
+    text-shadow:
+      0 0 12px var(--pending-glow-mid),
+      0 0 22px var(--pending-glow-strong);
+  }
+
+  80%, 100% {
+    text-shadow:
+      0 0 10px var(--pending-glow-mid),
+      0 0 20px var(--pending-glow-strong);
+  }
+}
+
+@keyframes pending-assistant-aura {
+  0%, 100% {
+    opacity: 0.22;
+    transform: scale(0.8);
+    filter: blur(6px);
+  }
+
+  50% {
+    opacity: 0.42;
+    transform: scale(1.04);
+    filter: blur(8px);
+  }
+}
+
+@keyframes pending-assistant-aura-state {
+  0%, 19.99% {
+    opacity: 0.2;
+  }
+
+  20%, 39.99% {
+    opacity: 0.28;
+  }
+
+  40%, 59.99% {
+    opacity: 0.34;
+  }
+
+  60%, 79.99% {
+    opacity: 0.46;
+  }
+
+  80%, 100% {
+    opacity: 0.38;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-pending-assistant="1"]::before,
+  [data-pending-assistant="1"]::after {
+    animation: none;
+  }
+
+  [data-pending-assistant="1"]::before {
+    opacity: 0.92;
+    text-shadow: none;
+    transform: none;
+  }
+
+  [data-pending-assistant="1"]::after {
+    opacity: 0.22;
+    filter: blur(5px);
+    transform: scale(0.92);
+  }
 }
 
 html[data-theme="light"] .toolbar-btn,
