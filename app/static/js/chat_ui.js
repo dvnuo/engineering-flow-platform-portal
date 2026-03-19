@@ -428,13 +428,39 @@ function getThinkingEventDisplay(event) {
   const data = event?.data || {};
   const byType = {
     iteration_start: { icon: "rotate-cw", title: "Iteration Start", detail: `Iteration ${data.iteration || 1}${data.total ? `/${data.total}` : ""}` },
-    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || "Model is reasoning" },
-    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool" },
-    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed") },
-    skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched" },
-    complete: { icon: "flag", title: "Complete", detail: "Execution complete" },
+    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
+    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
+    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
+    skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
+    complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
   };
   return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
+}
+
+// Open Thinking Process panel - using backend rendering
+async function openThinkingProcessPanel() {
+  if (!state.selectedAgentId) {
+    showToast('Please select an agent first');
+    return;
+  }
+  
+  const currentSessionId = currentSessionIdForSelectedAgent();
+  if (!currentSessionId) {
+    setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
+    return;
+  }
+  
+  // Use htmx to load backend-rendered panel
+  setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading...</div>');
+  
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML"
+    });
+  } catch (err) {
+    setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
+  }
 }
 
 function renderThinkingProcess(article, events) {
@@ -2524,6 +2550,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openSessionsPanel();
+  });
+
+  // Thinking Process button in header
+  document.getElementById('btn-thinking')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openThinkingProcessPanel();
   });
 
   await refreshAll();
