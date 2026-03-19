@@ -1,9 +1,0 @@
-# Simple Portal Deployment with local development in mind
-# Uses hostPath for application code (mounted from host)
-# This is a simple version for development/testing
-#
-# Usage:
-#   kubectl apply -f k8s/portal-deployment-efs.yaml
-
-apiVersion: apps/v1
-kind: Deployment
