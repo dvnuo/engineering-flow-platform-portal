@@ -5,6 +5,11 @@
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
 ```
 
+### Create Namespace
+```
+kubectl apply -f namespaces.yaml
+```
+
 ### Create PVC
 ```
 kubectl apply -f efp-efs-pvc.yaml
