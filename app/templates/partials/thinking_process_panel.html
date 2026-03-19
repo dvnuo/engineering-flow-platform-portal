@@ -71,19 +71,7 @@
       </div>
     {% endif %}
 
-    {# 3. Tools (if any) #}
-    {% if llm_debug.llm_request and llm_debug.llm_request.request and llm_debug.llm_request.request.tools %}
-      <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
-        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🔧 Available Tools ({{ llm_debug.llm_request.request.tools|length }})</div>
-        <div class="text-xs text-slate-600 dark:text-slate-300 space-y-1">
-        {% for tool in llm_debug.llm_request.request.tools %}
-          <div class="p-1.5 bg-white dark:bg-slate-800 rounded">• {{ tool.name }}</div>
-        {% endfor %}
-        </div>
-      </div>
-    {% endif %}
-
-    {# 4. Final Response #}
+    {# 3. Final Response #}
     {% set final_response = llm_debug.final_response or (llm_debug.llm_request.response.content if llm_debug.llm_request and llm_debug.llm_request.response) %}
     {% set usage = llm_debug.llm_request.response.usage if llm_debug.llm_request and llm_debug.llm_request.response %}
     {% if final_response %}
@@ -93,6 +81,18 @@
         {% if usage %}
           <div class="text-xs text-slate-500 mt-2">📊 {{ usage.prompt_tokens }} in / {{ usage.completion_tokens }} out (${{ '%.4f'|format(usage.cost_usd or 0) }})</div>
         {% endif %}
+      </div>
+    {% endif %}
+
+    {# 4. Tools (if any) #}
+    {% if llm_debug.llm_request and llm_debug.llm_request.request and llm_debug.llm_request.request.tools %}
+      <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🔧 Available Tools ({{ llm_debug.llm_request.request.tools|length }})</div>
+        <div class="text-xs text-slate-600 dark:text-slate-300 space-y-1">
+        {% for tool in llm_debug.llm_request.request.tools %}
+          <div class="p-1.5 bg-white dark:bg-slate-800 rounded">• {{ tool.name }}</div>
+        {% endfor %}
+        </div>
       </div>
     {% endif %}
   </div>
