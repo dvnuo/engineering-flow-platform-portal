@@ -11,93 +11,71 @@
 {% else %}
   {% set llm_debug = chatlog.llm_debug %}
   <div class="space-y-3">
-    {# 1. Timestamp #}
+    {# 1. Timestamp & Model #}
     {% if chatlog.timestamp %}
       <div class="text-xs text-slate-500">🕐 {{ chatlog.timestamp[:19]|replace('T', ' ') }}</div>
     {% endif %}
-
-    {# 2. Model info #}
+    
     {% if llm_debug.llm_request and llm_debug.llm_request.request %}
       {% set req = llm_debug.llm_request.request %}
       <div class="text-xs text-slate-500">🤖 Model: {{ req.model or '' }}</div>
     {% endif %}
 
-    {# 3. Each User Input as a Step #}
+    {# 2. Complete Request Flow (llm_request.input in order) #}
     {% if llm_debug.llm_request and llm_debug.llm_request.request and llm_debug.llm_request.request.input %}
-      {% set user_inputs = [] %}
-      {% for msg in llm_debug.llm_request.request.input %}
-        {% if msg.role == 'user' %}
-          {% set content = msg.content[0].text if msg.content is iterable and msg.content[0].text else msg.content %}
-          {% set _ = user_inputs.append(content) %}
-        {% endif %}
-      {% endfor %}
-      
-      {% if user_inputs %}
       <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
-        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">👤 User Inputs ({{ user_inputs|length }})</div>
-        {% for input in user_inputs %}
-        <div class="text-xs text-slate-700 dark:text-slate-200 p-2 bg-white dark:bg-slate-800 rounded mt-1">
-          <span class="text-blue-500 font-semibold">#{{ loop.index }}:</span> {{ input[:300] }}
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-    {% endif %}
-
-    {# 4. Thinking Flow - each thinking event as a step #}
-    {% if llm_debug.thinking_events %}
-      <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
-        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🔄 Thinking Flow ({{ llm_debug.thinking_events|length }} steps)</div>
-        <div class="text-xs text-slate-700 dark:text-slate-200 space-y-2">
-        {% for event in llm_debug.thinking_events %}
-          {% set event_type = event.type or '' %}
-          {% set event_data = event.data or {} %}
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">📤 Request Flow ({{ llm_debug.llm_request.request.input|length }} items)</div>
+        
+        {% for item in llm_debug.llm_request.request.input %}
+          {% set item_type = item.type or '' %}
+          {% set role = item.role or '' %}
           
-          {% if event_type == 'skill_matched' %}
-            <div class="p-2 bg-white dark:bg-slate-800 rounded">
-              <span class="text-purple-500">🎯</span> <span class="font-semibold">Skill:</span> /{{ event_data.skill or '' }}
+          {# User message #}
+          {% if role == 'user' %}
+            {% set content = item.content[0].text if item.content and item.content is iterable and item.content[0].text else item.content %}
+            <div class="mt-2 p-2 bg-blue-50 dark:bg-slate-800 rounded border-l-2 border-blue-400">
+              <div class="text-xs text-blue-600 dark:text-blue-400 font-semibold">👤 User</div>
+              <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{{ content[:500] }}</div>
             </div>
-            
-          {% elif event_type == 'llm_thinking' %}
-            {% set thinking = event_data.thinking or event_data.message or '' %}
-            {% if thinking and 'LLM is thinking' not in thinking %}
-              <div class="p-2 bg-white dark:bg-slate-800 rounded">
-                <span class="text-yellow-500">🧠</span> {{ thinking[:300] }}
-              </div>
-            {% endif %}
-            
-          {% elif event_type == 'tool_call' %}
-            {% set tool_name = event_data.tool or event_data.name or 'unknown' %}
-            {% set tool_args = event_data.arguments or event_data.args or {} %}
-            <div class="p-2 bg-white dark:bg-slate-800 rounded">
-              <span class="text-orange-500">🔧</span> <span class="font-semibold">Tool:</span> {{ tool_name }}
-              {% if tool_args %}
-                {% if tool_args is string %}
-                  <div class="mt-1 ml-4 p-1.5 bg-slate-100 dark:bg-slate-600 rounded text-xs font-mono overflow-x-auto">{{ tool_args[:500] }}</div>
-                {% elif tool_args is mapping %}
-                  <div class="mt-1 ml-4 p-1.5 bg-slate-100 dark:bg-slate-600 rounded text-xs font-mono overflow-x-auto">{{ tool_args|string|replace('{','')|replace('}','')|replace(',',' ') }}</div>
-                {% endif %}
-              {% endif %}
+          
+          {# Assistant message #}
+          {% elif role == 'assistant' %}
+            <div class="mt-2 p-2 bg-green-50 dark:bg-slate-800 rounded border-l-2 border-green-400">
+              <div class="text-xs text-green-600 dark:text-green-400 font-semibold">🤖 Assistant</div>
+              <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{{ item.content[:500] if item.content else '' }}</div>
             </div>
-            
-          {% elif event_type == 'tool_result' %}
-            {% set result = event_data.result or event_data.output or '' %}
-            {% set truncated = result[:300] if result is string else (result|string)[:300] %}
-            <div class="p-2 bg-white dark:bg-slate-800 rounded text-green-600 dark:text-green-400">
-              <span class="text-green-500">✅</span> {{ truncated }}
+          
+          {# Function call (tool call) #}
+          {% elif item_type == 'function_call' %}
+            <div class="mt-2 p-2 bg-orange-50 dark:bg-slate-800 rounded border-l-2 border-orange-400">
+              <div class="text-xs text-orange-600 dark:text-orange-400 font-semibold">🔧 Tool Call: {{ item.name }}</div>
+              <div class="text-xs text-slate-700 dark:text-slate-200 font-mono whitespace-pre-wrap mt-1">{{ item.arguments[:300] if item.arguments else '' }}</div>
             </div>
-            
-          {% elif event_type == 'complete' %}
-            <div class="p-2 bg-white dark:bg-slate-800 rounded text-blue-500">
-              <span class="text-blue-500">🏁</span> Complete
+          
+          {# Function call output (tool result) #}
+          {% elif item_type == 'function_call_output' %}
+            <div class="mt-2 p-2 bg-purple-50 dark:bg-slate-800 rounded border-l-2 border-purple-400">
+              <div class="text-xs text-purple-600 dark:text-purple-400 font-semibold">✅ Tool Result</div>
+              <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap mt-1">{{ item.output[:500] if item.output else '' }}</div>
             </div>
           {% endif %}
         {% endfor %}
+      </div>
+    {% endif %}
+
+    {# 3. Tools (if any) #}
+    {% if llm_debug.llm_request and llm_debug.llm_request.request and llm_debug.llm_request.request.tools %}
+      <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🔧 Available Tools ({{ llm_debug.llm_request.request.tools|length }})</div>
+        <div class="text-xs text-slate-600 dark:text-slate-300 space-y-1">
+        {% for tool in llm_debug.llm_request.request.tools %}
+          <div class="p-1.5 bg-white dark:bg-slate-800 rounded">• {{ tool.name }}</div>
+        {% endfor %}
         </div>
       </div>
     {% endif %}
 
-    {# 5. Final Response #}
+    {# 4. Final Response #}
     {% set final_response = llm_debug.final_response or (llm_debug.llm_request.response.content if llm_debug.llm_request and llm_debug.llm_request.response) %}
     {% set usage = llm_debug.llm_request.response.usage if llm_debug.llm_request and llm_debug.llm_request.response %}
     {% if final_response %}
