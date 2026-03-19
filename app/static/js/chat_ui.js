@@ -449,6 +449,18 @@ async function openThinkingProcessPanel() {
     setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
     return;
   }
+  
+  // Use htmx to load backend-rendered panel
+  setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading...</div>');
+  
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML"
+    });
+  } catch (err) {
+    setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
+  }
 }
 
 function renderThinkingProcess(article, events) {
