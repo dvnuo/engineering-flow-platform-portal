@@ -30,3 +30,9 @@ kubectl apply -f efp-portal-ingress.yaml
 ```
 kubectl get svc -n ingress-nginx
 ```
+
+## Note
+Add ENV `BOOTSTRAP_ADMIN_PASSWORD` for portal admin
+```
+kubectl edit deploy efp-portal-deployment
+```
