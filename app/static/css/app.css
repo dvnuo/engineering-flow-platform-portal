@@ -944,3 +944,7 @@ html[data-theme="dark"] .prose th,
 html[data-theme="dark"] .prose td {
   border-color: #475569;
 }
+
+.overflow-auto .text-xs.whitespace-pre-wrap {
+  overflow: auto;
+}
