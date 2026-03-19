@@ -481,7 +481,7 @@ function renderThinkingProcess(article, events) {
   const count = events.length;
   const rows = events.map((event, idx) => {
     const view = getThinkingEventDisplay(event);
-    const border = idx === events.length - 1 ? "" : (isDark ? " border-l border-slate-600" : " border-l border-slate-200");
+    const border = idx === events.length - 1 ? "" : (isDark ? " border-slate-600" : " border-slate-200");
     const iconBg = isDark ? "bg-slate-700 border-slate-600 text-slate-300" : "bg-white border-slate-300 text-slate-500";
     const titleColor = isDark ? "text-slate-200" : "text-slate-700";
     const detailColor = isDark ? "text-slate-400" : "text-slate-500";
