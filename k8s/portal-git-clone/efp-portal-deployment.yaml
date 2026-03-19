@@ -1,0 +1,155 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: efp-portal-deployment
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: efp-portal-app
+  template:
+    metadata:
+      labels:
+        app: efp-portal-app
+    spec:
+      serviceAccountName: portal
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+
+      initContainers:
+        - image: alpine/git:latest
+          imagePullPolicy: Always
+          name: git-clone
+          args:
+            - >-
+              mkdir -p /app && mkdir -p /tmp/app && cd /tmp/app
+              &&REPO_URL="${GIT_REPO_URL}" && REPO_URL="$(echo ${REPO_URL} | sed
+              's#^\(https://[^/]*\)\(/.*\)#\1:443\2#')" && [ -n
+              "${GIT_USERNAME}" ] && [ -n "${GIT_TOKEN}" ] &&
+              REPO_URL="https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}"
+              && git -c http.sslVerify=false clone --depth 1 --branch
+              "${GIT_BRANCH}" "${REPO_URL}" . &&cp -rf /tmp/app/. /app/
+          command:
+            - sh
+            - '-c'
+          env:
+            - name: GIT_REPO_URL
+              value: https://github.com/dvnuo/engineering-flow-platform-portal
+            - name: GIT_BRANCH
+              value: master
+            - name: GIT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  key: GIT_USERNAME
+                  name: efp-portal-secret
+                  optional: true
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: GIT_TOKEN
+                  name: efp-portal-secret
+                  optional: true
+          volumeMounts:
+            - mountPath: /app
+              name: efp-portal-data
+              subPath: efp-portal-code
+      containers:
+        - name: portal-container
+          image: ghcr.io/dvnuo/engineering-flow-platform-portal:latest
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          imagePullPolicy: Always
+          env:
+            - name: K8S_ENABLED
+              value: "true"
+            - name: K8S_INCLUSTER
+              value: "true"
+            - name: AGENTS_NAMESPACE
+              value: "efp-agents"
+            - name: BOOTSTRAP_ADMIN_PASSWORD
+              value: ""
+            - name: K8S_KUBECONFIG
+              value: ""
+              # Use /app/data for SQLite database
+            - name: DATABASE_URL
+              value: "sqlite:////app/data/portal.db"
+          volumeMounts:
+            - name: efp-portal-data
+              mountPath: /app/data
+              subPath: efp-portal
+            - name: efp-portal-data
+              mountPath: /app/app
+              subPath: efp-portal-code/app
+          resources:
+            limits:
+              memory: 1024Mi
+            requests:
+              memory: 512Mi
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 20
+            successThreshold: 1
+            failureThreshold: 2
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 20
+            successThreshold: 1
+            failureThreshold: 2
+          startupProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 60
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: "kubernetes.io/os"
+                    operator: "In"
+                    values:
+                      - "linux"
+      topologySpreadConstraints:
+        - labelSelector:
+            matchLabels:
+              app: efp-portal-app
+          maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+        - labelSelector:
+            matchLabels:
+              app: efp-portal-app
+          maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+      volumes:
+        # EFS PVC for persistent data (database)
+        - name: efp-portal-data
+          persistentVolumeClaim:
+            claimName: efp-portal-efs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: efp-portal-service
+spec:
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  selector:
+    app: efp-portal-app
