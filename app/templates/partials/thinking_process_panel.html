@@ -75,7 +75,7 @@
                 {% if tool_args is string %}
                   <div class="mt-1 ml-4 p-1.5 bg-slate-100 dark:bg-slate-600 rounded text-xs font-mono overflow-x-auto">{{ tool_args[:500] }}</div>
                 {% elif tool_args is mapping %}
-                  <div class="mt-1 ml-4 p-1.5 bg-slate-100 dark:bg-slate-600 rounded text-xs font-mono overflow-x-auto">{{ tool_args|string|replace('{','')|replace('}','')|replace(',','\n')[:500] }}</div>
+                  <div class="mt-1 ml-4 p-1.5 bg-slate-100 dark:bg-slate-600 rounded text-xs font-mono overflow-x-auto">{{ tool_args|string|replace('{','')|replace('}','')|replace(',',' ') }}</div>
                 {% endif %}
               {% endif %}
             </div>
