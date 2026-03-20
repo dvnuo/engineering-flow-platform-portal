@@ -1350,8 +1350,8 @@ function insertFileReference(fileIdOrRef) {
       const pf = {
         id: fileId,
         file_id: fileId,
-        file: { name: Uploaded file },
-        name: Uploaded file,
+        file: { name: 'Uploaded file' },
+        name: 'Uploaded file',
         previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
         isImage: true,
         status: 'uploaded'
