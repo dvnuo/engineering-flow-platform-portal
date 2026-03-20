@@ -319,7 +319,9 @@ function renderInputPreview() {
       content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
     }
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
-    return `<div class="input-preview-card" data-id="${safeId}" data-preview-url="${pf.previewUrl || ''}" data-preview-name="${encodeURIComponent(pf.name || '')}" data-is-image="${pf.isImage ? 'true' : 'false'}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
+    const safePreviewUrl = escapeHtmlAttr(pf.previewUrl || '');
+    const safePreviewName = escapeHtmlAttr(pf.name || '');
+    return `<div class="input-preview-card" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
   }).join('');
 }
 
@@ -389,12 +391,12 @@ function buildUserMessageArticle(text, attachments = []) {
   if (attachments.length > 0) {
     attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
       const safeName = (a.name || '').replace(/[<>"'&]/g, '');
-      const safeUrl = (a.previewUrl || a.url || '');
-      const encodedName = encodeURIComponent(safeName);
+      const safeUrl = escapeHtmlAttr(a.previewUrl || a.url || '');
+      const safeNameAttr = escapeHtmlAttr(safeName);
       if (a.type === 'image') {
-        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeName}" data-preview-url="${safeUrl}" data-preview-name="${encodedName}" data-is-image="true" />`;
+        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
       } else {
-        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" data-preview-url="${safeUrl}" data-preview-name="${encodedName}" data-is-image="false">📄 ${safeName}</div>`;
+        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
       }
     }).join('')}</div>`;
   }
@@ -2598,6 +2600,11 @@ let filePreviewContent = null;
 let filePreviewBackdrop = null;
 let previousFocusElement = null;  // Store previously focused element for accessibility
 
+function escapeHtmlAttr(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function initFilePreviewModal() {
   filePreviewModal = document.getElementById('file-preview-modal');
   filePreviewContent = document.getElementById('file-preview-content');
@@ -2606,9 +2613,29 @@ function initFilePreviewModal() {
   document.getElementById('close-file-preview')?.addEventListener('click', closeFilePreview);
   filePreviewBackdrop?.addEventListener('click', closeFilePreview);
   
+  // Focus trap: keep keyboard focus within modal when open
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && filePreviewModal && !filePreviewModal.classList.contains('hidden')) {
+    if (!filePreviewModal || filePreviewModal.classList.contains('hidden')) return;
+    
+    if (e.key === 'Escape') {
       closeFilePreview();
+      return;
+    }
+    
+    if (e.key === 'Tab') {
+      const focusable = filePreviewModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (focusable.length === 0) return;
+      
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   });
   

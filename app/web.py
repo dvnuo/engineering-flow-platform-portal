@@ -19,7 +19,7 @@ router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
 
 def escape_data_attr(s):
-    """Escape string for use in HTML data attributes using standard library"""
+    """Escape string for safe embedding in HTML data-* attributes using markupsafe."""
     if s is None:
         return ''
     return markupsafe.escape(str(s))
