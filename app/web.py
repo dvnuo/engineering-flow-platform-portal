@@ -579,7 +579,7 @@ async def agent_files_download(agent_id: str, request: Request, path: str = "", 
             raise HTTPException(status_code=502, detail="Download failed")
         
         # Extract filename from path
-        filename = path.split("/")[-1] if path else "download"
+        filename = file_path.split("/")[-1] if file_path else "download"
         
         return Response(
             content=content, 
