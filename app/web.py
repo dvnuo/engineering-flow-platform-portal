@@ -549,8 +549,10 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
 
 
 @router.get("/a/{agent_id}/api/files/download")
-async def agent_files_download(agent_id: str, request: Request, path: str = ""):
+async def agent_files_download(agent_id: str, request: Request, path: str = "", paths: str = ""):
     """Proxy download file request to agent."""
+    # Support both 'path' and 'paths' parameter (frontend uses 'paths')
+    file_path = path or paths
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -563,12 +565,12 @@ async def agent_files_download(agent_id: str, request: Request, path: str = ""):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        # Use proxy_service.forward for consistent proxy behavior
+        # Use proxy_service.forward for consistent proxy behavior (frontend uses 'paths')
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
             method="GET",
             subpath="api/files/download",
-            query_items=[("path", path)],
+            query_items=[("paths", file_path)],
             body=None,
             headers={},
         )
