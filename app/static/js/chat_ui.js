@@ -1583,17 +1583,17 @@ async function loadServerFiles(path) {
       breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapedPath.replace(/"/g, '&quot;') + '">' + escapeHtml(part) + '</a>';
     }
 
-    // Build file rows with checkboxes and data attributes
+    // Build file rows with checkboxes in separate cell
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
-      const disabled = item.is_dir ? 'disabled' : '';
-      const escapedPath = escapeHtml(item.path);
-      const safePath = escapedPath.replace(/"/g, '&quot;');
+      const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       return (
-        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}" ${disabled}>` +
-          `<span class="text-lg">${icon}</span>` +
-          `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+        `<div class="file-row group flex items-center gap-3 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox flex-shrink-0 w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+          `<div class="flex-1 flex items-center gap-2 cursor-pointer name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+            `<span class="text-lg">${icon}</span>` +
+            `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+          `</div>` +
         `</div>`
       );
     }).join("");
@@ -1629,26 +1629,38 @@ async function loadServerFiles(path) {
         });
       }
 
-      // File row click handler (toggle checkbox + navigate)
+      // File row click handler (navigate on click)
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
-          const filePath = row.dataset.path;
-          const isDir = row.dataset.isDir === 'true';
-          const isCheckbox = e.target.type === 'checkbox';
-
-          // For directories (with or without checkbox click), navigate directly
-          if (isDir) {
-            loadServerFiles(filePath);
+          // Skip if clicking checkbox
+          if (e.target.type === 'checkbox') {
+            updateDownloadButton(panel);
             return;
           }
+          
+          const filePath = row.dataset.path;
+          const isDir = row.dataset.isDir === 'true';
 
-          // For files, toggle checkbox (skip if directly clicking checkbox)
-          if (!isCheckbox) {
-            const checkbox = row.querySelector('.file-checkbox');
-            if (checkbox) checkbox.checked = !checkbox.checked;
+          if (isDir) {
+            loadServerFiles(filePath);
+          }
+        });
+      });
+
+      // Name cell click handler - navigate for dirs, preview for files
+      panel.querySelectorAll('.name-cell').forEach(cell => {
+        cell.addEventListener('click', (e) => {
+          // Skip if clicking checkbox
+          if (e.target.type === 'checkbox') return;
+          
+          const filePath = cell.dataset.path;
+          const isDir = cell.dataset.isDir === 'true';
+          
+          if (isDir) {
+            loadServerFiles(filePath);
+          } else {
             previewServerFile(filePath, path);
           }
-          updateDownloadButton(panel);
         });
       });
 
@@ -1689,9 +1701,8 @@ async function loadServerFiles(path) {
 function getSelectedFiles(panel) {
   const selected = [];
   panel.querySelectorAll('.file-checkbox:checked').forEach(cb => {
-    if (cb.dataset.isDir !== 'true') {
-      selected.push(cb.dataset.path);
-    }
+    // Include both files and directories
+    selected.push(cb.dataset.path);
   });
   return selected;
 }
