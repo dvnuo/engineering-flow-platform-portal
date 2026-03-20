@@ -551,10 +551,6 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
 @router.get("/a/{agent_id}/api/files/download")
 async def agent_files_download(agent_id: str, request: Request, path: str = ""):
     """Proxy download file request to agent."""
-    from app.database import SessionLocal
-    from app.models import AgentRepository
-    from app.auth import _current_user_from_cookie, _can_access
-    
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
