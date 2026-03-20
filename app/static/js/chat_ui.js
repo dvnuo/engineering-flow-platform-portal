@@ -388,11 +388,12 @@ function buildUserMessageArticle(text, attachments = []) {
   if (attachments.length > 0) {
     attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
       const safeName = (a.name || '').replace(/[<>"'&]/g, '');
-      const safeUrl = (a.previewUrl || a.url || '').replace(/[<>"'&]/g, '');
+      const safeUrl = (a.previewUrl || a.url || '');
+      const encodedName = encodeURIComponent(safeName);
       if (a.type === 'image') {
-        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeName}" onclick="openFilePreview('${safeUrl}', '${safeName}', true)" />`;
+        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeName}" data-preview-url="${safeUrl}" data-preview-name="${encodedName}" data-is-image="true" />`;
       } else {
-        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" onclick="openFilePreview('${safeUrl}', '${safeName}', false)">📄 ${safeName}</div>`;
+        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" data-preview-url="${safeUrl}" data-preview-name="${encodedName}" data-is-image="false">📄 ${safeName}</div>`;
       }
     }).join('')}</div>`;
   }
@@ -1250,9 +1251,9 @@ function handleChatAfterSwap(target) {
 // ===== HTML decode helper =====
 function decodeHtml(text) {
   if (!text) return '';
-  const div = document.createElement('div');
-  div.innerHTML = text;
-  return div.textContent || div.innerText || '';
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value || '';
 }
 
 // ===== markdown + icons lifecycle =====
@@ -2607,6 +2608,28 @@ function initFilePreviewModal() {
       closeFilePreview();
     }
   });
+  
+  // Delegated click handler for preview elements (input-preview-area cards and chat attachments)
+  document.addEventListener('click', function(e) {
+    // Handle input-preview-area cards (exclude remove button)
+    const card = e.target.closest('.input-preview-card');
+    if (card && !e.target.closest('.remove-btn')) {
+      const url = card.getAttribute('data-preview-url');
+      const name = decodeURIComponent(card.getAttribute('data-preview-name') || '');
+      const isImage = card.getAttribute('data-is-image') === 'true';
+      if (url) openFilePreview(url, name, isImage);
+      return;
+    }
+    
+    // Handle chat message attachments with data-preview-url
+    const previewEl = e.target.closest('[data-preview-url]');
+    if (previewEl && !e.target.closest('.remove-btn')) {
+      const url = previewEl.getAttribute('data-preview-url');
+      const name = decodeURIComponent(previewEl.getAttribute('data-preview-name') || '');
+      const isImage = previewEl.getAttribute('data-is-image') === 'true';
+      if (url) openFilePreview(url, name, isImage);
+    }
+  });
 }
 
 function openFilePreview(url, name, isImage) {
@@ -2629,7 +2652,7 @@ function closeFilePreview() {
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initFilePreviewModal);
+  document.addEventListener('DOMContentLoaded', function() { initFilePreviewModal(); initFilePanelPreview(); });
 } else {
   initFilePreviewModal();
   initFilePanelPreview();

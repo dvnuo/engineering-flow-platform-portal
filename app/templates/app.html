@@ -200,10 +200,11 @@
 </div>
 
 <!-- File Preview Modal -->
-<div id="file-preview-modal" class="modal hidden" aria-hidden="true">
+<div id="file-preview-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="file-preview-title" aria-hidden="true">
   <div class="modal-backdrop" id="file-preview-backdrop"></div>
   <div class="modal-card file-preview-card">
     <button id="close-file-preview" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+    <h2 id="file-preview-title" class="sr-only">File Preview</h2>
     <div id="file-preview-content" class="file-preview-content"></div>
   </div>
 </div>

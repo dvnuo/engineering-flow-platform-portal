@@ -1,3 +1,4 @@
+import html
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 from typing import List, Optional
@@ -18,10 +19,10 @@ router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
 
 def escape_data_attr(s):
-    """Escape string for use in HTML data attributes (handles quotes properly)"""
+    """Escape string for use in HTML data attributes using standard library"""
     if s is None:
         return ''
-    return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
+    return html.escape(str(s), quote=True)
 
 templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
