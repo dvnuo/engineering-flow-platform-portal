@@ -548,6 +548,52 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         db.close()
 
 
+@router.get("/a/{agent_id}/api/files/download")
+async def agent_files_download(agent_id: str, request: Request, path: str = ""):
+    """Proxy download file request to agent."""
+    from app.proxy import proxy_service
+    from app.database import SessionLocal
+    from app.models import AgentRepository
+    from app.auth import _current_user_from_cookie, _can_access
+    
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Use proxy_service.forward for consistent proxy behavior
+        status_code, content, content_type = await proxy_service.forward(
+            agent=agent,
+            method="GET",
+            subpath="api/files/download",
+            query_items=[("path", path)],
+            body=None,
+            headers={},
+        )
+        
+        if status_code >= 400:
+            raise HTTPException(status_code=502, detail="Download failed")
+        
+        # Extract filename from path
+        filename = path.split("/")[-1] if path else "download"
+        
+        return Response(
+            content=content, 
+            media_type=content_type, 
+            status_code=status_code,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    finally:
+        db.close()
+
+
 @router.get("/app/agents/{agent_id}/thinking/panel")
 async def app_agent_thinking_panel(request: Request, agent_id: str, session_id: str = ""):
     """Backend-rendered thinking process panel"""
