@@ -87,10 +87,9 @@ if (dom.chatInput) {
         const pf = {
           id: 'paste_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
           file: file,
-          name: name,
+          name: name || file.name,
           isImage: isImage,
           previewUrl: null,
-      name: file.name,
           status: 'uploading',
         };
         

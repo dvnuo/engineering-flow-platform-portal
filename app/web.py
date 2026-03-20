@@ -1,4 +1,4 @@
-import html
+import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 from typing import List, Optional
@@ -22,7 +22,7 @@ def escape_data_attr(s):
     """Escape string for use in HTML data attributes using standard library"""
     if s is None:
         return ''
-    return html.escape(str(s), quote=True)
+    return markupsafe.escape(str(s))
 
 templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
