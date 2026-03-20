@@ -565,7 +565,7 @@ function scrollToBottom() {
 
 function renderMarkdown(scope = document) {
   scope.querySelectorAll(".md-render").forEach((el) => {
-    let html = md.render(el.dataset.md || "");
+    let html = md.render(decodeHtml(el.dataset.md) || "");
       el.innerHTML = html;
       // Add target="_blank" to all links via DOM
       el.querySelectorAll('a').forEach(a => {
@@ -1219,6 +1219,14 @@ function handleChatAfterSwap(target) {
   });
 
   setChatStatus("Ready");
+}
+
+// ===== HTML decode helper =====
+function decodeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.innerHTML = text;
+  return div.textContent || div.innerText || '';
 }
 
 // ===== markdown + icons lifecycle =====

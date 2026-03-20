@@ -15,6 +15,14 @@ from app.services.proxy_service import ProxyService
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
+
+def escape_data_attr(s):
+    """Escape string for use in HTML data attributes (handles quotes properly)"""
+    if s is None:
+        return ''
+    return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
+
+templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
 proxy_service = ProxyService()
 
