@@ -589,6 +589,9 @@ async def agent_files_download(agent_id: str, request: Request, path: str = "", 
         # Extract filename from path (use first for single, zip for multiple)
         if len(file_paths) > 1:
             filename = "files.zip"
+        elif content_type == 'application/zip':
+            # Agent already determined it's a ZIP (e.g., folder download)
+            filename = file_paths[0].split("/")[-1] + ".zip" if file_paths else "download.zip"
         else:
             filename = file_paths[0].split("/")[-1] if file_paths else "download"
         
