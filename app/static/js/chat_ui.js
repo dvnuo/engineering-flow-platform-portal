@@ -1586,12 +1586,11 @@ async function loadServerFiles(path) {
     // Build file rows with checkboxes in separate cell
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
-      const escapedPath = escapeHtml(item.path);
-      const safePath = escapedPath.replace(/"/g, '&quot;');
+      const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       return (
         `<div class="file-row group flex items-center gap-3 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
           `<input type="checkbox" class="file-checkbox flex-shrink-0 w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
-          `<div class="flex-1 flex items-center gap-2 cursor-pointer flex-items-center" onclick="loadServerFiles('${safePath}')">` +
+          `<div class="flex-1 flex items-center gap-2 cursor-pointer name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
             `<span class="text-lg">${icon}</span>` +
             `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
           `</div>` +
@@ -1648,9 +1647,21 @@ async function loadServerFiles(path) {
         });
       });
 
-      // Checkbox change handler
-      panel.querySelectorAll('.file-checkbox').forEach(cb => {
-        cb.addEventListener('change', () => updateDownloadButton(panel));
+      // Name cell click handler - navigate for dirs, preview for files
+      panel.querySelectorAll('.name-cell').forEach(cell => {
+        cell.addEventListener('click', (e) => {
+          // Skip if clicking checkbox
+          if (e.target.type === 'checkbox') return;
+          
+          const filePath = cell.dataset.path;
+          const isDir = cell.dataset.isDir === 'true';
+          
+          if (isDir) {
+            loadServerFiles(filePath);
+          } else {
+            previewServerFile(filePath, path);
+          }
+        });
       });
 
       // Checkbox change handler
