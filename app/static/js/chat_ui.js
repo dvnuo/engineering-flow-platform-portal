@@ -1630,24 +1630,40 @@ async function loadServerFiles(path) {
 
       // File row click handler (toggle checkbox + navigate)
       panel.querySelectorAll('.file-item').forEach(row => {
+        // Single click: toggle selection
         row.addEventListener('click', (e) => {
           const filePath = row.dataset.path;
           const isDir = row.dataset.isDir === 'true';
           const isCheckbox = e.target.type === 'checkbox';
 
-          // For directories (with or without checkbox click), navigate directly
-          if (isDir) {
-            loadServerFiles(filePath);
+          // Don't navigate if clicking checkbox - allow selection
+          if (isCheckbox) {
+            updateDownloadButton(panel);
             return;
           }
 
-          // For files, toggle checkbox (skip if directly clicking checkbox)
-          if (!isCheckbox) {
+          // For directories (when not clicking checkbox), toggle selection
+          if (isDir) {
             const checkbox = row.querySelector('.file-checkbox');
             if (checkbox) checkbox.checked = !checkbox.checked;
-            previewServerFile(filePath, path);
+            updateDownloadButton(panel);
+            return;
           }
+
+          // For files, toggle checkbox and preview
+          const checkbox = row.querySelector('.file-checkbox');
+          if (checkbox) checkbox.checked = !checkbox.checked;
+          previewServerFile(filePath, path);
           updateDownloadButton(panel);
+        });
+
+        // Double click: navigate into folder
+        row.addEventListener('dblclick', () => {
+          const filePath = row.dataset.path;
+          const isDir = row.dataset.isDir === 'true';
+          if (isDir) {
+            loadServerFiles(filePath);
+          }
         });
       });
 
