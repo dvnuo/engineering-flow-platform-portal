@@ -2632,17 +2632,56 @@ function initFilePreviewModal() {
   });
 }
 
+function isSafePreviewUrl(url) {
+  if (typeof url !== 'string') return false;
+  try {
+    const resolved = new URL(url, window.location.origin);
+    const allowed = ['http:', 'https:', 'blob:'];
+    if (!allowed.includes(resolved.protocol)) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function openFilePreview(url, name, isImage) {
   if (!filePreviewModal || !filePreviewContent) return;
+  if (!isSafePreviewUrl(url)) return;
+  
+  // Clear existing content
+  filePreviewContent.textContent = '';
   
   if (isImage) {
-    filePreviewContent.innerHTML = '<img src="' + url + '" alt="' + (name || 'Preview') + '" />';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = name || 'Preview';
+    filePreviewContent.appendChild(img);
   } else {
-    filePreviewContent.innerHTML = '<a href="' + url + '" target="_blank" class="file-link"><span>📄</span><span>' + (name || 'Open File') + '</span></a>';
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'file-link';
+    
+    const icon = document.createElement('span');
+    icon.textContent = '📄';
+    const text = document.createElement('span');
+    text.textContent = name || 'Open File';
+    
+    link.appendChild(icon);
+    link.appendChild(text);
+    filePreviewContent.appendChild(link);
   }
+  
+  // Accessibility: store previous focus and move focus to modal
+  const closeBtn = document.getElementById('close-file-preview');
+  const previousFocus = document.activeElement;
   
   filePreviewModal.classList.remove('hidden');
   filePreviewModal.setAttribute('aria-hidden', 'false');
+  
+  // Focus the close button when opening
+  if (closeBtn) closeBtn.focus();
 }
 
 function closeFilePreview() {
@@ -2662,6 +2701,9 @@ if (document.readyState === 'loading') {
 // ===== File Panel Preview Handler =====
 function initFilePanelPreview() {
   document.addEventListener('click', function(e) {
+    // Ignore clicks inside uploads-list (has its own preview handler)
+    if (e.target.closest('#uploads-list')) return;
+    
     const previewBtn = e.target.closest('.preview-btn');
     if (!previewBtn) return;
     
@@ -2673,7 +2715,7 @@ function initFilePanelPreview() {
     if (!fileId || !state.selectedAgentId) return;
     
     const url = '/a/' + state.selectedAgentId + '/api/files/' + encodeURIComponent(fileId);
-    const isImage = filename.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+    const isImage = filename && filename.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
     
     openFilePreview(url, filename, !!isImage);
   });
