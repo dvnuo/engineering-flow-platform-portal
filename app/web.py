@@ -1,5 +1,6 @@
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
+from typing import List, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -549,10 +550,16 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
 
 
 @router.get("/a/{agent_id}/api/files/download")
-async def agent_files_download(agent_id: str, request: Request, path: str = "", paths: str = ""):
+async def agent_files_download(agent_id: str, request: Request, path: str = "", paths: Optional[List[str]] = None):
     """Proxy download file request to agent."""
     # Support both 'path' and 'paths' parameter (frontend uses 'paths')
-    file_path = path or paths
+    # paths can be a list for multiple files
+    if paths is None:
+        # Fallback to single 'path' param
+        file_paths = [path] if path else []
+    else:
+        file_paths = paths
+    
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -566,11 +573,12 @@ async def agent_files_download(agent_id: str, request: Request, path: str = "", 
             raise HTTPException(status_code=403, detail="Forbidden")
 
         # Use proxy_service.forward for consistent proxy behavior (frontend uses 'paths')
+        query_items = [("paths", p) for p in file_paths]
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
             method="GET",
             subpath="api/files/download",
-            query_items=[("paths", file_path)],
+            query_items=query_items,
             body=None,
             headers={},
         )
@@ -578,8 +586,11 @@ async def agent_files_download(agent_id: str, request: Request, path: str = "", 
         if status_code >= 400:
             raise HTTPException(status_code=502, detail="Download failed")
         
-        # Extract filename from path
-        filename = file_path.split("/")[-1] if file_path else "download"
+        # Extract filename from path (use first for single, zip for multiple)
+        if len(file_paths) > 1:
+            filename = "files.zip"
+        else:
+            filename = file_paths[0].split("/")[-1] if file_paths else "download"
         
         return Response(
             content=content, 
