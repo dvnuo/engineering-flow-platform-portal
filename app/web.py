@@ -3,7 +3,7 @@ import json
 from typing import List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status, Query
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -550,7 +550,7 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
 
 
 @router.get("/a/{agent_id}/api/files/download")
-async def agent_files_download(agent_id: str, request: Request, path: str = "", paths: Optional[List[str]] = None):
+async def agent_files_download(agent_id: str, request: Request, path: str = "", paths: Optional[List[str]] = Query(default=None)):
     """Proxy download file request to agent."""
     # Support both 'path' and 'paths' parameter (frontend uses 'paths')
     # paths can be a list for multiple files
