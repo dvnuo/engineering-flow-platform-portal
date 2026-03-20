@@ -90,6 +90,7 @@ if (dom.chatInput) {
           name: name,
           isImage: isImage,
           previewUrl: null,
+      name: file.name,
           status: 'uploading',
         };
         
@@ -248,6 +249,7 @@ async function addPendingFilesAndUpload(files) {
       id: generateFileId(),
       file: file,
       previewUrl: null,
+      name: file.name,
       isImage: isImage,
       status: 'uploading'
     };
@@ -1348,7 +1350,8 @@ function insertFileReference(fileIdOrRef) {
       const pf = {
         id: fileId,
         file_id: fileId,
-        file: { name: 'Uploaded file' },
+        file: { name: Uploaded file },
+        name: Uploaded file,
         previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
         isImage: true,
         status: 'uploaded'
@@ -2594,6 +2597,7 @@ window.addEventListener("beforeunload", disconnectEventSocket);
 let filePreviewModal = null;
 let filePreviewContent = null;
 let filePreviewBackdrop = null;
+let previousFocusElement = null;  // Store previously focused element for accessibility
 
 function initFilePreviewModal() {
   filePreviewModal = document.getElementById('file-preview-modal');
@@ -2675,7 +2679,7 @@ function openFilePreview(url, name, isImage) {
   
   // Accessibility: store previous focus and move focus to modal
   const closeBtn = document.getElementById('close-file-preview');
-  const previousFocus = document.activeElement;
+  previousFocusElement = document.activeElement;
   
   filePreviewModal.classList.remove('hidden');
   filePreviewModal.setAttribute('aria-hidden', 'false');
@@ -2688,6 +2692,11 @@ function closeFilePreview() {
   if (!filePreviewModal) return;
   filePreviewModal.classList.add('hidden');
   filePreviewModal.setAttribute('aria-hidden', 'true');
+  
+  // Restore focus to previously focused element
+  if (previousFocusElement && previousFocusElement.focus) {
+    previousFocusElement.focus();
+  }
 }
 
 if (document.readyState === 'loading') {
