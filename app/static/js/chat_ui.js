@@ -428,13 +428,39 @@ function getThinkingEventDisplay(event) {
   const data = event?.data || {};
   const byType = {
     iteration_start: { icon: "rotate-cw", title: "Iteration Start", detail: `Iteration ${data.iteration || 1}${data.total ? `/${data.total}` : ""}` },
-    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || "Model is reasoning" },
-    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool" },
-    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed") },
-    skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched" },
-    complete: { icon: "flag", title: "Complete", detail: "Execution complete" },
+    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
+    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
+    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
+    skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
+    complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
   };
   return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
+}
+
+// Open Thinking Process panel - using backend rendering
+async function openThinkingProcessPanel() {
+  if (!state.selectedAgentId) {
+    showToast('Please select an agent first');
+    return;
+  }
+  
+  const currentSessionId = currentSessionIdForSelectedAgent();
+  if (!currentSessionId) {
+    setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
+    return;
+  }
+  
+  // Use htmx to load backend-rendered panel
+  setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading...</div>');
+  
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML"
+    });
+  } catch (err) {
+    setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
+  }
 }
 
 function renderThinkingProcess(article, events) {
@@ -455,7 +481,7 @@ function renderThinkingProcess(article, events) {
   const count = events.length;
   const rows = events.map((event, idx) => {
     const view = getThinkingEventDisplay(event);
-    const border = idx === events.length - 1 ? "" : (isDark ? " border-l border-slate-600" : " border-l border-slate-200");
+    const border = idx === events.length - 1 ? "" : (isDark ? " border-slate-600" : " border-slate-200");
     const iconBg = isDark ? "bg-slate-700 border-slate-600 text-slate-300" : "bg-white border-slate-300 text-slate-500";
     const titleColor = isDark ? "text-slate-200" : "text-slate-700";
     const detailColor = isDark ? "text-slate-400" : "text-slate-500";
@@ -1565,17 +1591,17 @@ async function loadServerFiles(path) {
       breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapedPath.replace(/"/g, '&quot;') + '">' + escapeHtml(part) + '</a>';
     }
 
-    // Build file rows with checkboxes and data attributes
+    // Build file rows with checkboxes in separate cell
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
-      const disabled = item.is_dir ? 'disabled' : '';
-      const escapedPath = escapeHtml(item.path);
-      const safePath = escapedPath.replace(/"/g, '&quot;');
+      const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       return (
-        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}" ${disabled}>` +
-          `<span class="text-lg">${icon}</span>` +
-          `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+        `<div class="file-row group flex items-center gap-3 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox flex-shrink-0 w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+          `<div class="flex-1 flex items-center gap-2 cursor-pointer name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+            `<span class="text-lg">${icon}</span>` +
+            `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+          `</div>` +
         `</div>`
       );
     }).join("");
@@ -1611,26 +1637,38 @@ async function loadServerFiles(path) {
         });
       }
 
-      // File row click handler (toggle checkbox + navigate)
+      // File row click handler (navigate on click)
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
-          const filePath = row.dataset.path;
-          const isDir = row.dataset.isDir === 'true';
-          const isCheckbox = e.target.type === 'checkbox';
-
-          // For directories (with or without checkbox click), navigate directly
-          if (isDir) {
-            loadServerFiles(filePath);
+          // Skip if clicking checkbox
+          if (e.target.type === 'checkbox') {
+            updateDownloadButton(panel);
             return;
           }
+          
+          const filePath = row.dataset.path;
+          const isDir = row.dataset.isDir === 'true';
 
-          // For files, toggle checkbox (skip if directly clicking checkbox)
-          if (!isCheckbox) {
-            const checkbox = row.querySelector('.file-checkbox');
-            if (checkbox) checkbox.checked = !checkbox.checked;
+          if (isDir) {
+            loadServerFiles(filePath);
+          }
+        });
+      });
+
+      // Name cell click handler - navigate for dirs, preview for files
+      panel.querySelectorAll('.name-cell').forEach(cell => {
+        cell.addEventListener('click', (e) => {
+          // Skip if clicking checkbox
+          if (e.target.type === 'checkbox') return;
+          
+          const filePath = cell.dataset.path;
+          const isDir = cell.dataset.isDir === 'true';
+          
+          if (isDir) {
+            loadServerFiles(filePath);
+          } else {
             previewServerFile(filePath, path);
           }
-          updateDownloadButton(panel);
         });
       });
 
@@ -1671,9 +1709,8 @@ async function loadServerFiles(path) {
 function getSelectedFiles(panel) {
   const selected = [];
   panel.querySelectorAll('.file-checkbox:checked').forEach(cb => {
-    if (cb.dataset.isDir !== 'true') {
-      selected.push(cb.dataset.path);
-    }
+    // Include both files and directories
+    selected.push(cb.dataset.path);
   });
   return selected;
 }
@@ -2532,6 +2569,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openSessionsPanel();
+  });
+
+  // Thinking Process button in header
+  document.getElementById('btn-thinking')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openThinkingProcessPanel();
   });
 
   await refreshAll();

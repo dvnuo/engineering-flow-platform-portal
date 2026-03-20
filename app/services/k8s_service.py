@@ -67,7 +67,7 @@ class K8sService:
         
         # Build env vars for git clone
         default_branch = getattr(self.settings, "default_agent_branch", "master")
-        env = [client.V1EnvVar(name="TZ", value="Asia/Hong_Kong")]
+        env = []
         if agent.repo_url:
             env.extend([
                 client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
@@ -281,7 +281,6 @@ class K8sService:
             # Clone git repo to /app (will be mounted)
             # Add environment variables for git clone
             env = [
-                client.V1EnvVar(name="TZ", value="Asia/Hong_Kong"),
                 client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
                 client.V1EnvVar(name="GIT_BRANCH", value=branch),
             ]
