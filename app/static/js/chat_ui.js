@@ -1583,16 +1583,18 @@ async function loadServerFiles(path) {
       breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapedPath.replace(/"/g, '&quot;') + '">' + escapeHtml(part) + '</a>';
     }
 
-    // Build file rows with checkboxes and data attributes
+    // Build file rows with checkboxes in separate cell
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
       const escapedPath = escapeHtml(item.path);
       const safePath = escapedPath.replace(/"/g, '&quot;');
       return (
-        `<div class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 cursor-pointer file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
-          `<span class="text-lg">${icon}</span>` +
-          `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+        `<div class="file-row group flex items-center gap-3 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox flex-shrink-0 w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+          `<div class="flex-1 flex items-center gap-2 cursor-pointer flex-items-center" onclick="loadServerFiles('${safePath}')">` +
+            `<span class="text-lg">${icon}</span>` +
+            `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+          `</div>` +
         `</div>`
       );
     }).join("");
@@ -1628,43 +1630,27 @@ async function loadServerFiles(path) {
         });
       }
 
-      // File row click handler (toggle checkbox + navigate)
+      // File row click handler (navigate on click)
       panel.querySelectorAll('.file-item').forEach(row => {
-        // Single click: toggle selection
         row.addEventListener('click', (e) => {
-          const filePath = row.dataset.path;
-          const isDir = row.dataset.isDir === 'true';
-          const isCheckbox = e.target.type === 'checkbox';
-
-          // Don't navigate if clicking checkbox - allow selection
-          if (isCheckbox) {
+          // Skip if clicking checkbox
+          if (e.target.type === 'checkbox') {
             updateDownloadButton(panel);
             return;
           }
-
-          // For directories (when not clicking checkbox), toggle selection
-          if (isDir) {
-            const checkbox = row.querySelector('.file-checkbox');
-            if (checkbox) checkbox.checked = !checkbox.checked;
-            updateDownloadButton(panel);
-            return;
-          }
-
-          // For files, toggle checkbox and preview
-          const checkbox = row.querySelector('.file-checkbox');
-          if (checkbox) checkbox.checked = !checkbox.checked;
-          previewServerFile(filePath, path);
-          updateDownloadButton(panel);
-        });
-
-        // Double click: navigate into folder
-        row.addEventListener('dblclick', () => {
+          
           const filePath = row.dataset.path;
           const isDir = row.dataset.isDir === 'true';
+
           if (isDir) {
             loadServerFiles(filePath);
           }
         });
+      });
+
+      // Checkbox change handler
+      panel.querySelectorAll('.file-checkbox').forEach(cb => {
+        cb.addEventListener('change', () => updateDownloadButton(panel));
       });
 
       // Checkbox change handler
