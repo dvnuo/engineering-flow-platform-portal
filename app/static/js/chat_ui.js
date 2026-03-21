@@ -686,7 +686,9 @@ function currentSessionIdForSelectedAgent() {
 }
 
 function syncHiddenSessionInputFromState() {
-  if (dom.chatSessionId) dom.chatSessionId.value = currentSessionIdForSelectedAgent();
+  // Re-query the element each time since OOB swap replaces the DOM element
+  const hiddenInput = document.getElementById("chat-session-id");
+  if (hiddenInput) hiddenInput.value = currentSessionIdForSelectedAgent();
 }
 
 function updateSelectedAgentSession(sessionId) {
