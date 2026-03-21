@@ -87,7 +87,7 @@ if (dom.chatInput) {
         const pf = {
           id: 'paste_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
           file: file,
-          name: name,
+          name: name || file.name,
           isImage: isImage,
           previewUrl: null,
           status: 'uploading',
@@ -248,6 +248,7 @@ async function addPendingFilesAndUpload(files) {
       id: generateFileId(),
       file: file,
       previewUrl: null,
+      name: file.name,
       isImage: isImage,
       status: 'uploading'
     };
@@ -318,7 +319,9 @@ function renderInputPreview() {
       content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
     }
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
-    return `<div class="input-preview-card" data-id="${safeId}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
+    const safePreviewUrl = escapeHtmlAttr(pf.previewUrl || '');
+    const safePreviewName = escapeHtmlAttr(pf.name || '');
+    return `<div class="input-preview-card" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
   }).join('');
 }
 
@@ -388,11 +391,12 @@ function buildUserMessageArticle(text, attachments = []) {
   if (attachments.length > 0) {
     attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
       const safeName = (a.name || '').replace(/[<>"'&]/g, '');
-      const safeUrl = (a.previewUrl || a.url || '').replace(/[<>"'&]/g, '');
+      const safeUrl = escapeHtmlAttr(a.previewUrl || a.url || '');
+      const safeNameAttr = escapeHtmlAttr(safeName);
       if (a.type === 'image') {
-        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500" alt="${safeName}" />`;
+        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
       } else {
-        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs">📄 ${safeName}</div>`;
+        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
       }
     }).join('')}</div>`;
   }
@@ -591,7 +595,7 @@ function scrollToBottom() {
 
 function renderMarkdown(scope = document) {
   scope.querySelectorAll(".md-render").forEach((el) => {
-    let html = md.render(el.dataset.md || "");
+    let html = md.render(decodeHtml(el.dataset.md) || "");
       el.innerHTML = html;
       // Add target="_blank" to all links via DOM
       el.querySelectorAll('a').forEach(a => {
@@ -1247,6 +1251,14 @@ function handleChatAfterSwap(target) {
   setChatStatus("Ready");
 }
 
+// ===== HTML decode helper =====
+function decodeHtml(text) {
+  if (!text) return '';
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value || '';
+}
+
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:configRequest", (event) => {
@@ -1340,8 +1352,9 @@ function insertFileReference(fileIdOrRef) {
         id: fileId,
         file_id: fileId,
         file: { name: 'Uploaded file' },
+        name: 'Uploaded file',
         previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
-        isImage: true,
+        isImage: false,
         status: 'uploaded'
       };
       state.pendingFiles.push(pf);
@@ -2578,3 +2591,169 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 window.addEventListener("beforeunload", disconnectEventSocket);
+
+
+
+// ===== File Preview Modal =====
+let filePreviewModal = null;
+let filePreviewContent = null;
+let filePreviewBackdrop = null;
+let previousFocusElement = null;  // Store previously focused element for accessibility
+
+function escapeHtmlAttr(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function initFilePreviewModal() {
+  filePreviewModal = document.getElementById('file-preview-modal');
+  filePreviewContent = document.getElementById('file-preview-content');
+  filePreviewBackdrop = document.getElementById('file-preview-backdrop');
+  
+  document.getElementById('close-file-preview')?.addEventListener('click', closeFilePreview);
+  filePreviewBackdrop?.addEventListener('click', closeFilePreview);
+  
+  // Focus trap: keep keyboard focus within modal when open
+  document.addEventListener('keydown', (e) => {
+    if (!filePreviewModal || filePreviewModal.classList.contains('hidden')) return;
+    
+    if (e.key === 'Escape') {
+      closeFilePreview();
+      return;
+    }
+    
+    if (e.key === 'Tab') {
+      const focusable = filePreviewModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (focusable.length === 0) return;
+      
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  });
+  
+  // Delegated click handler for preview elements (input-preview-area cards and chat attachments)
+  document.addEventListener('click', function(e) {
+    // Handle input-preview-area cards (exclude remove button)
+    const card = e.target.closest('.input-preview-card');
+    if (card && !e.target.closest('.remove-btn')) {
+      const url = card.getAttribute('data-preview-url');
+      // data-preview-name is HTML-escaped, getAttribute returns decoded value directly
+      const name = card.getAttribute('data-preview-name') || '';
+      const isImage = card.getAttribute('data-is-image') === 'true';
+      if (url) openFilePreview(url, name, isImage);
+      return;
+    }
+    
+    // Handle chat message attachments with data-preview-url
+    const previewEl = e.target.closest('[data-preview-url]');
+    if (previewEl && !e.target.closest('.remove-btn')) {
+      const url = previewEl.getAttribute('data-preview-url');
+      // data-preview-name is HTML-escaped, getAttribute returns decoded value directly
+      const name = previewEl.getAttribute('data-preview-name') || '';
+      const isImage = previewEl.getAttribute('data-is-image') === 'true';
+      if (url) openFilePreview(url, name, isImage);
+    }
+  });
+}
+
+function isSafePreviewUrl(url) {
+  if (typeof url !== 'string') return false;
+  try {
+    const resolved = new URL(url, window.location.origin);
+    const allowed = ['http:', 'https:', 'blob:'];
+    if (!allowed.includes(resolved.protocol)) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function openFilePreview(url, name, isImage) {
+  if (!filePreviewModal || !filePreviewContent) return;
+  if (!isSafePreviewUrl(url)) return;
+  
+  // Clear existing content
+  filePreviewContent.textContent = '';
+  
+  if (isImage) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = name || 'Preview';
+    filePreviewContent.appendChild(img);
+  } else {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'file-link';
+    
+    const icon = document.createElement('span');
+    icon.textContent = '📄';
+    const text = document.createElement('span');
+    text.textContent = name || 'Open File';
+    
+    link.appendChild(icon);
+    link.appendChild(text);
+    filePreviewContent.appendChild(link);
+  }
+  
+  // Accessibility: store previous focus and move focus to modal
+  const closeBtn = document.getElementById('close-file-preview');
+  previousFocusElement = document.activeElement;
+  
+  filePreviewModal.classList.remove('hidden');
+  filePreviewModal.setAttribute('aria-hidden', 'false');
+  
+  // Focus the close button when opening
+  if (closeBtn) closeBtn.focus();
+}
+
+function closeFilePreview() {
+  if (!filePreviewModal) return;
+  filePreviewModal.classList.add('hidden');
+  filePreviewModal.setAttribute('aria-hidden', 'true');
+  
+  // Restore focus to previously focused element
+  if (previousFocusElement && previousFocusElement.focus) {
+    previousFocusElement.focus();
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function() { initFilePreviewModal(); initFilePanelPreview(); });
+} else {
+  initFilePreviewModal();
+  initFilePanelPreview();
+}
+
+
+// ===== File Panel Preview Handler =====
+function initFilePanelPreview() {
+  document.addEventListener('click', function(e) {
+    // Ignore clicks inside uploads-list (has its own preview handler)
+    if (e.target.closest('#uploads-list')) return;
+    
+    const previewBtn = e.target.closest('.preview-btn');
+    if (!previewBtn) return;
+    
+    const fileRow = previewBtn.closest('.file-row');
+    if (!fileRow) return;
+    
+    const fileId = fileRow.dataset.fileId;
+    const filename = fileRow.querySelector('.font-medium')?.textContent || fileId;
+    if (!fileId || !state.selectedAgentId) return;
+    
+    const url = '/a/' + state.selectedAgentId + '/api/files/' + encodeURIComponent(fileId);
+    const isImage = filename && filename.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+    
+    openFilePreview(url, filename, !!isImage);
+  });
+}

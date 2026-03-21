@@ -1,3 +1,4 @@
+import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 from typing import List, Optional
@@ -16,6 +17,14 @@ from app.services.proxy_service import ProxyService
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
+
+def escape_data_attr(s):
+    """Escape string for safe embedding in HTML data-* attributes using markupsafe."""
+    if s is None:
+        return ''
+    return markupsafe.escape(str(s))
+
+templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
 proxy_service = ProxyService()
 
