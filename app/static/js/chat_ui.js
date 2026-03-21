@@ -448,7 +448,12 @@ async function openThinkingProcessPanel() {
     return;
   }
   
-  const currentSessionId = currentSessionIdForSelectedAgent();
+  // Try state first (updated after message received), fall back to hidden input for new sessions
+  let currentSessionId = currentSessionIdForSelectedAgent();
+  if (!currentSessionId && dom.chatSessionId) {
+    currentSessionId = dom.chatSessionId.value || "";
+  }
+  
   if (!currentSessionId) {
     setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
     return;
