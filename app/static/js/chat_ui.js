@@ -1354,7 +1354,7 @@ function insertFileReference(fileIdOrRef) {
         file: { name: 'Uploaded file' },
         name: 'Uploaded file',
         previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
-        isImage: true,
+        isImage: false,
         status: 'uploaded'
       };
       state.pendingFiles.push(pf);
