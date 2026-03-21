@@ -2645,7 +2645,8 @@ function initFilePreviewModal() {
     const card = e.target.closest('.input-preview-card');
     if (card && !e.target.closest('.remove-btn')) {
       const url = card.getAttribute('data-preview-url');
-      const name = decodeURIComponent(card.getAttribute('data-preview-name') || '');
+      // data-preview-name is HTML-escaped, getAttribute returns decoded value directly
+      const name = card.getAttribute('data-preview-name') || '';
       const isImage = card.getAttribute('data-is-image') === 'true';
       if (url) openFilePreview(url, name, isImage);
       return;
@@ -2655,7 +2656,8 @@ function initFilePreviewModal() {
     const previewEl = e.target.closest('[data-preview-url]');
     if (previewEl && !e.target.closest('.remove-btn')) {
       const url = previewEl.getAttribute('data-preview-url');
-      const name = decodeURIComponent(previewEl.getAttribute('data-preview-name') || '');
+      // data-preview-name is HTML-escaped, getAttribute returns decoded value directly
+      const name = previewEl.getAttribute('data-preview-name') || '';
       const isImage = previewEl.getAttribute('data-is-image') === 'true';
       if (url) openFilePreview(url, name, isImage);
     }
