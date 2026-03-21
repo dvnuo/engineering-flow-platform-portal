@@ -375,8 +375,12 @@ html[data-theme="light"] [data-pending-assistant="1"] {
   --pending-aura-mid: rgba(96, 165, 250, 0.2);
   --pending-aura-edge: rgba(96, 165, 250, 0);
   position: relative;
-  padding-left: 2.75rem !important;
+  /* padding-left: 2.75rem !important; */
   isolation: isolate;
+}
+
+html[data-theme="light"] [data-pending-assistant="1"] .text-slate-300 {
+  margin-left: 1.5rem;
 }
 
 html:not([data-theme="light"]) [data-pending-assistant="1"] {
@@ -387,8 +391,12 @@ html:not([data-theme="light"]) [data-pending-assistant="1"] {
   --pending-aura-mid: rgba(99, 102, 241, 0.2);
   --pending-aura-edge: rgba(59, 130, 246, 0);
   position: relative;
-  padding-left: 2.75rem !important;
+  /* padding-left: 2.75rem !important; */
   isolation: isolate;
+}
+
+html:not[data-theme="light"] [data-pending-assistant="1"] .text-slate-300 {
+  margin-left: 1.5rem;
 }
 
 [data-pending-assistant="1"]::before {
