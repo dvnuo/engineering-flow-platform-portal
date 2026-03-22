@@ -1202,3 +1202,9 @@ html[data-theme="dark"] .prose td {
 .overflow-auto .text-xs.whitespace-pre-wrap {
   overflow: auto;
 }
+
+
+/* System Prompt Editor Modal */
+#system-prompt-editor-modal textarea {
+  font-family: monospace;
+}
