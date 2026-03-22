@@ -1288,6 +1288,7 @@ function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
+    if (event.target?.id === "message-list") addEditButtonsToMessages();
     renderIcons();
   });
   document.addEventListener("htmx:responseError", handleChatResponseError);
@@ -1584,6 +1585,7 @@ async function loadSession(sessionId) {
     state.selectedAgentName = agent?.name || null;
   }
   renderChatHistory(data.messages || [], data.metadata || {});
+  addEditButtonsToMessages();
 
   setChatStatus(`Loaded session ${normalized}`);
   // Only open sessions panel if explicitly requested
