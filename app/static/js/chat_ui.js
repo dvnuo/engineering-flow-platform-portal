@@ -453,7 +453,7 @@ async function openThinkingProcessPanel() {
   let currentSessionId = currentSessionIdForSelectedAgent();
   const hiddenSessionInput = document.getElementById("chat-session-id");
   if (!currentSessionId && hiddenSessionInput) {
-    currentSessionId = hiddenSessionInput.value || "";
+    currentSessionId = (hiddenSessionInput.value || "").trim();
   }
   
   if (!currentSessionId) {
@@ -2003,7 +2003,7 @@ async function openSettings() {
 
 async function clearChat() {
   try {
-    const sessionId = document.getElementById("chat-session-id")?.value;
+    const sessionId = (document.getElementById("chat-session-id")?.value || "").trim();
     if (sessionId) {
       await agentApi("/api/clear", {
         method: "POST",
