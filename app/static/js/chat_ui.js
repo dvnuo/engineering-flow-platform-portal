@@ -2227,6 +2227,7 @@ if (document.readyState === 'loading') {
 // Open message edit modal
 function openEditMessageModal(messageId, currentContent) {
   document.getElementById("edit-message-id").value = messageId;
+  document.getElementById("edit-original-content").value = currentContent;
   document.getElementById("edit-message-content").value = currentContent;
   document.getElementById("message-edit-modal")?.classList.remove("hidden");
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
@@ -2348,13 +2349,20 @@ function bindEvents() {
     
     if (!messageId || !newContent.trim()) return;
     
+    // Get the original content for backend matching
+    const originalContent = document.getElementById("edit-original-content")?.value || '';
+    
     try {
       // Use delete-from-here to delete the target message and subsequent messages
       // Then send a new message with the edited content
+      // Send original_content for matching (since message_id might be a local ID)
       const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/delete-from-here`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ new_content: newContent })
+        body: JSON.stringify({ 
+          new_content: newContent,
+          original_content: originalContent 
+        })
       });
       
       const result = await response.json();
