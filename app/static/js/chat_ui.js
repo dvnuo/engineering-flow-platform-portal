@@ -1550,6 +1550,7 @@ function renderChatHistory(messages, metadata = {}) {
     const article = document.createElement("article");
     if (isUser) {
       article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
+      article.dataset.localUser = "1";
       const content = document.createElement("div");
       content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
