@@ -2259,9 +2259,12 @@ function addEditButtonsToMessages() {
     editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
     editBtn.textContent = "Edit";
     editBtn.onclick = () => {
+      // Read the current message ID from the article's data attribute at click time
+      // This ensures we get the real ID even if it was updated after button creation
+      const currentMessageId = article.dataset.messageId || messageId;
       const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
-      openEditMessageModal(messageId, content);
+      openEditMessageModal(currentMessageId, content);
     };
     article.appendChild(editBtn);
   });
