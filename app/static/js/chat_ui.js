@@ -2361,7 +2361,17 @@ function bindEvents() {
       if (result.success) {
         // Reload the session with updated history
         await loadSession(sessionId);
-        setChatStatus(`Message edited. ${result.deleted_count} subsequent message(s) removed.`);
+        
+        // Now send the edited message to LLM for processing
+        setChatStatus("Sending edited message to AI...");
+        
+        // Set the chat input to the edited content and trigger submit
+        if (dom.chatInput) {
+          dom.chatInput.value = newContent;
+        }
+        
+        // Trigger HTMX form submission to send the message
+        htmx.trigger("#chat-form", "submit");
       } else {
         showToast(result.error || "Failed to edit message");
       }
