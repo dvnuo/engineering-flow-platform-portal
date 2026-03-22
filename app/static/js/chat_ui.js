@@ -1169,7 +1169,6 @@ function handleChatBeforeRequest(event) {
     if (chatMessageId) chatMessageId.value = messageId;
     
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticleWithId(message, displayAttachments, messageId));
-    }
     
     const thinkingId = 'thinking-' + Date.now();
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
