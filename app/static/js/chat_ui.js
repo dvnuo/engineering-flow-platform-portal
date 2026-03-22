@@ -448,7 +448,14 @@ async function openThinkingProcessPanel() {
     return;
   }
   
-  const currentSessionId = currentSessionIdForSelectedAgent();
+  // Try state first (updated after message received), fall back to hidden input for new sessions
+  // Note: we re-query the element each time because OOB swap replaces the DOM element
+  let currentSessionId = currentSessionIdForSelectedAgent();
+  const hiddenSessionInput = document.getElementById("chat-session-id");
+  if (!currentSessionId && hiddenSessionInput) {
+    currentSessionId = (hiddenSessionInput.value || "").trim();
+  }
+  
   if (!currentSessionId) {
     setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
     return;
@@ -679,7 +686,9 @@ function currentSessionIdForSelectedAgent() {
 }
 
 function syncHiddenSessionInputFromState() {
-  if (dom.chatSessionId) dom.chatSessionId.value = currentSessionIdForSelectedAgent();
+  // Re-query the element each time since OOB swap replaces the DOM element
+  const hiddenInput = document.getElementById("chat-session-id");
+  if (hiddenInput) hiddenInput.value = currentSessionIdForSelectedAgent();
 }
 
 function updateSelectedAgentSession(sessionId) {
@@ -1216,7 +1225,8 @@ function handleChatAfterSwap(target) {
   state.inflightThinking = null;
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
-  const sessionFromInput = dom.chatSessionId?.value || "";
+  // Re-query the element each time since OOB swap replaces the DOM element
+  const sessionFromInput = document.getElementById("chat-session-id")?.value || "";
   updateSelectedAgentSession(sessionFromInput);
 
   renderMarkdown(dom.messageList);
@@ -1993,11 +2003,12 @@ async function openSettings() {
 
 async function clearChat() {
   try {
-    if (dom.chatSessionId?.value) {
+    const sessionId = (document.getElementById("chat-session-id")?.value || "").trim();
+    if (sessionId) {
       await agentApi("/api/clear", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: dom.chatSessionId.value }),
+        body: JSON.stringify({ session_id: sessionId }),
       });
     }
 

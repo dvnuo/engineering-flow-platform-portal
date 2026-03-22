@@ -95,6 +95,39 @@
         </div>
       </div>
     {% endif %}
+
+    {# 5. Thinking Events (when thinking_events exist) #}
+    {% set thinking_events = chatlog.thinking_events or llm_debug.thinking_events %}
+    {% if thinking_events %}
+      <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🧠 Thinking Events ({{ thinking_events|length }})</div>
+        {% for event in thinking_events[:20] %}
+          {% set event_type = event.type or '' %}
+          {% set display = event.display or {} %}
+          {% set icon = display.icon or '🤔' %}
+          {% set name = display.name or event_type %}
+          {# Build message: prefer display.message, then event.data.message, then string(event.data), default to empty string #}
+          {% if display.message %}
+            {% set message = display.message %}
+          {% elif event.data and event.data.message %}
+            {% set message = event.data.message %}
+          {% elif event.data %}
+            {% set message = event.data|string if event.data is not string else event.data %}
+          {% else %}
+            {% set message = '' %}
+          {% endif %}
+          <div class="mt-2 p-2 bg-white dark:bg-slate-800 rounded border-l-2 border-slate-300">
+            <div class="text-xs text-slate-500 font-semibold">{{ icon }} {{ name }}</div>
+            {% if message %}
+              <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap mt-1">{{ message[:500] }}{% if message|length > 500 %}...{% endif %}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+        {% if thinking_events|length > 20 %}
+          <div class="text-xs text-slate-500 mt-2">... and {{ thinking_events|length - 20 }} more events</div>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 {% endif %}
 </div>
