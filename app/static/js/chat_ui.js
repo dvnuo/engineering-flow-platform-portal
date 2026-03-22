@@ -2346,10 +2346,12 @@ function bindEvents() {
     if (!messageId || !newContent.trim()) return;
     
     try {
-      const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/edit`, {
+      // Use delete-from-here to delete the target message and subsequent messages
+      // Then send a new message with the edited content
+      const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/delete-from-here`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ new_content: newContent })
+        body: JSON.stringify({})
       });
       
       const result = await response.json();
@@ -2359,9 +2361,6 @@ function bindEvents() {
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
       if (result.success) {
-        // Reload the session with updated history
-        await loadSession(sessionId);
-        
         // Now send the edited message to LLM for processing
         setChatStatus("Sending edited message to AI...");
         
@@ -2373,7 +2372,7 @@ function bindEvents() {
         // Trigger HTMX form submission to send the message
         htmx.trigger("#chat-form", "submit");
       } else {
-        showToast(result.error || "Failed to edit message");
+        showToast(result.error || "Failed to delete message");
       }
     } catch (err) {
       showToast("Error editing message: " + err.message);
