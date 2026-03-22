@@ -1214,6 +1214,33 @@ function handleChatAfterRequest(event) {
   setChatSubmitting(false);
   state.pendingMessage = "";
   state.messagePrepared = false;
+
+  // Update optimistic user message with real message ID from backend
+  try {
+    const xhr = event.detail.xhr;
+    if (xhr && xhr.responseText) {
+      const response = JSON.parse(xhr.responseText);
+      if (response.user_message_id) {
+        // Find the last user message article (the one just sent) and update its ID
+        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
+        if (userArticles.length > 0) {
+          const lastUserArticle = userArticles[userArticles.length - 1];
+          // Update the data-message-id attribute with the real ID
+          lastUserArticle.dataset.messageId = response.user_message_id;
+          
+          // Update any edit button's onclick to use the real ID
+          const editBtn = lastUserArticle.querySelector('.edit-msg-btn');
+          if (editBtn) {
+            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
+            const content = contentEl ? contentEl.textContent : '';
+            editBtn.onclick = () => openEditMessageModal(response.user_message_id, content);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to update message ID:', e);
+  }
 }
 
 function handleChatAfterSwap(target) {
