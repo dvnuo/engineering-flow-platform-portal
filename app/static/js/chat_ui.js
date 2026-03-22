@@ -9,6 +9,20 @@ function chatApp() {
   return { initialized: true };
 }
 
+// ===== UUID generator (cross-browser compatible) =====
+function generateUUID() {
+  // Use crypto.randomUUID if available, otherwise fallback
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback: generate UUID v4
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 // ===== DOM refs =====
 const dom = {
   appRoot: document.getElementById("app-root"),
@@ -1162,7 +1176,7 @@ function handleChatBeforeRequest(event) {
 
   if (dom.messageList && message) {
     // Generate a UUID for this message (frontend-generated, will be used by backend)
-    const messageId = crypto.randomUUID();
+    const messageId = generateUUID();
     
     // Set the message ID in the hidden field for form submission
     const chatMessageId = document.getElementById("chat-message-id");
