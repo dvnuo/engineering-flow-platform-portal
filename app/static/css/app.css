@@ -1204,6 +1204,7 @@ html[data-theme="dark"] .prose td {
 }
 
 /* Message edit button */
+.edit-msg-btn,
 .message-edit-btn {
   font-size: 0.75rem;
   padding: 0.25rem 0.5rem;
@@ -1214,6 +1215,7 @@ html[data-theme="dark"] .prose td {
   cursor: pointer;
   transition: all 0.2s;
 }
+.edit-msg-btn:hover,
 .message-edit-btn:hover {
   border-color: #3b82f6;
   color: #3b82f6;

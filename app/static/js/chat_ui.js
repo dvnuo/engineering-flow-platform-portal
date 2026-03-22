@@ -2206,6 +2206,33 @@ function openEditMessageModal(messageId, currentContent) {
   document.getElementById("edit-message-content")?.focus();
 }
 
+// Add edit buttons to user messages that have data-message-id
+function addEditButtonsToMessages() {
+  // Find all message articles with data-message-id
+  const messages = dom.messageList.querySelectorAll('.message-section[data-message-id]');
+  
+  messages.forEach(article => {
+    // Check if edit button already exists
+    if (article.querySelector('.edit-msg-btn')) return;
+    
+    const messageId = article.getAttribute('data-message-id');
+    const role = article.getAttribute('data-role');
+    
+    // Only add edit button for user messages with ID
+    if (role === 'user' && messageId) {
+      const editBtn = document.createElement("button");
+      editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
+      editBtn.textContent = "Edit";
+      editBtn.onclick = () => {
+        const contentEl = article.querySelector('.whitespace-pre-wrap');
+        const content = contentEl ? contentEl.textContent : '';
+        openEditMessageModal(messageId, content);
+      };
+      article.appendChild(editBtn);
+    }
+  });
+}
+
 // Global toast notification
 function showToast(message, duration = 2000) {
   const toast = document.getElementById('global-toast');
