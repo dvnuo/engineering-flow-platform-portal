@@ -2361,6 +2361,46 @@ function bindEvents() {
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
       if (result.success) {
+        // Remove the target message and subsequent messages from the UI
+        // Find the message container by matching the article's data-message-id
+        if (dom.messageList) {
+          const containers = Array.from(dom.messageList.querySelectorAll('.flex.flex-col'));
+          
+          // Find the index of the container with the target message ID
+          let foundIndex = -1;
+          for (let i = 0; i < containers.length; i++) {
+            const article = containers[i].querySelector('article[data-message-id]');
+            if (article && article.dataset.messageId === messageId) {
+              foundIndex = i;
+              break;
+            }
+          }
+          
+          // If not found by messageId, try matching by content (for local IDs)
+          if (foundIndex === -1) {
+            for (let i = 0; i < containers.length; i++) {
+              const article = containers[i].querySelector('article[data-local-user="1"]');
+              if (article) {
+                const contentEl = article.querySelector('.whitespace-pre-wrap');
+                if (contentEl && contentEl.textContent === newContent) {
+                  foundIndex = i;
+                  break;
+                }
+              }
+            }
+          }
+          
+          // If found, remove this and all subsequent containers
+          if (foundIndex >= 0) {
+            for (let i = containers.length - 1; i >= foundIndex; i--) {
+              containers[i].remove();
+            }
+          } else {
+            // Fallback: just clear all messages and reload
+            dom.messageList.innerHTML = '';
+          }
+        }
+        
         // Now send the edited message to LLM for processing
         setChatStatus("Sending edited message to AI...");
         
