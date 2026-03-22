@@ -162,7 +162,6 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
-  pendingUserMessageId: null,  // Temp ID for optimistic user messages
   pendingFiles: [],
   // Backup for restore on error
   pendingFilesBackup: [],
@@ -402,7 +401,28 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1" data-message-id="${escapeHtmlAttr(messageId)}"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+}
+
+// Build user message article with a specific message ID (frontend-generated UUID)
+function buildUserMessageArticleWithId(text, attachments = [], messageId = '') {
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  let attachmentHtml = '';
+  if (attachments.length > 0) {
+    attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
+      const safeName = (a.name || '').replace(/[<>"'&]/g, '');
+      const safeUrl = escapeHtmlAttr(a.previewUrl || a.url || '');
+      const safeNameAttr = escapeHtmlAttr(safeName);
+      if (a.type === 'image') {
+        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
+      } else {
+        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
+      }
+    }).join('')}</div>`;
+  }
+
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1" data-message-id="${escapeHtmlAttr(messageId)}"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
@@ -1141,19 +1161,14 @@ function handleChatBeforeRequest(event) {
   }));
 
   if (dom.messageList && message) {
-    // Generate a unique temp ID for this message so we can find it later
-    const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    // Generate a UUID for this message (frontend-generated, will be used by backend)
+    const messageId = crypto.randomUUID();
     
-    // Store the temp ID so we can update it when we get the real ID
-    state.pendingUserMessageId = tempId;
+    // Set the message ID in the hidden field for form submission
+    const chatMessageId = document.getElementById("chat-message-id");
+    if (chatMessageId) chatMessageId.value = messageId;
     
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
-    
-    // Update the last inserted article with our temp ID for later replacement
-    const articles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-    const lastUserArticle = articles[articles.length - 1];
-    if (lastUserArticle) {
-      lastUserArticle.dataset.tempId = tempId;
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticleWithId(message, displayAttachments, messageId));
     }
     
     const thinkingId = 'thinking-' + Date.now();
@@ -1229,58 +1244,7 @@ function handleChatAfterRequest(event) {
   setChatSubmitting(false);
   state.pendingMessage = "";
   state.messagePrepared = false;
-
-  // Update optimistic user message with real message ID from backend
-  // The server sends user_message_id via HTMX OOB swap in the response HTML
-  try {
-    const xhr = event.detail.xhr;
-    if (xhr && xhr.responseText) {
-      // Parse the response HTML to find the user_message_id from OOB input
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xhr.responseText, "text/html");
-      const oobInput = doc.querySelector('#chat-user-message-id');
-      if (oobInput && oobInput.value) {
-        const userMessageId = oobInput.value;
-        
-        // Find the user message article with the matching temp ID
-        const tempId = state.pendingUserMessageId;
-        let targetArticle = null;
-        
-        if (tempId) {
-          // Find by temp ID first
-          targetArticle = dom.messageList.querySelector(`article[data-temp-id="${tempId}"]`);
-        }
-        
-        // Fallback: find the last user message
-        if (!targetArticle) {
-          const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-          if (userArticles.length > 0) {
-            targetArticle = userArticles[userArticles.length - 1];
-          }
-        }
-        
-        if (targetArticle) {
-          // Update the data-message-id attribute with the real ID
-          targetArticle.dataset.messageId = userMessageId;
-          // Remove the temp ID attribute
-          delete targetArticle.dataset.tempId;
-          
-          // Update any edit button's onclick to use the real ID
-          const editBtn = targetArticle.querySelector('.edit-msg-btn');
-          if (editBtn) {
-            const contentEl = targetArticle.querySelector('.whitespace-pre-wrap');
-            const content = contentEl ? contentEl.textContent : '';
-            editBtn.onclick = () => openEditMessageModal(userMessageId, content);
-          }
-        }
-        
-        // Clear the pending temp ID
-        state.pendingUserMessageId = null;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to update message ID:', e);
-  }
+  // Note: message ID is already set by frontend (crypto.randomUUID), no need to update
 }
 
 function handleChatAfterSwap(target) {
