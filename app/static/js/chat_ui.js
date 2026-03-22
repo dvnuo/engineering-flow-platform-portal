@@ -2210,28 +2210,47 @@ function openEditMessageModal(messageId, currentContent) {
 
 // Add edit buttons to user messages
 function addEditButtonsToMessages() {
-  // Find all message articles with data-message-id and data-local-user="1"
-  const messages = dom.messageList.querySelectorAll('article[data-message-id][data-local-user="1"]');
+  // Find all user message articles with data-local-user="1"
+  // Note: data-message-id may not exist for optimistically-rendered messages
+  const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
   
   messages.forEach(article => {
     // Check if edit button already exists
     if (article.querySelector('.edit-msg-btn')) return;
     
-    const messageId = article.getAttribute('data-message-id');
+    // Get message ID (may be from data-message-id or generated)
+    let messageId = article.getAttribute('data-message-id');
     
-    // Only add edit button for user messages with ID
-    if (messageId) {
-      const editBtn = document.createElement("button");
-      editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
-      editBtn.textContent = "Edit";
-      editBtn.onclick = () => {
-        const contentEl = article.querySelector('.whitespace-pre-wrap');
-        const content = contentEl ? contentEl.textContent : '';
-        openEditMessageModal(messageId, content);
-      };
-      article.appendChild(editBtn);
+    // For messages without ID, generate a temporary ID based on content hash
+    // This will be replaced with real ID after backend confirmation
+    if (!messageId) {
+      const contentEl = article.querySelector('.whitespace-pre-wrap');
+      const content = contentEl ? contentEl.textContent || '' : '';
+      // Generate a simple hash-based ID for now
+      messageId = 'local-' + simpleHash(content);
     }
+    
+    const editBtn = document.createElement("button");
+    editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
+    editBtn.textContent = "Edit";
+    editBtn.onclick = () => {
+      const contentEl = article.querySelector('.whitespace-pre-wrap');
+      const content = contentEl ? contentEl.textContent : '';
+      openEditMessageModal(messageId, content);
+    };
+    article.appendChild(editBtn);
   });
+}
+
+// Simple hash function for generating temporary message IDs
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(36);
 }
 
 // Global toast notification
