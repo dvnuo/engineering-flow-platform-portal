@@ -2775,14 +2775,24 @@ function initFilePanelPreview() {
 
 // ===== System Prompt Configuration =====
 function renderSystemPromptSection(agent) {
-  if (!dom.agentMeta) return;
+  // Find the settings panel - use dom.detailPanel or create our own container
+  var container = dom.detailPanel;
+  if (!container) {
+    // Try to find the settings panel aside element
+    container = document.querySelector('aside');
+  }
+  if (!container) return;
+  
+  // Remove existing section if present
+  var existing = document.getElementById('system-prompt-section');
+  if (existing) existing.remove();
   
   var section = document.createElement('div');
   section.id = 'system-prompt-section';
   section.className = 'mt-4 pt-4 border-t border-slate-200 dark:border-slate-700';
   section.innerHTML = '<div class="flex items-center justify-between mb-3"><div class="text-xs text-slate-500 uppercase tracking-wide">System Prompt</div></div><div id="system-prompt-items" class="space-y-2"></div><div id="system-prompt-loading" class="text-xs text-slate-400 py-2">Loading...</div><div id="system-prompt-error" class="text-xs text-red-500 py-2 hidden"></div>';
   
-  dom.agentMeta.appendChild(section);
+  container.appendChild(section);
   
   loadSystemPromptConfig(agent.id);
 }
