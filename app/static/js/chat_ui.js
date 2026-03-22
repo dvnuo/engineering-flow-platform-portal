@@ -2206,20 +2206,19 @@ function openEditMessageModal(messageId, currentContent) {
   document.getElementById("edit-message-content")?.focus();
 }
 
-// Add edit buttons to user messages that have data-message-id
+// Add edit buttons to user messages
 function addEditButtonsToMessages() {
-  // Find all message articles with data-message-id
-  const messages = dom.messageList.querySelectorAll('.message-section[data-message-id]');
+  // Find all message articles with data-message-id and data-local-user="1"
+  const messages = dom.messageList.querySelectorAll('article[data-message-id][data-local-user="1"]');
   
   messages.forEach(article => {
     // Check if edit button already exists
     if (article.querySelector('.edit-msg-btn')) return;
     
     const messageId = article.getAttribute('data-message-id');
-    const role = article.getAttribute('data-role');
     
     // Only add edit button for user messages with ID
-    if (role === 'user' && messageId) {
+    if (messageId) {
       const editBtn = document.createElement("button");
       editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
       editBtn.textContent = "Edit";
