@@ -1216,24 +1216,30 @@ function handleChatAfterRequest(event) {
   state.messagePrepared = false;
 
   // Update optimistic user message with real message ID from backend
+  // The server sends user_message_id via HTMX OOB swap in the response HTML
   try {
     const xhr = event.detail.xhr;
     if (xhr && xhr.responseText) {
-      const response = JSON.parse(xhr.responseText);
-      if (response.user_message_id) {
+      // Parse the response HTML to find the user_message_id from OOB input
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xhr.responseText, "text/html");
+      const oobInput = doc.querySelector('#chat-user-message-id');
+      if (oobInput && oobInput.value) {
+        const userMessageId = oobInput.value;
+        
         // Find the last user message article (the one just sent) and update its ID
         const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
         if (userArticles.length > 0) {
           const lastUserArticle = userArticles[userArticles.length - 1];
           // Update the data-message-id attribute with the real ID
-          lastUserArticle.dataset.messageId = response.user_message_id;
+          lastUserArticle.dataset.messageId = userMessageId;
           
           // Update any edit button's onclick to use the real ID
           const editBtn = lastUserArticle.querySelector('.edit-msg-btn');
           if (editBtn) {
             const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
             const content = contentEl ? contentEl.textContent : '';
-            editBtn.onclick = () => openEditMessageModal(response.user_message_id, content);
+            editBtn.onclick = () => openEditMessageModal(userMessageId, content);
           }
         }
       }
