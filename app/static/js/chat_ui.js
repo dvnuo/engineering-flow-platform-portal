@@ -2775,13 +2775,38 @@ function initFilePanelPreview() {
 
 // ===== System Prompt Configuration =====
 function renderSystemPromptSection(agent) {
-  // Find the settings panel - use dom.detailPanel or create our own container
-  var container = dom.detailPanel;
-  if (!container) {
-    // Try to find the settings panel aside element
-    container = document.querySelector('aside');
+  // Find the settings panel container
+  var container = null;
+  
+  // First try: use #agent-meta inside settings panel if it exists
+  var agentMeta = document.getElementById('agent-meta');
+  if (agentMeta) {
+    container = agentMeta;
   }
-  if (!container) return;
+  
+  // Second try: use #tool-panel-body if it exists  
+  if (!container) {
+    var toolPanelBody = document.getElementById('tool-panel-body');
+    if (toolPanelBody) {
+      container = toolPanelBody;
+    }
+  }
+  
+  // Third try: find visible aside element in settings panel
+  if (!container) {
+    var asides = document.querySelectorAll('aside');
+    for (var i = 0; i < asides.length; i++) {
+      if (asides[i].offsetParent !== null) {  // visible
+        container = asides[i];
+        break;
+      }
+    }
+  }
+  
+  // Last resort: use body
+  if (!container) {
+    container = document.body;
+  }
   
   // Remove existing section if present
   var existing = document.getElementById('system-prompt-section');
