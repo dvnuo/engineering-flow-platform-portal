@@ -181,6 +181,24 @@
   </div>
 </div>
 
+<div id="message-edit-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-card panel">
+    <div class="modal-head">
+      <h3>Edit Message</h3>
+      <button id="close-message-edit-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+    </div>
+    <form id="message-edit-form" class="stack">
+      <input type="hidden" id="edit-message-id" />
+      <div>
+        <label>Message Content</label>
+        <textarea id="edit-message-content" rows="5" placeholder="Enter new message content..."></textarea>
+      </div>
+      <p class="text-xs text-slate-400">Note: All subsequent messages will be deleted after editing.</p>
+      <button type="submit" class="primary">Save & Resend</button>
+    </form>
+  </div>
+</div>
+
 <div id="paste-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
     <div class="modal-head">

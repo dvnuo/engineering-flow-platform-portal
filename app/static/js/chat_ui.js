@@ -1548,6 +1548,16 @@ function renderChatHistory(messages, metadata = {}) {
     }
 
     container.appendChild(article);
+    
+    // Add edit button for user messages that have an ID
+    if (isUser && message.id) {
+      const editBtn = document.createElement("button");
+      editBtn.className = "text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
+      editBtn.textContent = "Edit";
+      editBtn.onclick = () => openEditMessageModal(message.id, message.content);
+      container.appendChild(editBtn);
+    }
+    
     dom.messageList.appendChild(container);
   });
 
@@ -2187,6 +2197,15 @@ if (document.readyState === 'loading') {
   setupPasteModal();
 }
 
+// Open message edit modal
+function openEditMessageModal(messageId, currentContent) {
+  document.getElementById("edit-message-id").value = messageId;
+  document.getElementById("edit-message-content").value = currentContent;
+  document.getElementById("message-edit-modal")?.classList.remove("hidden");
+  document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
+  document.getElementById("edit-message-content")?.focus();
+}
+
 // Global toast notification
 function showToast(message, duration = 2000) {
   const toast = document.getElementById('global-toast');
@@ -2238,6 +2257,45 @@ function bindEvents() {
   document.getElementById("close-edit-modal")?.addEventListener("click", () => {
     document.getElementById("edit-modal").classList.add("hidden");
     document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
+  });
+
+  // Message edit modal
+  document.getElementById("close-message-edit-modal")?.addEventListener("click", () => {
+    document.getElementById("message-edit-modal")?.classList.add("hidden");
+    document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
+  });
+
+  document.getElementById("message-edit-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const messageId = document.getElementById("edit-message-id").value;
+    const newContent = document.getElementById("edit-message-content").value;
+    const sessionId = document.getElementById("chat-session-id")?.value;
+    
+    if (!messageId || !newContent.trim()) return;
+    
+    try {
+      const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/edit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_content: newContent })
+      });
+      
+      const result = await response.json();
+      
+      // Close modal
+      document.getElementById("message-edit-modal")?.classList.add("hidden");
+      document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
+      
+      if (result.success) {
+        // Reload the session with updated history
+        await loadSession(sessionId);
+        setChatStatus(`Message edited. ${result.deleted_count} subsequent message(s) removed.`);
+      } else {
+        showToast(result.error || "Failed to edit message");
+      }
+    } catch (err) {
+      showToast("Error editing message: " + err.message);
+    }
   });
 
   dom.detailToggle?.addEventListener("click", () => {
