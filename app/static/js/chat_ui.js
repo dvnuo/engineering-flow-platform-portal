@@ -2236,10 +2236,11 @@ if (document.readyState === 'loading') {
 }
 
 // Open message edit modal
-function openEditMessageModal(messageId, currentContent) {
+function openEditMessageModal(messageId, currentContent, attachments = []) {
   document.getElementById("edit-message-id").value = messageId;
   document.getElementById("edit-original-content").value = currentContent;
   document.getElementById("edit-message-content").value = currentContent;
+  document.getElementById("edit-attachments").value = JSON.stringify(attachments);
   document.getElementById("message-edit-modal")?.classList.remove("hidden");
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
   document.getElementById("edit-message-content")?.focus();
@@ -2276,7 +2277,17 @@ function addEditButtonsToMessages() {
       const currentMessageId = article.dataset.messageId || messageId;
       const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
-      openEditMessageModal(currentMessageId, content);
+      
+      // Extract attachments from the article's attachment elements
+      const attachmentEls = article.querySelectorAll('[data-preview-url]');
+      const attachments = Array.from(attachmentEls).map(el => ({
+        name: el.dataset.previewName || 'attachment',
+        previewUrl: el.dataset.previewUrl,
+        url: el.dataset.previewUrl,
+        type: el.dataset.isImage === 'true' ? 'image' : 'file'
+      }));
+      
+      openEditMessageModal(currentMessageId, content, attachments);
     };
     article.appendChild(editBtn);
   });
@@ -2423,16 +2434,50 @@ function bindEvents() {
           }
         }
         
+        // Get attachments from the hidden field
+        let attachments = [];
+        try {
+          const attachmentsStr = document.getElementById("edit-attachments")?.value || '[]';
+          attachments = JSON.parse(attachmentsStr);
+        } catch (e) {
+          attachments = [];
+        }
+        
         // Now send the edited message to LLM for processing
         setChatStatus("Sending edited message to AI...");
         
-        // Set the chat input to the edited content and trigger submit
-        if (dom.chatInput) {
-          dom.chatInput.value = newContent;
+        if (attachments.length > 0) {
+          // If there are attachments, we need to send via API with attachment info
+          // First, we need to restore the attachment file IDs to state.pendingFiles
+          // The attachments have previewUrl which should contain the file ID
+          const fileIds = attachments.map(a => {
+            // Try to extract file ID from previewUrl
+            // The previewUrl might be like /api/files/{fileId}/preview
+            const match = a.previewUrl?.match(/\/api\/files\/([^/]+)\/preview/);
+            return match ? match[1] : a.previewUrl;
+          }).filter(Boolean);
+          
+          // Set the chat input and trigger submit
+          if (dom.chatInput) {
+            dom.chatInput.value = newContent;
+          }
+          
+          // Store file IDs in a way that the form submit handler can read
+          state.pendingFiles = fileIds.map(fileId => ({
+            file: { name: 'attachment' },
+            file_id: fileId,
+            status: 'uploaded'
+          }));
+          
+          // Trigger HTMX form submission
+          htmx.trigger("#chat-form", "submit");
+        } else {
+          // No attachments, just send the text
+          if (dom.chatInput) {
+            dom.chatInput.value = newContent;
+          }
+          htmx.trigger("#chat-form", "submit");
         }
-        
-        // Trigger HTMX form submission to send the message
-        htmx.trigger("#chat-form", "submit");
       } else {
         showToast(result.error || "Failed to delete message");
       }
