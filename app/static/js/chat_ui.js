@@ -162,6 +162,7 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
+  pendingUserMessageId: null,  // Temp ID for optimistic user messages
   pendingFiles: [],
   // Backup for restore on error
   pendingFilesBackup: [],
@@ -1140,7 +1141,21 @@ function handleChatBeforeRequest(event) {
   }));
 
   if (dom.messageList && message) {
+    // Generate a unique temp ID for this message so we can find it later
+    const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    
+    // Store the temp ID so we can update it when we get the real ID
+    state.pendingUserMessageId = tempId;
+    
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
+    
+    // Update the last inserted article with our temp ID for later replacement
+    const articles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
+    const lastUserArticle = articles[articles.length - 1];
+    if (lastUserArticle) {
+      lastUserArticle.dataset.tempId = tempId;
+    }
+    
     const thinkingId = 'thinking-' + Date.now();
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
     const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
@@ -1227,21 +1242,40 @@ function handleChatAfterRequest(event) {
       if (oobInput && oobInput.value) {
         const userMessageId = oobInput.value;
         
-        // Find the last user message article (the one just sent) and update its ID
-        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-        if (userArticles.length > 0) {
-          const lastUserArticle = userArticles[userArticles.length - 1];
+        // Find the user message article with the matching temp ID
+        const tempId = state.pendingUserMessageId;
+        let targetArticle = null;
+        
+        if (tempId) {
+          // Find by temp ID first
+          targetArticle = dom.messageList.querySelector(`article[data-temp-id="${tempId}"]`);
+        }
+        
+        // Fallback: find the last user message
+        if (!targetArticle) {
+          const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
+          if (userArticles.length > 0) {
+            targetArticle = userArticles[userArticles.length - 1];
+          }
+        }
+        
+        if (targetArticle) {
           // Update the data-message-id attribute with the real ID
-          lastUserArticle.dataset.messageId = userMessageId;
+          targetArticle.dataset.messageId = userMessageId;
+          // Remove the temp ID attribute
+          delete targetArticle.dataset.tempId;
           
           // Update any edit button's onclick to use the real ID
-          const editBtn = lastUserArticle.querySelector('.edit-msg-btn');
+          const editBtn = targetArticle.querySelector('.edit-msg-btn');
           if (editBtn) {
-            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
+            const contentEl = targetArticle.querySelector('.whitespace-pre-wrap');
             const content = contentEl ? contentEl.textContent : '';
             editBtn.onclick = () => openEditMessageModal(userMessageId, content);
           }
         }
+        
+        // Clear the pending temp ID
+        state.pendingUserMessageId = null;
       }
     }
   } catch (e) {
