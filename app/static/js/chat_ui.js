@@ -1584,15 +1584,6 @@ function renderChatHistory(messages, metadata = {}) {
 
     container.appendChild(article);
     
-    // Add edit button for user messages that have an ID
-    if (isUser && message.id) {
-      const editBtn = document.createElement("button");
-      editBtn.className = "text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
-      editBtn.textContent = "Edit";
-      editBtn.onclick = () => openEditMessageModal(message.id, message.content);
-      container.appendChild(editBtn);
-    }
-    
     dom.messageList.appendChild(container);
   });
 
