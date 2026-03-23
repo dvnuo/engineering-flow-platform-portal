@@ -1135,13 +1135,7 @@ async function refreshAll() {
 
 // ===== chat submit lifecycle =====
 function handleChatBeforeRequest(event) {
-  console.log('[DEBUG] handleChatBeforeRequest, target:', event.target?.id, 'pendingFiles:', state.pendingFiles.length);
   if (event.target?.id !== "chat-form") return;
-  
-  // Debug attachments
-  const fileIds = state.pendingFiles.filter(pf => pf.file_id && pf.status === 'uploaded').map(pf => pf.file_id);
-  console.log('[DEBUG] file_ids:', JSON.stringify(fileIds));
-  console.log('[DEBUG] attachmentsToSend before:', JSON.stringify(attachmentsToSend));
   if (state.isSubmittingChat) {
     event.preventDefault();
     return;
@@ -1198,20 +1192,6 @@ function handleChatBeforeRequest(event) {
     if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
     ensureEventSocketForSelectedAgent();
     scrollToBottom();
-  }
-
-  // Save attachment file_ids and set on hidden input (will be submitted with form)
-  attachmentsToSend = state.pendingFiles
-    .filter(pf => pf.file_id && pf.status === 'uploaded')
-    .map(pf => pf.file_id);
-  console.log('[DEBUG] attachmentsToSend set to:', JSON.stringify(attachmentsToSend));
-  
-  // Set attachments on hidden input for form submission
-  const attachmentsInput = document.getElementById('chat-attachments');
-  console.log('[DEBUG] attachmentsInput found:', !!attachmentsInput);
-  if (attachmentsInput) {
-    attachmentsInput.value = JSON.stringify(attachmentsToSend);
-    console.log('[DEBUG] attachmentsInput.value set to:', attachmentsInput.value);
   }
 
   // Clear pending files and input (message is already captured in 'message' variable)
