@@ -1283,7 +1283,19 @@ function handleChatAfterRequest(event) {
           if (editBtn) {
             const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
             const content = contentEl ? contentEl.textContent : '';
-            editBtn.onclick = () => openEditMessageModal(userMessageId, content);
+            
+            // Get attachments from attachmentHistory based on position
+            const attachments = [];
+            if (attachmentHistory.length > 0) {
+              // Get the last user's message position
+              const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
+              const articleIndex = allUserArticles.indexOf(lastUserArticle);
+              if (articleIndex >= 0 && articleIndex < attachmentHistory.length) {
+                attachments.push(...attachmentHistory[articleIndex]);
+              }
+            }
+            
+            editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
           }
         }
       }
