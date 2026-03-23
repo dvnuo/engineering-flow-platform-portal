@@ -128,17 +128,17 @@ let attachmentHistory = []; // Array of attachment arrays, in chronological orde
 
 function addToAttachmentHistory(attachments) {
   attachmentHistory.push(attachments);
-  console.log('[HISTORY] Added attachments:', attachments);
-  console.log('[HISTORY] Current history:', attachmentHistory);
+  // console.log(' Added attachments:', attachments);
+  // console.log(' Current history:', attachmentHistory);
 }
 
 function setMessageAttachments(messageId, attachments) {
-  console.log('[MSG] Setting attachments for message:', messageId, '->', attachments);
+  // console.log(' Setting attachments for message:', messageId, '->', attachments);
   messageAttachments[messageId] = attachments;
 }
 
 function getMessageAttachments(messageId) {
-  console.log('[MSG] Getting attachments for message:', messageId);
+  // console.log(' Getting attachments for message:', messageId);
   return messageAttachments[messageId] || [];
 }
 
@@ -147,13 +147,13 @@ const blobUrlToFileId = {};
 
 function getFileIdFromBlobUrl(blobUrl) {
   const fileId = blobUrlToFileId[blobUrl] || null;
-  console.log('[BLOB] getFileIdFromBlobUrl:', blobUrl, '->', fileId);
-  console.log('[BLOB] Current mappings:', JSON.stringify(blobUrlToFileId));
+  // console.log(' getFileIdFromBlobUrl:', blobUrl, '->', fileId);
+  // console.log(' Current mappings:', JSON.stringify(blobUrlToFileId));
   return fileId;
 }
 
 function setBlobUrlMapping(blobUrl, fileId) {
-  console.log('[BLOB] Setting mapping:', blobUrl, '->', fileId);
+  // console.log(' Setting mapping:', blobUrl, '->', fileId);
   blobUrlToFileId[blobUrl] = fileId;
 }
 
@@ -1101,7 +1101,7 @@ async function loadLastSessionFromRemote(agentId) {
       }
     }
   } catch (e) {
-    console.log("Failed to load last session from remote:", e);
+    // console.log("Failed to load last session from remote:", e);
   }
 }
 
@@ -1199,7 +1199,7 @@ function handleChatBeforeRequest(event) {
           url: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`
         }));
       } catch (e) {
-        console.error('Failed to parse attachments:', e);
+        // console.error('Failed to parse attachments:', e);
       }
     }
   }
@@ -1307,11 +1307,11 @@ function handleChatAfterRequest(event) {
             
             // Get attachments from attachmentHistory - use last entry since this is the latest message
             const attachments = [];
-            console.log('[HANDLER1286] History length:', attachmentHistory.length);
+            // console.log(' History length:', attachmentHistory.length);
             if (attachmentHistory.length > 0) {
               // Use the last entry in history for the latest message
               const lastAttachments = attachmentHistory[attachmentHistory.length - 1];
-              console.log('[HANDLER1286] Last attachments:', lastAttachments);
+              // console.log(' Last attachments:', lastAttachments);
               if (lastAttachments) {
                 attachments.push(...lastAttachments);
               }
@@ -1323,7 +1323,7 @@ function handleChatAfterRequest(event) {
       }
     }
   } catch (e) {
-    console.error('Failed to update message ID:', e);
+    // console.error('Failed to update message ID:', e);
   }
 }
 
@@ -1392,7 +1392,7 @@ function initializeRenderLifecycle() {
       
       // If already set (from Edit), don't overwrite
       if (existingAttachments && existingAttachments !== '') {
-        console.log('[CONFIG] Using existing attachments:', existingAttachments);
+        // console.log(' Using existing attachments:', existingAttachments);
         event.detail.parameters.attachments = existingAttachments;
       } else {
         // Normal send - use pendingFiles
@@ -1402,7 +1402,7 @@ function initializeRenderLifecycle() {
         event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
         
         // Store attachments in history
-        console.log('[CONFIG] Storing attachments in history:', uploadedFileIds);
+        // console.log(' Storing attachments in history:', uploadedFileIds);
         if (uploadedFileIds.length > 0) {
           addToAttachmentHistory(uploadedFileIds);
         }
@@ -2229,7 +2229,7 @@ async function copyAgentConfig(agentId) {
     // Show global toast
     showToast('Configuration copied to clipboard!');
   } catch (e) {
-    console.error('Failed to copy config:', e);
+    // console.error('Failed to copy config:', e);
     showToast('Failed to copy: ' + e.message);
   }
 }
@@ -2376,15 +2376,15 @@ function addEditButtonsToMessages() {
         // Find all user messages in the message list
         const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
         const articleIndex = allUserArticles.indexOf(article);
-        console.log('[EDIT BTN] Looking for article index...');
-        console.log('[EDIT BTN] All user articles count:', allUserArticles.length);
-        console.log('[EDIT BTN] Article index:', articleIndex);
-        console.log('[EDIT BTN] History:', attachmentHistory);
+        // console.log(' Looking for article index...');
+        // console.log(' All user articles count:', allUserArticles.length);
+        // console.log(' Article index:', articleIndex);
+        // console.log(' History:', attachmentHistory);
         if (articleIndex >= 0 && articleIndex < attachmentHistory.length) {
-          console.log('[EDIT BTN] Found in history:', attachmentHistory[articleIndex]);
+          // console.log(' Found in history:', attachmentHistory[articleIndex]);
           attachments.push(...attachmentHistory[articleIndex]);
         } else {
-          console.log('[EDIT BTN] NOT found in history - index out of range');
+          // console.log(' NOT found in history - index out of range');
         }
       }
       
@@ -2399,7 +2399,7 @@ function addEditButtonsToMessages() {
         });
       }
       
-      console.log('[EDIT BTN] Extracted attachments:', attachments);
+      // console.log(' Extracted attachments:', attachments);
       
       openEditMessageModal(messageId, content, attachments);
     };
