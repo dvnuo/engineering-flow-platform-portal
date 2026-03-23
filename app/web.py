@@ -2,6 +2,7 @@ import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 from typing import List, Optional
+from starlette import web as starlette_web
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
@@ -1083,7 +1084,7 @@ async def api_send_message(request: Request, agent_id: str, session_id: str):
         try:
             data = json.loads(content.decode("utf-8"))
             print(f"[EDIT-SEND] SUCCESS")
-            return web.json_response({"success": True, "data": data})
+            return starlette_web.json_response({"success": True, "data": data})
         except json.JSONDecodeError as e:
             print(f"[EDIT-SEND] JSON ERROR: {e}")
             raise HTTPException(status_code=502, detail=f"Invalid JSON from runtime: {content.decode('utf-8', errors='ignore')[:200]}")
@@ -1153,7 +1154,7 @@ async def api_delete_conversation_from_here(request: Request, agent_id: str, ses
         try:
             result = json.loads(content.decode("utf-8"))
             print(f"[delete-from-here] SUCCESS: {result}")
-            return web.json_response(result)
+            return starlette_web.json_response(result)
         except json.JSONDecodeError as e:
             print(f"[delete-from-here] JSON ERROR: {e}")
             raise HTTPException(status_code=502, detail=f"Invalid JSON from runtime: {content.decode('utf-8', errors='ignore')[:200]}")
