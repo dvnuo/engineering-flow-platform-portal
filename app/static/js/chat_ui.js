@@ -2823,6 +2823,11 @@ function renderSystemPromptSection(agent) {
 }
 
 function loadSystemPromptConfig(agentId) {
+  // Guard: don't touch DOM if not current agent
+  if (state.selectedAgentId !== agentId) {
+    return;
+  }
+  
   var loading = document.getElementById('system-prompt-loading');
   var error = document.getElementById('system-prompt-error');
   var items = document.getElementById('system-prompt-items');
@@ -2838,6 +2843,10 @@ function loadSystemPromptConfig(agentId) {
       return;
     }
     
+    // Check if agent is writable
+    const currentAgent = state.agents.get(agentId);
+    const canWrite = canWriteAgent(currentAgent);
+    
     var sections = ['soul', 'user', 'agents', 'memory', 'daily_notes'];
     var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'Daily Notes' };
     var hasEdit = { soul: true, user: true, agents: true, memory: true, daily_notes: false };
@@ -2845,10 +2854,11 @@ function loadSystemPromptConfig(agentId) {
     for (var i = 0; i < sections.length; i++) {
       var name = sections[i];
       var enabled = config[name] && config[name].enabled !== undefined ? config[name].enabled : true;
-      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="text-blue-500 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Edit ' + labels[name] + '"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>' : '';
+      var disabledAttr = canWrite ? '' : 'disabled';
+      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="text-blue-500 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Edit ' + labels[name] + '" ' + disabledAttr + '><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>' : '';
       var item = document.createElement('div');
       item.className = 'flex items-center justify-between py-1';
-      item.innerHTML = '<div class="flex items-center gap-2"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="rounded border-slate-300 dark:border-slate-600 text-blue-500 focus:ring-blue-500"><label for="sp-' + name + '-enabled" class="text-xs font-medium text-slate-700 dark:text-slate-300">' + labels[name] + '</label></div>' + editButton;
+      item.innerHTML = '<div class="flex items-center gap-2"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="rounded border-slate-300 dark:border-slate-600 text-blue-500 focus:ring-blue-500"' + disabledAttr + '><label for="sp-' + name + '-enabled" class="text-xs font-medium text-slate-700 dark:text-slate-300">' + labels[name] + '</label></div>' + editButton;
       items.appendChild(item);
     }
     
@@ -2888,6 +2898,9 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
     console.log('Updated ' + section + ' to ' + enabled);
   }).catch(function(e) {
     console.error('Failed to update:', e);
+    showToast('Failed to update: ' + e.message, 'error');
+    // Reload config to revert UI to server state
+    loadSystemPromptConfig(agentId);
   });
 }
 
@@ -2941,15 +2954,25 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
   
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
+  
+  // Store previously focused element for restoration on close
+  modal._previousActiveElement = document.activeElement;
 }
 
 function closeSystemPromptEditor() {
   var modal = document.getElementById('system-prompt-editor-modal');
   if (modal) {
     modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
     // Remove Escape key listener
     if (modal._keyHandler) {
       document.removeEventListener('keydown', modal._keyHandler);
+      modal._keyHandler = null;
+    }
+    // Restore focus to previously focused element
+    if (modal._previousActiveElement) {
+      modal._previousActiveElement.focus();
+      modal._previousActiveElement = null;
     }
   }
 }

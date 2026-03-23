@@ -1236,9 +1236,6 @@ html[data-theme="dark"] .prose td {
   overflow-y: auto;
 }
 
-:root {
-}
-
 html[data-theme="dark"] #system-prompt-editor-modal .modal-card {
   background: #1e293b;
 }
