@@ -2428,40 +2428,58 @@ function bindEvents() {
           attachments = [];
         }
         
-        // Now send the edited message to LLM for processing
+        // Now send the edited message to LLM via the API (separate from chat form)
         setChatStatus("Sending edited message to AI...");
         
-        if (attachments.length > 0) {
-          // If there are attachments, we need to send via API with attachment info
-          // First, we need to restore the attachment file IDs to state.pendingFiles
-          // The attachments have previewUrl which should contain the file ID
-          const fileIds = attachments.map(a => {
-            // Try to extract file ID from previewUrl
-            // The previewUrl might be like /api/files/{fileId}/preview
-            const match = a.previewUrl?.match(/\/api\/files\/([^/]+)\/preview/);
-            return match ? match[1] : a.previewUrl;
-          }).filter(Boolean);
+        // Extract file IDs from attachments
+        const fileIds = attachments.map(a => {
+          // Try to extract file ID from previewUrl
+          // The previewUrl might be like /api/files/{fileId}/preview
+          const match = a.previewUrl?.match(/\/api\/files\/([^/]+)\/preview/);
+          return match ? match[1] : a.previewUrl;
+        }).filter(Boolean);
+        
+        // Send via the dedicated messages API endpoint (not HTMX chat form)
+        const messageId = generateUUID();
+        try {
+          const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: newContent,
+              message_id: messageId,
+              attachments: fileIds
+            })
+          });
           
-          // Set the chat input and trigger submit
-          if (dom.chatInput) {
-            dom.chatInput.value = newContent;
+          if (response.ok) {
+            // Add the edited message to UI as a user message
+            if (dom.messageList) {
+              const displayAttachments = attachments.map(a => ({
+                name: a.name || 'attachment',
+                type: a.type || 'file',
+                previewUrl: a.previewUrl,
+                url: a.url
+              }));
+              
+              dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticleWithId(newContent, displayAttachments, messageId));
+              
+              // Add thinking indicator
+              const thinkingId = 'thinking-' + Date.now();
+              dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+              const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
+              if (pending) pending.dataset.thinkingId = thinkingId;
+              state.inflightThinking = { id: thinkingId, events: [], completed: false };
+              if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+              ensureEventSocketForSelectedAgent();
+              scrollToBottom();
+              addEditButtonsToMessages();
+            }
+          } else {
+            showToast("Failed to send edited message");
           }
-          
-          // Store file IDs in a way that the form submit handler can read
-          state.pendingFiles = fileIds.map(fileId => ({
-            file: { name: 'attachment' },
-            file_id: fileId,
-            status: 'uploaded'
-          }));
-          
-          // Trigger HTMX form submission
-          htmx.trigger("#chat-form", "submit");
-        } else {
-          // No attachments, just send the text
-          if (dom.chatInput) {
-            dom.chatInput.value = newContent;
-          }
-          htmx.trigger("#chat-form", "submit");
+        } catch (err) {
+          showToast("Error sending edited message: " + err.message);
         }
       } else {
         showToast(result.error || "Failed to delete message");

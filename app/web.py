@@ -1021,3 +1021,60 @@ async def app_chat_send(request: Request):
         )
     finally:
         db.close()
+
+
+# API endpoint for sending messages (used by Edit flow to avoid HTMX/chat-form coupling)
+@router.post("/a/{agent_id}/api/sessions/{session_id}/messages")
+async def api_send_message(request: Request, agent_id: str, session_id: str):
+    """Send a message to the agent. Used for Edit flow to send edited message.
+    
+    POST /a/{agent_id}/api/sessions/{session_id}/messages
+    Body: {"message": "...", "message_id": "...", "attachments": [...]}
+    """
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    
+    try:
+        body = await request.json()
+    except:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message required")
+    
+    message_id = body.get("message_id")  # Frontend-generated UUID (optional)
+    attachments = body.get("attachments") or []
+    
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if agent.status != "running":
+            raise HTTPException(status_code=409, detail="Agent not running")
+        
+        payload = {"message": message, "session_id": session_id}
+        if message_id:
+            payload["message_id"] = message_id
+        if attachments:
+            payload["attachments"] = attachments
+        
+        status_code, content, _ = await proxy_service.forward(
+            agent=agent,
+            method="POST",
+            subpath="api/chat",
+            query_items=[],
+            body=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+        
+        if status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+        
+        return web.json_response({"success": True, "data": json.loads(content.decode("utf-8"))})
+    finally:
+        db.close()
