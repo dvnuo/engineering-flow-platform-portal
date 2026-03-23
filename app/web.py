@@ -959,7 +959,6 @@ async def app_chat_send(request: Request):
     agent_id = (form.get("agent_id") or "").strip()
     message = (form.get("message") or "").strip()
     session_id = (form.get("session_id") or "").strip() or None
-    message_id = (form.get("message_id") or "").strip() or None  # Frontend-generated UUID
     attachments_str = (form.get("attachments") or "").strip()
 
     if not agent_id:
@@ -990,8 +989,6 @@ async def app_chat_send(request: Request):
         payload = {"message": message}
         if session_id:
             payload["session_id"] = session_id
-        if message_id:
-            payload["message_id"] = message_id  # Frontend-generated UUID
         if attachments:
             payload["attachments"] = attachments
 

@@ -9,20 +9,6 @@ function chatApp() {
   return { initialized: true };
 }
 
-// ===== UUID generator (cross-browser compatible) =====
-function generateUUID() {
-  // Use crypto.randomUUID if available, otherwise fallback
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  // Fallback: generate UUID v4
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
-
 // ===== DOM refs =====
 const dom = {
   appRoot: document.getElementById("app-root"),
@@ -415,28 +401,7 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1" data-message-id="${escapeHtmlAttr(messageId)}"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
-}
-
-// Build user message article with a specific message ID (frontend-generated UUID)
-function buildUserMessageArticleWithId(text, attachments = [], messageId = '') {
-  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-  let attachmentHtml = '';
-  if (attachments.length > 0) {
-    attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
-      const safeName = (a.name || '').replace(/[<>"'&]/g, '');
-      const safeUrl = escapeHtmlAttr(a.previewUrl || a.url || '');
-      const safeNameAttr = escapeHtmlAttr(safeName);
-      if (a.type === 'image') {
-        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
-      } else {
-        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
-      }
-    }).join('')}</div>`;
-  }
-
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1" data-message-id="${escapeHtmlAttr(messageId)}"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
@@ -1175,15 +1140,7 @@ function handleChatBeforeRequest(event) {
   }));
 
   if (dom.messageList && message) {
-    // Generate a UUID for this message (frontend-generated, will be used by backend)
-    const messageId = generateUUID();
-    
-    // Set the message ID in the hidden field for form submission
-    const chatMessageId = document.getElementById("chat-message-id");
-    if (chatMessageId) chatMessageId.value = messageId;
-    
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticleWithId(message, displayAttachments, messageId));
-    
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
     const thinkingId = 'thinking-' + Date.now();
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
     const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
@@ -1198,6 +1155,9 @@ function handleChatBeforeRequest(event) {
   clearPendingFiles();
   if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Sending...");
+
+  // Note: attachments is now set via htmx:configRequest event
+  // HTMX will submit the form with attachments in the payload
 }
 
 function handleChatResponseError(event) {
@@ -1254,7 +1214,39 @@ function handleChatAfterRequest(event) {
   setChatSubmitting(false);
   state.pendingMessage = "";
   state.messagePrepared = false;
-  // Note: message ID is already set by frontend (crypto.randomUUID), no need to update
+
+  // Update optimistic user message with real message ID from backend
+  // The server sends user_message_id via HTMX OOB swap in the response HTML
+  try {
+    const xhr = event.detail.xhr;
+    if (xhr && xhr.responseText) {
+      // Parse the response HTML to find the user_message_id from OOB input
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xhr.responseText, "text/html");
+      const oobInput = doc.querySelector('#chat-user-message-id');
+      if (oobInput && oobInput.value) {
+        const userMessageId = oobInput.value;
+        
+        // Find the last user message article (the one just sent) and update its ID
+        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
+        if (userArticles.length > 0) {
+          const lastUserArticle = userArticles[userArticles.length - 1];
+          // Update the data-message-id attribute with the real ID
+          lastUserArticle.dataset.messageId = userMessageId;
+          
+          // Update any edit button's onclick to use the real ID
+          const editBtn = lastUserArticle.querySelector('.edit-msg-btn');
+          if (editBtn) {
+            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
+            const content = contentEl ? contentEl.textContent : '';
+            editBtn.onclick = () => openEditMessageModal(userMessageId, content);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to update message ID:', e);
+  }
 }
 
 function handleChatAfterSwap(target) {
@@ -1311,12 +1303,18 @@ function decodeHtml(text) {
 }
 
 // ===== markdown + icons lifecycle =====
-// Module-level variable to store attachments to be sent (set in handleChatBeforeRequest)
-let attachmentsToSend = [];
-
 function initializeRenderLifecycle() {
-  // htmx:configRequest may not fire for all HTMX requests, so we use a different approach
-  // Set attachments directly on the hidden input before HTMX processes the form
+  document.addEventListener("htmx:configRequest", (event) => {
+    // This fires right before HTMX makes the request - perfect time to set attachments
+    const elt = event.detail.requestConfig?.elt || event.target;
+    if (elt?.id === "chat-form") {
+      const uploadedFileIds = state.pendingFiles
+        .filter(pf => pf.file_id && pf.status === 'uploaded')
+        .map(pf => pf.file_id);
+      event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+
+    }
+  });
 
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
   document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
@@ -2227,11 +2225,9 @@ if (document.readyState === 'loading') {
 }
 
 // Open message edit modal
-function openEditMessageModal(messageId, currentContent, attachments = []) {
+function openEditMessageModal(messageId, currentContent) {
   document.getElementById("edit-message-id").value = messageId;
-  document.getElementById("edit-original-content").value = currentContent;
   document.getElementById("edit-message-content").value = currentContent;
-  document.getElementById("edit-attachments").value = JSON.stringify(attachments);
   document.getElementById("message-edit-modal")?.classList.remove("hidden");
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
   document.getElementById("edit-message-content")?.focus();
@@ -2247,33 +2243,26 @@ function addEditButtonsToMessages() {
     // Check if edit button already exists
     if (article.querySelector('.edit-msg-btn')) return;
     
+    // Get message ID (may be from data-message-id or generated)
+    let messageId = article.getAttribute('data-message-id');
+    
+    // For messages without ID, generate a temporary ID based on content hash
+    // This will be replaced with real ID after backend confirmation
+    if (!messageId) {
+      const contentEl = article.querySelector('.whitespace-pre-wrap');
+      const content = contentEl ? contentEl.textContent || '' : '';
+      // Generate a simple hash-based ID for now
+      messageId = 'local-' + simpleHash(content);
+    }
+    
     const editBtn = document.createElement("button");
     editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
     editBtn.textContent = "Edit";
-    
-    // Use event delegation to handle clicks - find the article when clicked
-    editBtn.addEventListener('click', function(e) {
-      // When clicked, find the article that contains this button
-      const clickedArticle = e.target.closest('article[data-local-user="1"]');
-      if (!clickedArticle) return;
-      
-      // Read the current message ID from the article's data attribute at click time
-      const currentMessageId = clickedArticle.dataset.messageId;
-      const contentEl = clickedArticle.querySelector('.whitespace-pre-wrap');
+    editBtn.onclick = () => {
+      const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
-      
-      // Extract attachments from the article's attachment elements
-      const attachmentEls = clickedArticle.querySelectorAll('[data-preview-url]');
-      const attachments = Array.from(attachmentEls).map(el => ({
-        name: el.dataset.previewName || 'attachment',
-        previewUrl: el.dataset.previewUrl,
-        url: el.dataset.previewUrl,
-        type: el.dataset.isImage === 'true' ? 'image' : 'file'
-      }));
-      
-      openEditMessageModal(currentMessageId, content, attachments);
-    });
-    
+      openEditMessageModal(messageId, content);
+    };
     article.appendChild(editBtn);
   });
 }
@@ -2356,20 +2345,13 @@ function bindEvents() {
     
     if (!messageId || !newContent.trim()) return;
     
-    // Get the original content for backend matching
-    const originalContent = document.getElementById("edit-original-content")?.value || '';
-    
     try {
       // Use delete-from-here to delete the target message and subsequent messages
       // Then send a new message with the edited content
-      // Send original_content for matching (since message_id might be a local ID)
       const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/delete-from-here`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          new_content: newContent,
-          original_content: originalContent 
-        })
+        body: JSON.stringify({})
       });
       
       const result = await response.json();
@@ -2379,90 +2361,16 @@ function bindEvents() {
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
       if (result.success) {
-        // Remove the target message and subsequent messages from the UI
-        // Find the message container by matching the article's data-message-id
-        if (dom.messageList) {
-          const containers = Array.from(dom.messageList.querySelectorAll('.flex.flex-col'));
-          
-          // Find the index of the container with the target message ID
-          let foundIndex = -1;
-          for (let i = 0; i < containers.length; i++) {
-            const article = containers[i].querySelector('article[data-message-id]');
-            if (article && article.dataset.messageId === messageId) {
-              foundIndex = i;
-              break;
-            }
-          }
-          
-          // If not found by messageId, try matching by content (for local IDs)
-          if (foundIndex === -1) {
-            for (let i = 0; i < containers.length; i++) {
-              const article = containers[i].querySelector('article[data-local-user="1"]');
-              if (article) {
-                const contentEl = article.querySelector('.whitespace-pre-wrap');
-                if (contentEl && contentEl.textContent === newContent) {
-                  foundIndex = i;
-                  break;
-                }
-              }
-            }
-          }
-          
-          // If found, remove this and all subsequent containers
-          if (foundIndex >= 0) {
-            for (let i = containers.length - 1; i >= foundIndex; i--) {
-              containers[i].remove();
-            }
-          } else {
-            // Fallback: just clear all messages and reload
-            dom.messageList.innerHTML = '';
-          }
-        }
-        
-        // Get attachments from the hidden field
-        let attachments = [];
-        try {
-          const attachmentsStr = document.getElementById("edit-attachments")?.value || '[]';
-          attachments = JSON.parse(attachmentsStr);
-        } catch (e) {
-          attachments = [];
-        }
-        
         // Now send the edited message to LLM for processing
         setChatStatus("Sending edited message to AI...");
         
-        if (attachments.length > 0) {
-          // If there are attachments, we need to send via API with attachment info
-          // First, we need to restore the attachment file IDs to state.pendingFiles
-          // The attachments have previewUrl which should contain the file ID
-          const fileIds = attachments.map(a => {
-            // Try to extract file ID from previewUrl
-            // The previewUrl might be like /api/files/{fileId}/preview
-            const match = a.previewUrl?.match(/\/api\/files\/([^/]+)\/preview/);
-            return match ? match[1] : a.previewUrl;
-          }).filter(Boolean);
-          
-          // Set the chat input and trigger submit
-          if (dom.chatInput) {
-            dom.chatInput.value = newContent;
-          }
-          
-          // Store file IDs in a way that the form submit handler can read
-          state.pendingFiles = fileIds.map(fileId => ({
-            file: { name: 'attachment' },
-            file_id: fileId,
-            status: 'uploaded'
-          }));
-          
-          // Trigger HTMX form submission
-          htmx.trigger("#chat-form", "submit");
-        } else {
-          // No attachments, just send the text
-          if (dom.chatInput) {
-            dom.chatInput.value = newContent;
-          }
-          htmx.trigger("#chat-form", "submit");
+        // Set the chat input to the edited content and trigger submit
+        if (dom.chatInput) {
+          dom.chatInput.value = newContent;
         }
+        
+        // Trigger HTMX form submission to send the message
+        htmx.trigger("#chat-form", "submit");
       } else {
         showToast(result.error || "Failed to delete message");
       }
@@ -2517,16 +2425,6 @@ function bindEvents() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (state.isSubmittingChat) return;
-      
-      // Set attachments on hidden input BEFORE triggering HTMX
-      const fileIds = state.pendingFiles
-        .filter(pf => pf.file_id && pf.status === 'uploaded')
-        .map(pf => pf.file_id);
-      const attachmentsInput = document.getElementById('chat-attachments');
-      if (attachmentsInput) {
-        attachmentsInput.value = JSON.stringify(fileIds);
-      }
-      
       htmx.trigger("#chat-form", "submit");
     }
   });
