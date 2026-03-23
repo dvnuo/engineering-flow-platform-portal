@@ -2331,9 +2331,15 @@ function addEditButtonsToMessages() {
         // Find all user messages in the message list
         const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
         const articleIndex = allUserArticles.indexOf(article);
-        console.log('[EDIT BTN] Article index:', articleIndex, 'Total history:', attachmentHistory.length);
+        console.log('[EDIT BTN] Looking for article index...');
+        console.log('[EDIT BTN] All user articles count:', allUserArticles.length);
+        console.log('[EDIT BTN] Article index:', articleIndex);
+        console.log('[EDIT BTN] History:', attachmentHistory);
         if (articleIndex >= 0 && articleIndex < attachmentHistory.length) {
+          console.log('[EDIT BTN] Found in history:', attachmentHistory[articleIndex]);
           attachments.push(...attachmentHistory[articleIndex]);
+        } else {
+          console.log('[EDIT BTN] NOT found in history - index out of range');
         }
       }
       
