@@ -2342,8 +2342,11 @@ function addEditButtonsToMessages() {
   const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
   
   messages.forEach(article => {
-    // Check if edit button already exists
-    if (article.querySelector('.edit-msg-btn')) return;
+    // Check if edit button already exists (in article or container)
+    const container = article.parentElement;
+    const existingInArticle = article.querySelector('.edit-msg-btn');
+    const existingInContainer = container?.querySelector?.('.edit-msg-btn');
+    if (existingInArticle || existingInContainer) return;
     
     // Get message ID (may be from data-message-id or generated)
     let messageId = article.getAttribute('data-message-id');
