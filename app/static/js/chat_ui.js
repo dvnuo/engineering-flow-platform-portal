@@ -1645,6 +1645,10 @@ function renderChatHistory(messages, metadata = {}) {
     if (isUser) {
       article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
       article.dataset.localUser = "1";
+      // Set message ID if available
+      if (message.id) {
+        article.dataset.messageId = message.id;
+      }
       const content = document.createElement("div");
       content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
