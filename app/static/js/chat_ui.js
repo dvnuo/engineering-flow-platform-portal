@@ -122,26 +122,6 @@ if (dom.chatInput) {
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
-// Global mapping from message ID to attachments
-const messageAttachments = {};
-let attachmentHistory = []; // Array of attachment arrays, in chronological order
-
-function addToAttachmentHistory(attachments) {
-  attachmentHistory.push(attachments);
-  // console.log(' Added attachments:', attachments);
-  // console.log(' Current history:', attachmentHistory);
-}
-
-function setMessageAttachments(messageId, attachments) {
-  // console.log(' Setting attachments for message:', messageId, '->', attachments);
-  messageAttachments[messageId] = attachments;
-}
-
-function getMessageAttachments(messageId) {
-  // console.log(' Getting attachments for message:', messageId);
-  return messageAttachments[messageId] || [];
-}
-
 // Global mapping from blob URL to file ID
 const blobUrlToFileId = {};
 
@@ -2342,6 +2322,10 @@ function addEditButtonsToMessages() {
   const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
   
   messages.forEach(article => {
+    // Only show edit button if message has a real backend ID (not local/temporary ID)
+    const messageId = article.getAttribute('data-message-id');
+    if (!messageId || messageId.startsWith('local-')) return;
+    
     // Check if edit button already exists (in article or container)
     const parentContainer = article.parentElement;
     const existingInArticle = article.querySelector('.edit-msg-btn');
@@ -2510,7 +2494,19 @@ function bindEvents() {
         body: JSON.stringify({})
       });
       
-      const result = await response.json();
+      let result = {};
+      try {
+        result = await response.json();
+      } catch (e) {
+        // Non-JSON response
+        showToast("Failed to delete message");
+        return;
+      }
+      
+      if (!response.ok || !result.success) {
+        showToast(result.error || "Failed to delete message");
+        return;
+      }
       
       // Close modal
       document.getElementById("message-edit-modal")?.classList.add("hidden");
@@ -2537,9 +2533,14 @@ function bindEvents() {
             for (let i = containers.length - 1; i >= foundIndex; i--) {
               containers[i].remove();
             }
+            // Also truncate attachmentHistory to stay in sync
+            if (foundIndex < attachmentHistory.length) {
+              attachmentHistory = attachmentHistory.slice(0, foundIndex);
+            }
           } else {
             // Fallback: just clear all messages and reload
             dom.messageList.innerHTML = '';
+            attachmentHistory = [];
           }
         }
         
