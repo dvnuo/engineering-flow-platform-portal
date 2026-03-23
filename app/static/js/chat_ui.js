@@ -1284,17 +1284,15 @@ function handleChatAfterRequest(event) {
             const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
             const content = contentEl ? contentEl.textContent : '';
             
-            // Get attachments from attachmentHistory based on position
+            // Get attachments from attachmentHistory - use last entry since this is the latest message
             const attachments = [];
             console.log('[HANDLER1286] History length:', attachmentHistory.length);
             if (attachmentHistory.length > 0) {
-              // Get the last user's message position
-              const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
-              const articleIndex = allUserArticles.indexOf(lastUserArticle);
-              console.log('[HANDLER1286] Article index:', articleIndex);
-              if (articleIndex >= 0 && articleIndex < attachmentHistory.length) {
-                console.log('[HANDLER1286] Found attachments:', attachmentHistory[articleIndex]);
-                attachments.push(...attachmentHistory[articleIndex]);
+              // Use the last entry in history for the latest message
+              const lastAttachments = attachmentHistory[attachmentHistory.length - 1];
+              console.log('[HANDLER1286] Last attachments:', lastAttachments);
+              if (lastAttachments) {
+                attachments.push(...lastAttachments);
               }
             }
             
