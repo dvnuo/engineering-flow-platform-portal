@@ -2386,6 +2386,8 @@ function bindEvents() {
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
       if (result.success) {
+        console.log('[EDIT] Delete succeeded');
+        
         // Remove the target message and subsequent messages from the UI
         // Find the message container by matching the article's data-message-id
         if (dom.messageList) {
