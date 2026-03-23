@@ -139,7 +139,7 @@ function setBlobUrlMapping(blobUrl, fileId) {
 
 function addToAttachmentHistory(attachments) {
   if (!state.attachmentHistory) {
-    state.attachmentHistory = [];
+    state.state.attachmentHistory = [];
   }
   state.attachmentHistory.push(attachments);
   // console.log(' Added attachments:', attachments);
@@ -2493,7 +2493,10 @@ function bindEvents() {
     const newContent = document.getElementById("edit-message-content").value;
     const sessionId = document.getElementById("chat-session-id")?.value;
     
-    if (!messageId || !newContent.trim()) return;
+    if (!messageId || !newContent.trim() || !sessionId) {
+      showToast("Invalid session");
+      return;
+    }
     
     try {
       // Use delete-from-here to delete the target message and subsequent messages
@@ -2545,12 +2548,12 @@ function bindEvents() {
             }
             // Also truncate attachmentHistory to stay in sync
             if (foundIndex < state.attachmentHistory.length) {
-              attachmentHistory = state.attachmentHistory.slice(0, foundIndex);
+              state.attachmentHistory = state.attachmentHistory.slice(0, foundIndex);
             }
           } else {
             // Fallback: just clear all messages and reload
             dom.messageList.innerHTML = '';
-            attachmentHistory = [];
+            state.attachmentHistory = [];
           }
         }
         
