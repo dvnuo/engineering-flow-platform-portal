@@ -122,6 +122,26 @@ if (dom.chatInput) {
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
+// Global mapping from message ID to attachments
+const messageAttachments = {};
+let attachmentHistory = []; // Array of attachment arrays, in chronological order
+
+function addToAttachmentHistory(attachments) {
+  attachmentHistory.push(attachments);
+  console.log('[HISTORY] Added attachments:', attachments);
+  console.log('[HISTORY] Current history:', attachmentHistory);
+}
+
+function setMessageAttachments(messageId, attachments) {
+  console.log('[MSG] Setting attachments for message:', messageId, '->', attachments);
+  messageAttachments[messageId] = attachments;
+}
+
+function getMessageAttachments(messageId) {
+  console.log('[MSG] Getting attachments for message:', messageId);
+  return messageAttachments[messageId] || [];
+}
+
 // Global mapping from blob URL to file ID
 const blobUrlToFileId = {};
 
@@ -1336,8 +1356,11 @@ function initializeRenderLifecycle() {
         .filter(pf => pf.file_id && pf.status === 'uploaded')
         .map(pf => pf.file_id);
       event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
-
-    }
+      
+      // Store attachments in history
+      if (uploadedFileIds.length > 0) {
+        addToAttachmentHistory(uploadedFileIds);
+      }
   });
 
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
@@ -2301,18 +2324,24 @@ function addEditButtonsToMessages() {
         } catch (e) {}
       }
       
-      // Method 2: Try to get from blob URL mapping
+      // Method 2: Try to get from attachment history based on position
+      if (attachments.length === 0) {
+        // Find all user messages in the message list
+        const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
+        const articleIndex = allUserArticles.indexOf(article);
+        console.log('[EDIT BTN] Article index:', articleIndex, 'Total history:', attachmentHistory.length);
+        if (articleIndex >= 0 && articleIndex < attachmentHistory.length) {
+          attachments.push(...attachmentHistory[articleIndex]);
+        }
+      }
+      
+      // Method 3: Try to get from blob URL mapping
       if (attachments.length === 0) {
         const images = article.querySelectorAll('.flex.flex-wrap.gap-2 img');
-        console.log('[EDIT BTN] Found images in article:', images.length);
         images.forEach(img => {
-          console.log('[EDIT BTN] Image src:', img.src);
           if (img.src && img.src.startsWith('blob:')) {
             const fileId = getFileIdFromBlobUrl(img.src);
-            console.log('[EDIT BTN] Got fileId from mapping:', fileId);
-            if (fileId) {
-              attachments.push(fileId);
-            }
+            if (fileId) attachments.push(fileId);
           }
         });
       }
