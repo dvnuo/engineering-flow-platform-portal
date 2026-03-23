@@ -1031,8 +1031,10 @@ async def api_send_message(request: Request, agent_id: str, session_id: str):
     POST /a/{agent_id}/api/sessions/{session_id}/messages
     Body: {"message": "...", "message_id": "...", "attachments": [...]}
     """
+    print(f"[EDIT-SEND] agent={agent_id}, session={session_id}")
     user = _current_user_from_cookie(request)
     if not user:
+        print("[EDIT-SEND] No user found")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
     
     try:
@@ -1088,8 +1090,10 @@ async def api_delete_conversation_from_here(request: Request, agent_id: str, ses
     POST /a/{agent_id}/api/sessions/{session_id}/messages/{message_id}/delete-from-here
     Body (optional): {"new_content": "...", "original_content": "..."}
     """
+    print(f"[EDIT-DELETE] agent={agent_id}, session={session_id}, message={message_id}")
     user = _current_user_from_cookie(request)
     if not user:
+        print("[EDIT-DELETE] No user found")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
     
     try:
