@@ -1237,9 +1237,8 @@ html[data-theme="dark"] .prose td {
 }
 
 :root {
-  --modal-bg: #ffffff;
 }
 
-.dark #system-prompt-editor-modal .modal-card {
+html[data-theme="dark"] #system-prompt-editor-modal .modal-card {
   background: #1e293b;
 }
