@@ -1330,7 +1330,6 @@ function initializeRenderLifecycle() {
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
   document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
-    console.log('[DEBUG] htmx:afterSwap', event.target?.id);
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
     if (event.target?.id === "message-list") addEditButtonsToMessages();
@@ -2252,7 +2251,6 @@ function addEditButtonsToMessages() {
   // Find all user message articles with data-local-user="1"
   // Note: data-message-id may not exist for optimistically-rendered messages
   const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-  console.log('[DEBUG] addEditButtonsToMessages called, found', messages.length, 'articles');
   
   messages.forEach(article => {
     // Check if edit button already exists
@@ -2266,7 +2264,6 @@ function addEditButtonsToMessages() {
     editBtn.addEventListener('click', function(e) {
       // When clicked, find the article that contains this button
       const clickedArticle = e.target.closest('article[data-local-user="1"]');
-      console.log('[DEBUG] Edit clicked, found article:', clickedArticle?.textContent?.substring(0, 30));
       if (!clickedArticle) return;
       
       // Read the current message ID from the article's data attribute at click time
