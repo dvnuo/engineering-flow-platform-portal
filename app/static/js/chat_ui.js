@@ -2379,7 +2379,12 @@ function bindEvents() {
         })
       });
       
-      const result = await response.json();
+      let result = {};
+      try {
+        result = await response.json();
+      } catch(e) {
+        console.log('[EDIT] Delete response error:', e.message);
+      }
       
       // Close modal
       document.getElementById("message-edit-modal")?.classList.add("hidden");
@@ -2387,8 +2392,14 @@ function bindEvents() {
       
       if (result.success) {
         console.log('[EDIT] Delete succeeded');
-        
-        // Remove the target message and subsequent messages from the UI
+      } else {
+        console.log('[EDIT] Delete failed or returned error');
+      }
+      
+      // Always send the new message, regardless of delete result
+      console.log('[EDIT] Proceeding to send new message');
+      
+      // Remove the target message and subsequent messages from the UI
         // Find the message container by matching the article's data-message-id
         if (dom.messageList) {
           const containers = Array.from(dom.messageList.querySelectorAll('.flex.flex-col'));
