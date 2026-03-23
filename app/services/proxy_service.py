@@ -65,6 +65,7 @@ class ProxyService:
         return self._node_ip
 
     def build_agent_base_url(self, agent) -> str:
+        print(f"[proxy] agent.service_name={agent.service_name}, agent.namespace={agent.namespace}")
         # Try to get NodePort from K8s service
         if self.core_api:
             try:
