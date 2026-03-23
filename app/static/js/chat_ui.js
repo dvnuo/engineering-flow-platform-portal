@@ -2382,24 +2382,19 @@ function bindEvents() {
       let result = {};
       try {
         result = await response.json();
-      } catch(e) {
-        console.log('[EDIT] Delete response error:', e.message);
+      } catch (e) {
+        console.log('[EDIT] Delete response parse error:', e.message);
       }
       
       // Close modal
       document.getElementById("message-edit-modal")?.classList.add("hidden");
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
+      // Continue even if delete failed - just send the new message
       if (result.success) {
         console.log('[EDIT] Delete succeeded');
-      } else {
-        console.log('[EDIT] Delete failed or returned error');
-      }
-      
-      // Always send the new message, regardless of delete result
-      console.log('[EDIT] Proceeding to send new message');
-      
-      // Remove the target message and subsequent messages from the UI
+        
+        // Remove the target message and subsequent messages from the UI
         // Find the message container by matching the article's data-message-id
         if (dom.messageList) {
           const containers = Array.from(dom.messageList.querySelectorAll('.flex.flex-col'));
