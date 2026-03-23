@@ -1254,8 +1254,8 @@ function handleChatAfterRequest(event) {
   setChatSubmitting(false);
   state.pendingMessage = "";
   state.messagePrepared = false;
-  // Add edit buttons to new messages
-  addEditButtonsToMessages();
+  // Add edit buttons to new messages - delay to ensure messageId is set
+  setTimeout(() => addEditButtonsToMessages(), 100);
   // Note: message ID is already set by frontend (crypto.randomUUID), no need to update
 }
 
@@ -1325,7 +1325,10 @@ function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
-    if (event.target?.id === "message-list") addEditButtonsToMessages();
+    if (event.target?.id === "message-list") {
+      // Delay to ensure DOM is updated with messageId
+      setTimeout(() => addEditButtonsToMessages(), 100);
+    }
     renderIcons();
   });
   document.addEventListener("htmx:responseError", handleChatResponseError);
