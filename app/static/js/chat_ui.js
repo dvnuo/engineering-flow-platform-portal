@@ -2265,14 +2265,22 @@ function addEditButtonsToMessages() {
       
       // Get attachments from the article
       const attachments = [];
-      const attachmentImages = article.querySelectorAll('.flex.flex-wrap.gap-2 img');
-      attachmentImages.forEach(img => {
-        // Extract file ID from src like /a/{agent_id}/api/files/{fileId}
-        const match = img.src.match(/\/api\/files\/(.+)$/);
-        if (match) {
-          attachments.push(match[1]);
-        }
-      });
+      const attachmentDiv = article.querySelector('.flex.flex-wrap.gap-2');
+      console.log('[EDIT] attachmentDiv found:', !!attachmentDiv);
+      
+      if (attachmentDiv) {
+        const attachmentImages = attachmentDiv.querySelectorAll('img');
+        console.log('[EDIT] attachment images found:', attachmentImages.length);
+        attachmentImages.forEach(img => {
+          console.log('[EDIT] image src:', img.src);
+          // Extract file ID from src like /a/{agent_id}/api/files/{fileId}
+          const match = img.src.match(/\/api\/files\/(.+)$/);
+          if (match) {
+            attachments.push(match[1]);
+          }
+        });
+      }
+      console.log('[EDIT] extracted attachments:', attachments);
       
       openEditMessageModal(messageId, content, attachments);
     };
