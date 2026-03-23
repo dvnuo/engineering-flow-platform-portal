@@ -2942,6 +2942,6 @@ function saveSystemPromptSection(agentId, section) {
     loadSystemPromptConfig(agentId);
   }).catch(function(e) {
     console.error('Failed to save:', e);
-    alert('Failed to save: ' + e.message);
+    showToast('Failed to save: ' + e.message, 'error');
   });
 }
