@@ -2358,8 +2358,9 @@ function addEditButtonsToMessages() {
     }
     
     const editBtn = document.createElement("button");
-    editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
-    editBtn.textContent = "Edit";
+    editBtn.className = "edit-msg-btn text-slate-400 hover:text-blue-400 p-1 rounded transition-colors";
+    editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
+    editBtn.title = "Edit message";
     editBtn.onclick = () => {
       const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
@@ -2407,7 +2408,15 @@ function addEditButtonsToMessages() {
       
       openEditMessageModal(messageId, content, attachments);
     };
-    article.appendChild(editBtn);
+    
+    // Move button outside article (below the message)
+    const container = article.parentElement;
+    if (container && container.classList.contains('flex')) {
+      container.appendChild(editBtn);
+      container.classList.add('items-end');
+    } else {
+      article.appendChild(editBtn);
+    }
   });
 }
 
