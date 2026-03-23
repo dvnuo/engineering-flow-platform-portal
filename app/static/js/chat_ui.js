@@ -2447,7 +2447,12 @@ function bindEvents() {
       }
       
       // Now send the edited message to LLM via the API (separate from chat form)
+      console.log('[EDIT] About to send new message, sessionId:', sessionId);
       setChatStatus("Sending edited message to AI...");
+      
+      if (!sessionId) {
+        console.log('[EDIT] ERROR: sessionId is undefined!');
+      }
         
         // Extract file IDs from attachments
         const fileIds = attachments.map(a => {
