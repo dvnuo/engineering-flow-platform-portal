@@ -1561,11 +1561,13 @@ function renderChatHistory(messages, metadata = {}) {
       if (msgAttachments.length > 0) {
         const attachmentDiv = document.createElement("div");
         attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
+        attachmentDiv.dataset.attachments = JSON.stringify(msgAttachments);
         msgAttachments.forEach(fileId => {
           const img = document.createElement("img");
           img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
           img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
           img.alt = fileId;
+          img.dataset.fileId = fileId;
           // Show placeholder on error
           img.onerror = () => {
             img.style.display = 'none';
@@ -2263,22 +2265,30 @@ function addEditButtonsToMessages() {
       const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
       
-      // Get attachments from the article - try ALL img tags
+      // Get attachments from the article's data attribute
       const attachments = [];
-      const allImages = article.querySelectorAll('img');
-      console.log('[EDIT BTN] Found', allImages.length, 'images in article');
+      const attachmentDiv = article.querySelector('.flex.flex-wrap.gap-2');
       
-      allImages.forEach(img => {
-        console.log('[EDIT BTN] Image src:', img.src);
-        // Try to extract file ID from various URL patterns
-        let match = img.src.match(/\/api\/files\/(.+)$/);
-        if (!match) match = img.src.match(/\/files\/(.+)$/);
-        if (match) {
-          attachments.push(match[1]);
+      if (attachmentDiv && attachmentDiv.dataset.attachments) {
+        try {
+          const storedAttachments = JSON.parse(attachmentDiv.dataset.attachments);
+          attachments.push(...storedAttachments);
+        } catch (e) {
+          console.error('Failed to parse attachments:', e);
         }
-      });
+      }
       
-      console.log('[EDIT BTN] Extracted attachments:', attachments);
+      // Fallback: try to get from img data attribute
+      if (attachments.length === 0) {
+        const images = article.querySelectorAll('.flex.flex-wrap.gap-2 img[data-file-id]');
+        images.forEach(img => {
+          if (img.dataset.fileId) {
+            attachments.push(img.dataset.fileId);
+          }
+        });
+      }
+      
+      console.log('[EDIT BTN] Extracted attachments from data:', attachments);
       openEditMessageModal(messageId, content, attachments);
     };
     article.appendChild(editBtn);
