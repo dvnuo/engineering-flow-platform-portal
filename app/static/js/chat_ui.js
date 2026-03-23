@@ -2304,9 +2304,12 @@ function addEditButtonsToMessages() {
       // Method 2: Try to get from blob URL mapping
       if (attachments.length === 0) {
         const images = article.querySelectorAll('.flex.flex-wrap.gap-2 img');
+        console.log('[EDIT BTN] Found images in article:', images.length);
         images.forEach(img => {
+          console.log('[EDIT BTN] Image src:', img.src);
           if (img.src && img.src.startsWith('blob:')) {
             const fileId = getFileIdFromBlobUrl(img.src);
+            console.log('[EDIT BTN] Got fileId from mapping:', fileId);
             if (fileId) {
               attachments.push(fileId);
             }
