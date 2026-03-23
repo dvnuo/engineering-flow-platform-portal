@@ -2246,8 +2246,12 @@ function addEditButtonsToMessages() {
   const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
   
   messages.forEach(article => {
-    // Check if edit button already exists
-    if (article.querySelector('.edit-msg-btn')) return;
+    // Skip if button already exists AND article has messageId
+    const existingBtn = article.querySelector('.edit-msg-btn');
+    if (existingBtn && article.dataset.messageId) return;
+    
+    // Remove existing button if no messageId
+    if (existingBtn) existingBtn.remove();
     
     const editBtn = document.createElement("button");
     editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
