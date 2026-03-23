@@ -2537,6 +2537,16 @@ function bindEvents() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (state.isSubmittingChat) return;
+      
+      // Set attachments on hidden input BEFORE triggering HTMX
+      const fileIds = state.pendingFiles
+        .filter(pf => pf.file_id && pf.status === 'uploaded')
+        .map(pf => pf.file_id);
+      const attachmentsInput = document.getElementById('chat-attachments');
+      if (attachmentsInput) {
+        attachmentsInput.value = JSON.stringify(fileIds);
+      }
+      
       htmx.trigger("#chat-form", "submit");
     }
   });
