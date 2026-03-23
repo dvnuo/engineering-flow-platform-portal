@@ -137,6 +137,14 @@ function setBlobUrlMapping(blobUrl, fileId) {
   blobUrlToFileId[blobUrl] = fileId;
 }
 
+function addToAttachmentHistory(attachments) {
+  if (!state.attachmentHistory) {
+    state.attachmentHistory = [];
+  }
+  state.attachmentHistory.push(attachments);
+  // console.log(' Added attachments:', attachments);
+}
+
 function getLastSessionKey(agentId) {
   return `portal-last-session-${agentId}`;
 }
@@ -1292,7 +1300,7 @@ function handleChatAfterRequest(event) {
             // console.log(' History length:', state.attachmentHistory.length);
             if (state.attachmentHistory.length > 0) {
               // Use the last entry in history for the latest message
-              const lastAttachments = attachmentHistory[state.attachmentHistory.length - 1];
+              const lastAttachments = state.attachmentHistory[state.attachmentHistory.length - 1];
               // console.log(' Last attachments:', lastAttachments);
               if (lastAttachments) {
                 attachments.push(...lastAttachments);
@@ -2335,7 +2343,7 @@ function addEditButtonsToMessages() {
     if (existingInArticle || existingInContainer) return;
     
     // Get message ID (may be from data-message-id or generated)
-    article.getAttribute = article.getAttribute('data-message-id');
+    const msgId = article.getAttribute('data-message-id');
     
     // For messages without ID, generate a temporary ID based on content hash
     // This will be replaced with real ID after backend confirmation
@@ -2375,8 +2383,8 @@ function addEditButtonsToMessages() {
         // console.log(' Article index:', articleIndex);
         // console.log(' History:', attachmentHistory);
         if (articleIndex >= 0 && articleIndex < state.attachmentHistory.length) {
-          // console.log(' Found in history:', attachmentHistory[articleIndex]);
-          attachments.push(...attachmentHistory[articleIndex]);
+          // console.log(' Found in history:', state.attachmentHistory[articleIndex]);
+          attachments.push(...state.attachmentHistory[articleIndex]);
         } else {
           // console.log(' NOT found in history - index out of range');
         }
