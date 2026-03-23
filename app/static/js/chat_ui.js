@@ -1323,10 +1323,10 @@ function decodeHtml(text) {
 }
 
 // ===== markdown + icons lifecycle =====
-function initializeRenderLifecycle() {
-  // attachmentsToSend is set in handleChatBeforeRequest and used to populate the hidden input
-  let attachmentsToSend = [];
+// Module-level variable to store attachments to be sent (set in handleChatBeforeRequest)
+let attachmentsToSend = [];
 
+function initializeRenderLifecycle() {
   // htmx:configRequest may not fire for all HTMX requests, so we use a different approach
   // Set attachments directly on the hidden input before HTMX processes the form
 
