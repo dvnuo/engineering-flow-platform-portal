@@ -2433,18 +2433,21 @@ function bindEvents() {
             dom.messageList.innerHTML = '';
           }
         }
-        
-        // Get attachments from the hidden field
-        let attachments = [];
-        try {
-          const attachmentsStr = document.getElementById("edit-attachments")?.value || '[]';
-          attachments = JSON.parse(attachmentsStr);
-        } catch (e) {
-          attachments = [];
-        }
-        
-        // Now send the edited message to LLM via the API (separate from chat form)
-        setChatStatus("Sending edited message to AI...");
+      } else {
+        console.log('[EDIT] Delete failed, but continuing to send new message');
+      }
+      
+      // Get attachments from the hidden field
+      let attachments = [];
+      try {
+        const attachmentsStr = document.getElementById("edit-attachments")?.value || '[]';
+        attachments = JSON.parse(attachmentsStr);
+      } catch (e) {
+        attachments = [];
+      }
+      
+      // Now send the edited message to LLM via the API (separate from chat form)
+      setChatStatus("Sending edited message to AI...");
         
         // Extract file IDs from attachments
         const fileIds = attachments.map(a => {
