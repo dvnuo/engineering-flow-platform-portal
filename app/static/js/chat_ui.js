@@ -1135,6 +1135,7 @@ async function refreshAll() {
 
 // ===== chat submit lifecycle =====
 function handleChatBeforeRequest(event) {
+  console.log('[DEBUG] handleChatBeforeRequest, target:', event.target?.id, 'pendingFiles:', state.pendingFiles.length);
   if (event.target?.id !== "chat-form") return;
   if (state.isSubmittingChat) {
     event.preventDefault();
