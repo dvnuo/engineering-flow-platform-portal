@@ -126,10 +126,14 @@ const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 const blobUrlToFileId = {};
 
 function getFileIdFromBlobUrl(blobUrl) {
-  return blobUrlToFileId[blobUrl] || null;
+  const fileId = blobUrlToFileId[blobUrl] || null;
+  console.log('[BLOB] getFileIdFromBlobUrl:', blobUrl, '->', fileId);
+  console.log('[BLOB] Current mappings:', JSON.stringify(blobUrlToFileId));
+  return fileId;
 }
 
 function setBlobUrlMapping(blobUrl, fileId) {
+  console.log('[BLOB] Setting mapping:', blobUrl, '->', fileId);
   blobUrlToFileId[blobUrl] = fileId;
 }
 
