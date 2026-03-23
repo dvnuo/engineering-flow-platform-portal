@@ -1286,11 +1286,14 @@ function handleChatAfterRequest(event) {
             
             // Get attachments from attachmentHistory based on position
             const attachments = [];
+            console.log('[HANDLER1286] History length:', attachmentHistory.length);
             if (attachmentHistory.length > 0) {
               // Get the last user's message position
               const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
               const articleIndex = allUserArticles.indexOf(lastUserArticle);
+              console.log('[HANDLER1286] Article index:', articleIndex);
               if (articleIndex >= 0 && articleIndex < attachmentHistory.length) {
+                console.log('[HANDLER1286] Found attachments:', attachmentHistory[articleIndex]);
                 attachments.push(...attachmentHistory[articleIndex]);
               }
             }
