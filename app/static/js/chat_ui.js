@@ -2833,15 +2833,17 @@ function loadSystemPromptConfig(agentId) {
   items.innerHTML = '';
   
   api('/a/' + agentId + '/api/agent/system-prompt/config').then(function(config) {
-    var sections = ['soul', 'user', 'agents', 'memory'];
-    var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY' };
+    var sections = ['soul', 'user', 'agents', 'memory', 'daily_notes'];
+    var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'Daily Notes' };
+    var hasEdit = { soul: true, user: true, agents: true, memory: true, daily_notes: false };
     
     for (var i = 0; i < sections.length; i++) {
       var name = sections[i];
       var enabled = config[name] && config[name].enabled !== undefined ? config[name].enabled : true;
+      var editButton = hasEdit[name] ? '<div class="flex items-center gap-1"><button data-section="' + name + '" data-action="edit" class="text-xs text-blue-500 hover:text-blue-400 p-1" title="Edit"><svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button></div>' : '';
       var item = document.createElement('div');
       item.className = 'flex items-center justify-between py-1';
-      item.innerHTML = '<div class="flex items-center gap-2"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="rounded border-slate-300 dark:border-slate-600 text-blue-500 focus:ring-blue-500"><label for="sp-' + name + '-enabled" class="text-xs font-medium text-slate-700 dark:text-slate-300">' + labels[name] + '</label></div><div class="flex items-center gap-1"><button data-section="' + name + '" data-action="edit" class="text-xs text-blue-500 hover:text-blue-400 p-1" title="Edit"><svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button></div>';
+      item.innerHTML = '<div class="flex items-center gap-2"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="rounded border-slate-300 dark:border-slate-600 text-blue-500 focus:ring-blue-500"><label for="sp-' + name + '-enabled" class="text-xs font-medium text-slate-700 dark:text-slate-300">' + labels[name] + '</label></div>' + editButton;
       items.appendChild(item);
     }
     
