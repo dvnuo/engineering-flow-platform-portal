@@ -2225,9 +2225,10 @@ if (document.readyState === 'loading') {
 }
 
 // Open message edit modal
-function openEditMessageModal(messageId, currentContent) {
+function openEditMessageModal(messageId, currentContent, attachments = []) {
   document.getElementById("edit-message-id").value = messageId;
   document.getElementById("edit-message-content").value = currentContent;
+  document.getElementById("edit-attachments").value = JSON.stringify(attachments);
   document.getElementById("message-edit-modal")?.classList.remove("hidden");
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
   document.getElementById("edit-message-content")?.focus();
@@ -2261,7 +2262,19 @@ function addEditButtonsToMessages() {
     editBtn.onclick = () => {
       const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
-      openEditMessageModal(messageId, content);
+      
+      // Get attachments from the article
+      const attachments = [];
+      const attachmentImages = article.querySelectorAll('.flex.flex-wrap.gap-2 img');
+      attachmentImages.forEach(img => {
+        // Extract file ID from src like /a/{agent_id}/api/files/{fileId}
+        const match = img.src.match(/\/api\/files\/(.+)$/);
+        if (match) {
+          attachments.push(match[1]);
+        }
+      });
+      
+      openEditMessageModal(messageId, content, attachments);
     };
     article.appendChild(editBtn);
   });
@@ -2364,9 +2377,16 @@ function bindEvents() {
         // Now send the edited message to LLM for processing
         setChatStatus("Sending edited message to AI...");
         
-        // Set the chat input to the edited content and trigger submit
+        // Set the chat input to the edited content
         if (dom.chatInput) {
           dom.chatInput.value = newContent;
+        }
+        
+        // Set attachments from edit-attachments hidden field
+        const editAttachments = document.getElementById("edit-attachments")?.value || '[]';
+        const attachmentsInput = document.getElementById("chat-attachments");
+        if (attachmentsInput) {
+          attachmentsInput.value = editAttachments;
         }
         
         // Trigger HTMX form submission to send the message
