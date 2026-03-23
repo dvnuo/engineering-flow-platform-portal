@@ -2256,30 +2256,23 @@ function addEditButtonsToMessages() {
     // Check if edit button already exists
     if (article.querySelector('.edit-msg-btn')) return;
     
-    // Get message ID (may be from data-message-id or generated)
-    let messageId = article.getAttribute('data-message-id');
-    
-    // For messages without ID, generate a temporary ID based on content hash
-    // This will be replaced with real ID after backend confirmation
-    if (!messageId) {
-      const contentEl = article.querySelector('.whitespace-pre-wrap');
-      const content = contentEl ? contentEl.textContent || '' : '';
-      // Generate a simple hash-based ID for now
-      messageId = 'local-' + simpleHash(content);
-    }
-    
     const editBtn = document.createElement("button");
     editBtn.className = "edit-msg-btn text-xs text-slate-500 hover:text-blue-400 mt-1 px-2 py-1 rounded border border-slate-600 hover:border-blue-400 transition-colors";
     editBtn.textContent = "Edit";
-    editBtn.onclick = () => {
+    
+    // Use event delegation to handle clicks - find the article when clicked
+    editBtn.addEventListener('click', function(e) {
+      // When clicked, find the article that contains this button
+      const clickedArticle = e.target.closest('article[data-local-user="1"]');
+      if (!clickedArticle) return;
+      
       // Read the current message ID from the article's data attribute at click time
-      // This ensures we get the real ID even if it was updated after button creation
-      const currentMessageId = article.dataset.messageId || messageId;
-      const contentEl = article.querySelector('.whitespace-pre-wrap');
+      const currentMessageId = clickedArticle.dataset.messageId;
+      const contentEl = clickedArticle.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
       
       // Extract attachments from the article's attachment elements
-      const attachmentEls = article.querySelectorAll('[data-preview-url]');
+      const attachmentEls = clickedArticle.querySelectorAll('[data-preview-url]');
       const attachments = Array.from(attachmentEls).map(el => ({
         name: el.dataset.previewName || 'attachment',
         previewUrl: el.dataset.previewUrl,
@@ -2288,7 +2281,8 @@ function addEditButtonsToMessages() {
       }));
       
       openEditMessageModal(currentMessageId, content, attachments);
-    };
+    });
+    
     article.appendChild(editBtn);
   });
 }
