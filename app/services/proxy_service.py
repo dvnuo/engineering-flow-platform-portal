@@ -72,7 +72,9 @@ class ProxyService:
                 svc = self.core_api.read_namespaced_service(
                     name=agent.service_name,
                     namespace=agent.namespace
-                ) # Check if it's NodePort type
+                )
+                print(f"[proxy] service type: {svc.spec.type}")
+                # Check if it's NodePort type
                 if svc.spec.type == "NodePort":
                     # Find the NodePort
                     for port in svc.spec.ports:
@@ -80,14 +82,19 @@ class ProxyService:
                             return f"http://{self.node_ip}:{port.node_port}"
                 # For ClusterIP, try internal DNS
                 elif svc.spec.type == "ClusterIP":
-                    return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+                    url = f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+                    print(f"[proxy] ClusterIP URL: {url}")
+                    return url
             except ValueError:
                 # Re-raise ValueError so caller can handle it with actionable message
                 raise
-            except Exception:
+            except Exception as e:
+                print(f"[proxy] Error: {e}")
                 pass
         # Fallback to internal DNS
-        return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+        url = f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+        print(f"[proxy] fallback URL: {url}")
+        return url
 
     async def forward(
         self,
