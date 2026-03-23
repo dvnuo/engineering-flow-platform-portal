@@ -2379,12 +2379,18 @@ function bindEvents() {
         })
       });
       
-      const result = await response.json();
+      let result = {};
+      try {
+        result = await response.json();
+      } catch (e) {
+        console.log('[EDIT] Delete response parse error:', e.message);
+      }
       
       // Close modal
       document.getElementById("message-edit-modal")?.classList.add("hidden");
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
+      // Continue even if delete failed - just send the new message
       if (result.success) {
         console.log('[EDIT] Delete succeeded');
         
