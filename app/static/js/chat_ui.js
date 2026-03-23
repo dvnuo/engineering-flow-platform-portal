@@ -1254,6 +1254,8 @@ function handleChatAfterRequest(event) {
   setChatSubmitting(false);
   state.pendingMessage = "";
   state.messagePrepared = false;
+  // Add edit buttons to new messages
+  addEditButtonsToMessages();
   // Note: message ID is already set by frontend (crypto.randomUUID), no need to update
 }
 
