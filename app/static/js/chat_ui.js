@@ -1361,6 +1361,7 @@ function initializeRenderLifecycle() {
       if (uploadedFileIds.length > 0) {
         addToAttachmentHistory(uploadedFileIds);
       }
+    }
   });
 
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
