@@ -1358,6 +1358,7 @@ function initializeRenderLifecycle() {
       event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
       
       // Store attachments in history
+      console.log('[CONFIG] Storing attachments in history:', uploadedFileIds);
       if (uploadedFileIds.length > 0) {
         addToAttachmentHistory(uploadedFileIds);
       }
