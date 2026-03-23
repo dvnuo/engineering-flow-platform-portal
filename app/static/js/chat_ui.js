@@ -2433,71 +2433,72 @@ function bindEvents() {
             dom.messageList.innerHTML = '';
           }
         }
-        
-        // Get attachments from the hidden field
-        let attachments = [];
-        try {
-          const attachmentsStr = document.getElementById("edit-attachments")?.value || '[]';
-          attachments = JSON.parse(attachmentsStr);
-        } catch (e) {
-          attachments = [];
-        }
-        
-        // Now send the edited message to LLM via the API (separate from chat form)
-        setChatStatus("Sending edited message to AI...");
-        
-        // Extract file IDs from attachments
-        const fileIds = attachments.map(a => {
-          // Try to extract file ID from previewUrl
-          // The previewUrl might be like /api/files/{fileId}/preview
-          const match = a.previewUrl?.match(/\/api\/files\/([^/]+)\/preview/);
-          return match ? match[1] : a.previewUrl;
-        }).filter(Boolean);
-        
-        // Send via the dedicated messages API endpoint (not HTMX chat form)
-        const messageId = generateUUID();
-        try {
-          const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: newContent,
-              message_id: messageId,
-              attachments: fileIds
-            })
-          });
-          
-          if (response.ok) {
-            // Add the edited message to UI as a user message
-            if (dom.messageList) {
-              const displayAttachments = attachments.map(a => ({
-                name: a.name || 'attachment',
-                type: a.type || 'file',
-                previewUrl: a.previewUrl,
-                url: a.url
-              }));
-              
-              dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticleWithId(newContent, displayAttachments, messageId));
-              
-              // Add thinking indicator
-              const thinkingId = 'thinking-' + Date.now();
-              dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-              const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
-              if (pending) pending.dataset.thinkingId = thinkingId;
-              state.inflightThinking = { id: thinkingId, events: [], completed: false };
-              if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
-              ensureEventSocketForSelectedAgent();
-              scrollToBottom();
-              addEditButtonsToMessages();
-            }
-          } else {
-            showToast("Failed to send edited message");
-          }
-        } catch (err) {
-          showToast("Error sending edited message: " + err.message);
-        }
       } else {
-        showToast(result.error || "Failed to delete message");
+        console.log('[EDIT] Delete failed, but will still send new message');
+      }
+      
+      // Get attachments from the hidden field - ALWAYS do this, not just on delete success
+      let attachments = [];
+      try {
+        const attachmentsStr = document.getElementById("edit-attachments")?.value || '[]';
+        attachments = JSON.parse(attachmentsStr);
+      } catch (e) {
+        attachments = [];
+      }
+      
+      // Now send the edited message to LLM via the API (separate from chat form)
+      // This happens regardless of whether delete succeeded
+      setChatStatus("Sending edited message to AI...");
+      
+      // Extract file IDs from attachments
+      const fileIds = attachments.map(a => {
+        // Try to extract file ID from previewUrl
+        // The previewUrl might be like /api/files/{fileId}/preview
+        const match = a.previewUrl?.match(/\/api\/files\/([^/]+)\/preview/);
+        return match ? match[1] : a.previewUrl;
+      }).filter(Boolean);
+      
+      // Generate a new UUID for the edited message
+      const newMessageId = generateUUID();
+      try {
+        const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: newContent,
+            message_id: newMessageId,
+            attachments: fileIds
+          })
+        });
+        
+        if (response.ok) {
+          // Add the edited message to UI as a user message
+          if (dom.messageList) {
+            const displayAttachments = attachments.map(a => ({
+              name: a.name || 'attachment',
+              type: a.type || 'file',
+              previewUrl: a.previewUrl,
+              url: a.url
+            }));
+            
+            dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticleWithId(newContent, displayAttachments, newMessageId));
+            
+            // Add thinking indicator
+            const thinkingId = 'thinking-' + Date.now();
+            dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+            const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
+            if (pending) pending.dataset.thinkingId = thinkingId;
+            state.inflightThinking = { id: thinkingId, events: [], completed: false };
+            if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
+            ensureEventSocketForSelectedAgent();
+            scrollToBottom();
+            addEditButtonsToMessages();
+          }
+        } else {
+          showToast("Failed to send edited message");
+        }
+      } catch (err) {
+        showToast("Error sending edited message: " + err.message);
       }
     } catch (err) {
       showToast("Error editing message: " + err.message);
