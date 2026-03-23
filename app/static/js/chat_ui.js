@@ -122,6 +122,17 @@ if (dom.chatInput) {
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
+// Global mapping from blob URL to file ID
+const blobUrlToFileId = {};
+
+function getFileIdFromBlobUrl(blobUrl) {
+  return blobUrlToFileId[blobUrl] || null;
+}
+
+function setBlobUrlMapping(blobUrl, fileId) {
+  blobUrlToFileId[blobUrl] = fileId;
+}
+
 function getLastSessionKey(agentId) {
   return `portal-last-session-${agentId}`;
 }
@@ -268,7 +279,12 @@ async function addPendingFilesAndUpload(files) {
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
-
+      
+      // Store blob URL to file ID mapping
+      if (pf.previewUrl && pf.file_id) {
+        setBlobUrlMapping(pf.previewUrl, pf.file_id);
+      }
+      
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
 
@@ -350,6 +366,10 @@ async function uploadPendingFile(pf) {
           const data = JSON.parse(xhr.responseText);
           pf.status = 'uploaded';
           pf.uploadedData = data;
+          // Store blob URL to file ID mapping
+          if (pf.previewUrl && data.file_id) {
+            setBlobUrlMapping(pf.previewUrl, data.file_id);
+          }
           resolve(data);
         } catch { reject(new Error('Invalid response')); }
       } else { reject(new Error('HTTP ' + xhr.status)); }
@@ -2266,7 +2286,7 @@ function addEditButtonsToMessages() {
       const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
       
-      // Get attachments from the article's data attribute
+      // Get attachments from the article
       const attachments = [];
       
       // Method 1: Try to get from article dataset
@@ -2277,7 +2297,19 @@ function addEditButtonsToMessages() {
         } catch (e) {}
       }
       
-      console.log('[EDIT BTN] Article attachments:', article.dataset.attachments);
+      // Method 2: Try to get from blob URL mapping
+      if (attachments.length === 0) {
+        const images = article.querySelectorAll('.flex.flex-wrap.gap-2 img');
+        images.forEach(img => {
+          if (img.src && img.src.startsWith('blob:')) {
+            const fileId = getFileIdFromBlobUrl(img.src);
+            if (fileId) {
+              attachments.push(fileId);
+            }
+          }
+        });
+      }
+      
       console.log('[EDIT BTN] Extracted attachments:', attachments);
       
       openEditMessageModal(messageId, content, attachments);
