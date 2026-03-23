@@ -1330,6 +1330,7 @@ function initializeRenderLifecycle() {
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
   document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
+    console.log('[DEBUG] htmx:afterSwap', event.target?.id);
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
     if (event.target?.id === "message-list") addEditButtonsToMessages();
