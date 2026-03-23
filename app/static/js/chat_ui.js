@@ -2379,18 +2379,12 @@ function bindEvents() {
         })
       });
       
-      let result = {};
-      try {
-        result = await response.json();
-      } catch (e) {
-        console.log('[EDIT] Delete response parse error:', e.message);
-      }
+      const result = await response.json();
       
       // Close modal
       document.getElementById("message-edit-modal")?.classList.add("hidden");
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
-      // Continue even if delete failed - just send the new message
       if (result.success) {
         console.log('[EDIT] Delete succeeded');
         
@@ -2433,26 +2427,18 @@ function bindEvents() {
             dom.messageList.innerHTML = '';
           }
         }
-      } else {
-        console.log('[EDIT] Delete failed, but continuing to send new message');
-      }
-      
-      // Get attachments from the hidden field
-      let attachments = [];
-      try {
-        const attachmentsStr = document.getElementById("edit-attachments")?.value || '[]';
-        attachments = JSON.parse(attachmentsStr);
-      } catch (e) {
-        attachments = [];
-      }
-      
-      // Now send the edited message to LLM via the API (separate from chat form)
-      console.log('[EDIT] About to send new message, sessionId:', sessionId);
-      setChatStatus("Sending edited message to AI...");
-      
-      if (!sessionId) {
-        console.log('[EDIT] ERROR: sessionId is undefined!');
-      }
+        
+        // Get attachments from the hidden field
+        let attachments = [];
+        try {
+          const attachmentsStr = document.getElementById("edit-attachments")?.value || '[]';
+          attachments = JSON.parse(attachmentsStr);
+        } catch (e) {
+          attachments = [];
+        }
+        
+        // Now send the edited message to LLM via the API (separate from chat form)
+        setChatStatus("Sending edited message to AI...");
         
         // Extract file IDs from attachments
         const fileIds = attachments.map(a => {
