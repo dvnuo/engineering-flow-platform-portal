@@ -1208,3 +1208,31 @@ html[data-theme="dark"] .prose td {
 #system-prompt-editor-modal textarea {
   font-family: monospace;
 }
+
+/* System Prompt Editor Modal */
+#system-prompt-editor-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1055;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+#system-prompt-editor-modal:not(.hidden) {
+  display: flex;
+}
+
+#system-prompt-editor-modal .modal-card {
+  position: relative;
+  z-index: 1056;
+  background: white;
+  dark-bg: #1e293b;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  max-width: 600px;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}

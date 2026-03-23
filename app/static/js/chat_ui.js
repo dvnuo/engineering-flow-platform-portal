@@ -2870,9 +2870,13 @@ function loadSystemPromptConfig(agentId) {
 }
 
 function updateSystemPromptEnabled(agentId, section, enabled) {
+  var payload = {};
+  payload[section] = { enabled: enabled };
   api('/a/' + agentId + '/api/agent/system-prompt/config', {
     method: 'PUT',
-    body: JSON.stringify({ section: { enabled: enabled } })
+    body: JSON.stringify(payload)
+  }).then(function() {
+    console.log('Updated ' + section + ' to ' + enabled);
   }).catch(function(e) {
     console.error('Failed to update:', e);
   });
@@ -2926,10 +2930,12 @@ function saveSystemPromptSection(agentId, section) {
   var enabled = document.getElementById('sp-editor-enabled').checked;
   var content = document.getElementById('sp-editor-content').value;
   
+  // Send to individual section endpoint
   api('/a/' + agentId + '/api/agent/system-prompt/' + section, {
     method: 'PUT',
     body: JSON.stringify({ enabled: enabled, content: content })
   }).then(function() {
+    console.log('Saved ' + section + ': enabled=' + enabled);
     closeSystemPromptEditor();
     loadSystemPromptConfig(agentId);
   }).catch(function(e) {
