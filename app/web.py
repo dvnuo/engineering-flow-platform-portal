@@ -1126,6 +1126,7 @@ async def api_delete_conversation_from_here(request: Request, agent_id: str, ses
             headers={"content-type": "application/json"},
         )
         
+        print(f"[delete-from-here] status={status_code} content={content[:200] if content else 'empty'}")
         if status_code >= 400:
             raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
         
