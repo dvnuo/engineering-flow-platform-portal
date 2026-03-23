@@ -1176,12 +1176,33 @@ function handleChatBeforeRequest(event) {
   hideSuggest();
 
   // Build attachments from pending files for display
-  const displayAttachments = state.pendingFiles.map(pf => ({
+  let displayAttachments = [];
+  
+  // First try to get from pendingFiles
+  displayAttachments = state.pendingFiles.map(pf => ({
     name: pf.file.name,
     type: pf.isImage ? 'image' : 'file',
     previewUrl: pf.previewUrl,
     url: pf.uploadedData?.url
   }));
+  
+  // If no pending files, check chat-attachments (for Edit flow)
+  if (displayAttachments.length === 0) {
+    const chatAttachmentsInput = document.getElementById("chat-attachments");
+    if (chatAttachmentsInput && chatAttachmentsInput.value) {
+      try {
+        const attachmentIds = JSON.parse(chatAttachmentsInput.value);
+        displayAttachments = attachmentIds.map(id => ({
+          name: id,
+          type: 'image',
+          previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`,
+          url: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`
+        }));
+      } catch (e) {
+        console.error('Failed to parse attachments:', e);
+      }
+    }
+  }
 
   if (dom.messageList && message) {
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
