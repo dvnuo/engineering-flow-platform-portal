@@ -1562,6 +1562,7 @@ function renderChatHistory(messages, metadata = {}) {
         const attachmentDiv = document.createElement("div");
         attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
         attachmentDiv.dataset.attachments = JSON.stringify(msgAttachments);
+        article.dataset.attachments = JSON.stringify(msgAttachments);
         msgAttachments.forEach(fileId => {
           const img = document.createElement("img");
           img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
@@ -2267,28 +2268,18 @@ function addEditButtonsToMessages() {
       
       // Get attachments from the article's data attribute
       const attachments = [];
-      const attachmentDiv = article.querySelector('.flex.flex-wrap.gap-2');
       
-      if (attachmentDiv && attachmentDiv.dataset.attachments) {
+      // Method 1: Try to get from article dataset
+      if (article.dataset.attachments) {
         try {
-          const storedAttachments = JSON.parse(attachmentDiv.dataset.attachments);
+          const storedAttachments = JSON.parse(article.dataset.attachments);
           attachments.push(...storedAttachments);
-        } catch (e) {
-          console.error('Failed to parse attachments:', e);
-        }
+        } catch (e) {}
       }
       
-      // Fallback: try to get from img data attribute
-      if (attachments.length === 0) {
-        const images = article.querySelectorAll('.flex.flex-wrap.gap-2 img[data-file-id]');
-        images.forEach(img => {
-          if (img.dataset.fileId) {
-            attachments.push(img.dataset.fileId);
-          }
-        });
-      }
+      console.log('[EDIT BTN] Article attachments:', article.dataset.attachments);
+      console.log('[EDIT BTN] Extracted attachments:', attachments);
       
-      console.log('[EDIT BTN] Extracted attachments from data:', attachments);
       openEditMessageModal(messageId, content, attachments);
     };
     article.appendChild(editBtn);
