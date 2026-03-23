@@ -65,16 +65,13 @@ class ProxyService:
         return self._node_ip
 
     def build_agent_base_url(self, agent) -> str:
-        print(f"[proxy] agent.service_name={agent.service_name}, agent.namespace={agent.namespace}")
         # Try to get NodePort from K8s service
         if self.core_api:
             try:
                 svc = self.core_api.read_namespaced_service(
                     name=agent.service_name,
                     namespace=agent.namespace
-                )
-                print(f"[proxy] service type: {svc.spec.type}")
-                # Check if it's NodePort type
+                ) # Check if it's NodePort type
                 if svc.spec.type == "NodePort":
                     # Find the NodePort
                     for port in svc.spec.ports:
@@ -82,19 +79,14 @@ class ProxyService:
                             return f"http://{self.node_ip}:{port.node_port}"
                 # For ClusterIP, try internal DNS
                 elif svc.spec.type == "ClusterIP":
-                    url = f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
-                    print(f"[proxy] ClusterIP URL: {url}")
-                    return url
+                    return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
             except ValueError:
                 # Re-raise ValueError so caller can handle it with actionable message
                 raise
-            except Exception as e:
-                print(f"[proxy] Error: {e}")
+            except Exception:
                 pass
         # Fallback to internal DNS
-        url = f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
-        print(f"[proxy] fallback URL: {url}")
-        return url
+        return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
 
     async def forward(
         self,
