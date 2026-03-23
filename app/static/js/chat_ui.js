@@ -1194,13 +1194,21 @@ function handleChatBeforeRequest(event) {
     scrollToBottom();
   }
 
+  // Save attachment file_ids and set on hidden input (will be submitted with form)
+  attachmentsToSend = state.pendingFiles
+    .filter(pf => pf.file_id && pf.status === 'uploaded')
+    .map(pf => pf.file_id);
+  
+  // Set attachments on hidden input for form submission
+  const attachmentsInput = document.getElementById('chat-attachments');
+  if (attachmentsInput) {
+    attachmentsInput.value = JSON.stringify(attachmentsToSend);
+  }
+
   // Clear pending files and input (message is already captured in 'message' variable)
   clearPendingFiles();
   if (dom.chatInput) dom.chatInput.value = "";
   setChatStatus("Sending...");
-
-  // Note: attachments is now set via htmx:configRequest event
-  // HTMX will submit the form with attachments in the payload
 }
 
 function handleChatResponseError(event) {
@@ -1315,17 +1323,11 @@ function decodeHtml(text) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
-  document.addEventListener("htmx:configRequest", (event) => {
-    // This fires right before HTMX makes the request - perfect time to set attachments
-    const elt = event.detail.requestConfig?.elt || event.target;
-    if (elt?.id === "chat-form") {
-      const uploadedFileIds = state.pendingFiles
-        .filter(pf => pf.file_id && pf.status === 'uploaded')
-        .map(pf => pf.file_id);
-      event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+  // attachmentsToSend is set in handleChatBeforeRequest and used to populate the hidden input
+  let attachmentsToSend = [];
 
-    }
-  });
+  // htmx:configRequest may not fire for all HTMX requests, so we use a different approach
+  // Set attachments directly on the hidden input before HTMX processes the form
 
   document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
   document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
