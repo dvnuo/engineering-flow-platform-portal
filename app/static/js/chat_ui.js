@@ -2263,37 +2263,22 @@ function addEditButtonsToMessages() {
       const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
       
-      // Debug: check article structure
-      const allDivs = article.querySelectorAll('div');
-      console.log('[EDIT] article has', allDivs.length, 'divs');
-      
-      // Get attachments from the article
+      // Get attachments from the article - try ALL img tags
       const attachments = [];
+      const allImages = article.querySelectorAll('img');
+      console.log('[EDIT BTN] Found', allImages.length, 'images in article');
       
-      // Try multiple selectors
-      let attachmentDiv = article.querySelector('.flex.flex-wrap.gap-2');
-      console.log('[EDIT] selector .flex.flex-wrap.gap-2:', !!attachmentDiv);
+      allImages.forEach(img => {
+        console.log('[EDIT BTN] Image src:', img.src);
+        // Try to extract file ID from various URL patterns
+        let match = img.src.match(/\/api\/files\/(.+)$/);
+        if (!match) match = img.src.match(/\/files\/(.+)$/);
+        if (match) {
+          attachments.push(match[1]);
+        }
+      });
       
-      if (!attachmentDiv) {
-        // Try finding by looking at all divs with flex class
-        const flexDivs = article.querySelectorAll('.flex');
-        console.log('[EDIT] flex divs found:', flexDivs.length);
-      }
-      
-      if (attachmentDiv) {
-        const images = attachmentDiv.querySelectorAll('img');
-        console.log('[EDIT] images in attachment div:', images.length);
-        images.forEach(img => {
-          console.log('[EDIT] img src:', img.src);
-          const match = img.src.match(/\/api\/files\/(.+)$/);
-          if (match) {
-            attachments.push(match[1]);
-          }
-        });
-      }
-      
-      console.log('[EDIT] final attachments:', attachments);
-      
+      console.log('[EDIT BTN] Extracted attachments:', attachments);
       openEditMessageModal(messageId, content, attachments);
     };
     article.appendChild(editBtn);
