@@ -173,6 +173,7 @@ const state = {
   pendingMessage: "",
   currentUserId: Number(dom.appRoot?.dataset.userId || 0),
   currentUserName: dom.appRoot?.dataset.nickname || dom.appRoot?.dataset.username || "You",
+  attachmentHistory: [],
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
   eventWs: null,
   eventWsAgentId: null,
@@ -371,8 +372,9 @@ async function uploadPendingFile(pf) {
           pf.status = 'uploaded';
           pf.uploadedData = data;
           // Store blob URL to file ID mapping
-          if (pf.previewUrl && data.file_id) {
-            setBlobUrlMapping(pf.previewUrl, data.file_id);
+          const fileId = data.file_id || data.id;
+          if (pf.previewUrl && fileId) {
+            setBlobUrlMapping(pf.previewUrl, fileId);
           }
           resolve(data);
         } catch { reject(new Error('Invalid response')); }
@@ -1287,10 +1289,10 @@ function handleChatAfterRequest(event) {
             
             // Get attachments from attachmentHistory - use last entry since this is the latest message
             const attachments = [];
-            // console.log(' History length:', attachmentHistory.length);
-            if (attachmentHistory.length > 0) {
+            // console.log(' History length:', state.attachmentHistory.length);
+            if (state.attachmentHistory.length > 0) {
               // Use the last entry in history for the latest message
-              const lastAttachments = attachmentHistory[attachmentHistory.length - 1];
+              const lastAttachments = attachmentHistory[state.attachmentHistory.length - 1];
               // console.log(' Last attachments:', lastAttachments);
               if (lastAttachments) {
                 attachments.push(...lastAttachments);
@@ -2333,7 +2335,7 @@ function addEditButtonsToMessages() {
     if (existingInArticle || existingInContainer) return;
     
     // Get message ID (may be from data-message-id or generated)
-    let messageId = article.getAttribute('data-message-id');
+    article.getAttribute = article.getAttribute('data-message-id');
     
     // For messages without ID, generate a temporary ID based on content hash
     // This will be replaced with real ID after backend confirmation
@@ -2372,7 +2374,7 @@ function addEditButtonsToMessages() {
         // console.log(' All user articles count:', allUserArticles.length);
         // console.log(' Article index:', articleIndex);
         // console.log(' History:', attachmentHistory);
-        if (articleIndex >= 0 && articleIndex < attachmentHistory.length) {
+        if (articleIndex >= 0 && articleIndex < state.attachmentHistory.length) {
           // console.log(' Found in history:', attachmentHistory[articleIndex]);
           attachments.push(...attachmentHistory[articleIndex]);
         } else {
@@ -2534,8 +2536,8 @@ function bindEvents() {
               containers[i].remove();
             }
             // Also truncate attachmentHistory to stay in sync
-            if (foundIndex < attachmentHistory.length) {
-              attachmentHistory = attachmentHistory.slice(0, foundIndex);
+            if (foundIndex < state.attachmentHistory.length) {
+              attachmentHistory = state.attachmentHistory.slice(0, foundIndex);
             }
           } else {
             // Fallback: just clear all messages and reload
