@@ -1074,10 +1074,19 @@ async def api_send_message(request: Request, agent_id: str, session_id: str):
             headers={"content-type": "application/json"},
         )
         
+        print(f"[EDIT-SEND] status={status_code} content_len={len(content) if content else 0}")
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            error_msg = content.decode('utf-8', errors='ignore')
+            print(f"[EDIT-SEND] ERROR: {error_msg[:500]}")
+            raise HTTPException(status_code=502, detail=f"Runtime error: {error_msg[:200]}")
         
-        return web.json_response({"success": True, "data": json.loads(content.decode("utf-8"))})
+        try:
+            data = json.loads(content.decode("utf-8"))
+            print(f"[EDIT-SEND] SUCCESS")
+            return web.json_response({"success": True, "data": data})
+        except json.JSONDecodeError as e:
+            print(f"[EDIT-SEND] JSON ERROR: {e}")
+            raise HTTPException(status_code=502, detail=f"Invalid JSON from runtime: {content.decode('utf-8', errors='ignore')[:200]}")
     finally:
         db.close()
 
@@ -1136,9 +1145,17 @@ async def api_delete_conversation_from_here(request: Request, agent_id: str, ses
             print(f"[delete-from-here] ERROR: {error_msg[:500]}")
             raise HTTPException(status_code=502, detail=f"Runtime error: {error_msg[:200]}")
         
+        # Check if content is empty
+        if not content:
+            print("[delete-from-here] WARNING: Empty content from EFP")
+            raise HTTPException(status_code=502, detail="Empty response from runtime")
+        
         try:
-            return web.json_response(json.loads(content.decode("utf-8")))
-        except json.JSONDecodeError:
+            result = json.loads(content.decode("utf-8"))
+            print(f"[delete-from-here] SUCCESS: {result}")
+            return web.json_response(result)
+        except json.JSONDecodeError as e:
+            print(f"[delete-from-here] JSON ERROR: {e}")
             raise HTTPException(status_code=502, detail=f"Invalid JSON from runtime: {content.decode('utf-8', errors='ignore')[:200]}")
     finally:
         db.close()
