@@ -2833,6 +2833,11 @@ function loadSystemPromptConfig(agentId) {
   items.innerHTML = '';
   
   api('/a/' + agentId + '/api/agent/system-prompt/config').then(function(config) {
+    // Guard: check if response is stale (agent switched while request was in-flight)
+    if (state.selectedAgentId !== agentId) {
+      return;
+    }
+    
     var sections = ['soul', 'user', 'agents', 'memory', 'daily_notes'];
     var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'Daily Notes' };
     var hasEdit = { soul: true, user: true, agents: true, memory: true, daily_notes: false };
@@ -2850,7 +2855,8 @@ function loadSystemPromptConfig(agentId) {
     var checkboxes = items.querySelectorAll('input[type="checkbox"]');
     for (var j = 0; j < checkboxes.length; j++) {
       checkboxes[j].addEventListener('change', function(e) {
-        updateSystemPromptEnabled(agentId, e.target.dataset.section, e.target.checked);
+        // Use current selected agent
+        updateSystemPromptEnabled(state.selectedAgentId, e.target.dataset.section, e.target.checked);
       });
     }
     
@@ -2858,7 +2864,8 @@ function loadSystemPromptConfig(agentId) {
     for (var k = 0; k < editBtns.length; k++) {
       editBtns[k].addEventListener('click', (function(btn) {
         return function() {
-          editSystemPromptSection(agentId, btn.dataset.section);
+          // Use current selected agent
+          editSystemPromptSection(state.selectedAgentId, btn.dataset.section);
         };
       })(editBtns[k]));
     }
@@ -2903,18 +2910,34 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
     modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card" style="width: min(600px, 90vw); max-height: 80vh;"><div class="flex items-center justify-between mb-4"><h3 id="sp-editor-title" class="text-lg font-semibold"></h3><button id="sp-editor-close" class="text-slate-400 hover:text-slate-600"><svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div><div class="mb-4"><label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sp-editor-enabled" class="rounded border-slate-300"><span>Enabled</span></label></div><textarea id="sp-editor-content" class="w-full h-64 p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-mono resize-none" placeholder="Enter content..."></textarea><div class="flex justify-end gap-2 mt-4"><button id="sp-editor-cancel" class="px-4 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button><button id="sp-editor-save" class="px-4 py-2 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600">Save</button></div></div></div>';
     document.body.appendChild(modal);
     
+    // Close on Escape key
+    modal._keyHandler = function(e) {
+      if (e.key === 'Escape') {
+        closeSystemPromptEditor();
+      }
+    };
+    
     document.getElementById('sp-editor-close').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-backdrop').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-cancel').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-save').addEventListener('click', function() {
-      saveSystemPromptSection(agentId, section);
+      // Read current values from modal dataset
+      var currentAgentId = modal.dataset.agentId;
+      var currentSection = modal.dataset.section;
+      if (currentAgentId && currentSection) {
+        saveSystemPromptSection(currentAgentId, currentSection);
+      }
     });
   }
+  
+  // Add/remove Escape key listener
+  document.addEventListener('keydown', modal._keyHandler);
   
   document.getElementById('sp-editor-title').textContent = labels[section] + ' Configuration';
   document.getElementById('sp-editor-enabled').checked = enabled;
   document.getElementById('sp-editor-content').value = content;
   modal.dataset.section = section;
+  modal.dataset.agentId = agentId;
   
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
@@ -2924,7 +2947,10 @@ function closeSystemPromptEditor() {
   var modal = document.getElementById('system-prompt-editor-modal');
   if (modal) {
     modal.classList.add('hidden');
-    modal.setAttribute('aria-hidden', 'true');
+    // Remove Escape key listener
+    if (modal._keyHandler) {
+      document.removeEventListener('keydown', modal._keyHandler);
+    }
   }
 }
 
