@@ -2522,9 +2522,11 @@ function bindEvents() {
       const fileIds = state.pendingFiles
         .filter(pf => pf.file_id && pf.status === 'uploaded')
         .map(pf => pf.file_id);
+      console.log('[ENTER] fileIds:', JSON.stringify(fileIds), 'pendingFiles:', state.pendingFiles.length);
       const attachmentsInput = document.getElementById('chat-attachments');
       if (attachmentsInput) {
         attachmentsInput.value = JSON.stringify(fileIds);
+        console.log('[ENTER] attachmentsInput.value set to:', attachmentsInput.value);
       }
       
       htmx.trigger("#chat-form", "submit");
