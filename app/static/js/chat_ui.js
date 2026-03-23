@@ -1365,15 +1365,26 @@ function initializeRenderLifecycle() {
     // This fires right before HTMX makes the request - perfect time to set attachments
     const elt = event.detail.requestConfig?.elt || event.target;
     if (elt?.id === "chat-form") {
-      const uploadedFileIds = state.pendingFiles
-        .filter(pf => pf.file_id && pf.status === 'uploaded')
-        .map(pf => pf.file_id);
-      event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+      // Check if attachments already set (e.g., from Edit flow)
+      const chatAttachmentsInput = document.getElementById("chat-attachments");
+      const existingAttachments = chatAttachmentsInput?.value;
       
-      // Store attachments in history
-      console.log('[CONFIG] Storing attachments in history:', uploadedFileIds);
-      if (uploadedFileIds.length > 0) {
-        addToAttachmentHistory(uploadedFileIds);
+      // If already set (from Edit), don't overwrite
+      if (existingAttachments && existingAttachments !== '') {
+        console.log('[CONFIG] Using existing attachments:', existingAttachments);
+        event.detail.parameters.attachments = existingAttachments;
+      } else {
+        // Normal send - use pendingFiles
+        const uploadedFileIds = state.pendingFiles
+          .filter(pf => pf.file_id && pf.status === 'uploaded')
+          .map(pf => pf.file_id);
+        event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+        
+        // Store attachments in history
+        console.log('[CONFIG] Storing attachments in history:', uploadedFileIds);
+        if (uploadedFileIds.length > 0) {
+          addToAttachmentHistory(uploadedFileIds);
+        }
       }
     }
   });
