@@ -2259,6 +2259,13 @@ function addEditButtonsToMessages() {
       
       // Read the current message ID from the article's data attribute at click time
       const currentMessageId = clickedArticle.dataset.messageId;
+      
+      // If no messageId, we can't edit this message (it was created before messageId support)
+      if (!currentMessageId) {
+        showToast("This message cannot be edited (no message ID)");
+        return;
+      }
+      
       const contentEl = clickedArticle.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
       
