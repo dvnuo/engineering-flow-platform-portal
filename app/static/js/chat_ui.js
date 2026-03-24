@@ -1318,6 +1318,9 @@ function handleChatAfterRequest(event) {
   } catch (e) {
     // console.error('Failed to update message ID:', e);
   }
+  
+  // Add edit buttons to the newly sent message
+  addEditButtonsToMessages();
 }
 
 function handleChatAfterSwap(target) {
