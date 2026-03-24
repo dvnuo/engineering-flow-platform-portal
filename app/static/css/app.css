@@ -395,7 +395,7 @@ html:not([data-theme="light"]) [data-pending-assistant="1"] {
   isolation: isolate;
 }
 
-html:not[data-theme="light"] [data-pending-assistant="1"] .text-slate-300 {
+html:not([data-theme="light"]) [data-pending-assistant="1"] .text-slate-300 {
   margin-left: 1.5rem;
 }
 
@@ -1261,4 +1261,7 @@ html[data-theme="dark"] #system-prompt-editor-modal .modal-card {
 #edit-message-content:focus {
   outline: none;
   border-color: #3b82f6;
+}
+#agent-usage {
+  display: none;
 }
