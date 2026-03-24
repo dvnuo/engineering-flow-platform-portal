@@ -1394,11 +1394,8 @@ function initializeRenderLifecycle() {
           .map(pf => pf.file_id);
         event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
         
-        // Store attachments in history
-        // console.log(' Storing attachments in history:', uploadedFileIds);
-        if (uploadedFileIds.length > 0) {
-          addToAttachmentHistory(uploadedFileIds);
-        }
+        // Store attachments in history (always record, even empty arrays for indexing)
+        addToAttachmentHistory(uploadedFileIds);
       }
     }
   });
@@ -2549,8 +2546,10 @@ function bindEvents() {
             for (let i = containers.length - 1; i >= foundIndex; i--) {
               containers[i].remove();
             }
-            // Also truncate attachmentHistory to stay in sync
-            if (foundIndex < state.attachmentHistory.length) {
+            // Also truncate attachmentHistory to stay in sync (only if lengths align)
+            if (Array.isArray(state.attachmentHistory) && 
+                state.attachmentHistory.length === containers.length &&
+                foundIndex < state.attachmentHistory.length) {
               state.attachmentHistory = state.attachmentHistory.slice(0, foundIndex);
             }
           } else {
