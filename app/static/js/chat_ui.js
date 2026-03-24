@@ -1290,7 +1290,10 @@ function handleChatAfterRequest(event) {
           lastUserArticle.dataset.messageId = userMessageId;
           
           // Update any edit button's onclick to use the real ID
-          const editBtn = lastUserArticle.querySelector('.edit-msg-btn');
+          // Button may be in article or in parent container
+          const parentContainer = lastUserArticle.parentElement;
+          const editBtn = lastUserArticle.querySelector('.edit-msg-btn') || 
+                         parentContainer?.querySelector?.('.edit-msg-btn');
           if (editBtn) {
             const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
             const content = contentEl ? contentEl.textContent : '';
