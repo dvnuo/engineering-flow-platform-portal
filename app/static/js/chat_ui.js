@@ -3258,7 +3258,7 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
     console.log('Updated ' + section + ' to ' + enabled);
   }).catch(function(e) {
     console.error('Failed to update:', e);
-    showToast('Failed to update: ' + e.message, 'error');
+    showToast('Failed to update: ' + e.message);
     // Reload config to revert UI to server state
     loadSystemPromptConfig(agentId);
   });
@@ -3269,7 +3269,7 @@ function editSystemPromptSection(agentId, section) {
     showSystemPromptEditor(agentId, section, data.content || '', data.enabled);
   }).catch(function(e) {
     console.error('Failed to load:', e);
-    showToast('Failed to load: ' + e.message, 'error');
+    showToast('Failed to load: ' + e.message);
   });
 }
 
@@ -3361,6 +3361,6 @@ function saveSystemPromptSection(agentId, section) {
     loadSystemPromptConfig(agentId);
   }).catch(function(e) {
     console.error('Failed to save:', e);
-    showToast('Failed to save: ' + e.message, 'error');
+    showToast('Failed to save: ' + e.message);
   });
 }
