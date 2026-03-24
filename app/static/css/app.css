@@ -1204,12 +1204,23 @@ html[data-theme="dark"] .prose td {
 }
 
 
-/* System Prompt Editor Modal - rely on shared .modal styles; minimal overrides */
+/* System Prompt Editor Modal */
 #system-prompt-editor-modal {
-  z-index: 1055;
+  z-index: 2000 !important;
+}
+
+#system-prompt-editor-modal.hidden {
+  display: none !important;
+}
+
+#system-prompt-editor-modal:not(.hidden) {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
 }
 
 #system-prompt-editor-modal .modal-card {
+  z-index: 2001 !important;
   max-width: 600px;
   width: 90vw;
   max-height: 80vh;
