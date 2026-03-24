@@ -122,6 +122,29 @@ if (dom.chatInput) {
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 
+// Global mapping from blob URL to file ID
+const blobUrlToFileId = {};
+
+function getFileIdFromBlobUrl(blobUrl) {
+  const fileId = blobUrlToFileId[blobUrl] || null;
+  // console.log(' getFileIdFromBlobUrl:', blobUrl, '->', fileId);
+  // console.log(' Current mappings:', JSON.stringify(blobUrlToFileId));
+  return fileId;
+}
+
+function setBlobUrlMapping(blobUrl, fileId) {
+  // console.log(' Setting mapping:', blobUrl, '->', fileId);
+  blobUrlToFileId[blobUrl] = fileId;
+}
+
+function addToAttachmentHistory(attachments) {
+  if (!state.attachmentHistory) {
+    state.attachmentHistory = [];
+  }
+  state.attachmentHistory.push(attachments);
+  // console.log(' Added attachments:', attachments);
+}
+
 function getLastSessionKey(agentId) {
   return `portal-last-session-${agentId}`;
 }
@@ -158,6 +181,7 @@ const state = {
   pendingMessage: "",
   currentUserId: Number(dom.appRoot?.dataset.userId || 0),
   currentUserName: dom.appRoot?.dataset.nickname || dom.appRoot?.dataset.username || "You",
+  attachmentHistory: [],
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
   eventWs: null,
   eventWsAgentId: null,
@@ -268,7 +292,12 @@ async function addPendingFilesAndUpload(files) {
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
-
+      
+      // Store blob URL to file ID mapping
+      if (pf.previewUrl && pf.file_id) {
+        setBlobUrlMapping(pf.previewUrl, pf.file_id);
+      }
+      
       renderInputPreview();
       showToast('File uploaded: ' + file.name);
 
@@ -350,6 +379,11 @@ async function uploadPendingFile(pf) {
           const data = JSON.parse(xhr.responseText);
           pf.status = 'uploaded';
           pf.uploadedData = data;
+          // Store blob URL to file ID mapping
+          const fileId = data.file_id || data.id;
+          if (pf.previewUrl && fileId) {
+            setBlobUrlMapping(pf.previewUrl, fileId);
+          }
           resolve(data);
         } catch { reject(new Error('Invalid response')); }
       } else { reject(new Error('HTTP ' + xhr.status)); }
@@ -1057,7 +1091,7 @@ async function loadLastSessionFromRemote(agentId) {
       }
     }
   } catch (e) {
-    console.log("Failed to load last session from remote:", e);
+    // console.log("Failed to load last session from remote:", e);
   }
 }
 
@@ -1132,12 +1166,33 @@ function handleChatBeforeRequest(event) {
   hideSuggest();
 
   // Build attachments from pending files for display
-  const displayAttachments = state.pendingFiles.map(pf => ({
+  let displayAttachments = [];
+  
+  // First try to get from pendingFiles
+  displayAttachments = state.pendingFiles.map(pf => ({
     name: pf.file.name,
     type: pf.isImage ? 'image' : 'file',
     previewUrl: pf.previewUrl,
     url: pf.uploadedData?.url
   }));
+  
+  // If no pending files, check chat-attachments (for Edit flow)
+  if (displayAttachments.length === 0) {
+    const chatAttachmentsInput = document.getElementById("chat-attachments");
+    if (chatAttachmentsInput && chatAttachmentsInput.value) {
+      try {
+        const attachmentIds = JSON.parse(chatAttachmentsInput.value);
+        displayAttachments = attachmentIds.map(id => ({
+          name: id,
+          type: 'image',
+          previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`,
+          url: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`
+        }));
+      } catch (e) {
+        // console.error('Failed to parse attachments:', e);
+      }
+    }
+  }
 
   if (dom.messageList && message) {
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
@@ -1214,6 +1269,58 @@ function handleChatAfterRequest(event) {
   setChatSubmitting(false);
   state.pendingMessage = "";
   state.messagePrepared = false;
+
+  // Update optimistic user message with real message ID from backend
+  // The server sends user_message_id via HTMX OOB swap in the response HTML
+  try {
+    const xhr = event.detail.xhr;
+    if (xhr && xhr.responseText) {
+      // Parse the response HTML to find the user_message_id from OOB input
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xhr.responseText, "text/html");
+      const oobInput = doc.querySelector('#chat-user-message-id');
+      if (oobInput && oobInput.value) {
+        const userMessageId = oobInput.value;
+        
+        // Find the last user message article (the one just sent) and update its ID
+        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
+        if (userArticles.length > 0) {
+          const lastUserArticle = userArticles[userArticles.length - 1];
+          // Update the data-message-id attribute with the real ID
+          lastUserArticle.dataset.messageId = userMessageId;
+          
+          // Update any edit button's onclick to use the real ID
+          // Button may be in article or in parent container
+          const parentContainer = lastUserArticle.parentElement;
+          const editBtn = lastUserArticle.querySelector('.edit-msg-btn') || 
+                         parentContainer?.querySelector?.('.edit-msg-btn');
+          if (editBtn) {
+            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
+            const content = contentEl ? contentEl.textContent : '';
+            
+            // Get attachments from attachmentHistory - use last entry since this is the latest message
+            const attachments = [];
+            // console.log(' History length:', state.attachmentHistory.length);
+            if (state.attachmentHistory.length > 0) {
+              // Use the last entry in history for the latest message
+              const lastAttachments = state.attachmentHistory[state.attachmentHistory.length - 1];
+              // console.log(' Last attachments:', lastAttachments);
+              if (lastAttachments) {
+                attachments.push(...lastAttachments);
+              }
+            }
+            
+            editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // console.error('Failed to update message ID:', e);
+  }
+  
+  // Add edit buttons to the newly sent message
+  addEditButtonsToMessages();
 }
 
 function handleChatAfterSwap(target) {
@@ -1275,11 +1382,24 @@ function initializeRenderLifecycle() {
     // This fires right before HTMX makes the request - perfect time to set attachments
     const elt = event.detail.requestConfig?.elt || event.target;
     if (elt?.id === "chat-form") {
-      const uploadedFileIds = state.pendingFiles
-        .filter(pf => pf.file_id && pf.status === 'uploaded')
-        .map(pf => pf.file_id);
-      event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
-
+      // Check if attachments already set (e.g., from Edit flow)
+      const chatAttachmentsInput = document.getElementById("chat-attachments");
+      const existingAttachments = chatAttachmentsInput?.value;
+      
+      // If already set (from Edit), don't overwrite
+      if (existingAttachments && existingAttachments !== '') {
+        // console.log(' Using existing attachments:', existingAttachments);
+        event.detail.parameters.attachments = existingAttachments;
+      } else {
+        // Normal send - use pendingFiles
+        const uploadedFileIds = state.pendingFiles
+          .filter(pf => pf.file_id && pf.status === 'uploaded')
+          .map(pf => pf.file_id);
+        event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+        
+        // Store attachments in history (always record, even empty arrays for indexing)
+        addToAttachmentHistory(uploadedFileIds);
+      }
     }
   });
 
@@ -1288,6 +1408,7 @@ function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
     handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
+    if (event.target?.id === "message-list") addEditButtonsToMessages();
     renderIcons();
   });
   document.addEventListener("htmx:responseError", handleChatResponseError);
@@ -1516,6 +1637,11 @@ function renderChatHistory(messages, metadata = {}) {
     const article = document.createElement("article");
     if (isUser) {
       article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
+      article.dataset.localUser = "1";
+      // Set message ID if available
+      if (message.id) {
+        article.dataset.messageId = message.id;
+      }
       const content = document.createElement("div");
       content.className = "whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
@@ -1526,11 +1652,14 @@ function renderChatHistory(messages, metadata = {}) {
       if (msgAttachments.length > 0) {
         const attachmentDiv = document.createElement("div");
         attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
+        attachmentDiv.dataset.attachments = JSON.stringify(msgAttachments);
+        article.dataset.attachments = JSON.stringify(msgAttachments);
         msgAttachments.forEach(fileId => {
           const img = document.createElement("img");
           img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
           img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
           img.alt = fileId;
+          img.dataset.fileId = fileId;
           // Show placeholder on error
           img.onerror = () => {
             img.style.display = 'none';
@@ -1548,6 +1677,7 @@ function renderChatHistory(messages, metadata = {}) {
     }
 
     container.appendChild(article);
+    
     dom.messageList.appendChild(container);
   });
 
@@ -1574,6 +1704,7 @@ async function loadSession(sessionId) {
     state.selectedAgentName = agent?.name || null;
   }
   renderChatHistory(data.messages || [], data.metadata || {});
+  addEditButtonsToMessages();
 
   setChatStatus(`Loaded session ${normalized}`);
   // Only open sessions panel if explicitly requested
@@ -2095,7 +2226,7 @@ async function copyAgentConfig(agentId) {
     // Show global toast
     showToast('Configuration copied to clipboard!');
   } catch (e) {
-    console.error('Failed to copy config:', e);
+    // console.error('Failed to copy config:', e);
     showToast('Failed to copy: ' + e.message);
   }
 }
@@ -2187,6 +2318,132 @@ if (document.readyState === 'loading') {
   setupPasteModal();
 }
 
+// Open message edit modal
+function openEditMessageModal(messageId, currentContent, attachments = []) {
+  document.getElementById("edit-message-id").value = messageId;
+  document.getElementById("edit-message-content").value = currentContent;
+  document.getElementById("edit-attachments").value = JSON.stringify(attachments);
+  document.getElementById("message-edit-modal")?.classList.remove("hidden");
+  document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
+  document.getElementById("edit-message-content")?.focus();
+  
+  // Close modal when clicking outside (on backdrop)
+  const modal = document.getElementById("message-edit-modal");
+  const handleOutsideClick = (e) => {
+    if (e.target === modal) {
+      closeEditMessageModal();
+      modal.removeEventListener("click", handleOutsideClick);
+    }
+  };
+  modal?.addEventListener("click", handleOutsideClick);
+  
+  // Close modal on ESC key
+  const handleEsc = (e) => {
+    if (e.key === "Escape") {
+      closeEditMessageModal();
+      document.removeEventListener("keydown", handleEsc);
+    }
+  };
+  document.addEventListener("keydown", handleEsc);
+}
+
+function closeEditMessageModal() {
+  document.getElementById("message-edit-modal")?.classList.add("hidden");
+  document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
+}
+
+// Add edit buttons to user messages
+function addEditButtonsToMessages() {
+  // Find all user message articles with data-local-user="1"
+  // Note: data-message-id may not exist for optimistically-rendered messages
+  const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
+  
+  messages.forEach(article => {
+    // Only show edit button if message has a real backend ID (not local/temporary ID)
+    const messageId = article.getAttribute('data-message-id');
+    if (!messageId || messageId.startsWith('local-')) return;
+    
+    // Check if edit button already exists (in article or container)
+    const parentContainer = article.parentElement;
+    const existingInArticle = article.querySelector('.edit-msg-btn');
+    const existingInContainer = parentContainer?.querySelector?.('.edit-msg-btn');
+    if (existingInArticle || existingInContainer) return;
+    
+    // Get message ID (may be from data-message-id or generated)
+    const editBtn = document.createElement("button");
+    editBtn.className = "edit-msg-btn text-slate-500 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 mt-1 p-1.5 rounded-md border-0 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors";
+    editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
+    editBtn.title = "Edit message";
+    editBtn.onclick = () => {
+      const contentEl = article.querySelector('.whitespace-pre-wrap');
+      const content = contentEl ? contentEl.textContent : '';
+      
+      // Get attachments from the article
+      const attachments = [];
+      
+      // Method 1: Try to get from article dataset
+      if (article.dataset.attachments) {
+        try {
+          const storedAttachments = JSON.parse(article.dataset.attachments);
+          attachments.push(...storedAttachments);
+        } catch (e) {}
+      }
+      
+      // Method 2: Try to get from attachment history based on position
+      if (attachments.length === 0) {
+        // Find all user messages in the message list
+        const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
+        const articleIndex = allUserArticles.indexOf(article);
+        // console.log(' Looking for article index...');
+        // console.log(' All user articles count:', allUserArticles.length);
+        // console.log(' Article index:', articleIndex);
+        // console.log(' History:', attachmentHistory);
+        if (articleIndex >= 0 && articleIndex < state.attachmentHistory.length) {
+          // console.log(' Found in history:', state.attachmentHistory[articleIndex]);
+          attachments.push(...state.attachmentHistory[articleIndex]);
+        } else {
+          // console.log(' NOT found in history - index out of range');
+        }
+      }
+      
+      // Method 3: Try to get from blob URL mapping
+      if (attachments.length === 0) {
+        const images = article.querySelectorAll('.flex.flex-wrap.gap-2 img');
+        images.forEach(img => {
+          if (img.src && img.src.startsWith('blob:')) {
+            const fileId = getFileIdFromBlobUrl(img.src);
+            if (fileId) attachments.push(fileId);
+          }
+        });
+      }
+      
+      // console.log(' Extracted attachments:', attachments);
+      
+      openEditMessageModal(messageId, content, attachments);
+    };
+    
+    // Move button outside article (below the message)
+    const container = article.parentElement;
+    if (container && container.classList.contains('flex')) {
+      container.appendChild(editBtn);
+      container.classList.add('items-end');
+    } else {
+      article.appendChild(editBtn);
+    }
+  });
+}
+
+// Simple hash function for generating temporary message IDs
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(36);
+}
+
 // Global toast notification
 function showToast(message, duration = 2000) {
   const toast = document.getElementById('global-toast');
@@ -2238,6 +2495,109 @@ function bindEvents() {
   document.getElementById("close-edit-modal")?.addEventListener("click", () => {
     document.getElementById("edit-modal").classList.add("hidden");
     document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
+  });
+
+  // Message edit modal
+  document.getElementById("close-message-edit-modal")?.addEventListener("click", () => {
+    closeEditMessageModal();
+    document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
+  });
+
+  document.getElementById("message-edit-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const messageId = document.getElementById("edit-message-id").value;
+    const newContent = document.getElementById("edit-message-content").value;
+    const sessionId = document.getElementById("chat-session-id")?.value;
+    
+    if (!messageId || !newContent.trim() || !sessionId) {
+      showToast("Invalid session");
+      return;
+    }
+    
+    try {
+      // Use delete-from-here to delete the target message and subsequent messages
+      // Then send a new message with the edited content
+      const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/delete-from-here`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      
+      let result = {};
+      try {
+        result = await response.json();
+      } catch (e) {
+        // Non-JSON response
+        showToast("Failed to delete message");
+        return;
+      }
+      
+      if (!response.ok || !result.success) {
+        showToast(result.error || "Failed to delete message");
+        return;
+      }
+      
+      // Close modal
+      closeEditMessageModal();
+      document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
+      
+      if (result.success) {
+        // Remove the target message and subsequent messages from the UI
+        // This ensures the old messages are cleared before the new ones are added
+        if (dom.messageList) {
+          const containers = Array.from(dom.messageList.querySelectorAll('.flex.flex-col'));
+          
+          // Find the index of the container with the target message ID
+          let foundIndex = -1;
+          for (let i = 0; i < containers.length; i++) {
+            const article = containers[i].querySelector('article[data-message-id]');
+            if (article && article.dataset.messageId === messageId) {
+              foundIndex = i;
+              break;
+            }
+          }
+          
+          // If found, remove this and all subsequent containers
+          if (foundIndex >= 0) {
+            for (let i = containers.length - 1; i >= foundIndex; i--) {
+              containers[i].remove();
+            }
+            // Also truncate attachmentHistory to stay in sync (only if lengths align)
+            if (Array.isArray(state.attachmentHistory) && 
+                state.attachmentHistory.length === containers.length &&
+                foundIndex < state.attachmentHistory.length) {
+              state.attachmentHistory = state.attachmentHistory.slice(0, foundIndex);
+            }
+          } else {
+            // Fallback: just clear all messages and reload
+            dom.messageList.innerHTML = '';
+            state.attachmentHistory = [];
+          }
+        }
+        
+        // Now send the edited message to LLM for processing
+        setChatStatus("Sending edited message to AI...");
+        
+        // Set the chat input to the edited content
+        if (dom.chatInput) {
+          dom.chatInput.value = newContent;
+        }
+        
+        // Set attachments from edit-attachments hidden field
+        const editAttachments = document.getElementById("edit-attachments")?.value || '[]';
+        const attachmentsInput = document.getElementById("chat-attachments");
+        if (attachmentsInput) {
+          attachmentsInput.value = editAttachments;
+        }
+        
+        // Trigger HTMX form submission to send the message
+        htmx.trigger("#chat-form", "submit");
+      } else {
+        showToast(result.error || "Failed to delete message");
+      }
+    } catch (err) {
+      showToast("Error editing message: " + err.message);
+    }
   });
 
   dom.detailToggle?.addEventListener("click", () => {
