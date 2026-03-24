@@ -1203,8 +1203,35 @@ html[data-theme="dark"] .prose td {
   overflow: auto;
 }
 
+
+/* System Prompt Editor Modal */
+#system-prompt-editor-modal {
+  z-index: 2000 !important;
+}
+
+#system-prompt-editor-modal.hidden {
+  display: none !important;
+}
+
+#system-prompt-editor-modal:not(.hidden) {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+#system-prompt-editor-modal .modal-card {
+  z-index: 2001 !important;
+  max-width: 600px;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+html[data-theme="dark"] #system-prompt-editor-modal .modal-card {
+  background: #1e293b;
+}
 /* Message edit button */
-.edit-msg-btn,
+.edit-msg-btn {
   font-size: 0.75rem;
   padding: 0.25rem 0.5rem;
   border-radius: 0.25rem;
@@ -1214,7 +1241,7 @@ html[data-theme="dark"] .prose td {
   cursor: pointer;
   transition: all 0.2s;
 }
-.edit-msg-btn:hover,
+.edit-msg-btn:hover {
   border-color: #3b82f6;
   color: #3b82f6;
 }

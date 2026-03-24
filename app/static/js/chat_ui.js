@@ -854,6 +854,9 @@ function renderAgentMeta(agent) {
 
   // Fetch usage data
   fetchUsageForAgent(agent.id);
+  
+  // Fetch and render system prompt config
+  renderSystemPromptSection(agent);
 
   // Fetch git info if repo is configured
   if (agent.repo_url) {
@@ -3126,5 +3129,238 @@ function initFilePanelPreview() {
     const isImage = filename && filename.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
     
     openFilePreview(url, filename, !!isImage);
+  });
+}
+
+
+// ===== System Prompt Configuration =====
+function renderSystemPromptSection(agent) {
+  // Find the settings panel container
+  var container = null;
+  
+  // First try: use #agent-meta inside settings panel if it exists
+  var agentMeta = document.getElementById('agent-meta');
+  if (agentMeta) {
+    container = agentMeta;
+  }
+  
+  // Second try: use #tool-panel-body if it exists  
+  if (!container) {
+    var toolPanelBody = document.getElementById('tool-panel-body');
+    if (toolPanelBody) {
+      container = toolPanelBody;
+    }
+  }
+  
+  // Third try: find visible aside element in settings panel
+  if (!container) {
+    var asides = document.querySelectorAll('aside');
+    for (var i = 0; i < asides.length; i++) {
+      if (asides[i].offsetParent !== null) {  // visible
+        container = asides[i];
+        break;
+      }
+    }
+  }
+  
+  // Last resort: use body
+  if (!container) {
+    container = document.body;
+  }
+  
+  // Remove existing section if present
+  var existing = document.getElementById('system-prompt-section');
+  if (existing) existing.remove();
+  
+  var section = document.createElement('div');
+  section.id = 'system-prompt-section';
+  section.className = 'mt-4 pt-4 border-t border-slate-200 dark:border-slate-700';
+  section.innerHTML = '<div class="flex items-center justify-between mb-3"><div class="text-xs text-slate-500 uppercase tracking-wide">System Prompt</div></div><div id="system-prompt-items" class="space-y-2"></div><div id="system-prompt-loading" class="text-xs text-slate-400 py-2">Loading...</div><div id="system-prompt-error" class="text-xs text-red-500 py-2 hidden"></div>';
+  
+  container.appendChild(section);
+  
+  loadSystemPromptConfig(agent.id);
+}
+
+function loadSystemPromptConfig(agentId) {
+  // Guard: don't touch DOM if not current agent
+  if (state.selectedAgentId !== agentId) {
+    return;
+  }
+  
+  var loading = document.getElementById('system-prompt-loading');
+  var error = document.getElementById('system-prompt-error');
+  var items = document.getElementById('system-prompt-items');
+  if (!items) return;
+  
+  loading.classList.remove('hidden');
+  error.classList.add('hidden');
+  items.innerHTML = '';
+  
+  api('/a/' + agentId + '/api/agent/system-prompt/config').then(function(config) {
+    // Guard: check if response is stale (agent switched while request was in-flight)
+    if (state.selectedAgentId !== agentId) {
+      return;
+    }
+    
+    // Check if agent is writable
+    const currentAgent = state.mineAgents?.find(a => a.id === agentId);
+    const canWrite = canWriteAgent(currentAgent);
+    
+    var sections = ['soul', 'user', 'agents', 'memory', 'daily_notes'];
+    var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'Daily Notes' };
+    var hasEdit = { soul: true, user: true, agents: true, memory: true, daily_notes: false };
+    
+    for (var i = 0; i < sections.length; i++) {
+      var name = sections[i];
+      var enabled = config[name] && config[name].enabled !== undefined ? config[name].enabled : true;
+      var disabledAttr = canWrite ? '' : ' disabled';
+      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="text-blue-500 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Edit ' + labels[name] + '"' + disabledAttr + '><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>' : '';
+      var item = document.createElement('div');
+      item.className = 'flex items-center justify-between py-1';
+      item.innerHTML = '<div class="flex items-center gap-2"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="rounded border-slate-300 dark:border-slate-600 text-blue-500 focus:ring-blue-500"' + disabledAttr + '><label for="sp-' + name + '-enabled" class="text-xs font-medium text-slate-700 dark:text-slate-300">' + labels[name] + '</label></div>' + editButton;
+      items.appendChild(item);
+    }
+    
+    var checkboxes = items.querySelectorAll('input[type="checkbox"]');
+    for (var j = 0; j < checkboxes.length; j++) {
+      checkboxes[j].addEventListener('change', function(e) {
+        // Use current selected agent
+        updateSystemPromptEnabled(state.selectedAgentId, e.target.dataset.section, e.target.checked);
+      });
+    }
+    
+    var editBtns = items.querySelectorAll('button[data-action="edit"]');
+    for (var k = 0; k < editBtns.length; k++) {
+      editBtns[k].addEventListener('click', (function(btn) {
+        return function() {
+          // Use current selected agent
+          editSystemPromptSection(state.selectedAgentId, btn.dataset.section);
+        };
+      })(editBtns[k]));
+    }
+    
+    loading.classList.add('hidden');
+  }).catch(function(e) {
+    error.textContent = 'Failed to load: ' + e.message;
+    error.classList.remove('hidden');
+    loading.classList.add('hidden');
+  });
+}
+
+function updateSystemPromptEnabled(agentId, section, enabled) {
+  var payload = {};
+  payload[section] = { enabled: enabled };
+  api('/a/' + agentId + '/api/agent/system-prompt/config', {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  }).then(function() {
+    console.log('Updated ' + section + ' to ' + enabled);
+  }).catch(function(e) {
+    console.error('Failed to update:', e);
+    showToast('Failed to update: ' + e.message);
+    // Reload config to revert UI to server state
+    loadSystemPromptConfig(agentId);
+  });
+}
+
+function editSystemPromptSection(agentId, section) {
+  api('/a/' + agentId + '/api/agent/system-prompt/' + section).then(function(data) {
+    showSystemPromptEditor(agentId, section, data.content || '', data.enabled);
+  }).catch(function(e) {
+    console.error('Failed to load:', e);
+    showToast('Failed to load: ' + e.message);
+  });
+}
+
+function showSystemPromptEditor(agentId, section, content, enabled) {
+  var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY' };
+  
+  var modal = document.getElementById('system-prompt-editor-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'system-prompt-editor-modal';
+    modal.className = 'modal hidden';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'sp-editor-title');
+    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card" style="width: min(600px, 90vw); max-height: 80vh;"><div class="flex items-center justify-between mb-4"><h3 id="sp-editor-title" class="text-lg font-semibold"></h3><button type="button" id="sp-editor-close" class="text-slate-400 hover:text-slate-600" aria-label="Close"><svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div><div class="mb-4"><label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sp-editor-enabled" class="rounded border-slate-300"><span>Enabled</span></label></div><textarea id="sp-editor-content" class="w-full h-64 p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-mono resize-none" placeholder="Enter content..."></textarea><div class="flex justify-end gap-2 mt-4"><button type="button" id="sp-editor-cancel" class="px-4 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button><button type="button" id="sp-editor-save" class="px-4 py-2 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600">Save</button></div></div></div>';
+    document.body.appendChild(modal);
+    
+    // Close on Escape key
+    modal._keyHandler = function(e) {
+      if (e.key === 'Escape') {
+        closeSystemPromptEditor();
+      }
+    };
+    
+    document.getElementById('sp-editor-close').addEventListener('click', closeSystemPromptEditor);
+    document.getElementById('sp-editor-backdrop').addEventListener('click', closeSystemPromptEditor);
+    document.getElementById('sp-editor-cancel').addEventListener('click', closeSystemPromptEditor);
+    document.getElementById('sp-editor-save').addEventListener('click', function() {
+      // Read current values from modal dataset
+      var currentAgentId = modal.dataset.agentId;
+      var currentSection = modal.dataset.section;
+      if (currentAgentId && currentSection) {
+        saveSystemPromptSection(currentAgentId, currentSection);
+      }
+    });
+  }
+  
+  // Add/remove Escape key listener
+  document.addEventListener('keydown', modal._keyHandler);
+  
+  document.getElementById('sp-editor-title').textContent = labels[section] + ' Configuration';
+  document.getElementById('sp-editor-enabled').checked = enabled;
+  document.getElementById('sp-editor-content').value = content;
+  modal.dataset.section = section;
+  modal.dataset.agentId = agentId;
+  
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  
+  // Store previously focused element for restoration on close
+  modal._previousActiveElement = document.activeElement;
+  
+  // Move focus into the modal
+  var focusTarget = document.getElementById('sp-editor-content') || document.getElementById('sp-editor-enabled');
+  if (focusTarget && typeof focusTarget.focus === 'function') {
+    focusTarget.focus();
+  }
+}
+
+function closeSystemPromptEditor() {
+  var modal = document.getElementById('system-prompt-editor-modal');
+  if (!modal) return;
+  
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  // Remove Escape key listener
+  if (modal._keyHandler) {
+    document.removeEventListener('keydown', modal._keyHandler);
+    modal._keyHandler = null;
+  }
+  // Restore focus to previously focused element
+  if (modal._previousActiveElement) {
+    modal._previousActiveElement.focus();
+    modal._previousActiveElement = null;
+  }
+}
+
+function saveSystemPromptSection(agentId, section) {
+  var enabled = document.getElementById('sp-editor-enabled').checked;
+  var content = document.getElementById('sp-editor-content').value;
+  
+  // Send to individual section endpoint
+  api('/a/' + agentId + '/api/agent/system-prompt/' + section, {
+    method: 'PUT',
+    body: JSON.stringify({ enabled: enabled, content: content })
+  }).then(function() {
+    console.log('Saved ' + section + ': enabled=' + enabled);
+    closeSystemPromptEditor();
+    loadSystemPromptConfig(agentId);
+  }).catch(function(e) {
+    console.error('Failed to save:', e);
+    showToast('Failed to save: ' + e.message);
   });
 }
