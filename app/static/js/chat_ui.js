@@ -2986,7 +2986,6 @@ function closeSystemPromptEditor() {
     modal._previousActiveElement = null;
   }
 }
-}
 
 function saveSystemPromptSection(agentId, section) {
   var enabled = document.getElementById('sp-editor-enabled').checked;
