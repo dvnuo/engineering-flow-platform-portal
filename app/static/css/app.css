@@ -1204,22 +1204,12 @@ html[data-theme="dark"] .prose td {
 }
 
 
-/* System Prompt Editor Modal */
-#system-prompt-editor-modal textarea {
-  font-family: monospace;
-}
-
-/* System Prompt Editor Modal - rely on shared .modal styles */
+/* System Prompt Editor Modal - rely on shared .modal styles; minimal overrides */
 #system-prompt-editor-modal {
   z-index: 1055;
 }
 
 #system-prompt-editor-modal .modal-card {
-  position: relative;
-  z-index: 1056;
-  background: white;
-  border-radius: 0.75rem;
-  padding: 1.5rem;
   max-width: 600px;
   width: 90vw;
   max-height: 80vh;
