@@ -819,6 +819,10 @@ function renderAgentMeta(agent) {
   dom.agentMeta.innerHTML = `
     <div class="space-y-3 text-sm">
       <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Agent Id</div>
+        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.id)}</div>
+      </div>
+      <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Image</div>
         <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.image)}</div>
       </div>
@@ -843,10 +847,6 @@ function renderAgentMeta(agent) {
             ${disk}Gi
           </span>
         </div>
-      </div>
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Description</div>
-        <div class="text-slate-700 dark:text-slate-300">${safe(agent.description || '-')}</div>
       </div>
       <div id="agent-usage" class="text-xs text-slate-400">Loading usage...</div>
     </div>
