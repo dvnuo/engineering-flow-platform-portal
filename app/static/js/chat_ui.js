@@ -2323,6 +2323,30 @@ function openEditMessageModal(messageId, currentContent, attachments = []) {
   document.getElementById("message-edit-modal")?.classList.remove("hidden");
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
   document.getElementById("edit-message-content")?.focus();
+  
+  // Close modal when clicking outside (on backdrop)
+  const modal = document.getElementById("message-edit-modal");
+  const handleOutsideClick = (e) => {
+    if (e.target === modal) {
+      closeEditMessageModal();
+      modal.removeEventListener("click", handleOutsideClick);
+    }
+  };
+  modal?.addEventListener("click", handleOutsideClick);
+  
+  // Close modal on ESC key
+  const handleEsc = (e) => {
+    if (e.key === "Escape") {
+      closeEditMessageModal();
+      document.removeEventListener("keydown", handleEsc);
+    }
+  };
+  document.addEventListener("keydown", handleEsc);
+}
+
+function closeEditMessageModal() {
+  document.getElementById("message-edit-modal")?.classList.add("hidden");
+  document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
 }
 
 // Add edit buttons to user messages
@@ -2472,7 +2496,7 @@ function bindEvents() {
 
   // Message edit modal
   document.getElementById("close-message-edit-modal")?.addEventListener("click", () => {
-    document.getElementById("message-edit-modal")?.classList.add("hidden");
+    closeEditMessageModal();
     document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
   });
 
@@ -2511,7 +2535,7 @@ function bindEvents() {
       }
       
       // Close modal
-      document.getElementById("message-edit-modal")?.classList.add("hidden");
+      closeEditMessageModal();
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
       if (result.success) {
