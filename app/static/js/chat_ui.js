@@ -139,7 +139,7 @@ function setBlobUrlMapping(blobUrl, fileId) {
 
 function addToAttachmentHistory(attachments) {
   if (!state.attachmentHistory) {
-    state.state.attachmentHistory = [];
+    state.attachmentHistory = [];
   }
   state.attachmentHistory.push(attachments);
   // console.log(' Added attachments:', attachments);
