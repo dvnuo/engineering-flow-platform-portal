@@ -1209,19 +1209,9 @@ html[data-theme="dark"] .prose td {
   font-family: monospace;
 }
 
-/* System Prompt Editor Modal */
+/* System Prompt Editor Modal - rely on shared .modal styles */
 #system-prompt-editor-modal {
-  position: fixed;
-  inset: 0;
   z-index: 1055;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-}
-
-#system-prompt-editor-modal:not(.hidden) {
-  display: flex;
 }
 
 #system-prompt-editor-modal .modal-card {

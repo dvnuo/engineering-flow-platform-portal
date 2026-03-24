@@ -2844,7 +2844,7 @@ function loadSystemPromptConfig(agentId) {
     }
     
     // Check if agent is writable
-    const currentAgent = state.agents.get(agentId);
+    const currentAgent = state.mineAgents?.find(a => a.id === agentId);
     const canWrite = canWriteAgent(currentAgent);
     
     var sections = ['soul', 'user', 'agents', 'memory', 'daily_notes'];
@@ -2854,8 +2854,8 @@ function loadSystemPromptConfig(agentId) {
     for (var i = 0; i < sections.length; i++) {
       var name = sections[i];
       var enabled = config[name] && config[name].enabled !== undefined ? config[name].enabled : true;
-      var disabledAttr = canWrite ? '' : 'disabled';
-      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="text-blue-500 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Edit ' + labels[name] + '" ' + disabledAttr + '><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>' : '';
+      var disabledAttr = canWrite ? '' : ' disabled';
+      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="text-blue-500 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Edit ' + labels[name] + '"' + disabledAttr + '><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>' : '';
       var item = document.createElement('div');
       item.className = 'flex items-center justify-between py-1';
       item.innerHTML = '<div class="flex items-center gap-2"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="rounded border-slate-300 dark:border-slate-600 text-blue-500 focus:ring-blue-500"' + disabledAttr + '><label for="sp-' + name + '-enabled" class="text-xs font-medium text-slate-700 dark:text-slate-300">' + labels[name] + '</label></div>' + editButton;
@@ -2909,6 +2909,7 @@ function editSystemPromptSection(agentId, section) {
     showSystemPromptEditor(agentId, section, data.content || '', data.enabled);
   }).catch(function(e) {
     console.error('Failed to load:', e);
+    showToast('Failed to load: ' + e.message, 'error');
   });
 }
 
@@ -2957,6 +2958,12 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
   
   // Store previously focused element for restoration on close
   modal._previousActiveElement = document.activeElement;
+  
+  // Move focus into the modal
+  var focusTarget = document.getElementById('sp-editor-content') || document.getElementById('sp-editor-enabled');
+  if (focusTarget && typeof focusTarget.focus === 'function') {
+    focusTarget.focus();
+  }
 }
 
 function closeSystemPromptEditor() {
@@ -2974,6 +2981,15 @@ function closeSystemPromptEditor() {
       modal._previousActiveElement.focus();
       modal._previousActiveElement = null;
     }
+  }
+  
+  // Recreate keyHandler if needed when reopening
+  if (!modal._keyHandler) {
+    modal._keyHandler = function(e) {
+      if (e.key === 'Escape') {
+        closeSystemPromptEditor();
+      }
+    };
   }
 }
 
