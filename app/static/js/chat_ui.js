@@ -567,6 +567,22 @@ function attachThinkingToLatestAssistant(events) {
   return true;
 }
 
+// Render thinking events from chat response (non-WebSocket)
+function renderThinkingEvents(events) {
+  if (!events || events.length === 0) return;
+  // Try to attach to latest assistant message
+  if (!attachThinkingToLatestAssistant(events)) {
+    // Fallback: update Thinking Process panel directly
+    const html = events.map(e => {
+      const icon = e.display?.icon || '📋';
+      const title = e.display?.name || e.type || 'Event';
+      const msg = e.display?.message || '';
+      return `<div class="text-xs py-1"><span>${icon}</span> <span class="font-semibold">${title}:</span> ${msg.slice(0, 100)}</div>`;
+    }).join('');
+    setToolPanel("Thinking Process", html);
+  }
+}
+
 function handleAgentEventMessage(raw) {
   if (!state.inflightThinking) return;
 
@@ -1272,6 +1288,34 @@ function handleChatAfterRequest(event) {
   setChatSubmitting(false);
   state.pendingMessage = "";
   state.messagePrepared = false;
+
+  // Extract events from response and render to Thinking Process
+  try {
+    const xhr = event.detail.xhr;
+    if (xhr && xhr.responseText) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xhr.responseText, "text/html");
+      
+      // Find events in the assistant message article
+      const assistantArticle = doc.querySelector('article.assistant-message');
+      if (assistantArticle) {
+        const eventsData = assistantArticle.querySelector('[data-events]');
+        if (eventsData) {
+          try {
+            const events = JSON.parse(eventsData.dataset.events);
+            if (events && events.length > 0) {
+              // Render events to Thinking Process panel
+              renderThinkingEvents(events);
+            }
+          } catch (e) {
+            console.error('Failed to parse events:', e);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore errors
+  }
 
   // Update optimistic user message with real message ID from backend
   // The server sends user_message_id via HTMX OOB swap in the response HTML

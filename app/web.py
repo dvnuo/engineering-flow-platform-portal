@@ -1005,6 +1005,10 @@ async def app_chat_send(request: Request):
             raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
 
         data = json.loads(content.decode("utf-8"))
+        
+        # Forward events to frontend for Thinking Process
+        events = data.get("events", [])
+        
         return templates.TemplateResponse(
             "partials/chat_response.html",
             {
@@ -1014,6 +1018,7 @@ async def app_chat_send(request: Request):
                 "session_id": data.get("session_id") or session_id or "",
                 "agent_name": agent.name if agent else "Assistant",
                 "user_message_id": data.get("user_message_id") or "",
+                "events": events,
             },
         )
     finally:
