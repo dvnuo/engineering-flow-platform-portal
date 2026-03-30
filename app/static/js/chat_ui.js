@@ -459,7 +459,13 @@ function disconnectEventSocket() {
 }
 
 function isTrackableThinkingEvent(type) {
-  return ["iteration_start", "llm_thinking", "tool_call", "tool_result", "skill_matched", "complete"].includes(type);
+  return [
+    "iteration_start", "llm_thinking", "tool_call", "tool_result", 
+    "skill_matched", "complete",
+    // Skill mode events
+    "skill_mode_start", "skill_step", "skill_session_start", 
+    "skill_compaction", "skill_complete"
+  ].includes(type);
 }
 
 function getThinkingEventDisplay(event) {
@@ -472,6 +478,12 @@ function getThinkingEventDisplay(event) {
     tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
     skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
+    // Skill mode events
+    skill_mode_start: { icon: "play-circle", title: "Skill Mode", detail: `Starting: ${data.skill || "Skill"}` },
+    skill_step: { icon: "list-checks", title: `Step: ${data.step || "Step"}`, detail: data.detail || "", status: data.status },
+    skill_session_start: { icon: "clipboard-list", title: "Skill Session", detail: `Goal: ${data.goal || ""}` },
+    skill_compaction: { icon: data.status === "completed" ? "archive" : "scissors", title: "Compaction", detail: data.status === "completed" ? `Steps: ${data.remaining_steps}` : `Tokens: ${data.current_tokens}` },
+    skill_complete: { icon: "check-square", title: data.reason === "finish" ? "Skill Finished" : "Skill Awaiting Input", detail: data.result || data.question || "" },
   };
   return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
 }
@@ -582,12 +594,36 @@ function escapeHtml(str) {
 // Note: Event rendering is handled by attachThinkingToLatestAssistant in handleChatAfterSwap
 
 function handleAgentEventMessage(raw) {
-  if (!state.inflightThinking) return;
-
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
   const type = payload?.type;
   if (!isTrackableThinkingEvent(type)) return;
+
+  // Initialize inflightThinking if not set and we have skill mode events
+  if (!state.inflightThinking && type?.startsWith("skill_")) {
+    // Create a placeholder thinking panel for skill mode
+    const thinkingId = `thinking-${Date.now()}`;
+    state.inflightThinking = { id: thinkingId, events: [], completed: false };
+    
+    // Find or create the assistant message placeholder
+    let assistantPlaceholder = dom.messageList?.querySelector('.assistant-message.pending-thinking, article.pending-thinking');
+    if (!assistantPlaceholder) {
+      // Create placeholder if it doesn't exist
+      const lastUser = dom.messageList?.querySelector('article[data-local-user="1"]:last-of-type');
+      if (lastUser) {
+        assistantPlaceholder = document.createElement('article');
+        assistantPlaceholder.className = 'assistant-message pending-thinking';
+        assistantPlaceholder.dataset.thinkingId = thinkingId;
+        lastUser.after(assistantPlaceholder);
+      }
+    }
+    if (assistantPlaceholder) {
+      assistantPlaceholder.dataset.thinkingId = thinkingId;
+      renderThinkingProcess(assistantPlaceholder, state.inflightThinking.events);
+    }
+  }
+
+  if (!state.inflightThinking) return;
 
   const entry = { type, data: payload?.data || {}, ts: payload?.ts || Date.now() / 1000 };
   state.inflightThinking.events.push(entry);
@@ -595,7 +631,7 @@ function handleAgentEventMessage(raw) {
   const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${state.inflightThinking.id}"]`);
   if (pendingArticle) renderThinkingProcess(pendingArticle, state.inflightThinking.events);
 
-  if (type === "complete") state.inflightThinking.completed = true;
+  if (type === "complete" || type === "skill_complete") state.inflightThinking.completed = true;
 }
 
 function ensureEventSocketForSelectedAgent() {
