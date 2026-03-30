@@ -579,22 +579,7 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Fallback function (kept for potential future use or WebSocket events)
-// Currently, attachThinkingToLatestAssistant handles the main flow
-function renderThinkingEvents(events) {
-  if (!events || events.length === 0) return;
-  // Try to attach to latest assistant message
-  if (!attachThinkingToLatestAssistant(events)) {
-    // Fallback: update Thinking Process panel directly
-    const html = events.map(e => {
-      const icon = escapeHtml(e.display?.icon) || '📋';
-      const title = escapeHtml(e.display?.name) || e.type || 'Event';
-      const msg = String(e.display?.message || '');
-      return `<div class="text-xs py-1"><span>${icon}</span> <span class="font-semibold">${title}:</span> ${escapeHtml(msg.slice(0, 100))}</div>`;
-    }).join('');
-    setToolPanel("Thinking Process", html);
-  }
-}
+// Note: Event rendering is handled by attachThinkingToLatestAssistant in handleChatAfterSwap
 
 function handleAgentEventMessage(raw) {
   if (!state.inflightThinking) return;
@@ -1317,8 +1302,8 @@ function handleChatAfterRequest(event) {
         if (eventsData) {
           try {
             const events = JSON.parse(eventsData.dataset.events);
-            if (events && events.length > 0) {
-              // Store events to render after HTMX swap
+            // Validate events is an array before storing
+            if (Array.isArray(events) && events.length > 0) {
               state.pendingThinkingEvents = events;
             }
           } catch (e) {
@@ -1340,55 +1325,6 @@ function handleChatAfterRequest(event) {
     }
   } catch (e) {
     // Ignore errors
-  }
-
-  // Note: Events will be rendered in handleChatAfterSwap
-  // The server sends user_message_id via HTMX OOB swap in the response HTML
-  try {
-    const xhr = event.detail.xhr;
-    if (xhr && xhr.responseText) {
-      // Parse the response HTML to find the user_message_id from OOB input
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xhr.responseText, "text/html");
-      const oobInput = doc.querySelector('#chat-user-message-id');
-      if (oobInput && oobInput.value) {
-        const userMessageId = oobInput.value;
-        
-        // Find the last user message article (the one just sent) and update its ID
-        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-        if (userArticles.length > 0) {
-          const lastUserArticle = userArticles[userArticles.length - 1];
-          // Update the data-message-id attribute with the real ID
-          lastUserArticle.dataset.messageId = userMessageId;
-          
-          // Update any edit button's onclick to use the real ID
-          // Button may be in article or in parent container
-          const parentContainer = lastUserArticle.parentElement;
-          const editBtn = lastUserArticle.querySelector('.edit-msg-btn') || 
-                         parentContainer?.querySelector?.('.edit-msg-btn');
-          if (editBtn) {
-            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
-            const content = contentEl ? contentEl.textContent : '';
-            
-            // Get attachments from attachmentHistory - use last entry since this is the latest message
-            const attachments = [];
-            // console.log(' History length:', state.attachmentHistory.length);
-            if (state.attachmentHistory.length > 0) {
-              // Use the last entry in history for the latest message
-              const lastAttachments = state.attachmentHistory[state.attachmentHistory.length - 1];
-              // console.log(' Last attachments:', lastAttachments);
-              if (lastAttachments) {
-                attachments.push(...lastAttachments);
-              }
-            }
-            
-            editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
-          }
-        }
-      }
-    }
-  } catch (e) {
-    // console.error('Failed to update message ID:', e);
   }
   
   // Add edit buttons to the newly sent message
