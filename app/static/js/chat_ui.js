@@ -579,6 +579,8 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// Fallback function (kept for potential future use or WebSocket events)
+// Currently, attachThinkingToLatestAssistant handles the main flow
 function renderThinkingEvents(events) {
   if (!events || events.length === 0) return;
   // Try to attach to latest assistant message
@@ -1330,7 +1332,7 @@ function handleChatAfterRequest(event) {
       if (userMsgIdInput) {
         const userMsgId = userMsgIdInput.value;
         // Update optimistic message with real ID
-        const pendingUser = dom.messageList?.querySelector('[data-pending-user="1"]');
+        const pendingUser = dom.messageList?.querySelector('[data-local-user="1"]');
         if (pendingUser) {
           pendingUser.dataset.messageId = userMsgId;
         }
@@ -1396,16 +1398,23 @@ function handleChatAfterRequest(event) {
 function handleChatAfterSwap(target) {
   if (target?.id !== "message-list") return;
 
-  const pendingEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
+  // Merge both WebSocket events and HTMX response events
+  const wsEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
+  const htmxEvents = state.pendingThinkingEvents || [];
+  
+  // Combine and dedupe events (HTMX events are usually skill mode, WS are regular)
+  const allEvents = [...wsEvents];
+  htmxEvents.forEach(e => {
+    if (!allEvents.some(ex => ex.type === e.type && JSON.stringify(ex.data) === JSON.stringify(e.data))) {
+      allEvents.push(e);
+    }
+  });
+  
   removePendingAssistantPlaceholder();
-  if (pendingEvents.length) attachThinkingToLatestAssistant(pendingEvents);
+  if (allEvents.length) attachThinkingToLatestAssistant(allEvents);
   
-  // Also render events from HTMX response (skill mode events)
-  if (state.pendingThinkingEvents && state.pendingThinkingEvents.length > 0) {
-    attachThinkingToLatestAssistant(state.pendingThinkingEvents);
-    state.pendingThinkingEvents = null;
-  }
-  
+  // Clear states
+  state.pendingThinkingEvents = null;
   state.inflightThinking = null;
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
