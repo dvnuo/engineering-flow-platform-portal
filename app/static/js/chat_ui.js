@@ -186,6 +186,7 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
+  pendingThinkingEvents: null,  // Events from HTMX response (skill mode)
   pendingFiles: [],
   // Backup for restore on error
   pendingFilesBackup: [],
@@ -568,16 +569,26 @@ function attachThinkingToLatestAssistant(events) {
 }
 
 // Render thinking events from chat response (non-WebSocket)
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function renderThinkingEvents(events) {
   if (!events || events.length === 0) return;
   // Try to attach to latest assistant message
   if (!attachThinkingToLatestAssistant(events)) {
     // Fallback: update Thinking Process panel directly
     const html = events.map(e => {
-      const icon = e.display?.icon || '📋';
-      const title = e.display?.name || e.type || 'Event';
-      const msg = e.display?.message || '';
-      return `<div class="text-xs py-1"><span>${icon}</span> <span class="font-semibold">${title}:</span> ${msg.slice(0, 100)}</div>`;
+      const icon = escapeHtml(e.display?.icon) || '📋';
+      const title = escapeHtml(e.display?.name) || e.type || 'Event';
+      const msg = String(e.display?.message || '');
+      return `<div class="text-xs py-1"><span>${icon}</span> <span class="font-semibold">${title}:</span> ${escapeHtml(msg.slice(0, 100))}</div>`;
     }).join('');
     setToolPanel("Thinking Process", html);
   }
@@ -1289,14 +1300,15 @@ function handleChatAfterRequest(event) {
   state.pendingMessage = "";
   state.messagePrepared = false;
 
-  // Extract events from response and render to Thinking Process
+  // Extract events from response for later rendering (after HTMX swap)
   try {
     const xhr = event.detail.xhr;
     if (xhr && xhr.responseText) {
+      // Parse once and extract both events and user message ID
       const parser = new DOMParser();
       const doc = parser.parseFromString(xhr.responseText, "text/html");
       
-      // Find events in the assistant message article
+      // Extract events
       const assistantArticle = doc.querySelector('article.assistant-message');
       if (assistantArticle) {
         const eventsData = assistantArticle.querySelector('[data-events]');
@@ -1304,12 +1316,23 @@ function handleChatAfterRequest(event) {
           try {
             const events = JSON.parse(eventsData.dataset.events);
             if (events && events.length > 0) {
-              // Render events to Thinking Process panel
-              renderThinkingEvents(events);
+              // Store events to render after HTMX swap
+              state.pendingThinkingEvents = events;
             }
           } catch (e) {
             console.error('Failed to parse events:', e);
           }
+        }
+      }
+      
+      // Also extract user message ID (reuse parsed doc)
+      const userMsgIdInput = doc.querySelector('[name="user_message_id"]');
+      if (userMsgIdInput) {
+        const userMsgId = userMsgIdInput.value;
+        // Update optimistic message with real ID
+        const pendingUser = dom.messageList?.querySelector('[data-pending-user="1"]');
+        if (pendingUser) {
+          pendingUser.dataset.messageId = userMsgId;
         }
       }
     }
@@ -1317,7 +1340,7 @@ function handleChatAfterRequest(event) {
     // Ignore errors
   }
 
-  // Update optimistic user message with real message ID from backend
+  // Note: Events will be rendered in handleChatAfterSwap
   // The server sends user_message_id via HTMX OOB swap in the response HTML
   try {
     const xhr = event.detail.xhr;
@@ -1376,6 +1399,13 @@ function handleChatAfterSwap(target) {
   const pendingEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
   removePendingAssistantPlaceholder();
   if (pendingEvents.length) attachThinkingToLatestAssistant(pendingEvents);
+  
+  // Also render events from HTMX response (skill mode events)
+  if (state.pendingThinkingEvents && state.pendingThinkingEvents.length > 0) {
+    attachThinkingToLatestAssistant(state.pendingThinkingEvents);
+    state.pendingThinkingEvents = null;
+  }
+  
   state.inflightThinking = null;
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
