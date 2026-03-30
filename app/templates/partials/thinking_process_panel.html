@@ -11,6 +11,28 @@
 {% else %}
   {% set llm_debug = chatlog.get('llm_debug', {}) %}
   {% set events = chatlog.get('events', []) %}
+  {% set skill_session = chatlog.get('skill_session', {}) %}
+  
+  {# Show skill session info if available (skill mode) #}
+  {% if skill_session and not llm_debug %}
+    <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+      <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🎯 Skill Mode: {{ skill_session.get('skill_name', 'Unknown') }}</div>
+      <div class="text-xs text-slate-600 dark:text-slate-300 space-y-2">
+        <div><strong>Goal:</strong> {{ skill_session.get('goal', 'N/A')[:200] }}</div>
+        <div><strong>Status:</strong> {{ skill_session.get('status', 'N/A') }}</div>
+        {% if skill_session.get('plan') %}
+          <div><strong>Plan ({{ skill_session.get('plan')|length }} steps):</strong>
+            <ul class="list-disc list-inside ml-2">
+            {% for step in skill_session.get('plan', [])[:5] %}
+              <li>{{ step.get('title', step.get('id', '')) }}</li>
+            {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+  
   <div class="space-y-3">
     {# 1. Timestamp & Model #}
     {% if chatlog.timestamp %}
