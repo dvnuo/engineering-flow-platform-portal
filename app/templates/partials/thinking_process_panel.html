@@ -99,7 +99,7 @@
     {% endif %}
 
     {# 5. Thinking Events (when thinking_events exist) #}
-    {% set thinking_events = chatlog.get('thinking_events', []) or llm_debug.get('thinking_events', []) %}
+    {% set thinking_events = chatlog.get('thinking_events', []) or chatlog.get('events', []) or llm_debug.get('thinking_events', []) %}
     {% if thinking_events %}
       <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
         <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🧠 Thinking Events ({{ thinking_events|length }})</div>
