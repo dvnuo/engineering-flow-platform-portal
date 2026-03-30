@@ -1320,6 +1320,18 @@ function handleChatAfterRequest(event) {
         const pendingUser = dom.messageList?.querySelector('[data-local-user="1"]');
         if (pendingUser) {
           pendingUser.dataset.messageId = userMsgId;
+          
+          // Update edit button's onclick with real ID
+          const editBtn = pendingUser.querySelector('.edit-msg-btn');
+          if (editBtn) {
+            const contentEl = pendingUser.querySelector('.whitespace-pre-wrap');
+            const content = contentEl ? contentEl.textContent : '';
+            // Get attachments from history for this message
+            const attachments = state.attachmentHistory.length > 0 
+              ? state.attachmentHistory[state.attachmentHistory.length - 1] || [] 
+              : [];
+            editBtn.onclick = () => openEditMessageModal(userMsgId, content, attachments);
+          }
         }
       }
     }
