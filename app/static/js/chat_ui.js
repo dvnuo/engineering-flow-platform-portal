@@ -186,6 +186,7 @@ const state = {
   eventWs: null,
   eventWsAgentId: null,
   inflightThinking: null,
+  pendingThinkingEvents: null,  // Events from HTMX response (skill mode)
   pendingFiles: [],
   // Backup for restore on error
   pendingFilesBackup: [],
@@ -458,7 +459,13 @@ function disconnectEventSocket() {
 }
 
 function isTrackableThinkingEvent(type) {
-  return ["iteration_start", "llm_thinking", "tool_call", "tool_result", "skill_matched", "complete"].includes(type);
+  return [
+    "iteration_start", "llm_thinking", "tool_call", "tool_result", 
+    "skill_matched", "complete",
+    // Skill mode events
+    "skill_mode_start", "skill_step", "skill_session_start", 
+    "skill_compaction", "skill_complete"
+  ].includes(type);
 }
 
 function getThinkingEventDisplay(event) {
@@ -471,6 +478,12 @@ function getThinkingEventDisplay(event) {
     tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
     skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
+    // Skill mode events
+    skill_mode_start: { icon: "play-circle", title: "Skill Mode", detail: `Starting: ${data.skill || "Skill"}` },
+    skill_step: { icon: "list-checks", title: `Step: ${data.step || "Step"}`, detail: data.detail || "", status: data.status },
+    skill_session_start: { icon: "clipboard-list", title: "Skill Session", detail: `Goal: ${data.goal || ""}` },
+    skill_compaction: { icon: data.status === "completed" ? "archive" : "scissors", title: "Compaction", detail: data.status === "completed" ? `Steps: ${data.remaining_steps}` : `Tokens: ${data.current_tokens}` },
+    skill_complete: { icon: "check-square", title: data.reason === "finish" ? "Skill Finished" : "Skill Awaiting Input", detail: data.result || data.question || "" },
   };
   return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
 }
@@ -567,13 +580,50 @@ function attachThinkingToLatestAssistant(events) {
   return true;
 }
 
-function handleAgentEventMessage(raw) {
-  if (!state.inflightThinking) return;
+// Render thinking events from chat response (non-WebSocket)
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
+// Note: Event rendering is handled by attachThinkingToLatestAssistant in handleChatAfterSwap
+
+function handleAgentEventMessage(raw) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
   const type = payload?.type;
   if (!isTrackableThinkingEvent(type)) return;
+
+  // Initialize inflightThinking if not set and we have skill mode events
+  if (!state.inflightThinking && type?.startsWith("skill_")) {
+    // Create a placeholder thinking panel for skill mode
+    const thinkingId = `thinking-${Date.now()}`;
+    state.inflightThinking = { id: thinkingId, events: [], completed: false };
+    
+    // Find or create the assistant message placeholder
+    let assistantPlaceholder = dom.messageList?.querySelector('.assistant-message.pending-thinking, article.pending-thinking');
+    if (!assistantPlaceholder) {
+      // Create placeholder if it doesn't exist
+      const lastUser = dom.messageList?.querySelector('article[data-local-user="1"]:last-of-type');
+      if (lastUser) {
+        assistantPlaceholder = document.createElement('article');
+        assistantPlaceholder.className = 'assistant-message pending-thinking';
+        assistantPlaceholder.dataset.thinkingId = thinkingId;
+        lastUser.after(assistantPlaceholder);
+      }
+    }
+    if (assistantPlaceholder) {
+      assistantPlaceholder.dataset.thinkingId = thinkingId;
+      renderThinkingProcess(assistantPlaceholder, state.inflightThinking.events);
+    }
+  }
+
+  if (!state.inflightThinking) return;
 
   const entry = { type, data: payload?.data || {}, ts: payload?.ts || Date.now() / 1000 };
   state.inflightThinking.events.push(entry);
@@ -581,7 +631,7 @@ function handleAgentEventMessage(raw) {
   const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${state.inflightThinking.id}"]`);
   if (pendingArticle) renderThinkingProcess(pendingArticle, state.inflightThinking.events);
 
-  if (type === "complete") state.inflightThinking.completed = true;
+  if (type === "complete" || type === "skill_complete") state.inflightThinking.completed = true;
 }
 
 function ensureEventSocketForSelectedAgent() {
@@ -1273,53 +1323,56 @@ function handleChatAfterRequest(event) {
   state.pendingMessage = "";
   state.messagePrepared = false;
 
-  // Update optimistic user message with real message ID from backend
-  // The server sends user_message_id via HTMX OOB swap in the response HTML
+  // Extract events from response for later rendering (after HTMX swap)
   try {
     const xhr = event.detail.xhr;
     if (xhr && xhr.responseText) {
-      // Parse the response HTML to find the user_message_id from OOB input
+      // Parse once and extract both events and user message ID
       const parser = new DOMParser();
       const doc = parser.parseFromString(xhr.responseText, "text/html");
-      const oobInput = doc.querySelector('#chat-user-message-id');
-      if (oobInput && oobInput.value) {
-        const userMessageId = oobInput.value;
-        
-        // Find the last user message article (the one just sent) and update its ID
-        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-        if (userArticles.length > 0) {
-          const lastUserArticle = userArticles[userArticles.length - 1];
-          // Update the data-message-id attribute with the real ID
-          lastUserArticle.dataset.messageId = userMessageId;
-          
-          // Update any edit button's onclick to use the real ID
-          // Button may be in article or in parent container
-          const parentContainer = lastUserArticle.parentElement;
-          const editBtn = lastUserArticle.querySelector('.edit-msg-btn') || 
-                         parentContainer?.querySelector?.('.edit-msg-btn');
-          if (editBtn) {
-            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
-            const content = contentEl ? contentEl.textContent : '';
-            
-            // Get attachments from attachmentHistory - use last entry since this is the latest message
-            const attachments = [];
-            // console.log(' History length:', state.attachmentHistory.length);
-            if (state.attachmentHistory.length > 0) {
-              // Use the last entry in history for the latest message
-              const lastAttachments = state.attachmentHistory[state.attachmentHistory.length - 1];
-              // console.log(' Last attachments:', lastAttachments);
-              if (lastAttachments) {
-                attachments.push(...lastAttachments);
-              }
+      
+      // Extract events
+      const assistantArticle = doc.querySelector('article.assistant-message');
+      if (assistantArticle) {
+        const eventsData = assistantArticle.querySelector('[data-events]');
+        if (eventsData) {
+          try {
+            const events = JSON.parse(eventsData.dataset.events);
+            // Validate events is an array before storing
+            if (Array.isArray(events) && events.length > 0) {
+              state.pendingThinkingEvents = events;
             }
-            
-            editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
+          } catch (e) {
+            console.error('Failed to parse events:', e);
+          }
+        }
+      }
+      
+      // Also extract user message ID (reuse parsed doc)
+      const userMsgIdInput = doc.querySelector('[name="user_message_id"]');
+      if (userMsgIdInput) {
+        const userMsgId = userMsgIdInput.value;
+        // Update optimistic message with real ID
+        const pendingUser = dom.messageList?.querySelector('[data-local-user="1"]');
+        if (pendingUser) {
+          pendingUser.dataset.messageId = userMsgId;
+          
+          // Update edit button's onclick with real ID
+          const editBtn = pendingUser.querySelector('.edit-msg-btn');
+          if (editBtn) {
+            const contentEl = pendingUser.querySelector('.whitespace-pre-wrap');
+            const content = contentEl ? contentEl.textContent : '';
+            // Get attachments from history for this message
+            const attachments = state.attachmentHistory.length > 0 
+              ? state.attachmentHistory[state.attachmentHistory.length - 1] || [] 
+              : [];
+            editBtn.onclick = () => openEditMessageModal(userMsgId, content, attachments);
           }
         }
       }
     }
   } catch (e) {
-    // console.error('Failed to update message ID:', e);
+    // Ignore errors
   }
   
   // Add edit buttons to the newly sent message
@@ -1329,9 +1382,23 @@ function handleChatAfterRequest(event) {
 function handleChatAfterSwap(target) {
   if (target?.id !== "message-list") return;
 
-  const pendingEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
+  // Merge both WebSocket events and HTMX response events
+  const wsEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
+  const htmxEvents = state.pendingThinkingEvents || [];
+  
+  // Combine and dedupe events (HTMX events are usually skill mode, WS are regular)
+  const allEvents = [...wsEvents];
+  htmxEvents.forEach(e => {
+    if (!allEvents.some(ex => ex.type === e.type && JSON.stringify(ex.data) === JSON.stringify(e.data))) {
+      allEvents.push(e);
+    }
+  });
+  
   removePendingAssistantPlaceholder();
-  if (pendingEvents.length) attachThinkingToLatestAssistant(pendingEvents);
+  if (allEvents.length) attachThinkingToLatestAssistant(allEvents);
+  
+  // Clear states
+  state.pendingThinkingEvents = null;
   state.inflightThinking = null;
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.

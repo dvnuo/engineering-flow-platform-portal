@@ -9,32 +9,55 @@
     <div class="text-xs text-slate-500 mt-1">No thinking data available</div>
   </div>
 {% else %}
-  {% set llm_debug = chatlog.llm_debug %}
+  {% set llm_debug = chatlog.get('llm_debug', {}) %}
+  {% set events = chatlog.get('events', []) %}
+  {% set skill_session = chatlog.get('skill_session', {}) %}
+  
+  {# Show skill session info if available (skill mode) #}
+  {% if skill_session and not llm_debug %}
+    <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+      <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🎯 Skill Mode: {{ skill_session.get('skill_name', 'Unknown') }}</div>
+      <div class="text-xs text-slate-600 dark:text-slate-300 space-y-2">
+        <div><strong>Goal:</strong> {{ skill_session.get('goal', 'N/A')[:200] }}</div>
+        <div><strong>Status:</strong> {{ skill_session.get('status', 'N/A') }}</div>
+        {% if skill_session.get('plan') %}
+          <div><strong>Plan ({{ skill_session.get('plan')|length }} steps):</strong>
+            <ul class="list-disc list-inside ml-2">
+            {% for step in skill_session.get('plan', [])[:5] %}
+              <li>{{ step.get('title', step.get('id', '')) }}</li>
+            {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+  
   <div class="space-y-3">
     {# 1. Timestamp & Model #}
     {% if chatlog.timestamp %}
       <div class="text-xs text-slate-500">🕐 {{ chatlog.timestamp[:19]|replace('T', ' ') }}</div>
     {% endif %}
     
-    {% if llm_debug.llm_request and llm_debug.llm_request.request %}
-      {% set req = llm_debug.llm_request.request %}
-      <div class="text-xs text-slate-500">🤖 Model: {{ req.model or '' }}</div>
+    {% if llm_debug.get('llm_request') and llm_debug.get('llm_request').get('request') %}
+      {% set req = llm_debug.get('llm_request').get('request') %}
+      <div class="text-xs text-slate-500">🤖 Model: {{ req.get('model', '') }}</div>
     {% endif %}
 
     {# 2. Instructions (System Prompt) #}
-    {% if llm_debug.llm_request and llm_debug.llm_request.request and llm_debug.llm_request.request.instructions %}
+    {% if llm_debug.get('llm_request') and llm_debug.get('llm_request').get('request') and llm_debug.get('llm_request').get('request').get('instructions') %}
       <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
         <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">📋 System Prompt</div>
-        <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap max-h-48 overflow-auto p-2 bg-white dark:bg-slate-800 rounded">{{ llm_debug.llm_request.request.instructions }}</div>
+        <div class="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap max-h-48 overflow-auto p-2 bg-white dark:bg-slate-800 rounded">{{ llm_debug.get('llm_request').get('request').get('instructions') }}</div>
       </div>
     {% endif %}
 
     {# 2. Complete Request Flow (llm_request.input in order) #}
-    {% if llm_debug.llm_request and llm_debug.llm_request.request and llm_debug.llm_request.request.input %}
+    {% if llm_debug.get('llm_request', {}) and llm_debug.get('llm_request', {}).request and llm_debug.get('llm_request', {}).get('request', {}).get('input', []) %}
       <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
-        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">📤 Request Flow ({{ llm_debug.llm_request.request.input|length }} items)</div>
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">📤 Request Flow ({{ llm_debug.get('llm_request', {}).get('request', {}).get('input', [])|length }} items)</div>
         
-        {% for item in llm_debug.llm_request.request.input %}
+        {% for item in llm_debug.get('llm_request', {}).get('request', {}).get('input', []) %}
           {% set item_type = item.type or '' %}
           {% set role = item.role or '' %}
           
@@ -72,8 +95,9 @@
     {% endif %}
 
     {# 3. Final Response #}
-    {% set final_response = llm_debug.final_response or (llm_debug.llm_request.response.content if llm_debug.llm_request and llm_debug.llm_request.response) %}
-    {% set usage = llm_debug.llm_request.response.usage if llm_debug.llm_request and llm_debug.llm_request.response %}
+    {% set llm_req = llm_debug.get('llm_request', {}) %}
+    {% set final_response = llm_debug.get('final_response', '') or (llm_req.response.content if llm_req and llm_req.response) %}
+    {% set usage = llm_req.response.usage if llm_req and llm_req.response else {} %}
     {% if final_response %}
       <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
         <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🤖 Final Response</div>
@@ -85,11 +109,11 @@
     {% endif %}
 
     {# 4. Tools (if any) #}
-    {% if llm_debug.llm_request and llm_debug.llm_request.request and llm_debug.llm_request.request.tools %}
+    {% if llm_debug.get('llm_request', {}) and llm_debug.get('llm_request', {}).request and llm_debug.get('llm_request', {}).request.tools %}
       <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
-        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🔧 Available Tools ({{ llm_debug.llm_request.request.tools|length }})</div>
+        <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🔧 Available Tools ({{ llm_debug.get('llm_request', {}).request.tools|length }})</div>
         <div class="text-xs text-slate-600 dark:text-slate-300 space-y-1">
-        {% for tool in llm_debug.llm_request.request.tools %}
+        {% for tool in llm_debug.get('llm_request', {}).request.tools %}
           <div class="p-1.5 bg-white dark:bg-slate-800 rounded">• {{ tool.name }}</div>
         {% endfor %}
         </div>
@@ -97,7 +121,7 @@
     {% endif %}
 
     {# 5. Thinking Events (when thinking_events exist) #}
-    {% set thinking_events = chatlog.thinking_events or llm_debug.thinking_events %}
+    {% set thinking_events = chatlog.get('thinking_events', []) or chatlog.get('events', []) or llm_debug.get('thinking_events', []) %}
     {% if thinking_events %}
       <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
         <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🧠 Thinking Events ({{ thinking_events|length }})</div>
