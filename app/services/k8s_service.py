@@ -275,7 +275,10 @@ class K8sService:
         normalized = re.sub(r"-+", "-", normalized).strip("-")
         if not normalized:
             return "unknown"
-        return normalized[:63]
+        normalized = normalized[:63].strip("-")
+        if not normalized:
+            return "unknown"
+        return normalized
 
     def _repo_metadata(self, agent) -> dict[str, str]:
         repo_url = (agent.repo_url or "").strip()
@@ -344,7 +347,7 @@ class K8sService:
         }
 
     def _ensure_pvc(self, agent) -> None:
-        # Using individual PVC per agent
+        # Using shared PVC for all agents; each agent uses its own subPath.
         from kubernetes import client
 
         body = client.V1PersistentVolumeClaim(

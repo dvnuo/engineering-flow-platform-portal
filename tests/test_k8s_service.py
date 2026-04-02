@@ -29,6 +29,12 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(self.service._sanitize_label_value("Org/Repo_Name"), "org-repo-name")
         self.assertEqual(self.service._sanitize_label_value(""), "unknown")
 
+    def test_sanitize_label_value_truncation_strips_trailing_dash(self):
+        value = ("a-" * 32) + "b"
+        sanitized = self.service._sanitize_label_value(value)
+        self.assertFalse(sanitized.endswith("-"))
+        self.assertEqual(self.service._sanitize_label_value("---"), "unknown")
+
     def test_repo_metadata_from_git_url(self):
         agent = SimpleNamespace(repo_url="git@github.com:Acme/Portal.git", branch="Feature/ABC")
         metadata = self.service._repo_metadata(agent)
