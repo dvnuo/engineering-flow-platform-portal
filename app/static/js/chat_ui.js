@@ -1587,7 +1587,7 @@ async function maybeShowSuggest() {
         const data = await agentApi("/api/skills");
         const skills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
         state.cachedSkills = skills;
-        if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, state.cachedSkills);
+        if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, skills);
       } catch {
         if (!state.cachedSkills.length) state.cachedSkills = [];
       }
