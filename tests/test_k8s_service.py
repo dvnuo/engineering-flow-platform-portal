@@ -25,6 +25,29 @@ class K8sServiceNoopTest(unittest.TestCase):
         status = self.service.stop_agent(agent)
         self.assertEqual(status.status, "stopped")
 
+    def test_sanitize_label_value(self):
+        self.assertEqual(self.service._sanitize_label_value("Org/Repo_Name"), "org-repo-name")
+        self.assertEqual(self.service._sanitize_label_value(""), "unknown")
+
+    def test_repo_metadata_from_git_url(self):
+        agent = SimpleNamespace(repo_url="git@github.com:Acme/Portal.git", branch="Feature/ABC")
+        metadata = self.service._repo_metadata(agent)
+        self.assertEqual(metadata["repo_slug"], "acme-portal")
+        self.assertEqual(metadata["repo_hash"], "db405ee23bb4")
+        self.assertEqual(metadata["branch"], "feature-abc")
+
+    def test_agent_common_labels_include_git_fields(self):
+        agent = SimpleNamespace(
+            id="agent-1",
+            owner_user_id=7,
+            repo_url="https://github.com/org/repo.git",
+            branch="main",
+        )
+        labels = self.service._agent_common_labels(agent)
+        self.assertEqual(labels["git-repo"], "org-repo")
+        self.assertEqual(labels["git-repo-hash"], "8fc28d240c61")
+        self.assertEqual(labels["git-branch"], "main")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+import hashlib
 import logging
+import re
 logger = logging.getLogger(__name__)
 from typing import Optional
+from urllib.parse import urlparse
 
 from app.config import get_settings
 
@@ -56,6 +59,7 @@ class K8sService:
         
         try:
             self._patch_deployment(agent)
+            self._patch_service_metadata(agent)
             return RuntimeStatus(status="running")
         except Exception as exc:
             logger.exception("Failed to update agent runtime")
@@ -64,6 +68,8 @@ class K8sService:
     def _patch_deployment(self, agent) -> None:
         """Patch existing deployment with new config."""
         from kubernetes import client
+        labels = self._agent_common_labels(agent)
+        annotations = self._agent_metadata_annotations(agent)
         
         # Build env vars for git clone
         default_branch = getattr(self.settings, "default_agent_branch", "master")
@@ -136,8 +142,16 @@ class K8sService:
         
         # Patch the deployment
         patch = {
+            "metadata": {
+                "labels": labels,
+                "annotations": annotations,
+            },
             "spec": {
                 "template": {
+                    "metadata": {
+                        "labels": labels,
+                        "annotations": annotations,
+                    },
                     "spec": {
                         "initContainers": init_containers,
                         "containers": [{
@@ -169,6 +183,19 @@ class K8sService:
             )
         except Exception:
             raise
+
+    def _patch_service_metadata(self, agent) -> None:
+        patch = {
+            "metadata": {
+                "labels": self._agent_common_labels(agent),
+                "annotations": self._agent_metadata_annotations(agent),
+            }
+        }
+        self.core_api.patch_namespaced_service(
+            name=agent.service_name,
+            namespace=agent.namespace,
+            body=patch,
+        )
 
     def start_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
@@ -243,6 +270,72 @@ class K8sService:
         except Exception:
             return False
 
+    def _sanitize_label_value(self, value: Optional[str]) -> str:
+        normalized = re.sub(r"[^a-z0-9-]", "-", (value or "").lower())
+        normalized = re.sub(r"-+", "-", normalized).strip("-")
+        if not normalized:
+            return "unknown"
+        return normalized[:63]
+
+    def _repo_metadata(self, agent) -> dict[str, str]:
+        repo_url = (agent.repo_url or "").strip()
+        branch = agent.branch or getattr(self.settings, "default_agent_branch", "master")
+
+        if not repo_url:
+            return {
+                "repo_slug": "none",
+                "repo_hash": "none",
+                "branch": self._sanitize_label_value(branch),
+                "raw_branch": branch,
+                "raw_repo_url": "",
+            }
+
+        repo_path = ""
+        if repo_url.startswith("git@"):
+            if ":" in repo_url:
+                repo_path = repo_url.split(":", 1)[1]
+        else:
+            parsed = urlparse(repo_url)
+            repo_path = parsed.path.lstrip("/")
+        repo_path = repo_path.removesuffix(".git")
+        if repo_path:
+            parts = [part for part in repo_path.split("/") if part]
+            if len(parts) >= 2:
+                repo_slug = f"{parts[-2]}-{parts[-1]}"
+            else:
+                repo_slug = parts[-1]
+        else:
+            repo_slug = "repo"
+
+        return {
+            "repo_slug": self._sanitize_label_value(repo_slug),
+            "repo_hash": hashlib.sha1(repo_url.encode("utf-8")).hexdigest()[:12],
+            "branch": self._sanitize_label_value(branch),
+            "raw_branch": branch,
+            "raw_repo_url": repo_url,
+        }
+
+    def _agent_common_labels(self, agent) -> dict[str, str]:
+        repo_meta = self._repo_metadata(agent)
+        return {
+            "app": "agent",
+            "agent-id": agent.id,
+            "owner-id": str(agent.owner_user_id),
+            "managed-by": "portal",
+            "git-repo": repo_meta["repo_slug"],
+            "git-repo-hash": repo_meta["repo_hash"],
+            "git-branch": repo_meta["branch"],
+        }
+
+    def _agent_metadata_annotations(self, agent) -> dict[str, str]:
+        repo_meta = self._repo_metadata(agent)
+        annotations = {}
+        if repo_meta["raw_repo_url"]:
+            annotations["efp.nvo/git-repo-url"] = repo_meta["raw_repo_url"]
+        if repo_meta["raw_branch"]:
+            annotations["efp.nvo/git-branch"] = repo_meta["raw_branch"]
+        return annotations
+
     def _ensure_pvc(self, agent) -> None:
         # Using individual PVC per agent
         from kubernetes import client
@@ -251,7 +344,7 @@ class K8sService:
             metadata=client.V1ObjectMeta(
                 name="efp-agents-efs-pvc",
                 namespace=agent.namespace,
-                labels={"app": "agent", "agent-id": agent.id, "managed-by": "portal"},
+                labels={"app": "agent", "managed-by": "portal", "storage-scope": "shared"},
             ),
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=self.settings.k8s_pvc_access_modes,
@@ -268,14 +361,15 @@ class K8sService:
     def _ensure_deployment(self, agent) -> None:
         from kubernetes import client
 
-        labels = {"app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id)}
+        labels = self._agent_common_labels(agent)
+        annotations = self._agent_metadata_annotations(agent)
         
         # Build init container if repo_url is provided
         init_containers = []
         volume_mounts = []
         
         if agent.repo_url:
-            branch = agent.branch or "main"
+            branch = agent.branch or getattr(self.settings, "default_agent_branch", "master")
             git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
             code_sub_path = f"efp-agents/{agent.id}/code"
             # Clone git repo to /app (will be mounted)
@@ -336,12 +430,17 @@ class K8sService:
         )
         
         body = client.V1Deployment(
-            metadata=client.V1ObjectMeta(name=agent.deployment_name, namespace=agent.namespace, labels=labels),
+            metadata=client.V1ObjectMeta(
+                name=agent.deployment_name,
+                namespace=agent.namespace,
+                labels=labels,
+                annotations=annotations or None,
+            ),
             spec=client.V1DeploymentSpec(
                 replicas=1,
                 selector=client.V1LabelSelector(match_labels={"app": "agent", "agent-id": agent.id}),
                 template=client.V1PodTemplateSpec(
-                    metadata=client.V1ObjectMeta(labels=labels),
+                    metadata=client.V1ObjectMeta(labels=labels, annotations=annotations or None),
                     spec=client.V1PodSpec(
                         init_containers=init_containers,
                         containers=[
@@ -380,9 +479,16 @@ class K8sService:
 
     def _ensure_service(self, agent) -> None:
         from kubernetes import client
+        labels = self._agent_common_labels(agent)
+        annotations = self._agent_metadata_annotations(agent)
 
         body = client.V1Service(
-            metadata=client.V1ObjectMeta(name=agent.service_name, namespace=agent.namespace),
+            metadata=client.V1ObjectMeta(
+                name=agent.service_name,
+                namespace=agent.namespace,
+                labels=labels,
+                annotations=annotations or None,
+            ),
             spec=client.V1ServiceSpec(
                 selector={"app": "agent", "agent-id": agent.id},
                 ports=[client.V1ServicePort(port=8000, target_port=8000)],
