@@ -59,7 +59,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         annotations = self.service._agent_patch_annotations(agent)
         self.assertEqual(
             annotations,
-            {"efp.nvo/git-repo-url": None, "efp.nvo/git-branch": "main"},
+            {"efp/git-repo-url": None, "efp/git-branch": "main"},
         )
 
 
