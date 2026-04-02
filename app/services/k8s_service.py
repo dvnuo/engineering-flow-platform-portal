@@ -334,16 +334,16 @@ class K8sService:
         repo_meta = self._repo_metadata(agent)
         annotations = {}
         if repo_meta["raw_repo_url"]:
-            annotations["efp.nvo/git-repo-url"] = repo_meta["raw_repo_url"]
+            annotations["efp/git-repo-url"] = repo_meta["raw_repo_url"]
         if repo_meta["raw_branch"]:
-            annotations["efp.nvo/git-branch"] = repo_meta["raw_branch"]
+            annotations["efp/git-branch"] = repo_meta["raw_branch"]
         return annotations
 
     def _agent_patch_annotations(self, agent) -> dict[str, Optional[str]]:
         repo_meta = self._repo_metadata(agent)
         return {
-            "efp.nvo/git-repo-url": repo_meta["raw_repo_url"] or None,
-            "efp.nvo/git-branch": repo_meta["raw_branch"] or None,
+            "efp/git-repo-url": repo_meta["raw_repo_url"] or None,
+            "efp/git-branch": repo_meta["raw_branch"] or None,
         }
 
     def _ensure_pvc(self, agent) -> None:
