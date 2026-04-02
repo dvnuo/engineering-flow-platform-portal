@@ -1583,13 +1583,14 @@ async function maybeShowSuggest() {
 
   if (slash) {
     if (!state.cachedSkills.length) {
+      const hadCachedSkills = state.cachedSkills.length > 0;
       try {
         const data = await agentApi("/api/skills");
         const skills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
         state.cachedSkills = skills;
         if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, skills);
       } catch {
-        if (!state.cachedSkills.length) state.cachedSkills = [];
+        if (!hadCachedSkills && !state.cachedSkills.length) state.cachedSkills = [];
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
@@ -1631,6 +1632,7 @@ async function maybeShowSuggest() {
 
   if (at) {
     if (!state.cachedMentionFiles.length) {
+      const hadCachedMentionFiles = state.cachedMentionFiles.length > 0;
       try {
         const data = await agentApi("/api/files/list");
         const mentionFiles = (data.files || []).map((item) => ({
@@ -1640,7 +1642,7 @@ async function maybeShowSuggest() {
         }));
         state.cachedMentionFiles = mentionFiles;
       } catch {
-        if (!state.cachedMentionFiles.length) state.cachedMentionFiles = [];
+        if (!hadCachedMentionFiles && !state.cachedMentionFiles.length) state.cachedMentionFiles = [];
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
