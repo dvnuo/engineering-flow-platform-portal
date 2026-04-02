@@ -188,6 +188,8 @@ const state = {
   inflightThinking: null,
   pendingThinkingEvents: null,  // Events from HTMX response (skill mode)
   pendingFiles: [],
+  isComposingInput: false,
+  suggestRequestSeq: 0,
   // Backup for restore on error
   pendingFilesBackup: [],
   messageBackup: "",
@@ -1489,6 +1491,8 @@ function hideSuggest() {
   if (!dom.chatSuggest) return;
   dom.chatSuggest.classList.add("hidden");
   dom.chatSuggest.innerHTML = "";
+  state.selectedSuggestionIndex = -1;
+  state.suggestRequestSeq += 1;
 }
 
 function showSuggest(items, onPick) {
@@ -1569,30 +1573,58 @@ function insertFileReference(fileIdOrRef) {
 // Fetch file preview and update pendingFile
 async function maybeShowSuggest() {
   if (!dom.chatInput) return;
+  const requestSeq = ++state.suggestRequestSeq;
 
   const text = dom.chatInput.value;
   const cursor = dom.chatInput.selectionStart;
   const before = text.slice(0, cursor);
-  const slash = before.match(/(^|\s)\/(\w*)$/);
-  const at = before.match(/(^|\s)@(\w*)$/);
+  const slash = before.match(/(^|\s)\/([^\s/]*)$/);
+  const at = before.match(/(^|\s)@([^\s@]*)$/);
 
   if (slash) {
     if (!state.cachedSkills.length) {
       try {
         const data = await agentApi("/api/skills");
+        if (requestSeq !== state.suggestRequestSeq) return;
         state.cachedSkills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
         if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, state.cachedSkills);
       } catch {
+        if (requestSeq !== state.suggestRequestSeq) return;
         state.cachedSkills = [];
       }
     }
+    if (requestSeq !== state.suggestRequestSeq) return;
+    const nowCursor = dom.chatInput.selectionStart;
+    const nowBefore = dom.chatInput.value.slice(0, nowCursor);
+    const nowSlash = nowBefore.match(/(^|\s)\/([^\s/]*)$/);
+    if (!nowSlash) {
+      hideSuggest();
+      return;
+    }
 
-    showSuggest(state.cachedSkills, (item) => {
+    const query = (nowSlash[2] || "").toLowerCase();
+    const filteredSkills = !query
+      ? state.cachedSkills
+      : state.cachedSkills.filter((item) => {
+        const haystack = [item.command, item.label, item.title, item.desc]
+          .map((v) => String(v || "").toLowerCase());
+        return haystack.some((v) => v.includes(query));
+      });
+    if (!filteredSkills.length) {
+      hideSuggest();
+      return;
+    }
+
+    showSuggest(filteredSkills, (item) => {
       const command = normalizeSkillCommand(item.command || item.label || item.title);
       if (!command) return;
-      // Replace from the start of "/" to cursor
-      const start = slash.index;
-      dom.chatInput.setRangeText(`${command} `, start, cursor, "end");
+      const pickCursor = dom.chatInput.selectionStart;
+      const pickBefore = dom.chatInput.value.slice(0, pickCursor);
+      const pickSlash = pickBefore.match(/(^|\s)\/([^\s/]*)$/);
+      if (!pickSlash) return;
+      // Replace from the start of "/" token to cursor while preserving preceding whitespace.
+      const start = pickSlash.index + pickSlash[1].length;
+      dom.chatInput.setRangeText(`${command} `, start, pickCursor, "end");
       hideSuggest();
     });
     return;
@@ -1602,20 +1634,34 @@ async function maybeShowSuggest() {
     if (!state.cachedMentionFiles.length) {
       try {
         const data = await agentApi("/api/files/list");
+        if (requestSeq !== state.suggestRequestSeq) return;
         state.cachedMentionFiles = (data.files || []).map((item) => ({
           title: `@file_${item.file_id.slice(0, 8)}`,
           desc: item.filename,
           full: `@file_${item.file_id}`,
         }));
       } catch {
+        if (requestSeq !== state.suggestRequestSeq) return;
         state.cachedMentionFiles = [];
       }
     }
+    if (requestSeq !== state.suggestRequestSeq) return;
+    const nowCursor = dom.chatInput.selectionStart;
+    const nowBefore = dom.chatInput.value.slice(0, nowCursor);
+    const nowAt = nowBefore.match(/(^|\s)@([^\s@]*)$/);
+    if (!nowAt) {
+      hideSuggest();
+      return;
+    }
 
     showSuggest(state.cachedMentionFiles, (item) => {
-      // Replace from the start of "@" to cursor
-      const start = at.index;
-      dom.chatInput.setRangeText(`${item.full} `, start, cursor, "end");
+      const pickCursor = dom.chatInput.selectionStart;
+      const pickBefore = dom.chatInput.value.slice(0, pickCursor);
+      const pickAt = pickBefore.match(/(^|\s)@([^\s@]*)$/);
+      if (!pickAt) return;
+      // Replace from the start of "@" token to cursor while preserving preceding whitespace.
+      const start = pickAt.index + pickAt[1].length;
+      dom.chatInput.setRangeText(`${item.full} `, start, pickCursor, "end");
       hideSuggest();
     });
     return;
@@ -2698,7 +2744,21 @@ function bindEvents() {
     dom.chatInput.style.height = 'auto';
     dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 150) + 'px';
   });
+  dom.chatInput?.addEventListener("compositionstart", () => {
+    state.isComposingInput = true;
+  });
+  dom.chatInput?.addEventListener("compositionend", () => {
+    state.isComposingInput = false;
+  });
+  dom.chatInput?.addEventListener("blur", () => {
+    setTimeout(() => hideSuggest(), 120);
+  });
   dom.chatInput?.addEventListener("keydown", (event) => {
+    const isImeComposing = event.isComposing || state.isComposingInput || event.keyCode === 229;
+    if (event.key === "Escape") {
+      hideSuggest();
+      return;
+    }
     if (event.key === "ArrowDown" && !dom.chatSuggest?.classList.contains("hidden")) {
       event.preventDefault();
       moveSuggestionSelection(1);
@@ -2707,6 +2767,9 @@ function bindEvents() {
     if (event.key === "ArrowUp" && !dom.chatSuggest?.classList.contains("hidden")) {
       event.preventDefault();
       moveSuggestionSelection(-1);
+      return;
+    }
+    if (event.key === "Enter" && isImeComposing) {
       return;
     }
     if (event.key === "Enter" && !event.shiftKey && !dom.chatSuggest?.classList.contains("hidden")) {
@@ -2718,6 +2781,11 @@ function bindEvents() {
       if (state.isSubmittingChat) return;
       htmx.trigger("#chat-form", "submit");
     }
+  });
+  document.addEventListener("mousedown", (event) => {
+    if (dom.chatSuggest?.classList.contains("hidden")) return;
+    const target = event.target;
+    if (!dom.chatInput?.contains(target) && !dom.chatSuggest?.contains(target)) hideSuggest();
   });
 
   dom.uploadInput?.addEventListener("change", (e) => {
@@ -2759,6 +2827,7 @@ function bindEvents() {
       const command = normalizeSkillCommand(skillBtn.dataset.skillCommand);
       if (!command) return;
       dom.chatInput.setRangeText(`${command} `, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
+      hideSuggest();
       dom.chatInput.focus();
       setChatStatus(`Inserted ${command}`);
       return;
