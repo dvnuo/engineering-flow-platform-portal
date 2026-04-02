@@ -1587,6 +1587,7 @@ async function maybeShowSuggest() {
       try {
         const data = await agentApi("/api/skills");
         const skills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
+        // Warm cache even if this request becomes stale for rendering.
         state.cachedSkills = skills;
         if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, skills);
       } catch {
@@ -1640,6 +1641,7 @@ async function maybeShowSuggest() {
           desc: item.filename,
           full: `@file_${item.file_id}`,
         }));
+        // Warm cache even if this request becomes stale for rendering.
         state.cachedMentionFiles = mentionFiles;
       } catch {
         if (!hadCachedMentionFiles && !state.cachedMentionFiles.length) state.cachedMentionFiles = [];
