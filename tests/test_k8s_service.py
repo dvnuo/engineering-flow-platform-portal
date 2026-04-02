@@ -48,6 +48,14 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(labels["git-repo-hash"], "8fc28d240c61")
         self.assertEqual(labels["git-branch"], "main")
 
+    def test_agent_patch_annotations_deletes_repo_url(self):
+        agent = SimpleNamespace(repo_url="", branch="main")
+        annotations = self.service._agent_patch_annotations(agent)
+        self.assertEqual(
+            annotations,
+            {"efp.nvo/git-repo-url": None, "efp.nvo/git-branch": "main"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

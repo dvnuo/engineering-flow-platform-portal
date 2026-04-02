@@ -69,7 +69,7 @@ class K8sService:
         """Patch existing deployment with new config."""
         from kubernetes import client
         labels = self._agent_common_labels(agent)
-        annotations = self._agent_metadata_annotations(agent)
+        annotations = self._agent_patch_annotations(agent)
         
         # Build env vars for git clone
         default_branch = getattr(self.settings, "default_agent_branch", "master")
@@ -188,7 +188,7 @@ class K8sService:
         patch = {
             "metadata": {
                 "labels": self._agent_common_labels(agent),
-                "annotations": self._agent_metadata_annotations(agent),
+                "annotations": self._agent_patch_annotations(agent),
             }
         }
         self.core_api.patch_namespaced_service(
@@ -335,6 +335,13 @@ class K8sService:
         if repo_meta["raw_branch"]:
             annotations["efp.nvo/git-branch"] = repo_meta["raw_branch"]
         return annotations
+
+    def _agent_patch_annotations(self, agent) -> dict[str, Optional[str]]:
+        repo_meta = self._repo_metadata(agent)
+        return {
+            "efp.nvo/git-repo-url": repo_meta["raw_repo_url"] or None,
+            "efp.nvo/git-branch": repo_meta["raw_branch"] or None,
+        }
 
     def _ensure_pvc(self, agent) -> None:
         # Using individual PVC per agent
