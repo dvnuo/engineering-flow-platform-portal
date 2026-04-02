@@ -191,6 +191,7 @@ const state = {
   pendingFiles: [],
   isComposingInput: false,
   suggestRequestSeq: 0,
+  suggestBlurHideTimer: null,
   // Backup for restore on error
   pendingFilesBackup: [],
   messageBackup: "",
@@ -1631,11 +1632,11 @@ async function maybeShowSuggest() {
   }
 
   if (at) {
-    if (state.selectedAgentId && state.cachedMentionFilesByAgent.has(state.selectedAgentId)) {
-      state.cachedMentionFiles = state.cachedMentionFilesByAgent.get(state.selectedAgentId) || [];
-    }
-    if (!state.cachedMentionFiles.length) {
-      const requestAgentId = state.selectedAgentId || null;
+    const mentionAgentKey = state.selectedAgentId ?? "__global__";
+    if (state.cachedMentionFilesByAgent.has(mentionAgentKey)) {
+      state.cachedMentionFiles = state.cachedMentionFilesByAgent.get(mentionAgentKey) || [];
+    } else {
+      const requestAgentKey = mentionAgentKey;
       try {
         const data = await agentApi("/api/files/list");
         const mentionFiles = (data.files || []).map((item) => ({
@@ -1643,12 +1644,17 @@ async function maybeShowSuggest() {
           desc: item.filename,
           full: `@file_${item.file_id}`,
         }));
-        if ((state.selectedAgentId || null) === requestAgentId) {
+        state.cachedMentionFilesByAgent.set(requestAgentKey, mentionFiles);
+        if ((state.selectedAgentId ?? "__global__") === requestAgentKey) {
           state.cachedMentionFiles = mentionFiles;
-          if (requestAgentId) state.cachedMentionFilesByAgent.set(requestAgentId, mentionFiles);
         }
       } catch {
-        state.cachedMentionFiles = [];
+        if (!state.cachedMentionFilesByAgent.has(requestAgentKey)) {
+          state.cachedMentionFilesByAgent.set(requestAgentKey, []);
+        }
+        if ((state.selectedAgentId ?? "__global__") === requestAgentKey) {
+          state.cachedMentionFiles = [];
+        }
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
@@ -2770,11 +2776,15 @@ function bindEvents() {
     maybeShowSuggest();
   });
   dom.chatInput?.addEventListener("blur", () => {
-    setTimeout(() => hideSuggest(), 120);
+    if (state.suggestBlurHideTimer) clearTimeout(state.suggestBlurHideTimer);
+    state.suggestBlurHideTimer = setTimeout(() => {
+      hideSuggest();
+      state.suggestBlurHideTimer = null;
+    }, 120);
   });
   dom.chatInput?.addEventListener("keydown", (event) => {
     const isImeComposing = event.isComposing || state.isComposingInput || event.keyCode === 229;
-    const suggestOpen = !dom.chatSuggest?.classList.contains("hidden");
+    const suggestOpen = !!dom.chatSuggest && !dom.chatSuggest.classList.contains("hidden");
     if (event.key === "Escape" && suggestOpen) {
       event.preventDefault();
       hideSuggest();
@@ -2795,13 +2805,18 @@ function bindEvents() {
     }
     if (event.key === "Enter" && !event.shiftKey && suggestOpen) {
       event.preventDefault();
-      pickCurrentSuggestion();
-      return;
+      if (pickCurrentSuggestion()) return;
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (state.isSubmittingChat) return;
       htmx.trigger("#chat-form", "submit");
+    }
+  });
+  dom.chatSuggest?.addEventListener("mousedown", () => {
+    if (state.suggestBlurHideTimer) {
+      clearTimeout(state.suggestBlurHideTimer);
+      state.suggestBlurHideTimer = null;
     }
   });
   document.addEventListener("mousedown", (event) => {
