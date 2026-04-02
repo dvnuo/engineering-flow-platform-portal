@@ -173,6 +173,7 @@ const state = {
   cachedSkills: [],
   cachedSkillsByAgent: new Map(),
   cachedMentionFiles: [],
+  cachedMentionFilesByAgent: new Map(),
   selectedSuggestionIndex: -1,
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
@@ -1583,15 +1584,13 @@ async function maybeShowSuggest() {
 
   if (slash) {
     if (!state.cachedSkills.length) {
-      const hadCachedSkills = state.cachedSkills.length > 0;
       try {
         const data = await agentApi("/api/skills");
         const skills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
-        // Warm cache even if this request becomes stale for rendering.
         state.cachedSkills = skills;
         if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, skills);
       } catch {
-        if (!hadCachedSkills && !state.cachedSkills.length) state.cachedSkills = [];
+        state.cachedSkills = [];
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
@@ -1632,8 +1631,11 @@ async function maybeShowSuggest() {
   }
 
   if (at) {
+    if (state.selectedAgentId && state.cachedMentionFilesByAgent.has(state.selectedAgentId)) {
+      state.cachedMentionFiles = state.cachedMentionFilesByAgent.get(state.selectedAgentId) || [];
+    }
     if (!state.cachedMentionFiles.length) {
-      const hadCachedMentionFiles = state.cachedMentionFiles.length > 0;
+      const requestAgentId = state.selectedAgentId || null;
       try {
         const data = await agentApi("/api/files/list");
         const mentionFiles = (data.files || []).map((item) => ({
@@ -1641,10 +1643,12 @@ async function maybeShowSuggest() {
           desc: item.filename,
           full: `@file_${item.file_id}`,
         }));
-        // Warm cache even if this request becomes stale for rendering.
-        state.cachedMentionFiles = mentionFiles;
+        if ((state.selectedAgentId || null) === requestAgentId) {
+          state.cachedMentionFiles = mentionFiles;
+          if (requestAgentId) state.cachedMentionFilesByAgent.set(requestAgentId, mentionFiles);
+        }
       } catch {
-        if (!hadCachedMentionFiles && !state.cachedMentionFiles.length) state.cachedMentionFiles = [];
+        state.cachedMentionFiles = [];
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
