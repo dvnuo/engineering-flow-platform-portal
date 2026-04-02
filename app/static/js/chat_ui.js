@@ -1585,12 +1585,11 @@ async function maybeShowSuggest() {
     if (!state.cachedSkills.length) {
       try {
         const data = await agentApi("/api/skills");
-        if (requestSeq !== state.suggestRequestSeq) return;
-        state.cachedSkills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
+        const skills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
+        state.cachedSkills = skills;
         if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, state.cachedSkills);
       } catch {
-        if (requestSeq !== state.suggestRequestSeq) return;
-        state.cachedSkills = [];
+        if (!state.cachedSkills.length) state.cachedSkills = [];
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
@@ -1634,15 +1633,14 @@ async function maybeShowSuggest() {
     if (!state.cachedMentionFiles.length) {
       try {
         const data = await agentApi("/api/files/list");
-        if (requestSeq !== state.suggestRequestSeq) return;
-        state.cachedMentionFiles = (data.files || []).map((item) => ({
+        const mentionFiles = (data.files || []).map((item) => ({
           title: `@file_${item.file_id.slice(0, 8)}`,
           desc: item.filename,
           full: `@file_${item.file_id}`,
         }));
+        state.cachedMentionFiles = mentionFiles;
       } catch {
-        if (requestSeq !== state.suggestRequestSeq) return;
-        state.cachedMentionFiles = [];
+        if (!state.cachedMentionFiles.length) state.cachedMentionFiles = [];
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
