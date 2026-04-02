@@ -173,6 +173,7 @@ const state = {
   cachedSkills: [],
   cachedSkillsByAgent: new Map(),
   cachedMentionFiles: [],
+  cachedMentionFilesByAgent: new Map(),
   selectedSuggestionIndex: -1,
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
@@ -188,6 +189,9 @@ const state = {
   inflightThinking: null,
   pendingThinkingEvents: null,  // Events from HTMX response (skill mode)
   pendingFiles: [],
+  isComposingInput: false,
+  suggestRequestSeq: 0,
+  suggestBlurHideTimer: null,
   // Backup for restore on error
   pendingFilesBackup: [],
   messageBackup: "",
@@ -1489,6 +1493,8 @@ function hideSuggest() {
   if (!dom.chatSuggest) return;
   dom.chatSuggest.classList.add("hidden");
   dom.chatSuggest.innerHTML = "";
+  state.selectedSuggestionIndex = -1;
+  state.suggestRequestSeq += 1;
 }
 
 function showSuggest(items, onPick) {
@@ -1569,53 +1575,117 @@ function insertFileReference(fileIdOrRef) {
 // Fetch file preview and update pendingFile
 async function maybeShowSuggest() {
   if (!dom.chatInput) return;
+  const requestSeq = ++state.suggestRequestSeq;
 
   const text = dom.chatInput.value;
-  const cursor = dom.chatInput.selectionStart;
+  const cursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
   const before = text.slice(0, cursor);
-  const slash = before.match(/(^|\s)\/(\w*)$/);
-  const at = before.match(/(^|\s)@(\w*)$/);
+  const slash = before.match(/(^|\s)\/([^\s/]*)$/);
+  const at = before.match(/(^|\s)@([^\s@]*)$/);
 
   if (slash) {
     if (!state.cachedSkills.length) {
       try {
         const data = await agentApi("/api/skills");
-        state.cachedSkills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
-        if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, state.cachedSkills);
+        const skills = (data.skills || []).map(toSkillSuggestion).filter((item) => item.command);
+        state.cachedSkills = skills;
+        if (state.selectedAgentId) state.cachedSkillsByAgent.set(state.selectedAgentId, skills);
       } catch {
         state.cachedSkills = [];
       }
     }
+    if (requestSeq !== state.suggestRequestSeq) return;
+    const nowCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+    const nowBefore = dom.chatInput.value.slice(0, nowCursor);
+    const nowSlash = nowBefore.match(/(^|\s)\/([^\s/]*)$/);
+    if (!nowSlash) {
+      hideSuggest();
+      return;
+    }
 
-    showSuggest(state.cachedSkills, (item) => {
+    const query = (nowSlash[2] || "").toLowerCase();
+    const filteredSkills = !query
+      ? state.cachedSkills
+      : state.cachedSkills.filter((item) => {
+        const haystack = [item.command, item.label, item.title, item.desc]
+          .map((v) => String(v || "").toLowerCase());
+        return haystack.some((v) => v.includes(query));
+      });
+    if (!filteredSkills.length) {
+      hideSuggest();
+      return;
+    }
+
+    showSuggest(filteredSkills, (item) => {
       const command = normalizeSkillCommand(item.command || item.label || item.title);
       if (!command) return;
-      // Replace from the start of "/" to cursor
-      const start = slash.index;
-      dom.chatInput.setRangeText(`${command} `, start, cursor, "end");
+      const pickCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+      const pickBefore = dom.chatInput.value.slice(0, pickCursor);
+      const pickSlash = pickBefore.match(/(^|\s)\/([^\s/]*)$/);
+      if (!pickSlash) return;
+      // Replace from the start of "/" token to cursor while preserving preceding whitespace.
+      const start = pickSlash.index + pickSlash[1].length;
+      dom.chatInput.setRangeText(`${command} `, start, pickCursor, "end");
       hideSuggest();
     });
     return;
   }
 
   if (at) {
-    if (!state.cachedMentionFiles.length) {
+    const mentionAgentKey = state.selectedAgentId ?? "__global__";
+    if (state.cachedMentionFilesByAgent.has(mentionAgentKey)) {
+      state.cachedMentionFiles = state.cachedMentionFilesByAgent.get(mentionAgentKey) || [];
+    } else {
+      const requestAgentKey = mentionAgentKey;
       try {
         const data = await agentApi("/api/files/list");
-        state.cachedMentionFiles = (data.files || []).map((item) => ({
+        const mentionFiles = (data.files || []).map((item) => ({
           title: `@file_${item.file_id.slice(0, 8)}`,
           desc: item.filename,
           full: `@file_${item.file_id}`,
         }));
+        state.cachedMentionFilesByAgent.set(requestAgentKey, mentionFiles);
+        if ((state.selectedAgentId ?? "__global__") === requestAgentKey) {
+          state.cachedMentionFiles = mentionFiles;
+        }
       } catch {
-        state.cachedMentionFiles = [];
+        if (!state.cachedMentionFilesByAgent.has(requestAgentKey)) {
+          state.cachedMentionFilesByAgent.set(requestAgentKey, []);
+        }
+        if ((state.selectedAgentId ?? "__global__") === requestAgentKey) {
+          state.cachedMentionFiles = [];
+        }
       }
     }
+    if (requestSeq !== state.suggestRequestSeq) return;
+    const nowCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+    const nowBefore = dom.chatInput.value.slice(0, nowCursor);
+    const nowAt = nowBefore.match(/(^|\s)@([^\s@]*)$/);
+    if (!nowAt) {
+      hideSuggest();
+      return;
+    }
 
-    showSuggest(state.cachedMentionFiles, (item) => {
-      // Replace from the start of "@" to cursor
-      const start = at.index;
-      dom.chatInput.setRangeText(`${item.full} `, start, cursor, "end");
+    const mentionQuery = (nowAt[2] || "").toLowerCase();
+    const filteredMentionFiles = !mentionQuery
+      ? state.cachedMentionFiles
+      : state.cachedMentionFiles.filter((item) => {
+        const haystack = [item.title, item.desc, item.full].map((v) => String(v || "").toLowerCase());
+        return haystack.some((v) => v.includes(mentionQuery));
+      });
+    if (!filteredMentionFiles.length) {
+      hideSuggest();
+      return;
+    }
+
+    showSuggest(filteredMentionFiles, (item) => {
+      const pickCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+      const pickBefore = dom.chatInput.value.slice(0, pickCursor);
+      const pickAt = pickBefore.match(/(^|\s)@([^\s@]*)$/);
+      if (!pickAt) return;
+      // Replace from the start of "@" token to cursor while preserving preceding whitespace.
+      const start = pickAt.index + pickAt[1].length;
+      dom.chatInput.setRangeText(`${item.full} `, start, pickCursor, "end");
       hideSuggest();
     });
     return;
@@ -2698,18 +2768,42 @@ function bindEvents() {
     dom.chatInput.style.height = 'auto';
     dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 150) + 'px';
   });
+  dom.chatInput?.addEventListener("compositionstart", () => {
+    state.isComposingInput = true;
+  });
+  dom.chatInput?.addEventListener("compositionend", () => {
+    state.isComposingInput = false;
+    maybeShowSuggest();
+  });
+  dom.chatInput?.addEventListener("blur", () => {
+    if (state.suggestBlurHideTimer) clearTimeout(state.suggestBlurHideTimer);
+    state.suggestBlurHideTimer = setTimeout(() => {
+      hideSuggest();
+      state.suggestBlurHideTimer = null;
+    }, 120);
+  });
   dom.chatInput?.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowDown" && !dom.chatSuggest?.classList.contains("hidden")) {
+    const isImeComposing = event.isComposing || state.isComposingInput || event.keyCode === 229;
+    const suggestOpen = !!dom.chatSuggest && !dom.chatSuggest.classList.contains("hidden");
+    if (event.key === "Escape" && suggestOpen) {
+      event.preventDefault();
+      hideSuggest();
+      return;
+    }
+    if (event.key === "ArrowDown" && suggestOpen) {
       event.preventDefault();
       moveSuggestionSelection(1);
       return;
     }
-    if (event.key === "ArrowUp" && !dom.chatSuggest?.classList.contains("hidden")) {
+    if (event.key === "ArrowUp" && suggestOpen) {
       event.preventDefault();
       moveSuggestionSelection(-1);
       return;
     }
-    if (event.key === "Enter" && !event.shiftKey && !dom.chatSuggest?.classList.contains("hidden")) {
+    if (event.key === "Enter" && isImeComposing) {
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && suggestOpen) {
       event.preventDefault();
       if (pickCurrentSuggestion()) return;
     }
@@ -2718,6 +2812,17 @@ function bindEvents() {
       if (state.isSubmittingChat) return;
       htmx.trigger("#chat-form", "submit");
     }
+  });
+  dom.chatSuggest?.addEventListener("mousedown", () => {
+    if (state.suggestBlurHideTimer) {
+      clearTimeout(state.suggestBlurHideTimer);
+      state.suggestBlurHideTimer = null;
+    }
+  });
+  document.addEventListener("mousedown", (event) => {
+    if (dom.chatSuggest?.classList.contains("hidden")) return;
+    const target = event.target;
+    if (!dom.chatInput?.contains(target) && !dom.chatSuggest?.contains(target)) hideSuggest();
   });
 
   dom.uploadInput?.addEventListener("change", (e) => {
@@ -2749,6 +2854,8 @@ function bindEvents() {
     if (fileBtn) {
       event.preventDefault();
       insertFileReference(fileBtn.dataset.fileRef || "");
+      hideSuggest();
+      dom.chatInput?.focus();
       setChatStatus(`Inserted ${fileBtn.dataset.fileRef || "file reference"}`);
       return;
     }
@@ -2758,7 +2865,10 @@ function bindEvents() {
       event.preventDefault();
       const command = normalizeSkillCommand(skillBtn.dataset.skillCommand);
       if (!command) return;
-      dom.chatInput.setRangeText(`${command} `, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
+      const skillStart = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+      const skillEnd = dom.chatInput.selectionEnd ?? dom.chatInput.value.length;
+      dom.chatInput.setRangeText(`${command} `, skillStart, skillEnd, "end");
+      hideSuggest();
       dom.chatInput.focus();
       setChatStatus(`Inserted ${command}`);
       return;
