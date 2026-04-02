@@ -1576,7 +1576,7 @@ async function maybeShowSuggest() {
   const requestSeq = ++state.suggestRequestSeq;
 
   const text = dom.chatInput.value;
-  const cursor = dom.chatInput.selectionStart;
+  const cursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
   const before = text.slice(0, cursor);
   const slash = before.match(/(^|\s)\/([^\s/]*)$/);
   const at = before.match(/(^|\s)@([^\s@]*)$/);
@@ -1594,7 +1594,7 @@ async function maybeShowSuggest() {
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
-    const nowCursor = dom.chatInput.selectionStart;
+    const nowCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
     const nowBefore = dom.chatInput.value.slice(0, nowCursor);
     const nowSlash = nowBefore.match(/(^|\s)\/([^\s/]*)$/);
     if (!nowSlash) {
@@ -1618,7 +1618,7 @@ async function maybeShowSuggest() {
     showSuggest(filteredSkills, (item) => {
       const command = normalizeSkillCommand(item.command || item.label || item.title);
       if (!command) return;
-      const pickCursor = dom.chatInput.selectionStart;
+      const pickCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
       const pickBefore = dom.chatInput.value.slice(0, pickCursor);
       const pickSlash = pickBefore.match(/(^|\s)\/([^\s/]*)$/);
       if (!pickSlash) return;
@@ -1646,7 +1646,7 @@ async function maybeShowSuggest() {
       }
     }
     if (requestSeq !== state.suggestRequestSeq) return;
-    const nowCursor = dom.chatInput.selectionStart;
+    const nowCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
     const nowBefore = dom.chatInput.value.slice(0, nowCursor);
     const nowAt = nowBefore.match(/(^|\s)@([^\s@]*)$/);
     if (!nowAt) {
@@ -1654,8 +1654,20 @@ async function maybeShowSuggest() {
       return;
     }
 
-    showSuggest(state.cachedMentionFiles, (item) => {
-      const pickCursor = dom.chatInput.selectionStart;
+    const mentionQuery = (nowAt[2] || "").toLowerCase();
+    const filteredMentionFiles = !mentionQuery
+      ? state.cachedMentionFiles
+      : state.cachedMentionFiles.filter((item) => {
+        const haystack = [item.title, item.desc, item.full].map((v) => String(v || "").toLowerCase());
+        return haystack.some((v) => v.includes(mentionQuery));
+      });
+    if (!filteredMentionFiles.length) {
+      hideSuggest();
+      return;
+    }
+
+    showSuggest(filteredMentionFiles, (item) => {
+      const pickCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
       const pickBefore = dom.chatInput.value.slice(0, pickCursor);
       const pickAt = pickBefore.match(/(^|\s)@([^\s@]*)$/);
       if (!pickAt) return;
@@ -2749,22 +2761,25 @@ function bindEvents() {
   });
   dom.chatInput?.addEventListener("compositionend", () => {
     state.isComposingInput = false;
+    maybeShowSuggest();
   });
   dom.chatInput?.addEventListener("blur", () => {
     setTimeout(() => hideSuggest(), 120);
   });
   dom.chatInput?.addEventListener("keydown", (event) => {
     const isImeComposing = event.isComposing || state.isComposingInput || event.keyCode === 229;
-    if (event.key === "Escape") {
+    const suggestOpen = !dom.chatSuggest?.classList.contains("hidden");
+    if (event.key === "Escape" && suggestOpen) {
+      event.preventDefault();
       hideSuggest();
       return;
     }
-    if (event.key === "ArrowDown" && !dom.chatSuggest?.classList.contains("hidden")) {
+    if (event.key === "ArrowDown" && suggestOpen) {
       event.preventDefault();
       moveSuggestionSelection(1);
       return;
     }
-    if (event.key === "ArrowUp" && !dom.chatSuggest?.classList.contains("hidden")) {
+    if (event.key === "ArrowUp" && suggestOpen) {
       event.preventDefault();
       moveSuggestionSelection(-1);
       return;
@@ -2772,9 +2787,10 @@ function bindEvents() {
     if (event.key === "Enter" && isImeComposing) {
       return;
     }
-    if (event.key === "Enter" && !event.shiftKey && !dom.chatSuggest?.classList.contains("hidden")) {
+    if (event.key === "Enter" && !event.shiftKey && suggestOpen) {
       event.preventDefault();
-      if (pickCurrentSuggestion()) return;
+      pickCurrentSuggestion();
+      return;
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -2817,6 +2833,8 @@ function bindEvents() {
     if (fileBtn) {
       event.preventDefault();
       insertFileReference(fileBtn.dataset.fileRef || "");
+      hideSuggest();
+      dom.chatInput?.focus();
       setChatStatus(`Inserted ${fileBtn.dataset.fileRef || "file reference"}`);
       return;
     }
@@ -2826,7 +2844,9 @@ function bindEvents() {
       event.preventDefault();
       const command = normalizeSkillCommand(skillBtn.dataset.skillCommand);
       if (!command) return;
-      dom.chatInput.setRangeText(`${command} `, dom.chatInput.selectionStart, dom.chatInput.selectionEnd, "end");
+      const skillStart = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+      const skillEnd = dom.chatInput.selectionEnd ?? dom.chatInput.value.length;
+      dom.chatInput.setRangeText(`${command} `, skillStart, skillEnd, "end");
       hideSuggest();
       dom.chatInput.focus();
       setChatStatus(`Inserted ${command}`);
