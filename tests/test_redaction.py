@@ -63,3 +63,11 @@ def test_sanitize_exception_message_redacts_structured_values():
     assert "secret" not in message
     assert "abc" not in message
     assert REDACTED in message
+
+
+def test_redact_text_patterns_for_access_refresh_token_assignments():
+    redacted = redact_text("access_token=abc refresh_token=xyz")
+
+    assert "abc" not in redacted
+    assert "xyz" not in redacted
+    assert redacted.count("[REDACTED]") >= 2

@@ -4,14 +4,21 @@ import io
 import logging
 import sys
 
-from app.logger import DEFAULT_FORMAT, RedactingFilter, setup_logging
+from app.logger import DEFAULT_FORMAT, RedactingFilter, RedactingFormatter, setup_logging
 
 
 def test_setup_logging():
     """Test logging setup."""
-    setup_logging()
-    logger = logging.getLogger("app")
-    assert logger is not None
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    try:
+        setup_logging()
+        logger = logging.getLogger("app")
+        assert logger is not None
+    finally:
+        root.handlers = original_handlers
+        root.setLevel(original_level)
 
 
 def test_setup_logging_is_idempotent_for_stdout_handler():
@@ -97,4 +104,27 @@ def test_redaction_filter_redacts_structured_log_args():
     assert "secret" not in output
     assert "abc123" not in output
     assert "key-123" not in output
+    assert "[REDACTED]" in output
+
+
+def test_redacting_formatter_redacts_traceback_exception_text():
+    logger = logging.getLogger("tests.redaction.exception")
+    logger.handlers = []
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(RedactingFormatter("%(message)s"))
+    handler.addFilter(RedactingFilter())
+    logger.addHandler(handler)
+
+    try:
+        raise ValueError("password=secret token=abc123")
+    except ValueError:
+        logger.exception("operation failed")
+
+    output = stream.getvalue()
+    assert "secret" not in output
+    assert "abc123" not in output
     assert "[REDACTED]" in output

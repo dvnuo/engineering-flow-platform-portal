@@ -3,10 +3,20 @@
 import logging
 import sys
 
-from app.redaction import redact_value
+from app.redaction import redact_text, redact_value
 
 # Detailed format with module/function/line info
 DEFAULT_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s.%(funcName)s:%(lineno)d | %(message)s"
+
+
+
+
+class RedactingFormatter(logging.Formatter):
+    """Formatter that redacts sensitive content in traceback text."""
+
+    def formatException(self, exc_info):
+        traceback_text = super().formatException(exc_info)
+        return redact_text(traceback_text)
 
 
 class RedactingFilter(logging.Filter):
@@ -65,6 +75,6 @@ def setup_logging(level: int = logging.INFO):
         root_logger.addHandler(stdout_handler)
 
     for handler in root_logger.handlers:
-        handler.setFormatter(logging.Formatter(DEFAULT_FORMAT))
+        handler.setFormatter(RedactingFormatter(DEFAULT_FORMAT))
         if not _has_redacting_filter(handler):
             handler.addFilter(RedactingFilter())

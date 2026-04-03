@@ -37,7 +37,7 @@ _TEXT_PATTERNS = [
     (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(authorization\s*:\s*basic\s+)[^\s,;]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(cookie\s*:\s*)[^\r\n]+"), r"\1[REDACTED]"),
-    (re.compile(r"(?i)\b(token|password|api_key|secret)\s*=\s*([^&\s]+)"), r"\1=[REDACTED]"),
+    (re.compile(r"(?i)\b(token|access_token|refresh_token|password|api_key|secret|secret_key)\s*=\s*([^&\s]+)"), r"\1=[REDACTED]"),
     (re.compile(r"\bghp_[A-Za-z0-9_]+"), REDACTED),
     (re.compile(r"\bgithub_pat_[A-Za-z0-9_]+"), REDACTED),
     (re.compile(r"\bsk-[A-Za-z0-9_-]+"), REDACTED),
