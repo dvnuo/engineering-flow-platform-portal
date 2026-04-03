@@ -9,14 +9,29 @@ from app.redaction import redact_text, redact_value
 DEFAULT_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s.%(funcName)s:%(lineno)d | %(message)s"
 
 
-
-
 class RedactingFormatter(logging.Formatter):
     """Formatter that redacts sensitive content in traceback text."""
 
     def formatException(self, exc_info):
         traceback_text = super().formatException(exc_info)
         return redact_text(traceback_text)
+
+
+class FormatterRedactionWrapper(logging.Formatter):
+    """Wrap an existing formatter while redacting the final rendered output."""
+
+    def __init__(self, inner_formatter: logging.Formatter):
+        super().__init__()
+        self.inner_formatter = inner_formatter
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_text(self.inner_formatter.format(record))
+
+    def formatException(self, exc_info):
+        format_exception = getattr(self.inner_formatter, "formatException", None)
+        if callable(format_exception):
+            return redact_text(format_exception(exc_info))
+        return redact_text(super().formatException(exc_info))
 
 
 class RedactingFilter(logging.Filter):
@@ -49,9 +64,12 @@ class RedactingFilter(logging.Filter):
         return True
 
 
-
 def _has_redacting_filter(handler: logging.Handler) -> bool:
     return any(isinstance(log_filter, RedactingFilter) for log_filter in handler.filters)
+
+
+def _has_redacting_formatter(handler: logging.Handler) -> bool:
+    return isinstance(handler.formatter, (RedactingFormatter, FormatterRedactionWrapper))
 
 
 def setup_logging(level: int = logging.INFO):
@@ -64,17 +82,20 @@ def setup_logging(level: int = logging.INFO):
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
-    stdout_handler = None
-    for handler in root_logger.handlers:
-        if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
-            stdout_handler = handler
-            break
-
-    if stdout_handler is None:
-        stdout_handler = logging.StreamHandler(sys.stdout)
-        root_logger.addHandler(stdout_handler)
+    created_stdout_handler = None
+    if not root_logger.handlers:
+        created_stdout_handler = logging.StreamHandler(sys.stdout)
+        created_stdout_handler.setFormatter(RedactingFormatter(DEFAULT_FORMAT))
+        root_logger.addHandler(created_stdout_handler)
 
     for handler in root_logger.handlers:
-        handler.setFormatter(RedactingFormatter(DEFAULT_FORMAT))
         if not _has_redacting_filter(handler):
             handler.addFilter(RedactingFilter())
+
+        if handler is created_stdout_handler:
+            continue
+
+        if handler.formatter is None:
+            handler.setFormatter(RedactingFormatter(DEFAULT_FORMAT))
+        elif not _has_redacting_formatter(handler):
+            handler.setFormatter(FormatterRedactionWrapper(handler.formatter))

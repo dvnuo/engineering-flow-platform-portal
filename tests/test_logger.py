@@ -41,24 +41,58 @@ def test_setup_logging_is_idempotent_for_stdout_handler():
         root.setLevel(original_level)
 
 
-def test_setup_logging_applies_filter_and_formatter_to_all_root_handlers():
+def test_setup_logging_preserves_preconfigured_handlers_and_format_style():
     root = logging.getLogger()
     original_handlers = list(root.handlers)
     original_level = root.level
 
+    stdout_stream = io.StringIO()
+    other_stream = io.StringIO()
+
     stdout_handler = logging.StreamHandler(sys.stdout)
-    buffer_handler = logging.StreamHandler(io.StringIO())
+    stdout_handler.setFormatter(logging.Formatter("CUSTOM:%(message)s"))
+    test_handler = logging.StreamHandler(other_stream)
+    test_handler.setFormatter(logging.Formatter("OTHER:%(message)s"))
+
+    emit_stdout = logging.StreamHandler.emit
+
+    def emit_to_buffer(self, record):
+        if self is stdout_handler:
+            msg = self.format(record)
+            stdout_stream.write(msg + self.terminator)
+        else:
+            emit_stdout(self, record)
 
     try:
-        root.handlers = [stdout_handler, buffer_handler]
+        root.handlers = [stdout_handler, test_handler]
+        logging.StreamHandler.emit = emit_to_buffer
 
         setup_logging()
+        setup_logging()
+
+        current_stdout_handlers = [
+            h for h in root.handlers
+            if isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is sys.stdout
+        ]
+        assert len(current_stdout_handlers) == 1
 
         for handler in root.handlers:
             assert any(isinstance(f, RedactingFilter) for f in handler.filters)
             assert handler.formatter is not None
-            assert handler.formatter._fmt == DEFAULT_FORMAT
+
+        root.info("token=%s", "secret-token")
+
+        stdout_output = stdout_stream.getvalue()
+        other_output = other_stream.getvalue()
+
+        assert stdout_output.startswith("CUSTOM:")
+        assert other_output.startswith("OTHER:")
+        assert "secret-token" not in stdout_output
+        assert "secret-token" not in other_output
+        assert "[REDACTED]" in stdout_output
+        assert "[REDACTED]" in other_output
     finally:
+        logging.StreamHandler.emit = emit_stdout
         root.handlers = original_handlers
         root.setLevel(original_level)
 
@@ -112,23 +146,33 @@ def test_redaction_filter_redacts_structured_log_args():
 
 
 def test_redaction_filter_redacts_exception_traceback():
-    logger = logging.getLogger("tests.redaction.exception")
-    logger.handlers = []
-    logger.propagate = False
-    logger.setLevel(logging.INFO)
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
 
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
-    handler.setFormatter(RedactingFormatter("%(message)s"))
-    handler.addFilter(RedactingFilter())
-    logger.addHandler(handler)
+    handler.setFormatter(logging.Formatter("TRACE:%(message)s"))
+
+    logger = logging.getLogger("traceback.redaction.exception")
+    logger.handlers = []
+    logger.propagate = True
+    logger.setLevel(logging.ERROR)
 
     try:
-        raise ValueError("password=secret access_token=abc123")
-    except ValueError:
-        logger.exception("operation failed")
+        root.handlers = [handler]
+        setup_logging()
 
-    output = stream.getvalue()
-    assert "secret" not in output
-    assert "abc123" not in output
-    assert "[REDACTED]" in output
+        try:
+            raise ValueError("password=secret access_token=abc123")
+        except Exception:
+            logger.exception("operation failed")
+
+        output = stream.getvalue()
+        assert output.startswith("TRACE:")
+        assert "secret" not in output
+        assert "abc123" not in output
+        assert "[REDACTED]" in output
+    finally:
+        root.handlers = original_handlers
+        root.setLevel(original_level)
