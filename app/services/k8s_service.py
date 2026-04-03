@@ -7,6 +7,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from app.config import get_settings
+from app.redaction import sanitize_exception_message
 
 
 @dataclass
@@ -50,7 +51,7 @@ class K8sService:
             return RuntimeStatus(status="running")
         except Exception as exc:
             logger.exception("Failed to start agent")
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def update_agent_runtime(self, agent) -> RuntimeStatus:
         """Update agent runtime (deployment) with new config."""
@@ -63,7 +64,7 @@ class K8sService:
             return RuntimeStatus(status="running")
         except Exception as exc:
             logger.exception("Failed to update agent runtime")
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def _patch_deployment(self, agent) -> None:
         """Patch existing deployment with new config."""
@@ -208,7 +209,7 @@ class K8sService:
             )
             return RuntimeStatus(status="running")
         except Exception as exc:
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def stop_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
@@ -222,7 +223,7 @@ class K8sService:
             return RuntimeStatus(status="stopped")
         except Exception as exc:
             logger.exception("Failed to stop agent")
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def delete_agent_runtime(self, agent, destroy_data: bool = False) -> RuntimeStatus:
         if not self.enabled:
@@ -239,7 +240,7 @@ class K8sService:
                 pass  # TODO: Implement subPath cleanup for shared PVC
             return RuntimeStatus(status="deleted")
         except Exception as exc:
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def get_agent_runtime_status(self, agent) -> RuntimeStatus:
         if not self.enabled:
@@ -260,7 +261,7 @@ class K8sService:
                 return RuntimeStatus(status="running", cpu_usage="N/A", memory_usage="N/A")
             return RuntimeStatus(status="creating", cpu_usage="N/A", memory_usage="N/A")
         except Exception as exc:
-            return RuntimeStatus(status="failed", message=str(exc), cpu_usage="N/A", memory_usage="N/A")
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc), cpu_usage="N/A", memory_usage="N/A")
 
     def _is_already_exists(self, exc: Exception) -> bool:
         try:
