@@ -3423,7 +3423,7 @@ function loadSystemPromptConfig(agentId) {
     const canWrite = canWriteAgent(currentAgent);
     
     var sections = ['soul', 'user', 'agents', 'memory', 'daily_notes'];
-    var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'Daily Notes' };
+    var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'DAILY NOTES' };
     var hasEdit = { soul: true, user: true, agents: true, memory: true, daily_notes: false };
     
     for (var i = 0; i < sections.length; i++) {
