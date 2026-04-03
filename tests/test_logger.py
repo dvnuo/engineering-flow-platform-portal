@@ -107,7 +107,7 @@ def test_redaction_filter_redacts_structured_log_args():
     assert "[REDACTED]" in output
 
 
-def test_redacting_formatter_redacts_traceback_exception_text():
+def test_redaction_filter_redacts_exception_traceback():
     logger = logging.getLogger("tests.redaction.exception")
     logger.handlers = []
     logger.propagate = False
@@ -120,7 +120,7 @@ def test_redacting_formatter_redacts_traceback_exception_text():
     logger.addHandler(handler)
 
     try:
-        raise ValueError("password=secret token=abc123")
+        raise ValueError("password=secret access_token=abc123")
     except ValueError:
         logger.exception("operation failed")
 
