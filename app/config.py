@@ -7,6 +7,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     app_name: str = "Engineering Flow Platform Portal"
+    base_uri: str = ""
     debug: bool = True
     database_url: str = "sqlite:///./portal.db"
     secret_key: str = "change-me-in-production"
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str = Field(default="", validation_alias="BOOTSTRAP_ADMIN_PASSWORD")
 
     agents_namespace: str = "efp-agents"
+    agents_volume_sub_path_prefix: str = "efp-agents"
     k8s_enabled: bool = True
     k8s_storage_class: str = "efp-agents-storage"
     k8s_pvc_size: str = "20Gi"
