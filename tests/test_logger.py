@@ -24,6 +24,7 @@ def test_setup_logging():
 def test_setup_logging_is_idempotent_for_stdout_handler():
     root = logging.getLogger()
     original_handlers = list(root.handlers)
+    original_level = root.level
     try:
         root.handlers = []
         setup_logging()
@@ -37,11 +38,13 @@ def test_setup_logging_is_idempotent_for_stdout_handler():
         assert any(isinstance(f, RedactingFilter) for f in stdout_handlers[0].filters)
     finally:
         root.handlers = original_handlers
+        root.setLevel(original_level)
 
 
 def test_setup_logging_applies_filter_and_formatter_to_all_root_handlers():
     root = logging.getLogger()
     original_handlers = list(root.handlers)
+    original_level = root.level
 
     stdout_handler = logging.StreamHandler(sys.stdout)
     buffer_handler = logging.StreamHandler(io.StringIO())
@@ -57,6 +60,7 @@ def test_setup_logging_applies_filter_and_formatter_to_all_root_handlers():
             assert handler.formatter._fmt == DEFAULT_FORMAT
     finally:
         root.handlers = original_handlers
+        root.setLevel(original_level)
 
 
 def test_redaction_filter_redacts_log_args():
