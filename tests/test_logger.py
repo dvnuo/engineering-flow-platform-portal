@@ -65,6 +65,7 @@ def test_setup_logging_preserves_preconfigured_handlers_and_format_style():
 
     try:
         root.handlers = [stdout_handler, test_handler]
+        root.setLevel(logging.INFO)
         logging.StreamHandler.emit = emit_to_buffer
 
         setup_logging()
@@ -176,3 +177,23 @@ def test_redaction_filter_redacts_exception_traceback():
     finally:
         root.handlers = original_handlers
         root.setLevel(original_level)
+
+
+def test_redaction_filter_fallback_sanitizes_and_clears_args():
+    logger = logging.getLogger("fallback.redaction")
+    logger.handlers = []
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(RedactingFilter())
+    logger.addHandler(handler)
+
+    logger.info("token=%(token)s", ({"password": "secret"},))
+
+    output = stream.getvalue()
+    assert "secret" not in output
+    assert "[REDACTED]" in output
+    assert "args=" in output

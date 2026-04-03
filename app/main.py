@@ -16,12 +16,12 @@ from app.services.auth_service import hash_password
 from app.web import router as web_router
 
 settings = get_settings()
-setup_logging(logging.DEBUG if settings.debug else logging.INFO)
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 
 @app.on_event("startup")
 def on_startup() -> None:
+    setup_logging(logging.DEBUG if settings.debug else logging.INFO)
     Base.metadata.create_all(bind=engine)
 
     db = SessionLocal()

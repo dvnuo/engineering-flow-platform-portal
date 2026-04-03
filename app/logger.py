@@ -58,9 +58,12 @@ class RedactingFilter(logging.Filter):
             record.msg = redact_value(rendered_message)
             record.args = ()
         except Exception:
-            record.msg = redact_value(record.msg)
+            fallback_message = redact_text(str(record.msg))
             if record.args:
-                record.args = self._redact_args(record.args)
+                fallback_args = redact_text(str(self._redact_args(record.args)))
+                fallback_message = f"{fallback_message} | args={fallback_args}"
+            record.msg = fallback_message
+            record.args = ()
         return True
 
 
@@ -80,10 +83,10 @@ def setup_logging(level: int = logging.INFO):
     configuring logging as a side effect of importing this module.
     """
     root_logger = logging.getLogger()
-    root_logger.setLevel(level)
 
     created_stdout_handler = None
     if not root_logger.handlers:
+        root_logger.setLevel(level)
         created_stdout_handler = logging.StreamHandler(sys.stdout)
         created_stdout_handler.setFormatter(RedactingFormatter(DEFAULT_FORMAT))
         root_logger.addHandler(created_stdout_handler)
