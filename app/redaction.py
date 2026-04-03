@@ -94,7 +94,7 @@ def redact_value(value: Any) -> Any:
 
 def safe_preview(value: Any, limit: int = 200) -> str:
     """Create a sanitized, truncated preview string for logging."""
-    text = str(redact_value(value))
+    text = redact_text(str(redact_value(value)))
     if len(text) <= limit:
         return text
     return f"{text[:limit]}..."

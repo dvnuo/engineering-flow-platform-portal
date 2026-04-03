@@ -86,3 +86,16 @@ def test_redact_camel_case_sensitive_keys():
     assert redacted["githubApiToken"] == REDACTED
     assert redacted["openaiApiKey"] == REDACTED
     assert redacted["accessToken"] == REDACTED
+
+
+class StringifiesToSecret:
+    def __str__(self):
+        return "access_token=abc123 password=secret"
+
+
+def test_safe_preview_redacts_stringified_custom_object():
+    preview = safe_preview(StringifiesToSecret(), limit=200)
+
+    assert "abc123" not in preview
+    assert "secret" not in preview
+    assert "[REDACTED]" in preview
