@@ -1334,7 +1334,43 @@ function handleChatAfterRequest(event) {
       // Parse once and extract both events and user message ID
       const parser = new DOMParser();
       const doc = parser.parseFromString(xhr.responseText, "text/html");
-      
+      const oobInput = doc.querySelector('#chat-user-message-id');
+      if (oobInput && oobInput.value) {
+        const userMessageId = oobInput.value;
+
+        // Find the last user message article (the one just sent) and update its ID
+        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
+        if (userArticles.length > 0) {
+          const lastUserArticle = userArticles[userArticles.length - 1];
+          // Update the data-message-id attribute with the real ID
+          lastUserArticle.dataset.messageId = userMessageId;
+
+          // Update any edit button's onclick to use the real ID
+          // Button may be in article or in parent container
+          const parentContainer = lastUserArticle.parentElement;
+          const editBtn = lastUserArticle.querySelector('.edit-msg-btn') ||
+                         parentContainer?.querySelector?.('.edit-msg-btn');
+          if (editBtn) {
+            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
+            const content = contentEl ? contentEl.textContent : '';
+
+            // Get attachments from attachmentHistory - use last entry since this is the latest message
+            const attachments = [];
+            // console.log(' History length:', state.attachmentHistory.length);
+            if (state.attachmentHistory.length > 0) {
+              // Use the last entry in history for the latest message
+              const lastAttachments = state.attachmentHistory[state.attachmentHistory.length - 1];
+              // console.log(' Last attachments:', lastAttachments);
+              if (lastAttachments) {
+                attachments.push(...lastAttachments);
+              }
+            }
+
+            editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
+          }
+        }
+      }
+
       // Extract events
       const assistantArticle = doc.querySelector('article.assistant-message');
       if (assistantArticle) {
