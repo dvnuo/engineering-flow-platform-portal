@@ -27,6 +27,7 @@ def escape_data_attr(s):
 templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
 proxy_service = ProxyService()
+base_uri = settings.base_uri
 
 
 def _current_user_from_cookie(request: Request):
