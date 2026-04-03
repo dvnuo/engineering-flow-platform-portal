@@ -10,6 +10,7 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import LoginRequest, MeResponse, RegisterRequest
 from app.services.auth_service import hash_password, issue_session_token, verify_password
+from app.redaction import sanitize_exception_message
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 settings = get_settings()
@@ -31,8 +32,9 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     except Exception as e:
         logger.exception("Auth error")
         db.rollback()
+        sanitized_error = sanitize_exception_message(e).lower()
         # Check if it's a duplicate key error
-        if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+        if "duplicate key" in sanitized_error or "unique" in sanitized_error:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
         raise
     

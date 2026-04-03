@@ -15,6 +15,7 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
 from app.services.proxy_service import ProxyService
+from app.redaction import sanitize_exception_message
 
 router = APIRouter(tags=["proxy"])
 proxy_service = ProxyService()
@@ -52,8 +53,9 @@ async def proxy_agent(
             headers=dict(request.headers),
         )
     except Exception as exc:
-        logger.exception("Proxy error")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Proxy upstream failure: {exc}") from exc
+        logger.exception("Proxy error agent_id=%s method=%s subpath=%s", agent_id, request.method, subpath)
+        safe_error = sanitize_exception_message(exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Proxy upstream failure: {safe_error}") from exc
 
     return Response(status_code=status_code, content=content, media_type=content_type)
 

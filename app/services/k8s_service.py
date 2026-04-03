@@ -7,6 +7,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from app.config import get_settings
+from app.redaction import sanitize_exception_message
 
 
 @dataclass
@@ -50,7 +51,7 @@ class K8sService:
             return RuntimeStatus(status="running")
         except Exception as exc:
             logger.exception("Failed to start agent")
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def update_agent_runtime(self, agent) -> RuntimeStatus:
         """Update agent runtime (deployment) with new config."""
@@ -63,7 +64,7 @@ class K8sService:
             return RuntimeStatus(status="running")
         except Exception as exc:
             logger.exception("Failed to update agent runtime")
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def _patch_deployment(self, agent) -> None:
         """Patch existing deployment with new config."""
@@ -107,7 +108,7 @@ class K8sService:
         
         # Build the init container spec
         init_containers = []
-        code_sub_path = f"efp-agents/{agent.id}/code"
+        code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
         
         if agent.repo_url:
             init_containers.append(
@@ -137,7 +138,7 @@ class K8sService:
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{code_sub_path}/.git"))
         volume_mounts.append(
-            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=f"efp-agents/{agent.id}/data")
+            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/data")
         )
         
         # Patch the deployment
@@ -208,7 +209,7 @@ class K8sService:
             )
             return RuntimeStatus(status="running")
         except Exception as exc:
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def stop_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
@@ -222,7 +223,7 @@ class K8sService:
             return RuntimeStatus(status="stopped")
         except Exception as exc:
             logger.exception("Failed to stop agent")
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def delete_agent_runtime(self, agent, destroy_data: bool = False) -> RuntimeStatus:
         if not self.enabled:
@@ -239,7 +240,7 @@ class K8sService:
                 pass  # TODO: Implement subPath cleanup for shared PVC
             return RuntimeStatus(status="deleted")
         except Exception as exc:
-            return RuntimeStatus(status="failed", message=str(exc))
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def get_agent_runtime_status(self, agent) -> RuntimeStatus:
         if not self.enabled:
@@ -260,7 +261,7 @@ class K8sService:
                 return RuntimeStatus(status="running", cpu_usage="N/A", memory_usage="N/A")
             return RuntimeStatus(status="creating", cpu_usage="N/A", memory_usage="N/A")
         except Exception as exc:
-            return RuntimeStatus(status="failed", message=str(exc), cpu_usage="N/A", memory_usage="N/A")
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc), cpu_usage="N/A", memory_usage="N/A")
 
     def _is_already_exists(self, exc: Exception) -> bool:
         try:
@@ -381,7 +382,7 @@ class K8sService:
         if agent.repo_url:
             branch = agent.branch or getattr(self.settings, "default_agent_branch", "master")
             git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
-            code_sub_path = f"efp-agents/{agent.id}/code"
+            code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
             # Clone git repo to /app (will be mounted)
             # Add environment variables for git clone
             env = [
@@ -434,7 +435,7 @@ class K8sService:
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
         
         # Always add the data mount
-        data_sub_path = f"efp-agents/{agent.id}/data"
+        data_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/data"
         volume_mounts.append(
             client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=data_sub_path)
         )
