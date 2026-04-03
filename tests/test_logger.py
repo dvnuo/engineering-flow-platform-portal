@@ -70,3 +70,31 @@ def test_redaction_filter_redacts_log_args():
     assert "abc123" not in output
     assert "secret" not in output
     assert "[REDACTED]" in output
+
+
+def test_redaction_filter_redacts_structured_log_args():
+    logger = logging.getLogger("tests.redaction.structured")
+    logger.handlers = []
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(RedactingFilter())
+    logger.addHandler(handler)
+
+    payload = {
+        "user": "alice",
+        "password": "secret",
+        "nested": {"token": "abc123"},
+        "items": [{"api_key": "key-123"}, {"note": "safe"}],
+    }
+
+    logger.info("structured payload=%s", payload)
+
+    output = stream.getvalue()
+    assert "secret" not in output
+    assert "abc123" not in output
+    assert "key-123" not in output
+    assert "[REDACTED]" in output

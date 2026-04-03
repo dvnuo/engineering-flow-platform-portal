@@ -1,4 +1,4 @@
-from app.redaction import REDACTED, REDACTED_PRIVATE_KEY, redact_text, redact_value, safe_preview
+from app.redaction import REDACTED, REDACTED_PRIVATE_KEY, redact_text, redact_value, safe_preview, sanitize_exception_message
 
 
 def test_redact_sensitive_dict_keys():
@@ -55,3 +55,11 @@ def test_safe_preview_redacts_before_truncating():
     assert "very-secret" not in preview
     assert REDACTED in preview
     assert preview.endswith("...")
+
+
+def test_sanitize_exception_message_redacts_structured_values():
+    message = sanitize_exception_message({"password": "secret", "nested": {"token": "abc"}})
+
+    assert "secret" not in message
+    assert "abc" not in message
+    assert REDACTED in message

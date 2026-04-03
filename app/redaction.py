@@ -102,4 +102,4 @@ def sanitize_exception_message(value: Any) -> str:
     """Convert exception/details to safe text for API errors and logs."""
     if value is None:
         return ""
-    return redact_text(str(value))
+    return redact_text(str(redact_value(value)))

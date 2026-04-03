@@ -12,16 +12,32 @@ DEFAULT_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s.%(funcName)s:%(lineno
 class RedactingFilter(logging.Filter):
     """Apply lightweight redaction to log records before formatting."""
 
+    @staticmethod
+    def _redact_args(args):
+        if isinstance(args, dict):
+            return redact_value(args)
+        if isinstance(args, tuple):
+            return tuple(redact_value(value) for value in args)
+        return redact_value(args)
+
     def filter(self, record: logging.LogRecord) -> bool:
         try:
+            if record.args:
+                record.args = self._redact_args(record.args)
+                if not isinstance(record.msg, str):
+                    record.msg = redact_value(record.msg)
+            else:
+                record.msg = redact_value(record.msg)
+
             rendered_message = record.getMessage()
             record.msg = redact_value(rendered_message)
             record.args = ()
         except Exception:
             record.msg = redact_value(record.msg)
             if record.args:
-                record.args = redact_value(record.args)
+                record.args = self._redact_args(record.args)
         return True
+
 
 
 def _has_redacting_filter(handler: logging.Handler) -> bool:
