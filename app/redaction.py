@@ -33,6 +33,8 @@ _SENSITIVE_KEYS = {
     "proxy_password",
 }
 
+_COMPACT_SENSITIVE_KEYS = {key.replace("_", "") for key in _SENSITIVE_KEYS}
+
 _TEXT_PATTERNS = [
     (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(authorization\s*:\s*basic\s+)[^\s,;]+"), r"\1[REDACTED]"),
@@ -61,7 +63,7 @@ def _is_sensitive_key(key: Any) -> bool:
     if normalized in _SENSITIVE_KEYS:
         return True
     compact = normalized.replace("_", "")
-    return compact in _SENSITIVE_KEYS
+    return compact in _COMPACT_SENSITIVE_KEYS
 
 
 def redact_text(text: str) -> str:

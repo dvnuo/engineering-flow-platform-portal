@@ -72,3 +72,17 @@ def test_redact_text_patterns_for_access_refresh_token_assignments():
     assert "xyz" not in redacted
     assert "qwe" not in redacted
     assert redacted.count("[REDACTED]") >= 3
+
+
+def test_redact_camel_case_sensitive_keys():
+    payload = {
+        "githubApiToken": "gh-secret",
+        "openaiApiKey": "oa-secret",
+        "accessToken": "acc-secret",
+    }
+
+    redacted = redact_value(payload)
+
+    assert redacted["githubApiToken"] == REDACTED
+    assert redacted["openaiApiKey"] == REDACTED
+    assert redacted["accessToken"] == REDACTED
