@@ -986,7 +986,11 @@ async def app_chat_send(request: Request):
         if agent.status != "running":
             raise HTTPException(status_code=409, detail="Agent not running")
 
-        payload = {"message": message}
+        payload = {
+            "message": message,
+            "portal_user_id": str(user.id),
+            "portal_user_name": user.nickname or user.username,
+        }
         if session_id:
             payload["session_id"] = session_id
         if attachments:

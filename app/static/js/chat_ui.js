@@ -1759,8 +1759,10 @@ function renderChatHistory(messages, metadata = {}) {
 
     const roleLabel = document.createElement("span");
     roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
-    const agentName = state.selectedAgentName || "Assistant";
-    roleLabel.textContent = isUser ? (state.currentUserName || "You") : agentName;
+    const fallbackUserName = "User";
+    const fallbackAgentName = state.selectedAgentName || "Assistant";
+    const roleDisplayName = message.author_name || (isUser ? fallbackUserName : fallbackAgentName);
+    roleLabel.textContent = roleDisplayName;
 
     header.appendChild(roleLabel);
 
