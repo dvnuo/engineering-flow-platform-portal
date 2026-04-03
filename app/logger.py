@@ -38,16 +38,17 @@ def setup_logging(level: int = logging.INFO):
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
-    existing_handler = None
+    stdout_handler = None
     for handler in root_logger.handlers:
         if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
-            existing_handler = handler
+            stdout_handler = handler
             break
 
-    if existing_handler is None:
-        existing_handler = logging.StreamHandler(sys.stdout)
-        root_logger.addHandler(existing_handler)
+    if stdout_handler is None:
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        root_logger.addHandler(stdout_handler)
 
-    existing_handler.setFormatter(logging.Formatter(DEFAULT_FORMAT))
-    if not _has_redacting_filter(existing_handler):
-        existing_handler.addFilter(RedactingFilter())
+    for handler in root_logger.handlers:
+        handler.setFormatter(logging.Formatter(DEFAULT_FORMAT))
+        if not _has_redacting_filter(handler):
+            handler.addFilter(RedactingFilter())
