@@ -1,5 +1,5 @@
 """Tests for web.py - settings and config."""
-import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
 
 
@@ -125,3 +125,11 @@ def test_proxy_api_chat_stream():
     response = client.post("/a/agent-123/api/chat/stream",
                          json={"message": "test"})
     assert response.status_code in [400, 401, 403, 404, 500, 502]
+
+
+def test_chat_ui_has_runtime_event_normalizer_helper():
+    """Ensure runtime event normalizer supports additive normalized fields."""
+    content = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "function normalizeRuntimeEvent(payload)" in content
+    for marker in ["event_type", "detail_payload", "created_at", "summary", "state"]:
+        assert marker in content
