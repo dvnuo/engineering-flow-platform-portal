@@ -131,6 +131,10 @@ def test_proxy_service_forward_includes_safe_extra_headers(monkeypatch):
             "X-Portal-User-Id": "42",
             "X-Portal-User-Name": "Taylor",
             "X-Portal-Author-Source": "portal",
+            "Content-Type": "text/plain",
+            "Host": "evil.example",
+            "Connection": "close",
+            "X-Unsafe-Header": "should-not-pass",
         },
     ))
 
@@ -213,3 +217,4 @@ def test_sanitize_header_value_preserves_zero_and_strips_controls():
     assert _sanitize_header_value(0) == "0"
     assert _sanitize_header_value(None) == ""
     assert _sanitize_header_value("  A\r\n\tB\x00  ") == "AB"
+    assert _sanitize_header_value("Hi 😀") == ""

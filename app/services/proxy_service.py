@@ -15,7 +15,12 @@ def _sanitize_header_value(value: object, max_length: int = 255) -> str:
     sanitized = "".join(ch for ch in text if ord(ch) >= 32 and ord(ch) != 127).strip()
     if not sanitized:
         return ""
-    return sanitized[:max_length]
+    sanitized = sanitized[:max_length]
+    try:
+        sanitized.encode("latin-1")
+    except UnicodeEncodeError:
+        return ""
+    return sanitized
 
 
 def build_portal_identity_headers(user) -> dict[str, str]:
@@ -184,11 +189,30 @@ class ProxyService:
     def _build_outbound_headers(
         headers: dict[str, str], extra_headers: Optional[dict[str, str]]
     ) -> dict[str, str]:
+        allowed_extra_headers = {
+            "x-portal-author-source",
+            "x-portal-user-id",
+            "x-portal-user-name",
+        }
+        forbidden_extra_headers = {
+            "content-type",
+            "host",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+        }
+
         outbound_headers = {}
         if headers.get("content-type"):
             outbound_headers["content-type"] = headers["content-type"]
         if extra_headers:
             for key, value in extra_headers.items():
-                if key and value:
-                    outbound_headers[key] = value
+                if not key or not value:
+                    continue
+                key_lower = key.lower()
+                if key_lower in forbidden_extra_headers:
+                    continue
+                if key_lower not in allowed_extra_headers:
+                    continue
+                outbound_headers[key] = value
         return outbound_headers

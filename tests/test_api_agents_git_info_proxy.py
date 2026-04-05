@@ -23,25 +23,25 @@ def test_git_info_injects_trusted_portal_identity_headers(monkeypatch):
 
     app.dependency_overrides[proxy_module.get_current_user] = _override_user
     app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
 
-    monkeypatch.setattr(
-        proxy_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
-    )
+        captured = {}
 
-    captured = {}
+        async def _fake_forward(**kwargs):
+            captured.update(kwargs)
+            return 200, b'{"commit_id":"abc123"}', "application/json"
 
-    async def _fake_forward(**kwargs):
-        captured.update(kwargs)
-        return 200, b'{"commit_id":"abc123"}', "application/json"
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
 
-    monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
-
-    client = TestClient(app)
-    response = client.get("/a/agent-1/api/git-info")
-
-    app.dependency_overrides.clear()
+        client = TestClient(app)
+        response = client.get("/a/agent-1/api/git-info")
+    finally:
+        app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert response.json()["commit_id"] == "abc123"

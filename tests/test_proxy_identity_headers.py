@@ -23,34 +23,34 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
 
     app.dependency_overrides[proxy_module.get_current_user] = _override_user
     app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
 
-    monkeypatch.setattr(
-        proxy_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
-    )
+        captured = {}
 
-    captured = {}
+        async def _fake_forward(**kwargs):
+            captured.update(kwargs)
+            return 200, b'{"ok": true}', "application/json"
 
-    async def _fake_forward(**kwargs):
-        captured.update(kwargs)
-        return 200, b'{"ok": true}', "application/json"
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
 
-    monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
-
-    client = TestClient(app)
-    response = client.post(
-        "/a/agent-1/api/chat?stream=runtime&token=secret&stream=runtime2",
-        content=b'{"message":"hello"}',
-        headers={
-            "content-type": "application/json",
-            "x-forwarded-for": "1.2.3.4",
-            "authorization": "Bearer browser-token",
-            "x-portal-user-id": "spoofed",
-        },
-    )
-
-    app.dependency_overrides.clear()
+        client = TestClient(app)
+        response = client.post(
+            "/a/agent-1/api/chat?stream=runtime&token=secret&stream=runtime2",
+            content=b'{"message":"hello"}',
+            headers={
+                "content-type": "application/json",
+                "x-forwarded-for": "1.2.3.4",
+                "authorization": "Bearer browser-token",
+                "x-portal-user-id": "spoofed",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert captured["headers"] == {"content-type": "application/json"}
@@ -82,22 +82,23 @@ def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch
 
     app.dependency_overrides[proxy_module.get_current_user] = _override_user
     app.dependency_overrides[proxy_module.get_db] = _override_db
-    monkeypatch.setattr(
-        proxy_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
-    )
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
 
-    async def _should_not_forward(**kwargs):
-        raise AssertionError("Forward should not be called for forbidden sensitive endpoints")
+        async def _should_not_forward(**kwargs):
+            raise AssertionError("Forward should not be called for forbidden sensitive endpoints")
 
-    monkeypatch.setattr(proxy_module.proxy_service, "forward", _should_not_forward)
-    client = TestClient(app)
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _should_not_forward)
+        client = TestClient(app)
 
-    read_resp = client.get("/a/agent-1/api/ssh/public-key")
-    write_resp = client.post("/a/agent-1/api/ssh/generate")
-
-    app.dependency_overrides.clear()
+        read_resp = client.get("/a/agent-1/api/ssh/public-key")
+        write_resp = client.post("/a/agent-1/api/ssh/generate")
+    finally:
+        app.dependency_overrides.clear()
 
     assert read_resp.status_code == 403
     assert write_resp.status_code == 403
@@ -123,26 +124,27 @@ def test_proxy_agent_allows_sensitive_ssh_endpoints_for_owner(monkeypatch):
 
     app.dependency_overrides[proxy_module.get_current_user] = _override_user
     app.dependency_overrides[proxy_module.get_db] = _override_db
-    monkeypatch.setattr(
-        proxy_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
-    )
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
 
-    captured = []
+        captured = []
 
-    async def _fake_forward(**kwargs):
-        captured.append(kwargs)
-        return 200, b'{"ok": true}', "application/json"
+        async def _fake_forward(**kwargs):
+            captured.append(kwargs)
+            return 200, b'{"ok": true}', "application/json"
 
-    monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
-    client = TestClient(app)
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        client = TestClient(app)
 
-    read_resp = client.get("/a/agent-1/api/ssh/public-key")
-    write_resp = client.post("/a/agent-1/api/ssh/generate")
-    normal_resp = client.get("/a/agent-1/api/usage")
-
-    app.dependency_overrides.clear()
+        read_resp = client.get("/a/agent-1/api/ssh/public-key")
+        write_resp = client.post("/a/agent-1/api/ssh/generate")
+        normal_resp = client.get("/a/agent-1/api/usage")
+    finally:
+        app.dependency_overrides.clear()
 
     assert read_resp.status_code == 200
     assert write_resp.status_code == 200
