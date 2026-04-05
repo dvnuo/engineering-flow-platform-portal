@@ -126,17 +126,23 @@
       <div class="p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
         <div class="font-semibold text-slate-700 dark:text-slate-200 mb-2">🧠 Thinking Events ({{ thinking_events|length }})</div>
         {% for event in thinking_events[:20] %}
-          {% set event_type = event.type or '' %}
+          {% set event_type = event.event_type or event.type or '' %}
           {% set display = event.display or {} %}
           {% set icon = display.icon or '🤔' %}
           {% set name = display.name or event_type %}
-          {# Build message: prefer display.message, then event.data.message, then string(event.data), default to empty string #}
+          {# Build message: prefer display.message, summary, detail_payload.message, data.message, string(data), string(detail_payload), default empty #}
           {% if display.message %}
             {% set message = display.message %}
+          {% elif event.summary %}
+            {% set message = event.summary %}
+          {% elif event.detail_payload and event.detail_payload.message %}
+            {% set message = event.detail_payload.message %}
           {% elif event.data and event.data.message %}
             {% set message = event.data.message %}
           {% elif event.data %}
             {% set message = event.data|string if event.data is not string else event.data %}
+          {% elif event.detail_payload %}
+            {% set message = event.detail_payload|string if event.detail_payload is not string else event.detail_payload %}
           {% else %}
             {% set message = '' %}
           {% endif %}

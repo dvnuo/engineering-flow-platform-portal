@@ -464,13 +464,61 @@ function disconnectEventSocket() {
 
 function isTrackableThinkingEvent(type) {
   return [
-    "iteration_start", "llm_thinking", "tool_call", "tool_result", 
+    "iteration_start", "llm_thinking", "tool_call", "tool_result",
     "skill_matched", "complete",
     // Skill mode events
-    "skill_mode_start", "skill_step", "skill_session_start", 
+    "skill_mode_start", "skill_step", "skill_session_start",
     "skill_compaction", "skill_complete"
   ].includes(type);
 }
+
+// RUNTIME_EVENT_HELPER_START: normalizeRuntimeEvent
+function normalizeRuntimeEvent(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  // Runtime may wrap the event or send the event at top-level.
+  const candidate = payload.event || payload.payload || payload;
+  const type = candidate?.event_type || candidate?.type || "";
+  if (!type) return null;
+
+  const baseData = (candidate?.data && typeof candidate.data === "object") ? candidate.data : {};
+  const detailPayload = (candidate?.detail_payload && typeof candidate.detail_payload === "object")
+    ? candidate.detail_payload
+    : {};
+
+  const mergedData = {
+    ...baseData,
+    ...detailPayload,
+  };
+
+  if (candidate?.summary && !mergedData.message) mergedData.message = candidate.summary;
+  if (candidate?.state && !mergedData.state) mergedData.state = candidate.state;
+  if (candidate?.request_id && !mergedData.request_id) mergedData.request_id = candidate.request_id;
+  if (candidate?.session_id && !mergedData.session_id) mergedData.session_id = candidate.session_id;
+  if (candidate?.agent_id && !mergedData.agent_id) mergedData.agent_id = candidate.agent_id;
+
+  let ts = candidate?.ts;
+  if (ts == null && candidate?.created_at) {
+    const parsed = Date.parse(candidate.created_at);
+    if (!Number.isNaN(parsed)) ts = parsed / 1000;
+  }
+  if (ts == null) ts = Date.now() / 1000;
+
+  return {
+    type,
+    data: mergedData,
+    ts,
+    state: candidate?.state || mergedData.state || "",
+  };
+}
+// RUNTIME_EVENT_HELPER_END: normalizeRuntimeEvent
+
+// RUNTIME_EVENT_HELPER_START: completionRuntimeState
+const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+function isCompletionRuntimeState(state) {
+  return COMPLETION_RUNTIME_STATES.has(String(state || "").toLowerCase());
+}
+// RUNTIME_EVENT_HELPER_END: completionRuntimeState
 
 function getThinkingEventDisplay(event) {
   const type = event?.type || "event";
@@ -600,8 +648,15 @@ function escapeHtml(str) {
 function handleAgentEventMessage(raw) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
-  const type = payload?.type;
-  if (!isTrackableThinkingEvent(type)) return;
+
+  const entry = normalizeRuntimeEvent(payload);
+  if (!entry) return;
+
+  // Handle additive runtime state fields while keeping existing event semantics.
+  const isCompletion = isCompletionRuntimeState(entry.state);
+  const type = entry.type;
+
+  if (!isTrackableThinkingEvent(type) && !isCompletion) return;
 
   // Initialize inflightThinking if not set and we have skill mode events
   if (!state.inflightThinking && type?.startsWith("skill_")) {
@@ -629,13 +684,12 @@ function handleAgentEventMessage(raw) {
 
   if (!state.inflightThinking) return;
 
-  const entry = { type, data: payload?.data || {}, ts: payload?.ts || Date.now() / 1000 };
   state.inflightThinking.events.push(entry);
 
   const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${state.inflightThinking.id}"]`);
   if (pendingArticle) renderThinkingProcess(pendingArticle, state.inflightThinking.events);
 
-  if (type === "complete" || type === "skill_complete") state.inflightThinking.completed = true;
+  if (type === "complete" || type === "skill_complete" || isCompletion) state.inflightThinking.completed = true;
 }
 
 function ensureEventSocketForSelectedAgent() {
