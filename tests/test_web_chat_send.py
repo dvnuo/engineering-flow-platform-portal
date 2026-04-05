@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 
-def test_app_chat_send_forwards_identity_headers_not_body(monkeypatch):
+def test_app_chat_send_forwards_identity_in_headers_and_body(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -54,8 +54,8 @@ def test_app_chat_send_forwards_identity_headers_not_body(monkeypatch):
     assert forwarded_payload["message"] == "hi"
     assert forwarded_payload["session_id"] == "s-1"
     assert forwarded_payload["attachments"] == [{"id": "file-1"}]
-    assert "portal_user_id" not in forwarded_payload
-    assert "portal_user_name" not in forwarded_payload
+    assert forwarded_payload["portal_user_id"] == "123"
+    assert forwarded_payload["portal_user_name"] == "Alice"
 
     assert captured["extra_headers"] == {
         "X-Portal-Author-Source": "portal",

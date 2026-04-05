@@ -55,6 +55,16 @@ def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
 
 
+def _portal_identity_payload(user) -> dict[str, str]:
+    headers = _portal_extra_headers(user)
+    payload = {}
+    if headers.get("X-Portal-User-Id"):
+        payload["portal_user_id"] = headers["X-Portal-User-Id"]
+    if headers.get("X-Portal-User-Name"):
+        payload["portal_user_name"] = headers["X-Portal-User-Name"]
+    return payload
+
+
 async def _forward_runtime(
     *,
     user,
@@ -917,6 +927,9 @@ async def app_chat_send(request: Request):
             payload["session_id"] = session_id
         if attachments:
             payload["attachments"] = attachments
+        # Temporary rollout compatibility shim for older runtimes that still read
+        # portal identity from chat JSON body. Header identity remains source-of-truth.
+        payload.update(_portal_identity_payload(user))
 
         status_code, content, _ = await _forward_runtime(
             user=user,
