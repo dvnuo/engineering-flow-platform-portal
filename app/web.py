@@ -55,6 +55,32 @@ def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
 
 
+def _portal_identity_payload(user) -> dict[str, str]:
+    def _sanitize(value: object) -> str:
+        text = "" if value is None else str(value).strip()
+        if not text:
+            return ""
+        sanitized = "".join(
+            ch for ch in text if (32 <= ord(ch) <= 126) or (160 <= ord(ch) <= 255)
+        ).strip()
+        if not sanitized:
+            return ""
+        return sanitized[:255]
+
+    payload = {}
+    user_id = _sanitize(getattr(user, "id", None))
+    if user_id:
+        payload["portal_user_id"] = user_id
+
+    nickname = _sanitize(getattr(user, "nickname", None))
+    username = _sanitize(getattr(user, "username", None))
+    user_name = nickname or username
+    if user_name:
+        payload["portal_user_name"] = user_name
+
+    return payload
+
+
 async def _forward_runtime(
     *,
     user,
@@ -915,6 +941,7 @@ async def app_chat_send(request: Request):
 
         payload = {
             "message": message,
+            **_portal_identity_payload(user),
         }
         if session_id:
             payload["session_id"] = session_id
