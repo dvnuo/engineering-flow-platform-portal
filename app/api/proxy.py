@@ -31,7 +31,7 @@ def _can_write(agent, user) -> bool:
 
 
 def _requires_write_access(method: str, subpath: str) -> bool:
-    normalized = (subpath or "").lstrip("/").lower()
+    normalized = (subpath or "").strip("/").lower()
     return (method.upper(), normalized) in {
         ("GET", "api/ssh/public-key"),
         ("POST", "api/ssh/generate"),
@@ -39,7 +39,7 @@ def _requires_write_access(method: str, subpath: str) -> bool:
 
 
 def _filter_proxy_query_items(query_items):
-    return [(k, v) for k, v in query_items if k != "token"]
+    return [(k, v) for k, v in query_items if k.lower() != "token"]
 
 
 @router.api_route("/a/{agent_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -132,9 +132,7 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
         ws_base = base
 
     upstream_url = f"{ws_base}/api/events"
-    query_items = list(websocket.query_params.multi_items())
-    # Remove token from query_items to avoid passing it to upstream
-    query_items = [(k, v) for k, v in query_items if k != "token"]
+    query_items = _filter_proxy_query_items(websocket.query_params.multi_items())
     if query_items:
         upstream_url = f"{upstream_url}?{urlencode(query_items)}"
 

@@ -40,7 +40,7 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
 
         client = TestClient(app)
         response = client.post(
-            "/a/agent-1/api/chat?stream=runtime&token=secret&stream=runtime2",
+            "/a/agent-1/api/chat?stream=runtime&token=secret&Token=secret2&TOKEN=secret3&stream=runtime2",
             content=b'{"message":"hello"}',
             headers={
                 "content-type": "application/json",
@@ -152,3 +152,15 @@ def test_proxy_agent_allows_sensitive_ssh_endpoints_for_owner(monkeypatch):
     assert captured[0]["subpath"] == "api/ssh/public-key"
     assert captured[1]["subpath"] == "api/ssh/generate"
     assert captured[2]["subpath"] == "api/usage"
+
+
+def test_requires_write_access_normalizes_slashes():
+    import app.api.proxy as proxy_module
+
+    assert proxy_module._requires_write_access("GET", "api/ssh/public-key")
+    assert proxy_module._requires_write_access("GET", "/api/ssh/public-key")
+    assert proxy_module._requires_write_access("GET", "api/ssh/public-key/")
+    assert proxy_module._requires_write_access("GET", "/api/ssh/public-key/")
+
+    assert proxy_module._requires_write_access("POST", "api/ssh/generate")
+    assert proxy_module._requires_write_access("POST", "/api/ssh/generate/")

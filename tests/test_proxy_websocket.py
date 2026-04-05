@@ -123,7 +123,7 @@ def test_ws_proxy_events_query_token_auth_and_no_token_forward(monkeypatch):
         agent_id = _create_running_agent(user_id)
         token = issue_session_token(user_id)
 
-        with client.websocket_connect(f"/a/{agent_id}/api/events?token={token}&stream=runtime") as ws:
+        with client.websocket_connect(f"/a/{agent_id}/api/events?token={token}&Token=extra&TOKEN=extra2&stream=runtime") as ws:
             assert ws.receive_text() == '{"type":"iteration_start","data":{"iteration":1}}'
 
     assert fake_connect.url == "ws://runtime.local:8000/api/events?stream=runtime"
