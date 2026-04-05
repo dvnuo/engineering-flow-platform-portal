@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 import asyncio
 
-from app.services.proxy_service import ProxyService, _sanitize_header_value, build_portal_identity_headers
+from app.services.proxy_service import (
+    ProxyService,
+    build_portal_identity_fields,
+    build_portal_identity_headers,
+    sanitize_header_value,
+)
 
 
 def test_proxy_service_init():
@@ -188,6 +193,24 @@ def test_build_portal_identity_headers_falls_back_to_sanitized_username():
     }
 
 
+def test_build_portal_identity_fields_normalizes_identity_values():
+    user = SimpleNamespace(id="123", nickname=" Alice\r\n", username="ignored")
+
+    assert build_portal_identity_fields(user) == {"user_id": "123", "user_name": "Alice"}
+
+
+def test_build_portal_identity_fields_falls_back_to_sanitized_username():
+    user = SimpleNamespace(id="123", nickname=" \r\n\t ", username="alice")
+
+    assert build_portal_identity_fields(user) == {"user_id": "123", "user_name": "alice"}
+
+
+def test_build_portal_identity_fields_omits_empty_values():
+    user = SimpleNamespace(id=" \r\n\t ", nickname=None, username=" \r\n\t ")
+
+    assert build_portal_identity_fields(user) == {}
+
+
 def test_proxy_service_forward_multipart_includes_safe_extra_headers(monkeypatch):
     service = ProxyService()
     monkeypatch.setattr(service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
@@ -230,8 +253,8 @@ def test_proxy_service_forward_multipart_includes_safe_extra_headers(monkeypatch
 
 
 def test_sanitize_header_value_preserves_zero_and_strips_controls():
-    assert _sanitize_header_value(0) == "0"
-    assert _sanitize_header_value(None) == ""
-    assert _sanitize_header_value("  A\r\n\tB\x00  ") == "AB"
-    assert _sanitize_header_value("José 😀") == "José"
-    assert _sanitize_header_value("😀😀") == ""
+    assert sanitize_header_value(0) == "0"
+    assert sanitize_header_value(None) == ""
+    assert sanitize_header_value("  A\r\n\tB\x00  ") == "AB"
+    assert sanitize_header_value("José 😀") == "José"
+    assert sanitize_header_value("😀😀") == ""

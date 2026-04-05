@@ -12,7 +12,7 @@ from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, _sanitize_header_value, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_identity_fields, build_portal_identity_headers
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -60,16 +60,12 @@ def _portal_extra_headers(user) -> dict[str, str]:
 
 
 def _portal_identity_payload(user) -> dict[str, str]:
+    identity = build_portal_identity_fields(user)
     payload = {}
-    user_id = _sanitize_header_value(getattr(user, "id", None))
-    if user_id:
-        payload["portal_user_id"] = user_id
-
-    nickname = _sanitize_header_value(getattr(user, "nickname", None))
-    username = _sanitize_header_value(getattr(user, "username", None))
-    user_name = nickname or username
-    if user_name:
-        payload["portal_user_name"] = user_name
+    if identity.get("user_id"):
+        payload["portal_user_id"] = identity["user_id"]
+    if identity.get("user_name"):
+        payload["portal_user_name"] = identity["user_name"]
 
     return payload
 

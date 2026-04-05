@@ -8,7 +8,7 @@ from kubernetes import client
 from app.config import get_settings
 
 
-def _sanitize_header_value(value: object, max_length: int = 255) -> str:
+def sanitize_header_value(value: object, max_length: int = 255) -> str:
     text = "" if value is None else str(value).strip()
     if not text:
         return ""
@@ -20,18 +20,33 @@ def _sanitize_header_value(value: object, max_length: int = 255) -> str:
     return sanitized[:max_length]
 
 
-def build_portal_identity_headers(user) -> dict[str, str]:
-    headers = {"X-Portal-Author-Source": "portal"}
+def _sanitize_header_value(value: object, max_length: int = 255) -> str:
+    return sanitize_header_value(value, max_length=max_length)
 
-    user_id = _sanitize_header_value(getattr(user, "id", None))
+
+def build_portal_identity_fields(user) -> dict[str, str]:
+    identity = {}
+
+    user_id = sanitize_header_value(getattr(user, "id", None))
     if user_id:
-        headers["X-Portal-User-Id"] = user_id
+        identity["user_id"] = user_id
 
-    nickname = _sanitize_header_value(getattr(user, "nickname", None))
-    username = _sanitize_header_value(getattr(user, "username", None))
+    nickname = sanitize_header_value(getattr(user, "nickname", None))
+    username = sanitize_header_value(getattr(user, "username", None))
     user_name = nickname or username
     if user_name:
-        headers["X-Portal-User-Name"] = user_name
+        identity["user_name"] = user_name
+
+    return identity
+
+
+def build_portal_identity_headers(user) -> dict[str, str]:
+    headers = {"X-Portal-Author-Source": "portal"}
+    identity = build_portal_identity_fields(user)
+    if identity.get("user_id"):
+        headers["X-Portal-User-Id"] = identity["user_id"]
+    if identity.get("user_name"):
+        headers["X-Portal-User-Name"] = identity["user_name"]
 
     return headers
 
