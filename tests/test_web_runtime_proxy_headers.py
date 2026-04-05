@@ -95,7 +95,7 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
             "original_config_json": json.dumps({
                 "llm": {"api_base": "https://custom.example/v1", "api_key": "keep-llm-key"},
                 "github": {"api_token": "keep-github-token"},
-                "proxy": {"password": "keep-secret"},
+                "proxy": {"url": "http://proxy.local", "username": "proxy-user", "password": "keep-secret"},
                 "jira": {"instances": [{"name": "Jira", "url": "https://jira", "password": "jira-pass", "token": "jira-token"}]},
                 "confluence": {"instances": [{"name": "Conf", "url": "https://conf", "password": "conf-pass", "token": "conf-token"}]},
                 "debug": {"log_level": "ERROR"},
@@ -104,6 +104,8 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
             "llm_provider": "openai",
             "llm_api_key": "",
             "github_api_token": "",
+            "proxy_url": "",
+            "proxy_username": "",
             "proxy_password": "",
             "debug_log_level": "NOPE",
             "jira_instance_count": "1",
@@ -130,7 +132,9 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
     assert settings_payload["llm"]["api_base"] == "https://custom.example/v1"
     assert settings_payload["llm"]["api_key"] == "keep-llm-key"
     assert settings_payload["github"]["api_token"] == "keep-github-token"
-    assert settings_payload["proxy"]["password"] == "keep-secret"
+    assert settings_payload["proxy"]["url"] == ""
+    assert settings_payload["proxy"]["username"] == ""
+    assert "password" not in settings_payload["proxy"]
     assert settings_payload["jira"]["instances"][0]["password"] == "jira-pass"
     assert settings_payload["jira"]["instances"][0]["token"] == "jira-token"
     assert settings_payload["jira"]["instances"][0]["username"] == ""
@@ -139,6 +143,22 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
     assert settings_payload["confluence"]["instances"][0]["username"] == ""
     assert settings_payload["debug"]["log_level"] == "ERROR"
     assert settings_payload["runtime_extra"] == {"keep": True}
+
+
+def test_settings_save_preserves_proxy_password_when_field_absent(monkeypatch):
+    client, captured_calls = _setup_web_runtime_test(monkeypatch)
+    captured_calls.clear()
+    response = client.post(
+        "/app/agents/agent-1/settings/save",
+        data={
+            "original_config_json": json.dumps({
+                "proxy": {"password": "keep-secret"},
+            }),
+        },
+    )
+    assert response.status_code == 200
+    settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
+    assert settings_payload["proxy"]["password"] == "keep-secret"
 
 def test_settings_save_does_not_infer_llm_api_base(monkeypatch):
     client, captured_calls = _setup_web_runtime_test(monkeypatch)

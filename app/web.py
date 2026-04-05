@@ -264,13 +264,16 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
     proxy_url_value = (form.get("proxy_url") or "").strip()
     proxy_username_value = (form.get("proxy_username") or "").strip()
-    if proxy_url_value:
+    if "proxy_url" in form:
         proxy_cfg["url"] = proxy_url_value
-    if proxy_username_value:
+    if "proxy_username" in form:
         proxy_cfg["username"] = proxy_username_value
-    new_password = (form.get("proxy_password") or "").strip()
-    if new_password:
-        proxy_cfg["password"] = new_password
+    if "proxy_password" in form:
+        new_password = (form.get("proxy_password") or "").strip()
+        if new_password:
+            proxy_cfg["password"] = new_password
+        else:
+            proxy_cfg.pop("password", None)
     elif existing_proxy_password:
         proxy_cfg["password"] = existing_proxy_password
 
