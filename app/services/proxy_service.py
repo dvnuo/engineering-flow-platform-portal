@@ -9,7 +9,7 @@ from app.config import get_settings
 
 
 def _sanitize_header_value(value: object, max_length: int = 255) -> str:
-    text = str(value or "").strip()
+    text = "" if value is None else str(value).strip()
     if not text:
         return ""
     sanitized = "".join(ch for ch in text if ord(ch) >= 32 and ord(ch) != 127).strip()

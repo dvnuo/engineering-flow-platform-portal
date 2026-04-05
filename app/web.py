@@ -135,7 +135,13 @@ def _settings_error_response(request: Request, agent_id: str, config_payload: di
     )
 
 
-def _settings_parse_instances(form, prefix: str, fields: list[str], existing_instances: Optional[list] = None) -> list[dict]:
+def _settings_parse_instances(
+    form,
+    prefix: str,
+    fields: list[str],
+    existing_instances: Optional[list] = None,
+    preserve_blank_fields: Optional[set[str]] = None,
+) -> list[dict]:
     count_text = (form.get(f"{prefix}_instance_count") or "0").strip()
     try:
         count = max(0, int(count_text))
@@ -144,12 +150,13 @@ def _settings_parse_instances(form, prefix: str, fields: list[str], existing_ins
 
     instances = []
     existing_instances = existing_instances if isinstance(existing_instances, list) else []
+    preserve_blank_fields = preserve_blank_fields or set()
     for i in range(count):
         item = {}
         existing_item = existing_instances[i] if i < len(existing_instances) and isinstance(existing_instances[i], dict) else {}
         for field in fields:
             value = (form.get(f"{prefix}_instances_{i}_{field}") or "").strip()
-            if not value:
+            if not value and field in preserve_blank_fields:
                 value = existing_item.get(field) or ""
             item[field] = value
         if item.get("name") or item.get("url"):
@@ -214,6 +221,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             "jira",
             ["name", "url", "username", "password", "token", "project"],
             existing_instances=existing_jira_instances,
+            preserve_blank_fields={"password", "token"},
         )
 
     confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
@@ -224,6 +232,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             "confluence",
             ["name", "url", "username", "password", "token", "space"],
             existing_instances=existing_confluence_instances,
+            preserve_blank_fields={"password", "token"},
         )
 
     github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()

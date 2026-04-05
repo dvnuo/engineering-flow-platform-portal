@@ -133,8 +133,10 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
     assert settings_payload["proxy"]["password"] == "keep-secret"
     assert settings_payload["jira"]["instances"][0]["password"] == "jira-pass"
     assert settings_payload["jira"]["instances"][0]["token"] == "jira-token"
+    assert settings_payload["jira"]["instances"][0]["username"] == ""
     assert settings_payload["confluence"]["instances"][0]["password"] == "conf-pass"
     assert settings_payload["confluence"]["instances"][0]["token"] == "conf-token"
+    assert settings_payload["confluence"]["instances"][0]["username"] == ""
     assert settings_payload["debug"]["log_level"] == "ERROR"
     assert settings_payload["runtime_extra"] == {"keep": True}
 
@@ -152,6 +154,29 @@ def test_settings_save_does_not_infer_llm_api_base(monkeypatch):
     assert response.status_code == 200
     settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
     assert "api_base" not in settings_payload.get("llm", {})
+
+
+def test_settings_save_drops_instance_when_name_and_url_are_blank(monkeypatch):
+    client, captured_calls = _setup_web_runtime_test(monkeypatch)
+    captured_calls.clear()
+    response = client.post(
+        "/app/agents/agent-1/settings/save",
+        data={
+            "original_config_json": json.dumps({
+                "jira": {"instances": [{"name": "Jira", "url": "https://jira", "password": "jira-pass", "token": "jira-token"}]},
+            }),
+            "jira_instance_count": "1",
+            "jira_instances_0_name": "",
+            "jira_instances_0_url": "",
+            "jira_instances_0_username": "",
+            "jira_instances_0_password": "",
+            "jira_instances_0_token": "",
+            "jira_instances_0_project": "",
+        },
+    )
+    assert response.status_code == 200
+    settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
+    assert settings_payload["jira"]["instances"] == []
 
 
 def test_file_upload_uses_forward_multipart_with_identity_headers(monkeypatch):

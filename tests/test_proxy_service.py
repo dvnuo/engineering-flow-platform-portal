@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import asyncio
 
-from app.services.proxy_service import ProxyService, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, _sanitize_header_value, build_portal_identity_headers
 
 
 def test_proxy_service_init():
@@ -207,3 +207,9 @@ def test_proxy_service_forward_multipart_includes_safe_extra_headers(monkeypatch
     assert captured["url"] == "http://runtime.local:8000/api/files/upload"
     assert captured["files"]["file"][0] == "a.txt"
     assert captured["headers"] == {"X-Portal-Author-Source": "portal", "X-Portal-User-Id": "9"}
+
+
+def test_sanitize_header_value_preserves_zero_and_strips_controls():
+    assert _sanitize_header_value(0) == "0"
+    assert _sanitize_header_value(None) == ""
+    assert _sanitize_header_value("  A\r\n\tB\x00  ") == "AB"

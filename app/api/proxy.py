@@ -26,6 +26,22 @@ def _can_access(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
 
 
+def _can_write(agent, user) -> bool:
+    return user.role == "admin" or agent.owner_user_id == user.id
+
+
+def _requires_write_access(method: str, subpath: str) -> bool:
+    normalized = (subpath or "").lstrip("/").lower()
+    return (method.upper(), normalized) in {
+        ("GET", "api/ssh/public-key"),
+        ("POST", "api/ssh/generate"),
+    }
+
+
+def _filter_proxy_query_items(query_items):
+    return [(k, v) for k, v in query_items if k != "token"]
+
+
 @router.api_route("/a/{agent_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @router.api_route("/a/{agent_id}/{subpath:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_agent(
@@ -40,6 +56,8 @@ async def proxy_agent(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if not _can_access(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if _requires_write_access(request.method, subpath) and not _can_write(agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if agent.status != "running":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is not running")
 
@@ -53,7 +71,7 @@ async def proxy_agent(
             agent=agent,
             method=request.method,
             subpath=subpath,
-            query_items=request.query_params.multi_items(),
+            query_items=_filter_proxy_query_items(request.query_params.multi_items()),
             body=(await request.body()) or None,
             headers=forward_headers,
             extra_headers=build_portal_identity_headers(user),
