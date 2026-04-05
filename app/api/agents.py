@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-import logging
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -15,7 +14,6 @@ from app.schemas.agent import (
     AgentUpdateRequest,
 )
 from app.services.k8s_service import K8sService
-from app.services.proxy_service import ProxyService, build_portal_identity_headers
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
 
@@ -40,7 +38,6 @@ def get_agent_defaults(user=Depends(get_current_user)):
 
 
 k8s_service = K8sService()
-proxy_service = ProxyService()
 
 
 def _can_read(agent, user) -> bool:
@@ -175,59 +172,6 @@ def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depen
     if not _can_read(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return AgentResponse.model_validate(agent)
-
-
-@router.get("/{agent_id}/git-info")
-async def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Get git commit info from running agent."""
-    agent = AgentRepository(db).get_by_id(agent_id)
-    if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    if not _can_read(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    
-    if agent.status != "running":
-        return {"commit_id": None, "repo_url": None, "status": agent.status}
-    
-    # Try to get git info from agent
-    try:
-        status_code, content, _ = await proxy_service.forward(
-            agent=agent,
-            method="GET",
-            subpath="api/git-info",
-            query_items=[],
-            body=None,
-            headers={},
-            extra_headers=build_portal_identity_headers(user),
-        )
-        if status_code == 200:
-            import json
-            data = json.loads(content.decode("utf-8"))
-            # Use repo_url from agent config if not returned from container
-            if not data.get("repo_url") and agent.repo_url:
-                data["repo_url"] = agent.repo_url
-            return data
-        else:
-            # Non-200 from agent git-info endpoint: treat as upstream failure
-            import logging
-            logging.getLogger(__name__).error(
-                "Agent git-info endpoint returned non-200 status %s for agent %s",
-                status_code, agent.id,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to fetch git info from agent",
-            )
-    except HTTPException:
-        # Propagate HTTP exceptions (e.g. 502) unchanged
-        raise
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("Failed to get git-info")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to fetch git info from agent",
-        )
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)

@@ -71,7 +71,6 @@ def test_runtime_panel_routes_include_identity_headers(monkeypatch):
         ("/app/agents/agent-1/thinking/panel?session_id=s-1", "api/sessions/s-1/chatlog"),
         ("/app/agents/agent-1/settings/panel", "api/config"),
         ("/app/agents/agent-1/usage/panel?days=14", "api/usage"),
-        ("/api/agents/agent-1/ssh/public-key", "api/ssh/public-key"),
     ]
 
     for path, expected_subpath in routes:
@@ -94,11 +93,33 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
         "/app/agents/agent-1/settings/save",
         data={
             "original_config_json": json.dumps({
-                "llm": {"api_base": "https://custom.example/v1"},
+                "llm": {"api_base": "https://custom.example/v1", "api_key": "keep-llm-key"},
+                "github": {"api_token": "keep-github-token"},
                 "proxy": {"password": "keep-secret"},
+                "jira": {"instances": [{"name": "Jira", "url": "https://jira", "password": "jira-pass", "token": "jira-token"}]},
+                "confluence": {"instances": [{"name": "Conf", "url": "https://conf", "password": "conf-pass", "token": "conf-token"}]},
+                "debug": {"log_level": "ERROR"},
+                "runtime_extra": {"keep": True},
             }),
             "llm_provider": "openai",
+            "llm_api_key": "",
+            "github_api_token": "",
             "proxy_password": "",
+            "debug_log_level": "NOPE",
+            "jira_instance_count": "1",
+            "jira_instances_0_name": "Jira",
+            "jira_instances_0_url": "https://jira",
+            "jira_instances_0_username": "",
+            "jira_instances_0_password": "",
+            "jira_instances_0_token": "",
+            "jira_instances_0_project": "",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_name": "Conf",
+            "confluence_instances_0_url": "https://conf",
+            "confluence_instances_0_username": "",
+            "confluence_instances_0_password": "",
+            "confluence_instances_0_token": "",
+            "confluence_instances_0_space": "",
         },
     )
     assert settings_save.status_code == 200
@@ -107,15 +128,15 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
     assert captured_calls[0]["extra_headers"]["X-Portal-User-Id"] == "321"
     settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
     assert settings_payload["llm"]["api_base"] == "https://custom.example/v1"
+    assert settings_payload["llm"]["api_key"] == "keep-llm-key"
+    assert settings_payload["github"]["api_token"] == "keep-github-token"
     assert settings_payload["proxy"]["password"] == "keep-secret"
-
-    captured_calls.clear()
-    ssh_generate = client.post("/api/agents/agent-1/ssh/generate")
-    assert ssh_generate.status_code == 200
-    assert captured_calls[-1]["subpath"] == "api/ssh/generate"
-    assert captured_calls[-1]["headers"] == {"content-type": "application/json"}
-    assert captured_calls[-1]["extra_headers"]["X-Portal-Author-Source"] == "portal"
-
+    assert settings_payload["jira"]["instances"][0]["password"] == "jira-pass"
+    assert settings_payload["jira"]["instances"][0]["token"] == "jira-token"
+    assert settings_payload["confluence"]["instances"][0]["password"] == "conf-pass"
+    assert settings_payload["confluence"]["instances"][0]["token"] == "conf-token"
+    assert settings_payload["debug"]["log_level"] == "ERROR"
+    assert settings_payload["runtime_extra"] == {"keep": True}
 
 def test_settings_save_does_not_infer_llm_api_base(monkeypatch):
     client, captured_calls = _setup_web_runtime_test(monkeypatch)

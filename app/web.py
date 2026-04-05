@@ -51,11 +51,6 @@ def _can_access(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
 
 
-def _can_modify(agent, user) -> bool:
-    """Check if user can modify agent settings (write operations)."""
-    return user.role == "admin" or agent.owner_user_id == user.id
-
-
 def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
 
@@ -108,28 +103,8 @@ def _settings_view_payload(config_data: dict) -> dict:
     llm = config_data.get("llm") if isinstance(config_data.get("llm"), dict) else {}
     jira = config_data.get("jira") if isinstance(config_data.get("jira"), dict) else {}
     confluence = config_data.get("confluence") if isinstance(config_data.get("confluence"), dict) else {}
-
     jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []
-    if not jira_instances and jira.get("url"):
-        jira_instances = [{
-            "name": "Default",
-            "url": jira.get("url") or "",
-            "username": jira.get("username") or "",
-            "password": jira.get("password") or "",
-            "token": jira.get("token") or "",
-            "project": jira.get("project") or "",
-        }]
-
     confluence_instances = confluence.get("instances") if isinstance(confluence.get("instances"), list) else []
-    if not confluence_instances and confluence.get("url"):
-        confluence_instances = [{
-            "name": "Default",
-            "url": confluence.get("url") or "",
-            "username": confluence.get("username") or "",
-            "password": confluence.get("password") or "",
-            "token": confluence.get("token") or "",
-            "space": confluence.get("space") or "",
-        }]
 
     return {
         "config": config_data,
@@ -169,14 +144,12 @@ def _settings_parse_instances(form, prefix: str, fields: list[str], existing_ins
 
     instances = []
     existing_instances = existing_instances if isinstance(existing_instances, list) else []
-    secret_fields = {"password", "token"}
-
     for i in range(count):
         item = {}
         existing_item = existing_instances[i] if i < len(existing_instances) and isinstance(existing_instances[i], dict) else {}
         for field in fields:
             value = (form.get(f"{prefix}_instances_{i}_{field}") or "").strip()
-            if field in secret_fields and not value:
+            if not value:
                 value = existing_item.get(field) or ""
             item[field] = value
         if item.get("name") or item.get("url"):
@@ -209,9 +182,15 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         existing_confluence_instances = []
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
-    llm["provider"] = (form.get("llm_provider") or "").strip()
-    llm["model"] = (form.get("llm_model") or "").strip()
-    llm["api_key"] = (form.get("llm_api_key") or "").strip()
+    provider_value = (form.get("llm_provider") or "").strip()
+    model_value = (form.get("llm_model") or "").strip()
+    api_key_value = (form.get("llm_api_key") or "").strip()
+    if provider_value:
+        llm["provider"] = provider_value
+    if model_value:
+        llm["model"] = model_value
+    if api_key_value:
+        llm["api_key"] = api_key_value
 
     temperature_text = (form.get("llm_temperature") or "").strip()
     if temperature_text:
@@ -229,41 +208,57 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
 
     jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
     jira["enabled"] = as_bool(form.get("jira_enabled"))
-    jira["instances"] = _settings_parse_instances(
-        form,
-        "jira",
-        ["name", "url", "username", "password", "token", "project"],
-        existing_instances=existing_jira_instances,
-    )
+    if "jira_instance_count" in form:
+        jira["instances"] = _settings_parse_instances(
+            form,
+            "jira",
+            ["name", "url", "username", "password", "token", "project"],
+            existing_instances=existing_jira_instances,
+        )
 
     confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
     confluence["enabled"] = as_bool(form.get("confluence_enabled"))
-    confluence["instances"] = _settings_parse_instances(
-        form,
-        "confluence",
-        ["name", "url", "username", "password", "token", "space"],
-        existing_instances=existing_confluence_instances,
-    )
+    if "confluence_instance_count" in form:
+        confluence["instances"] = _settings_parse_instances(
+            form,
+            "confluence",
+            ["name", "url", "username", "password", "token", "space"],
+            existing_instances=existing_confluence_instances,
+        )
 
     github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
     github_cfg["enabled"] = as_bool(form.get("github_enabled"))
-    github_cfg["api_token"] = (form.get("github_api_token") or "").strip()
-    github_cfg["base_url"] = (form.get("github_base_url") or "").strip()
+    github_token_value = (form.get("github_api_token") or "").strip()
+    github_base_url_value = (form.get("github_base_url") or "").strip()
+    if github_token_value:
+        github_cfg["api_token"] = github_token_value
+    if github_base_url_value:
+        github_cfg["base_url"] = github_base_url_value
 
     git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
     git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
-    git_user["name"] = (form.get("git_user_name") or "").strip()
-    git_user["email"] = (form.get("git_user_email") or "").strip()
+    git_name_value = (form.get("git_user_name") or "").strip()
+    git_email_value = (form.get("git_user_email") or "").strip()
+    if git_name_value:
+        git_user["name"] = git_name_value
+    if git_email_value:
+        git_user["email"] = git_email_value
     git_cfg["user"] = git_user
 
     ssh_cfg = (config_payload.get("ssh") if isinstance(config_payload.get("ssh"), dict) else {}).copy()
     ssh_cfg["enabled"] = as_bool(form.get("ssh_enabled"))
-    ssh_cfg["private_key_path"] = (form.get("ssh_private_key_path") or "").strip()
+    ssh_key_path_value = (form.get("ssh_private_key_path") or "").strip()
+    if ssh_key_path_value:
+        ssh_cfg["private_key_path"] = ssh_key_path_value
 
     proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
     proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
-    proxy_cfg["url"] = (form.get("proxy_url") or "").strip()
-    proxy_cfg["username"] = (form.get("proxy_username") or "").strip()
+    proxy_url_value = (form.get("proxy_url") or "").strip()
+    proxy_username_value = (form.get("proxy_username") or "").strip()
+    if proxy_url_value:
+        proxy_cfg["url"] = proxy_url_value
+    if proxy_username_value:
+        proxy_cfg["username"] = proxy_username_value
     new_password = (form.get("proxy_password") or "").strip()
     if new_password:
         proxy_cfg["password"] = new_password
@@ -273,8 +268,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
     debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
     valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-    log_level = form.get("debug_log_level")
-    debug_cfg["log_level"] = log_level if log_level in valid_log_levels else "INFO"
+    log_level = (form.get("debug_log_level") or "").strip()
+    if log_level in valid_log_levels:
+        debug_cfg["log_level"] = log_level
 
     config_payload["llm"] = llm
     config_payload["jira"] = jira
@@ -440,129 +436,6 @@ async def app_agent_skills_panel(request: Request, agent_id: str):
                 "skills": payload.get("skills") or [],
             },
         )
-    finally:
-        db.close()
-
-
-@router.get("/api/agents/{agent_id}/usage")
-async def api_agent_usage(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    days = (request.query_params.get("days") or "30").strip()
-
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        status_code, content, _ = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="GET",
-            subpath="api/usage",
-            query_items=[("days", days)],
-            body=None,
-        )
-
-        if status_code >= 400:
-            return {"global": {}, "by_provider": {}, "by_model": {}, "daily": []}
-
-        payload = json.loads(content.decode("utf-8"))
-        return payload if isinstance(payload, dict) else {}
-    finally:
-        db.close()
-
-
-@router.post("/api/agents/{agent_id}/ssh/generate")
-async def api_agent_ssh_generate(request: Request, agent_id: str):
-    """Generate SSH key for an agent.
-    
-    Calls the agent's API to generate SSH key via proxy service,
-    then copies to ~/.efp/.ssh and updates the agent's SSH settings.
-    """
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_modify(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden - only owner or admin can generate SSH keys")
-
-        # Call agent's API via proxy service to generate SSH key
-        status_code, content, _ = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="POST",
-            subpath="api/ssh/generate",
-            query_items=[],
-            body=json.dumps({"key_type": "rsa"}).encode("utf-8"),
-            headers={"content-type": "application/json"},
-        )
-
-        if status_code >= 400:
-            error_msg = content.decode("utf-8", errors="ignore")
-            raise HTTPException(status_code=status_code, detail=f"Failed to generate SSH key: {error_msg}")
-
-        result = json.loads(content.decode("utf-8"))
-        public_key = result.get("public_key")
-        
-        if not public_key:
-            raise HTTPException(status_code=500, detail="No public key returned from agent")
-
-        # Return the public key to the client (agent manages its own keys)
-        return {
-            "success": True,
-            "public_key": public_key,
-            "message": "SSH key generated! Add this public key to your GitHub/GitLab account."
-        }
-
-    finally:
-        db.close()
-
-
-@router.get("/api/agents/{agent_id}/ssh/public-key")
-async def api_agent_ssh_public_key(request: Request, agent_id: str):
-    """Get existing SSH public key via agent API."""
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        # Call agent's API via proxy service to get public key
-        status_code, content, _ = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="GET",
-            subpath="api/ssh/public-key",
-            query_items=[],
-            body=None,
-        )
-
-        if status_code == 200:
-            result = json.loads(content.decode("utf-8"))
-            return result
-        elif status_code == 404:
-            return {"success": False, "message": "No SSH key found"}
-        else:
-            return {"success": False, "error": "Failed to get SSH key"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
     finally:
         db.close()
 

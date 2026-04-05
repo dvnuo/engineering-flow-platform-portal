@@ -61,9 +61,9 @@ def test_app_users_panel():
     assert response.status_code in [200, 302, 307, 401, 403]
 
 
-def test_api_agent_usage():
-    """Test /api/agents/{id}/usage endpoint."""
+def test_proxy_agent_usage():
+    """Test canonical runtime usage proxy endpoint."""
     from app.main import app
     client = TestClient(app)
-    response = client.get("/api/agents/test-agent/usage")
-    assert response.status_code in [200, 401, 403, 404]
+    response = client.get("/a/test-agent/api/usage")
+    assert response.status_code in [401, 403, 404, 409, 502]
