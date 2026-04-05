@@ -511,6 +511,10 @@ function normalizeRuntimeEvent(payload) {
   };
 }
 
+function isCompletionRuntimeState(state) {
+  return new Set(["complete", "completed", "done", "finished"]).has(String(state || "").toLowerCase());
+}
+
 function getThinkingEventDisplay(event) {
   const type = event?.type || "event";
   const data = event?.data || {};
@@ -644,8 +648,7 @@ function handleAgentEventMessage(raw) {
   if (!entry) return;
 
   // Handle additive runtime state fields while keeping existing event semantics.
-  const completionStates = new Set(["complete", "completed", "done", "finished"]);
-  const isCompletion = completionStates.has(String(entry.state || "").toLowerCase());
+  const isCompletion = isCompletionRuntimeState(entry.state);
   const type = entry.type;
 
   if (!isTrackableThinkingEvent(type) && !isCompletion) return;

@@ -1,5 +1,9 @@
 """Tests for web.py - settings and config."""
+import json
+import shutil
+import subprocess
 from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 
@@ -127,9 +131,114 @@ def test_proxy_api_chat_stream():
     assert response.status_code in [400, 401, 403, 404, 500, 502]
 
 
-def test_chat_ui_has_runtime_event_normalizer_helper():
-    """Ensure runtime event normalizer supports additive normalized fields."""
-    content = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
-    assert "function normalizeRuntimeEvent(payload)" in content
-    for marker in ["event_type", "detail_payload", "created_at", "summary", "state"]:
-        assert marker in content
+def _extract_js_function_source(js_text: str, function_name: str) -> str:
+    signature = f"function {function_name}("
+    start = js_text.find(signature)
+    if start < 0:
+        raise AssertionError(f"Unable to find {function_name} in chat_ui.js")
+
+    brace_start = js_text.find("{", start)
+    if brace_start < 0:
+        raise AssertionError(f"Unable to parse opening brace for {function_name}")
+
+    depth = 0
+    for idx in range(brace_start, len(js_text)):
+        ch = js_text[idx]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return js_text[start:idx + 1]
+
+    raise AssertionError(f"Unable to parse closing brace for {function_name}")
+
+
+def test_chat_ui_runtime_event_helpers_behavior():
+    """Behavior-level coverage for runtime event normalization and completion states."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        raise AssertionError("node is required for runtime helper behavior tests")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    normalize_fn = _extract_js_function_source(js_file, "normalizeRuntimeEvent")
+    completion_fn = _extract_js_function_source(js_file, "isCompletionRuntimeState")
+
+    script = f"""
+{completion_fn}
+{normalize_fn}
+
+const legacy = normalizeRuntimeEvent({{
+  type: "tool_result",
+  data: {{ tool: "search", message: "done" }},
+  ts: 123,
+}});
+
+const normalized = normalizeRuntimeEvent({{
+  event_type: "tool_result",
+  state: "running",
+  session_id: "s1",
+  request_id: "r1",
+  agent_id: "a1",
+  summary: "Tool completed",
+  detail_payload: {{ tool: "search" }},
+  created_at: "2026-04-04T00:00:00Z",
+}});
+
+const wrapped = normalizeRuntimeEvent({{
+  event: {{
+    event_type: "llm_thinking",
+    summary: "Reasoning",
+    created_at: "2026-04-04T00:00:00Z",
+  }}
+}});
+
+const result = {{
+  legacy,
+  normalized,
+  wrapped,
+  invalid: [normalizeRuntimeEvent(null), normalizeRuntimeEvent({{}}), normalizeRuntimeEvent({{foo: "bar"}})],
+  completionStates: [
+    isCompletionRuntimeState("complete"),
+    isCompletionRuntimeState("completed"),
+    isCompletionRuntimeState("done"),
+    isCompletionRuntimeState("finished"),
+    isCompletionRuntimeState("running"),
+    isCompletionRuntimeState(""),
+    isCompletionRuntimeState(null),
+  ]
+}};
+console.log(JSON.stringify(result));
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    legacy = data["legacy"]
+    assert legacy["type"] == "tool_result"
+    assert legacy["data"]["tool"] == "search"
+    assert legacy["data"]["message"] == "done"
+    assert legacy["ts"] == 123
+    assert legacy.get("state", "") == ""
+
+    normalized = data["normalized"]
+    assert normalized["type"] == "tool_result"
+    assert normalized["data"]["tool"] == "search"
+    assert normalized["data"]["message"] == "Tool completed"
+    assert normalized["data"]["request_id"] == "r1"
+    assert normalized["data"]["session_id"] == "s1"
+    assert normalized["data"]["agent_id"] == "a1"
+    assert normalized["state"] == "running"
+    assert isinstance(normalized["ts"], (int, float))
+
+    wrapped = data["wrapped"]
+    assert wrapped["type"] == "llm_thinking"
+    assert wrapped["data"]["message"] == "Reasoning"
+
+    assert data["invalid"] == [None, None, None]
+    assert data["completionStates"] == [True, True, True, True, False, False, False]
