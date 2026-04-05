@@ -472,6 +472,8 @@ function isTrackableThinkingEvent(type) {
   ].includes(type);
 }
 
+const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+
 function normalizeRuntimeEvent(payload) {
   if (!payload || typeof payload !== "object") return null;
 
@@ -497,11 +499,11 @@ function normalizeRuntimeEvent(payload) {
   if (candidate?.agent_id && !mergedData.agent_id) mergedData.agent_id = candidate.agent_id;
 
   let ts = candidate?.ts;
-  if (!ts && candidate?.created_at) {
+  if (ts == null && candidate?.created_at) {
     const parsed = Date.parse(candidate.created_at);
     if (!Number.isNaN(parsed)) ts = parsed / 1000;
   }
-  if (!ts) ts = Date.now() / 1000;
+  if (ts == null) ts = Date.now() / 1000;
 
   return {
     type,
@@ -512,7 +514,7 @@ function normalizeRuntimeEvent(payload) {
 }
 
 function isCompletionRuntimeState(state) {
-  return new Set(["complete", "completed", "done", "finished"]).has(String(state || "").toLowerCase());
+  return COMPLETION_RUNTIME_STATES.has(String(state || "").toLowerCase());
 }
 
 function getThinkingEventDisplay(event) {

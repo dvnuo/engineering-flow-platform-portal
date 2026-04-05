@@ -154,6 +154,16 @@ def _extract_js_function_source(js_text: str, function_name: str) -> str:
 
     raise AssertionError(f"Unable to parse closing brace for {function_name}")
 
+def _extract_js_const_line(js_text: str, const_name: str) -> str:
+    signature = f"const {const_name} ="
+    start = js_text.find(signature)
+    if start < 0:
+        raise AssertionError(f"Unable to find {const_name} in chat_ui.js")
+    end = js_text.find(";", start)
+    if end < 0:
+        raise AssertionError(f"Unable to parse terminator for {const_name}")
+    return js_text[start:end + 1]
+
 
 def test_chat_ui_runtime_event_helpers_behavior():
     """Behavior-level coverage for runtime event normalization and completion states."""
@@ -163,9 +173,11 @@ def test_chat_ui_runtime_event_helpers_behavior():
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     normalize_fn = _extract_js_function_source(js_file, "normalizeRuntimeEvent")
+    completion_states_const = _extract_js_const_line(js_file, "COMPLETION_RUNTIME_STATES")
     completion_fn = _extract_js_function_source(js_file, "isCompletionRuntimeState")
 
     script = f"""
+{completion_states_const}
 {completion_fn}
 {normalize_fn}
 
@@ -194,10 +206,15 @@ const wrapped = normalizeRuntimeEvent({{
   }}
 }});
 
+const zeroTs = normalizeRuntimeEvent({{ type: "tool_result", ts: 0, data: {{}} }});
+const zeroStringTs = normalizeRuntimeEvent({{ type: "tool_result", ts: "0", data: {{}} }});
+
 const result = {{
   legacy,
   normalized,
   wrapped,
+  zeroTs,
+  zeroStringTs,
   invalid: [normalizeRuntimeEvent(null), normalizeRuntimeEvent({{}}), normalizeRuntimeEvent({{foo: "bar"}})],
   completionStates: [
     isCompletionRuntimeState("complete"),
@@ -243,6 +260,8 @@ console.log(JSON.stringify(result));
 
     assert data["invalid"] == [None, None, None]
     assert data["completionStates"] == [True, True, True, True, False, False, False]
+    assert data["zeroTs"]["ts"] == 0
+    assert data["zeroStringTs"]["ts"] == "0"
 
 
 def test_thinking_process_template_prefers_normalized_fields():
