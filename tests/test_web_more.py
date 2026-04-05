@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 
 def test_agent_settings_panel():
@@ -158,7 +159,7 @@ def test_chat_ui_runtime_event_helpers_behavior():
     """Behavior-level coverage for runtime event normalization and completion states."""
     node_bin = shutil.which("node")
     if not node_bin:
-        raise AssertionError("node is required for runtime helper behavior tests")
+        pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     normalize_fn = _extract_js_function_source(js_file, "normalizeRuntimeEvent")
@@ -242,3 +243,9 @@ console.log(JSON.stringify(result));
 
     assert data["invalid"] == [None, None, None]
     assert data["completionStates"] == [True, True, True, True, False, False, False]
+
+
+def test_thinking_process_template_prefers_normalized_fields():
+    template = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
+    assert template.find("event.event_type or event.type") != -1
+    assert template.find("event.summary") < template.find("event.data and event.data.message")
