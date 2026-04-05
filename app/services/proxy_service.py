@@ -27,8 +27,9 @@ def build_portal_identity_headers(user) -> dict[str, str]:
     if user_id:
         headers["X-Portal-User-Id"] = user_id
 
-    display_name = getattr(user, "nickname", None) or getattr(user, "username", None)
-    user_name = _sanitize_header_value(display_name)
+    nickname = _sanitize_header_value(getattr(user, "nickname", None))
+    username = _sanitize_header_value(getattr(user, "username", None))
+    user_name = nickname or username
     if user_name:
         headers["X-Portal-User-Name"] = user_name
 

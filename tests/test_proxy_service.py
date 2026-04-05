@@ -172,6 +172,22 @@ def test_build_portal_identity_headers_omits_empty_identity_fields():
     assert headers == {"X-Portal-Author-Source": "portal"}
 
 
+def test_build_portal_identity_headers_falls_back_to_sanitized_username():
+    user = SimpleNamespace(
+        id="123",
+        nickname=" \r\n\t ",
+        username="alice",
+    )
+
+    headers = build_portal_identity_headers(user)
+
+    assert headers == {
+        "X-Portal-Author-Source": "portal",
+        "X-Portal-User-Id": "123",
+        "X-Portal-User-Name": "alice",
+    }
+
+
 def test_proxy_service_forward_multipart_includes_safe_extra_headers(monkeypatch):
     service = ProxyService()
     monkeypatch.setattr(service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")

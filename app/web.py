@@ -12,7 +12,7 @@ from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, _sanitize_header_value, build_portal_identity_headers
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -56,24 +56,13 @@ def _portal_extra_headers(user) -> dict[str, str]:
 
 
 def _portal_identity_payload(user) -> dict[str, str]:
-    def _sanitize(value: object) -> str:
-        text = "" if value is None else str(value).strip()
-        if not text:
-            return ""
-        sanitized = "".join(
-            ch for ch in text if (32 <= ord(ch) <= 126) or (160 <= ord(ch) <= 255)
-        ).strip()
-        if not sanitized:
-            return ""
-        return sanitized[:255]
-
     payload = {}
-    user_id = _sanitize(getattr(user, "id", None))
+    user_id = _sanitize_header_value(getattr(user, "id", None))
     if user_id:
         payload["portal_user_id"] = user_id
 
-    nickname = _sanitize(getattr(user, "nickname", None))
-    username = _sanitize(getattr(user, "username", None))
+    nickname = _sanitize_header_value(getattr(user, "nickname", None))
+    username = _sanitize_header_value(getattr(user, "username", None))
     user_name = nickname or username
     if user_name:
         payload["portal_user_name"] = user_name
