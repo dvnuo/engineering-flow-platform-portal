@@ -14,7 +14,7 @@ from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService
+from app.services.proxy_service import ProxyService, build_portal_identity_headers
 from app.redaction import sanitize_exception_message
 
 router = APIRouter(tags=["proxy"])
@@ -24,6 +24,23 @@ settings = get_settings()
 
 def _can_access(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
+
+
+def _can_write(agent, user) -> bool:
+    return user.role == "admin" or agent.owner_user_id == user.id
+
+
+def _requires_write_access(method: str, subpath: str) -> bool:
+    normalized = (subpath or "").strip("/").lower()
+    return (method.upper(), normalized) in {
+        ("GET", "api/ssh/public-key"),
+        ("POST", "api/ssh/generate"),
+        ("POST", "api/config/save"),
+    }
+
+
+def _filter_proxy_query_items(query_items):
+    return [(k, v) for k, v in query_items if k.lower() != "token"]
 
 
 @router.api_route("/a/{agent_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -40,17 +57,25 @@ async def proxy_agent(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if not _can_access(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if _requires_write_access(request.method, subpath) and not _can_write(agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if agent.status != "running":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is not running")
 
     try:
+        forward_headers = {}
+        content_type = request.headers.get("content-type")
+        if content_type:
+            forward_headers["content-type"] = content_type
+
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
             method=request.method,
             subpath=subpath,
-            query_items=request.query_params.multi_items(),
+            query_items=_filter_proxy_query_items(request.query_params.multi_items()),
             body=(await request.body()) or None,
-            headers=dict(request.headers),
+            headers=forward_headers,
+            extra_headers=build_portal_identity_headers(user),
         )
     except Exception as exc:
         logger.exception("Proxy error agent_id=%s method=%s subpath=%s", agent_id, request.method, subpath)
@@ -108,9 +133,7 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
         ws_base = base
 
     upstream_url = f"{ws_base}/api/events"
-    query_items = list(websocket.query_params.multi_items())
-    # Remove token from query_items to avoid passing it to upstream
-    query_items = [(k, v) for k, v in query_items if k != "token"]
+    query_items = _filter_proxy_query_items(websocket.query_params.multi_items())
     if query_items:
         upstream_url = f"{upstream_url}?{urlencode(query_items)}"
 

@@ -464,6 +464,7 @@ function disconnectEventSocket() {
 
 function isTrackableThinkingEvent(type) {
   return [
+    "execution.started", "execution.completed", "execution.failed",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
     "skill_matched", "complete",
     // Skill mode events
@@ -478,8 +479,8 @@ function normalizeRuntimeEvent(payload) {
 
   // Runtime may wrap the event or send the event at top-level.
   const candidate = payload.event || payload.payload || payload;
-  const type = candidate?.event_type || candidate?.type || "";
-  if (!type) return null;
+  const rawType = candidate?.event_type || candidate?.type || "";
+  if (!rawType) return null;
 
   const baseData = (candidate?.data && typeof candidate.data === "object") ? candidate.data : {};
   const detailPayload = (candidate?.detail_payload && typeof candidate.detail_payload === "object")
@@ -504,8 +505,30 @@ function normalizeRuntimeEvent(payload) {
   }
   if (ts == null) ts = Date.now() / 1000;
 
+  const stateValue = String(candidate?.state || mergedData.state || "").toLowerCase();
+  const failedByState = ["failed", "failure", "error"].includes(stateValue);
+  const failedByType = rawType === "execution.failed";
+  const failedByResult = rawType === "tool_result" && mergedData.success === false;
+  const completionByType = rawType === "complete" || rawType === "execution.completed";
+  const completionByState = isCompletionRuntimeState(stateValue);
+
+  let lifecycleType = "";
+  let normalizedType = rawType;
+  if (failedByState || failedByType || failedByResult) {
+    lifecycleType = "execution.failed";
+    if (failedByType) normalizedType = "execution.failed";
+  } else if (completionByType || completionByState) {
+    lifecycleType = "execution.completed";
+    if (rawType === "complete") normalizedType = "execution.completed";
+  } else if (rawType === "execution.started" || stateValue === "started") {
+    lifecycleType = "execution.started";
+    normalizedType = "execution.started";
+  }
+
   return {
-    type,
+    type: normalizedType,
+    raw_type: rawType,
+    lifecycle_type: lifecycleType,
     data: mergedData,
     ts,
     state: candidate?.state || mergedData.state || "",
@@ -524,6 +547,9 @@ function getThinkingEventDisplay(event) {
   const type = event?.type || "event";
   const data = event?.data || {};
   const byType = {
+    "execution.started": { icon: "play-circle", title: "Execution Started", detail: data.message || "Execution started" },
+    "execution.completed": { icon: "flag", title: "Execution Completed", detail: data.message || "Execution complete", response: data.response, total_iterations: data.total_iterations },
+    "execution.failed": { icon: "x-circle", title: "Execution Failed", detail: data.error || data.message || "Execution failed" },
     iteration_start: { icon: "rotate-cw", title: "Iteration Start", detail: `Iteration ${data.iteration || 1}${data.total ? `/${data.total}` : ""}` },
     llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
     tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
@@ -655,8 +681,9 @@ function handleAgentEventMessage(raw) {
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
   const type = entry.type;
+  const lifecycleType = entry.lifecycle_type;
 
-  if (!isTrackableThinkingEvent(type) && !isCompletion) return;
+  if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
 
   // Initialize inflightThinking if not set and we have skill mode events
   if (!state.inflightThinking && type?.startsWith("skill_")) {
@@ -684,12 +711,41 @@ function handleAgentEventMessage(raw) {
 
   if (!state.inflightThinking) return;
 
+  if (!state.inflightThinking.started && type !== "execution.started") {
+    state.inflightThinking.events.push({
+      type: "execution.started",
+      raw_type: "execution.started",
+      lifecycle_type: "execution.started",
+      data: { message: "Execution started" },
+      ts: entry.ts,
+      state: "started",
+    });
+    state.inflightThinking.started = true;
+  }
+
   state.inflightThinking.events.push(entry);
+  if (type === "execution.started") state.inflightThinking.started = true;
+
+  if (lifecycleType && lifecycleType !== type) {
+    const terminalDetail = lifecycleType === "execution.failed"
+      ? (entry?.data?.error || entry?.data?.message || "Execution failed")
+      : (entry?.data?.message || "Execution complete");
+    state.inflightThinking.events.push({
+      type: lifecycleType,
+      raw_type: lifecycleType,
+      lifecycle_type: lifecycleType,
+      data: { ...entry.data, message: terminalDetail },
+      ts: entry.ts,
+      state: entry.state,
+    });
+  }
 
   const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${state.inflightThinking.id}"]`);
   if (pendingArticle) renderThinkingProcess(pendingArticle, state.inflightThinking.events);
 
-  if (type === "complete" || type === "skill_complete" || isCompletion) state.inflightThinking.completed = true;
+  if (type === "execution.completed" || type === "execution.failed" || type === "skill_complete" || isCompletion || lifecycleType === "execution.completed" || lifecycleType === "execution.failed") {
+    state.inflightThinking.completed = true;
+  }
 }
 
 function ensureEventSocketForSelectedAgent() {
@@ -980,7 +1036,7 @@ async function fetchGitInfo(agentId) {
   if (state.selectedAgentId !== agentId) return;
 
   try {
-    const data = await api(`/api/agents/${agentId}/git-info`);
+    const data = await api(`/a/${agentId}/api/git-info`);
     if (data.commit_id) {
       const shortCommit = data.commit_id.substring(0, 7);
       commitEl.textContent = 'Commit: ';
@@ -1028,7 +1084,7 @@ async function fetchUsageForAgent(agentId) {
   const usageEl = document.getElementById("agent-usage");
   if (!usageEl) return;
   try {
-    const data = await api(`/api/agents/${agentId}/usage`);
+    const data = await api(`/a/${agentId}/api/usage`);
     if (!data) {
       usageEl.textContent = "No usage data";
       return;

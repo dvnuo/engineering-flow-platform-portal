@@ -8,6 +8,49 @@ from kubernetes import client
 from app.config import get_settings
 
 
+def sanitize_header_value(value: object, max_length: int = 255) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return ""
+    sanitized = "".join(
+        ch for ch in text if (32 <= ord(ch) <= 126) or (160 <= ord(ch) <= 255)
+    ).strip()
+    if not sanitized:
+        return ""
+    return sanitized[:max_length]
+
+
+def _sanitize_header_value(value: object, max_length: int = 255) -> str:
+    return sanitize_header_value(value, max_length=max_length)
+
+
+def build_portal_identity_fields(user) -> dict[str, str]:
+    identity = {}
+
+    user_id = sanitize_header_value(getattr(user, "id", None))
+    if user_id:
+        identity["user_id"] = user_id
+
+    nickname = sanitize_header_value(getattr(user, "nickname", None))
+    username = sanitize_header_value(getattr(user, "username", None))
+    user_name = nickname or username
+    if user_name:
+        identity["user_name"] = user_name
+
+    return identity
+
+
+def build_portal_identity_headers(user) -> dict[str, str]:
+    headers = {"X-Portal-Author-Source": "portal"}
+    identity = build_portal_identity_fields(user)
+    if identity.get("user_id"):
+        headers["X-Portal-User-Id"] = identity["user_id"]
+    if identity.get("user_name"):
+        headers["X-Portal-User-Name"] = identity["user_name"]
+
+    return headers
+
+
 class ProxyService:
     def __init__(self):
         self._core_api = None
@@ -96,6 +139,7 @@ class ProxyService:
         query_items: Iterable[tuple[str, str]],
         body: Optional[bytes],
         headers: dict[str, str],
+        extra_headers: Optional[dict[str, str]] = None,
     ) -> tuple[int, bytes, str]:
         try:
             base = self.build_agent_base_url(agent).rstrip("/")
@@ -107,9 +151,7 @@ class ProxyService:
         path = f"/{subpath}" if subpath else "/"
         url = f"{base}{path}"
 
-        outbound_headers = {}
-        if headers.get("content-type"):
-            outbound_headers["content-type"] = headers["content-type"]
+        outbound_headers = self._build_outbound_headers(headers, extra_headers)
 
         async with httpx.AsyncClient(timeout=None) as client:
             resp = await client.request(
@@ -121,3 +163,73 @@ class ProxyService:
             )
         content_type = resp.headers.get("content-type", "application/octet-stream")
         return resp.status_code, resp.content, content_type
+
+    async def forward_multipart(
+        self,
+        agent,
+        method: str,
+        subpath: str,
+        query_items: Iterable[tuple[str, str]],
+        files,
+        data=None,
+        headers: Optional[dict[str, str]] = None,
+        extra_headers: Optional[dict[str, str]] = None,
+    ) -> tuple[int, bytes, str]:
+        try:
+            base = self.build_agent_base_url(agent).rstrip("/")
+        except ValueError as e:
+            error_msg = str(e).encode("utf-8")
+            return 502, error_msg, "text/plain"
+
+        path = f"/{subpath}" if subpath else "/"
+        url = f"{base}{path}"
+        outbound_headers = self._build_outbound_headers(headers or {}, extra_headers)
+
+        async with httpx.AsyncClient(timeout=None) as client:
+            resp = await client.request(
+                method=method,
+                url=url,
+                params=list(query_items),
+                files=files,
+                data=data,
+                headers=outbound_headers,
+            )
+
+        content_type = resp.headers.get("content-type", "application/octet-stream")
+        return resp.status_code, resp.content, content_type
+
+    @staticmethod
+    def _build_outbound_headers(
+        headers: dict[str, str], extra_headers: Optional[dict[str, str]]
+    ) -> dict[str, str]:
+        allowed_extra_headers = {
+            "x-portal-author-source": "X-Portal-Author-Source",
+            "x-portal-user-id": "X-Portal-User-Id",
+            "x-portal-user-name": "X-Portal-User-Name",
+        }
+        forbidden_extra_headers = {
+            "content-type",
+            "host",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+        }
+
+        outbound_headers = {}
+        if headers.get("content-type"):
+            outbound_headers["content-type"] = headers["content-type"]
+        if extra_headers:
+            for key, value in extra_headers.items():
+                if not key:
+                    continue
+                key_lower = key.lower()
+                if key_lower in forbidden_extra_headers:
+                    continue
+                canonical_name = allowed_extra_headers.get(key_lower)
+                if not canonical_name:
+                    continue
+                sanitized_value = _sanitize_header_value(value)
+                if not sanitized_value:
+                    continue
+                outbound_headers[canonical_name] = sanitized_value
+        return outbound_headers

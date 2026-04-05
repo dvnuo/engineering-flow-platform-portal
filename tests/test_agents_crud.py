@@ -93,11 +93,11 @@ def test_agents_status_endpoint():
 
 
 def test_agents_git_info_endpoint():
-    """Test GET /api/agents/{id}/git-info endpoint."""
+    """Test GET /a/{id}/api/git-info endpoint."""
     from app.main import app
     client = TestClient(app)
-    response = client.get("/api/agents/test-id/git-info")
-    assert response.status_code in [200, 401, 403, 404]
+    response = client.get("/a/test-id/api/git-info")
+    assert response.status_code in [401, 403, 404, 409, 502]
 
 
 def test_agents_destroy_endpoint():

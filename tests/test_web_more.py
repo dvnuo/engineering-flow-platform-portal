@@ -65,12 +65,12 @@ def test_users_panel():
     assert response.status_code in [200, 302, 401, 403]
 
 
-def test_api_agents_usage():
-    """Test agents usage API."""
+def test_proxy_agents_usage():
+    """Test canonical agents usage proxy route."""
     from app.main import app
     client = TestClient(app)
-    response = client.get("/api/agents/agent-123/usage")
-    assert response.status_code in [200, 401, 403, 404]
+    response = client.get("/a/agent-123/api/usage")
+    assert response.status_code in [401, 403, 404, 409, 502]
 
 
 def test_proxy_agent_api():
@@ -190,6 +190,10 @@ const wrapped = normalizeRuntimeEvent({{
 
 const zeroTs = normalizeRuntimeEvent({{ type: "tool_result", ts: 0, data: {{}} }});
 const zeroStringTs = normalizeRuntimeEvent({{ type: "tool_result", ts: "0", data: {{}} }});
+const legacyComplete = normalizeRuntimeEvent({{ type: "complete", data: {{ response: "ok" }} }});
+const completionState = normalizeRuntimeEvent({{ event_type: "tool_result", state: "completed", data: {{ tool: "search" }} }});
+const failedState = normalizeRuntimeEvent({{ event_type: "tool_result", state: "failed", data: {{ error: "boom" }} }});
+const failedResult = normalizeRuntimeEvent({{ event_type: "tool_result", detail_payload: {{ success: false, error: "tool failed" }} }});
 
 const result = {{
   legacy,
@@ -198,6 +202,10 @@ const result = {{
   wrapped,
   zeroTs,
   zeroStringTs,
+  legacyComplete,
+  completionState,
+  failedState,
+  failedResult,
   invalid: [normalizeRuntimeEvent(null), normalizeRuntimeEvent({{}}), normalizeRuntimeEvent({{foo: "bar"}})],
   completionStates: [
     isCompletionRuntimeState("complete"),
@@ -246,6 +254,12 @@ console.log(JSON.stringify(result));
     assert data["completionStates"] == [True, True, True, True, False, False, False]
     assert data["zeroTs"]["ts"] == 0
     assert data["zeroStringTs"]["ts"] == "0"
+    assert data["legacyComplete"]["type"] == "execution.completed"
+    assert data["legacyComplete"]["raw_type"] == "complete"
+    assert data["legacyComplete"]["lifecycle_type"] == "execution.completed"
+    assert data["completionState"]["lifecycle_type"] == "execution.completed"
+    assert data["failedState"]["lifecycle_type"] == "execution.failed"
+    assert data["failedResult"]["lifecycle_type"] == "execution.failed"
 
 
 def test_thinking_process_template_prefers_normalized_fields():
