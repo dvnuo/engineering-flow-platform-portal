@@ -13,7 +13,7 @@ from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService
+from app.services.proxy_service import ProxyService, build_portal_identity_headers
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -989,8 +989,6 @@ async def app_chat_send(request: Request):
 
         payload = {
             "message": message,
-            "portal_user_id": str(user.id),
-            "portal_user_name": user.nickname or user.username,
         }
         if session_id:
             payload["session_id"] = session_id
@@ -1004,6 +1002,7 @@ async def app_chat_send(request: Request):
             query_items=[],
             body=json.dumps(payload).encode("utf-8"),
             headers={"content-type": "application/json"},
+            extra_headers=build_portal_identity_headers(user),
         )
 
         if status_code >= 400:

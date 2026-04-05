@@ -14,7 +14,7 @@ from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService
+from app.services.proxy_service import ProxyService, build_portal_identity_headers
 from app.redaction import sanitize_exception_message
 
 router = APIRouter(tags=["proxy"])
@@ -44,13 +44,19 @@ async def proxy_agent(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is not running")
 
     try:
+        forward_headers = {}
+        content_type = request.headers.get("content-type")
+        if content_type:
+            forward_headers["content-type"] = content_type
+
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
             method=request.method,
             subpath=subpath,
             query_items=request.query_params.multi_items(),
             body=(await request.body()) or None,
-            headers=dict(request.headers),
+            headers=forward_headers,
+            extra_headers=build_portal_identity_headers(user),
         )
     except Exception as exc:
         logger.exception("Proxy error agent_id=%s method=%s subpath=%s", agent_id, request.method, subpath)

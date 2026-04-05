@@ -8,6 +8,31 @@ from kubernetes import client
 from app.config import get_settings
 
 
+def _sanitize_header_value(value: object, max_length: int = 255) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    sanitized = "".join(ch for ch in text if ord(ch) >= 32 and ord(ch) != 127).strip()
+    if not sanitized:
+        return ""
+    return sanitized[:max_length]
+
+
+def build_portal_identity_headers(user) -> dict[str, str]:
+    headers = {"X-Portal-Author-Source": "portal"}
+
+    user_id = _sanitize_header_value(getattr(user, "id", None))
+    if user_id:
+        headers["X-Portal-User-Id"] = user_id
+
+    display_name = getattr(user, "nickname", None) or getattr(user, "username", None)
+    user_name = _sanitize_header_value(display_name)
+    if user_name:
+        headers["X-Portal-User-Name"] = user_name
+
+    return headers
+
+
 class ProxyService:
     def __init__(self):
         self._core_api = None
@@ -96,6 +121,7 @@ class ProxyService:
         query_items: Iterable[tuple[str, str]],
         body: Optional[bytes],
         headers: dict[str, str],
+        extra_headers: Optional[dict[str, str]] = None,
     ) -> tuple[int, bytes, str]:
         try:
             base = self.build_agent_base_url(agent).rstrip("/")
@@ -110,6 +136,10 @@ class ProxyService:
         outbound_headers = {}
         if headers.get("content-type"):
             outbound_headers["content-type"] = headers["content-type"]
+        if extra_headers:
+            for key, value in extra_headers.items():
+                if key and value:
+                    outbound_headers[key] = value
 
         async with httpx.AsyncClient(timeout=None) as client:
             resp = await client.request(

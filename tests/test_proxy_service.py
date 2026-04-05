@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import asyncio
 
-from app.services.proxy_service import ProxyService
+from app.services.proxy_service import ProxyService, build_portal_identity_headers
 
 
 def test_proxy_service_init():
@@ -93,3 +93,76 @@ def test_proxy_service_forward_subpath_unchanged(monkeypatch):
     assert captured["url"] == "http://runtime.local:8000/api/events"
     assert captured["params"] == [("stream", "runtime")]
     assert captured["headers"] == {"content-type": "application/json"}
+
+
+def test_proxy_service_forward_includes_safe_extra_headers(monkeypatch):
+    service = ProxyService()
+    monkeypatch.setattr(service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
+
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        content = b"ok"
+        headers = {"content-type": "application/json"}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, **kwargs):
+            captured.update(kwargs)
+            return _Resp()
+
+    monkeypatch.setattr("app.services.proxy_service.httpx.AsyncClient", lambda timeout=None: _Client())
+
+    agent = SimpleNamespace(service_name="svc", namespace="efp-agents")
+    asyncio.run(service.forward(
+        agent=agent,
+        method="POST",
+        subpath="api/chat",
+        query_items=[],
+        body=b"{}",
+        headers={"content-type": "application/json"},
+        extra_headers={
+            "X-Portal-User-Id": "42",
+            "X-Portal-User-Name": "Taylor",
+            "X-Portal-Author-Source": "portal",
+        },
+    ))
+
+    assert captured["headers"] == {
+        "content-type": "application/json",
+        "X-Portal-User-Id": "42",
+        "X-Portal-User-Name": "Taylor",
+        "X-Portal-Author-Source": "portal",
+    }
+
+
+def test_build_portal_identity_headers_sanitizes_and_omits_blank_name():
+    user = SimpleNamespace(
+        id=7,
+        username="fallback-user",
+        nickname="  Eve\r\n\x00\tUser  ",
+    )
+
+    headers = build_portal_identity_headers(user)
+
+    assert headers["X-Portal-Author-Source"] == "portal"
+    assert headers["X-Portal-User-Id"] == "7"
+    assert headers["X-Portal-User-Name"] == "EveUser"
+
+
+def test_build_portal_identity_headers_omits_empty_identity_fields():
+    user = SimpleNamespace(
+        id=None,
+        username="   \n\r\t ",
+        nickname=None,
+    )
+
+    headers = build_portal_identity_headers(user)
+
+    assert headers == {"X-Portal-Author-Source": "portal"}
