@@ -160,6 +160,87 @@ def test_settings_save_preserves_proxy_password_when_field_absent(monkeypatch):
     settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
     assert settings_payload["proxy"]["password"] == "keep-secret"
 
+
+def test_settings_save_forbidden_for_public_non_owner(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=321, username="viewer", nickname="Viewer", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=999,
+        visibility="public",
+        status="running",
+        name="Agent One",
+        repo_url="https://example.com/repo.git",
+    )
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(
+        web_module,
+        "AgentRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+    )
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+
+    async def _should_not_forward(**kwargs):
+        raise AssertionError("forward should not be called for forbidden settings save")
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _should_not_forward)
+
+    client = TestClient(app)
+    response = client.post(
+        "/app/agents/agent-1/settings/save",
+        data={"original_config_json": json.dumps({})},
+    )
+
+    assert response.status_code == 403
+
+
+def test_settings_save_allowed_for_admin_non_owner(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=1, username="admin", nickname="Admin", role="admin")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=999,
+        visibility="public",
+        status="running",
+        name="Agent One",
+        repo_url="https://example.com/repo.git",
+    )
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(
+        web_module,
+        "AgentRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+    )
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+
+    captured_calls = []
+
+    async def _fake_forward(**kwargs):
+        captured_calls.append(kwargs)
+        if kwargs.get("subpath") == "api/config":
+            return 200, json.dumps({"config": {}}).encode("utf-8"), "application/json"
+        return 200, json.dumps({"ok": True}).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+
+    client = TestClient(app)
+    response = client.post(
+        "/app/agents/agent-1/settings/save",
+        data={"original_config_json": json.dumps({})},
+    )
+
+    assert response.status_code == 200
+    assert captured_calls[0]["subpath"] == "api/config/save"
+
+
 def test_settings_save_does_not_infer_llm_api_base(monkeypatch):
     client, captured_calls = _setup_web_runtime_test(monkeypatch)
     captured_calls.clear()

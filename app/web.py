@@ -51,6 +51,10 @@ def _can_access(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
 
 
+def _can_write(agent, user) -> bool:
+    return user.role == "admin" or agent.owner_user_id == user.id
+
+
 def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
 
@@ -842,7 +846,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_access(agent, user):
+        if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
         status_code, content, _ = await _forward_runtime(
