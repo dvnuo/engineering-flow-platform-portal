@@ -271,7 +271,7 @@
   // Check for existing SSH key on page load
   async function checkExistingSSHKey(agentId) {
     try {
-      const response = await fetch(`/api/agents/${agentId}/ssh/public-key`);
+      const response = await fetch(`/a/${agentId}/api/ssh/public-key`);
       const contentType = response.headers.get('content-type');
       if (!response.ok || !contentType || !contentType.includes('application/json')) {
         return; // Ignore errors for existing key check
@@ -300,7 +300,7 @@
     messageDiv.textContent = '';
     
     try {
-      const response = await fetch(`/api/agents/${agentId}/ssh/generate`, {
+      const response = await fetch(`/a/${agentId}/api/ssh/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });

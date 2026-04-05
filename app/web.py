@@ -146,6 +146,147 @@ def _settings_view_payload(config_data: dict) -> dict:
     }
 
 
+def _settings_error_response(request: Request, agent_id: str, config_payload: dict, message: str):
+    view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
+    return templates.TemplateResponse(
+        "partials/settings_panel.html",
+        {
+            "request": request,
+            "agent_id": agent_id,
+            "status_type": "error",
+            "status_message": message,
+            **view_data,
+        },
+    )
+
+
+def _settings_parse_instances(form, prefix: str, fields: list[str], existing_instances: Optional[list] = None) -> list[dict]:
+    count_text = (form.get(f"{prefix}_instance_count") or "0").strip()
+    try:
+        count = max(0, int(count_text))
+    except ValueError:
+        count = 0
+
+    instances = []
+    existing_instances = existing_instances if isinstance(existing_instances, list) else []
+    secret_fields = {"password", "token"}
+
+    for i in range(count):
+        item = {}
+        existing_item = existing_instances[i] if i < len(existing_instances) and isinstance(existing_instances[i], dict) else {}
+        for field in fields:
+            value = (form.get(f"{prefix}_instances_{i}_{field}") or "").strip()
+            if field in secret_fields and not value:
+                value = existing_item.get(field) or ""
+            item[field] = value
+        if item.get("name") or item.get("url"):
+            instances.append(item)
+    return instances
+
+
+def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
+    def as_bool(value) -> bool:
+        return str(value or "").lower() in {"1", "true", "on", "yes"}
+
+    config_payload = config_payload if isinstance(config_payload, dict) else {}
+
+    existing_proxy_password = None
+    if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
+        existing_proxy_password = config_payload["proxy"].get("password")
+
+    jira_config = config_payload.get("jira")
+    if isinstance(jira_config, dict):
+        jira_instances = jira_config.get("instances", [])
+        existing_jira_instances = jira_instances if isinstance(jira_instances, list) else []
+    else:
+        existing_jira_instances = []
+
+    confluence_config = config_payload.get("confluence")
+    if isinstance(confluence_config, dict):
+        confluence_instances = confluence_config.get("instances", [])
+        existing_confluence_instances = confluence_instances if isinstance(confluence_instances, list) else []
+    else:
+        existing_confluence_instances = []
+
+    llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
+    llm["provider"] = (form.get("llm_provider") or "").strip()
+    llm["model"] = (form.get("llm_model") or "").strip()
+    llm["api_key"] = (form.get("llm_api_key") or "").strip()
+
+    temperature_text = (form.get("llm_temperature") or "").strip()
+    if temperature_text:
+        try:
+            llm["temperature"] = float(temperature_text)
+        except ValueError:
+            return config_payload, "Temperature must be a number."
+
+    max_tokens_text = (form.get("llm_max_tokens") or "").strip()
+    if max_tokens_text:
+        try:
+            llm["max_tokens"] = int(max_tokens_text)
+        except ValueError:
+            return config_payload, "Max tokens must be an integer."
+
+    jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
+    jira["enabled"] = as_bool(form.get("jira_enabled"))
+    jira["instances"] = _settings_parse_instances(
+        form,
+        "jira",
+        ["name", "url", "username", "password", "token", "project"],
+        existing_instances=existing_jira_instances,
+    )
+
+    confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
+    confluence["enabled"] = as_bool(form.get("confluence_enabled"))
+    confluence["instances"] = _settings_parse_instances(
+        form,
+        "confluence",
+        ["name", "url", "username", "password", "token", "space"],
+        existing_instances=existing_confluence_instances,
+    )
+
+    github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
+    github_cfg["enabled"] = as_bool(form.get("github_enabled"))
+    github_cfg["api_token"] = (form.get("github_api_token") or "").strip()
+    github_cfg["base_url"] = (form.get("github_base_url") or "").strip()
+
+    git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
+    git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
+    git_user["name"] = (form.get("git_user_name") or "").strip()
+    git_user["email"] = (form.get("git_user_email") or "").strip()
+    git_cfg["user"] = git_user
+
+    ssh_cfg = (config_payload.get("ssh") if isinstance(config_payload.get("ssh"), dict) else {}).copy()
+    ssh_cfg["enabled"] = as_bool(form.get("ssh_enabled"))
+    ssh_cfg["private_key_path"] = (form.get("ssh_private_key_path") or "").strip()
+
+    proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
+    proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
+    proxy_cfg["url"] = (form.get("proxy_url") or "").strip()
+    proxy_cfg["username"] = (form.get("proxy_username") or "").strip()
+    new_password = (form.get("proxy_password") or "").strip()
+    if new_password:
+        proxy_cfg["password"] = new_password
+    elif existing_proxy_password:
+        proxy_cfg["password"] = existing_proxy_password
+
+    debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
+    debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
+    valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+    log_level = form.get("debug_log_level")
+    debug_cfg["log_level"] = log_level if log_level in valid_log_levels else "INFO"
+
+    config_payload["llm"] = llm
+    config_payload["jira"] = jira
+    config_payload["confluence"] = confluence
+    config_payload["github"] = github_cfg
+    config_payload["git"] = git_cfg
+    config_payload["ssh"] = ssh_cfg
+    config_payload["proxy"] = proxy_cfg
+    config_payload["debug"] = debug_cfg
+    return config_payload, None
+
+
 @router.get("/")
 def index(request: Request) -> RedirectResponse:
     user = _current_user_from_cookie(request)
@@ -782,25 +923,6 @@ async def app_agent_settings_save(request: Request, agent_id: str):
 
     form = await request.form()
 
-    def as_bool(value) -> bool:
-        return str(value or "").lower() in {"1", "true", "on", "yes"}
-
-    def parse_instances(prefix: str, fields: list[str]) -> list[dict]:
-        count_text = (form.get(f"{prefix}_instance_count") or "0").strip()
-        try:
-            count = max(0, int(count_text))
-        except ValueError:
-            count = 0
-
-        instances = []
-        for i in range(count):
-            item = {}
-            for field in fields:
-                item[field] = (form.get(f"{prefix}_instances_{i}_{field}") or "").strip()
-            if item.get("name") or item.get("url"):
-                instances.append(item)
-        return instances
-
     original_config_json = (form.get("original_config_json") or "").strip()
     try:
         config_payload = json.loads(original_config_json) if original_config_json else {}
@@ -808,138 +930,10 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         config_payload = {}
     if not isinstance(config_payload, dict):
         config_payload = {}
-    
-    # Preserve any existing proxy configuration from the payload; do not strip fields here,
-    # since this handler is processing a save request, not sending data back to the client.
-    existing_proxy_password = None
-    if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
-        existing_proxy_password = config_payload["proxy"].get("password")
-    
-    # Preserve existing tokens for Jira and Confluence instances
-    jira_config = config_payload.get("jira")
-    if isinstance(jira_config, dict):
-        jira_instances = jira_config.get("instances", [])
-        existing_jira_instances = jira_instances if isinstance(jira_instances, list) else []
-    else:
-        existing_jira_instances = []
 
-    confluence_config = config_payload.get("confluence")
-    if isinstance(confluence_config, dict):
-        confluence_instances = confluence_config.get("instances", [])
-        existing_confluence_instances = confluence_instances if isinstance(confluence_instances, list) else []
-    else:
-        existing_confluence_instances = []
-
-    llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
-    llm["provider"] = (form.get("llm_provider") or "").strip()
-    llm["model"] = (form.get("llm_model") or "").strip()
-    llm["api_key"] = (form.get("llm_api_key") or "").strip()
-    
-    # Set api_base based on provider (same logic as EFP) - only if empty
-    provider = llm.get("provider", "")
-    if not llm.get("api_base"):  # Only set if not already present
-        if provider == "github_copilot":
-            llm["api_base"] = "https://api.githubcopilot.com"
-        elif provider == "anthropic":
-            llm["api_base"] = "https://api.anthropic.com/v1"
-        elif provider == "ollama":
-            llm["api_base"] = "http://127.0.0.1:11434"
-        else:  # openai or default
-            llm["api_base"] = "https://api.openai.com/v1"
-
-    temperature_text = (form.get("llm_temperature") or "").strip()
-    if temperature_text:
-        try:
-            llm["temperature"] = float(temperature_text)
-        except ValueError:
-            view_data = _settings_view_payload(config_payload)
-            return templates.TemplateResponse(
-                "partials/settings_panel.html",
-                {
-                    "request": request,
-                    "agent_id": agent_id,
-                    "status_type": "error",
-                    "status_message": "Temperature must be a number.",
-                    **view_data,
-                },
-            )
-
-    max_tokens_text = (form.get("llm_max_tokens") or "").strip()
-    if max_tokens_text:
-        try:
-            llm["max_tokens"] = int(max_tokens_text)
-        except ValueError:
-            view_data = _settings_view_payload(config_payload)
-            return templates.TemplateResponse(
-                "partials/settings_panel.html",
-                {
-                    "request": request,
-                    "agent_id": agent_id,
-                    "status_type": "error",
-                    "status_message": "Max tokens must be an integer.",
-                    **view_data,
-                },
-            )
-
-    jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
-    jira["enabled"] = as_bool(form.get("jira_enabled"))
-    # Preserve existing tokens if not provided in form
-    jira_new_instances = parse_instances("jira", ["name", "url", "username", "password", "token", "project"])
-    for i, inst in enumerate(jira_new_instances):
-        if "token" not in inst and i < len(existing_jira_instances):
-            inst["token"] = existing_jira_instances[i].get("token", "")
-    jira["instances"] = jira_new_instances
-
-    confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
-    confluence["enabled"] = as_bool(form.get("confluence_enabled"))
-    # Preserve existing tokens if not provided in form
-    confluence_new_instances = parse_instances("confluence", ["name", "url", "username", "password", "token", "space"])
-    for i, inst in enumerate(confluence_new_instances):
-        if "token" not in inst and i < len(existing_confluence_instances):
-            inst["token"] = existing_confluence_instances[i].get("token", "")
-    confluence["instances"] = confluence_new_instances
-
-    github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
-    github_cfg["enabled"] = as_bool(form.get("github_enabled"))
-    github_cfg["api_token"] = (form.get("github_api_token") or "").strip()
-    github_cfg["base_url"] = (form.get("github_base_url") or "").strip()
-
-    git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
-    git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
-    git_user["name"] = (form.get("git_user_name") or "").strip()
-    git_user["email"] = (form.get("git_user_email") or "").strip()
-    git_cfg["user"] = git_user
-
-    ssh_cfg = (config_payload.get("ssh") if isinstance(config_payload.get("ssh"), dict) else {}).copy()
-    ssh_cfg["enabled"] = as_bool(form.get("ssh_enabled"))
-    ssh_cfg["private_key_path"] = (form.get("ssh_private_key_path") or "").strip()
-
-    proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
-    proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
-    proxy_cfg["url"] = (form.get("proxy_url") or "").strip()
-    proxy_cfg["username"] = (form.get("proxy_username") or "").strip()
-    # Only update password if provided (to preserve existing password)
-    new_password = (form.get("proxy_password") or "").strip()
-    if new_password:
-        proxy_cfg["password"] = new_password
-    elif existing_proxy_password:
-        proxy_cfg["password"] = existing_proxy_password
-
-    debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
-    debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
-    # Validate log_level against allowed values
-    valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-    log_level = form.get("debug_log_level")
-    debug_cfg["log_level"] = log_level if log_level in valid_log_levels else "INFO"
-
-    config_payload["llm"] = llm
-    config_payload["jira"] = jira
-    config_payload["confluence"] = confluence
-    config_payload["github"] = github_cfg
-    config_payload["git"] = git_cfg
-    config_payload["ssh"] = ssh_cfg
-    config_payload["proxy"] = proxy_cfg
-    config_payload["debug"] = debug_cfg
+    config_payload, merge_error = _settings_merge_payload(config_payload, form)
+    if merge_error:
+        return _settings_error_response(request, agent_id, config_payload, merge_error)
 
     db = SessionLocal()
     status_type = "success"

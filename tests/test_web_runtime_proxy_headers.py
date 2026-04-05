@@ -92,12 +92,22 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
     captured_calls.clear()
     settings_save = client.post(
         "/app/agents/agent-1/settings/save",
-        data={"original_config_json": "{}", "llm_provider": "openai"},
+        data={
+            "original_config_json": json.dumps({
+                "llm": {"api_base": "https://custom.example/v1"},
+                "proxy": {"password": "keep-secret"},
+            }),
+            "llm_provider": "openai",
+            "proxy_password": "",
+        },
     )
     assert settings_save.status_code == 200
     assert captured_calls[0]["subpath"] == "api/config/save"
     assert captured_calls[0]["headers"] == {"content-type": "application/json"}
     assert captured_calls[0]["extra_headers"]["X-Portal-User-Id"] == "321"
+    settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
+    assert settings_payload["llm"]["api_base"] == "https://custom.example/v1"
+    assert settings_payload["proxy"]["password"] == "keep-secret"
 
     captured_calls.clear()
     ssh_generate = client.post("/api/agents/agent-1/ssh/generate")
@@ -105,6 +115,22 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
     assert captured_calls[-1]["subpath"] == "api/ssh/generate"
     assert captured_calls[-1]["headers"] == {"content-type": "application/json"}
     assert captured_calls[-1]["extra_headers"]["X-Portal-Author-Source"] == "portal"
+
+
+def test_settings_save_does_not_infer_llm_api_base(monkeypatch):
+    client, captured_calls = _setup_web_runtime_test(monkeypatch)
+    captured_calls.clear()
+    response = client.post(
+        "/app/agents/agent-1/settings/save",
+        data={
+            "original_config_json": json.dumps({"llm": {}}),
+            "llm_provider": "anthropic",
+            "llm_model": "claude",
+        },
+    )
+    assert response.status_code == 200
+    settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
+    assert "api_base" not in settings_payload.get("llm", {})
 
 
 def test_file_upload_uses_forward_multipart_with_identity_headers(monkeypatch):
