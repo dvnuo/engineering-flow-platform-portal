@@ -15,6 +15,9 @@ def test_agent_model_fields():
     assert "status" in columns
     assert "visibility" in columns
     assert "owner_user_id" in columns
+    assert "agent_type" in columns
+    assert "capability_profile_id" in columns
+    assert "policy_profile_id" in columns
 
 
 def test_agent_response_schema():
@@ -26,6 +29,9 @@ def test_agent_response_schema():
     assert "name" in fields
     assert "status" in fields
     assert "visibility" in fields
+    assert "agent_type" in fields
+    assert "capability_profile_id" in fields
+    assert "policy_profile_id" in fields
 
 
 def test_agent_status_values():

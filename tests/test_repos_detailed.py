@@ -2,8 +2,11 @@
 import pytest
 from unittest.mock import MagicMock
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.audit_repo import AuditRepository
+from app.repositories.capability_profile_repo import CapabilityProfileRepository
+from app.repositories.policy_profile_repo import PolicyProfileRepository
 
 
 def test_agent_repo_init():
@@ -103,3 +106,35 @@ def test_audit_repo_create():
     mock_db = MagicMock()
     repo = AuditRepository(mock_db)
     assert hasattr(repo, 'create')
+
+
+def test_capability_profile_repo_methods():
+    mock_db = MagicMock()
+    repo = CapabilityProfileRepository(mock_db)
+    assert hasattr(repo, "create")
+    assert hasattr(repo, "get_by_id")
+    assert hasattr(repo, "list_all")
+    assert hasattr(repo, "save")
+    assert hasattr(repo, "delete")
+
+
+def test_policy_profile_repo_methods():
+    mock_db = MagicMock()
+    repo = PolicyProfileRepository(mock_db)
+    assert hasattr(repo, "create")
+    assert hasattr(repo, "get_by_id")
+    assert hasattr(repo, "list_all")
+    assert hasattr(repo, "save")
+    assert hasattr(repo, "delete")
+
+
+def test_agent_identity_binding_repo_methods():
+    mock_db = MagicMock()
+    repo = AgentIdentityBindingRepository(mock_db)
+    assert hasattr(repo, "create")
+    assert hasattr(repo, "get_by_id")
+    assert hasattr(repo, "list_by_agent")
+    assert hasattr(repo, "list_enabled_bindings_for_agent")
+    assert hasattr(repo, "find_binding")
+    assert hasattr(repo, "save")
+    assert hasattr(repo, "delete")
