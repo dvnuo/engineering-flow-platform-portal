@@ -128,8 +128,8 @@ def test_proxy_service_forward_includes_safe_extra_headers(monkeypatch):
         body=b"{}",
         headers={"content-type": "application/json"},
         extra_headers={
-            "X-Portal-User-Id": "42",
-            "X-Portal-User-Name": "Taylor",
+            "x-portal-user-id": "42",
+            "x-portal-user-name": "Taylor 😀",
             "X-Portal-Author-Source": "portal",
             "Content-Type": "text/plain",
             "Host": "evil.example",
@@ -140,9 +140,9 @@ def test_proxy_service_forward_includes_safe_extra_headers(monkeypatch):
 
     assert captured["headers"] == {
         "content-type": "application/json",
+        "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "42",
         "X-Portal-User-Name": "Taylor",
-        "X-Portal-Author-Source": "portal",
     }
 
 
@@ -217,4 +217,5 @@ def test_sanitize_header_value_preserves_zero_and_strips_controls():
     assert _sanitize_header_value(0) == "0"
     assert _sanitize_header_value(None) == ""
     assert _sanitize_header_value("  A\r\n\tB\x00  ") == "AB"
-    assert _sanitize_header_value("Hi 😀") == ""
+    assert _sanitize_header_value("José 😀") == "José"
+    assert _sanitize_header_value("😀😀") == ""

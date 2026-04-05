@@ -35,6 +35,7 @@ def _requires_write_access(method: str, subpath: str) -> bool:
     return (method.upper(), normalized) in {
         ("GET", "api/ssh/public-key"),
         ("POST", "api/ssh/generate"),
+        ("POST", "api/config/save"),
     }
 
 

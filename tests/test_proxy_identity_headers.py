@@ -89,19 +89,25 @@ def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
 
-        async def _should_not_forward(**kwargs):
-            raise AssertionError("Forward should not be called for forbidden sensitive endpoints")
+        async def _fake_forward(**kwargs):
+            if kwargs.get("subpath") in {"api/ssh/public-key", "api/ssh/generate", "api/config/save"}:
+                raise AssertionError("Forward should not be called for forbidden sensitive endpoints")
+            return 200, b'{"ok": true}', "application/json"
 
-        monkeypatch.setattr(proxy_module.proxy_service, "forward", _should_not_forward)
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
         client = TestClient(app)
 
         read_resp = client.get("/a/agent-1/api/ssh/public-key")
         write_resp = client.post("/a/agent-1/api/ssh/generate")
+        config_save_resp = client.post("/a/agent-1/api/config/save", content=b"{}")
+        normal_resp = client.post("/a/agent-1/api/chat", content=b'{"message":"hello"}')
     finally:
         app.dependency_overrides.clear()
 
     assert read_resp.status_code == 403
     assert write_resp.status_code == 403
+    assert config_save_resp.status_code == 403
+    assert normal_resp.status_code == 200
 
 
 def test_proxy_agent_allows_sensitive_ssh_endpoints_for_owner(monkeypatch):
@@ -142,16 +148,19 @@ def test_proxy_agent_allows_sensitive_ssh_endpoints_for_owner(monkeypatch):
 
         read_resp = client.get("/a/agent-1/api/ssh/public-key")
         write_resp = client.post("/a/agent-1/api/ssh/generate")
+        config_save_resp = client.post("/a/agent-1/api/config/save", content=b"{}")
         normal_resp = client.get("/a/agent-1/api/usage")
     finally:
         app.dependency_overrides.clear()
 
     assert read_resp.status_code == 200
     assert write_resp.status_code == 200
+    assert config_save_resp.status_code == 200
     assert normal_resp.status_code == 200
     assert captured[0]["subpath"] == "api/ssh/public-key"
     assert captured[1]["subpath"] == "api/ssh/generate"
-    assert captured[2]["subpath"] == "api/usage"
+    assert captured[2]["subpath"] == "api/config/save"
+    assert captured[3]["subpath"] == "api/usage"
 
 
 def test_requires_write_access_normalizes_slashes():
@@ -164,3 +173,6 @@ def test_requires_write_access_normalizes_slashes():
 
     assert proxy_module._requires_write_access("POST", "api/ssh/generate")
     assert proxy_module._requires_write_access("POST", "/api/ssh/generate/")
+    assert proxy_module._requires_write_access("POST", "api/config/save")
+    assert proxy_module._requires_write_access("POST", "/api/config/save/")
+    assert not proxy_module._requires_write_access("POST", "api/chat")

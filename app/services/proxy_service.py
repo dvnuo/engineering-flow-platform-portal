@@ -12,15 +12,12 @@ def _sanitize_header_value(value: object, max_length: int = 255) -> str:
     text = "" if value is None else str(value).strip()
     if not text:
         return ""
-    sanitized = "".join(ch for ch in text if ord(ch) >= 32 and ord(ch) != 127).strip()
+    sanitized = "".join(
+        ch for ch in text if (32 <= ord(ch) <= 126) or (160 <= ord(ch) <= 255)
+    ).strip()
     if not sanitized:
         return ""
-    sanitized = sanitized[:max_length]
-    try:
-        sanitized.encode("latin-1")
-    except UnicodeEncodeError:
-        return ""
-    return sanitized
+    return sanitized[:max_length]
 
 
 def build_portal_identity_headers(user) -> dict[str, str]:
@@ -190,9 +187,9 @@ class ProxyService:
         headers: dict[str, str], extra_headers: Optional[dict[str, str]]
     ) -> dict[str, str]:
         allowed_extra_headers = {
-            "x-portal-author-source",
-            "x-portal-user-id",
-            "x-portal-user-name",
+            "x-portal-author-source": "X-Portal-Author-Source",
+            "x-portal-user-id": "X-Portal-User-Id",
+            "x-portal-user-name": "X-Portal-User-Name",
         }
         forbidden_extra_headers = {
             "content-type",
@@ -207,12 +204,16 @@ class ProxyService:
             outbound_headers["content-type"] = headers["content-type"]
         if extra_headers:
             for key, value in extra_headers.items():
-                if not key or not value:
+                if not key:
                     continue
                 key_lower = key.lower()
                 if key_lower in forbidden_extra_headers:
                     continue
-                if key_lower not in allowed_extra_headers:
+                canonical_name = allowed_extra_headers.get(key_lower)
+                if not canonical_name:
                     continue
-                outbound_headers[key] = value
+                sanitized_value = _sanitize_header_value(value)
+                if not sanitized_value:
+                    continue
+                outbound_headers[canonical_name] = sanitized_value
         return outbound_headers
