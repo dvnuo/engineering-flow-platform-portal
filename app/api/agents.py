@@ -15,7 +15,7 @@ from app.schemas.agent import (
     AgentUpdateRequest,
 )
 from app.services.k8s_service import K8sService
-from app.services.proxy_service import ProxyService
+from app.services.proxy_service import ProxyService, build_portal_identity_headers
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
 
@@ -198,6 +198,7 @@ async def get_agent_git_info(agent_id: str, user=Depends(get_current_user), db: 
             query_items=[],
             body=None,
             headers={},
+            extra_headers=build_portal_identity_headers(user),
         )
         if status_code == 200:
             import json

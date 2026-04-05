@@ -3,7 +3,6 @@ import app.logger  # Ensure logging is configured (intentional side-effect impor
 import json
 from typing import List, Optional
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -55,6 +54,54 @@ def _can_access(agent, user) -> bool:
 def _can_modify(agent, user) -> bool:
     """Check if user can modify agent settings (write operations)."""
     return user.role == "admin" or agent.owner_user_id == user.id
+
+
+def _portal_extra_headers(user) -> dict[str, str]:
+    return build_portal_identity_headers(user)
+
+
+async def _forward_runtime(
+    *,
+    user,
+    agent,
+    method: str,
+    subpath: str,
+    query_items,
+    body,
+    headers: Optional[dict[str, str]] = None,
+):
+    return await proxy_service.forward(
+        agent=agent,
+        method=method,
+        subpath=subpath,
+        query_items=query_items,
+        body=body,
+        headers=headers or {},
+        extra_headers=_portal_extra_headers(user),
+    )
+
+
+async def _forward_runtime_multipart(
+    *,
+    user,
+    agent,
+    method: str,
+    subpath: str,
+    query_items,
+    files,
+    data=None,
+    headers: Optional[dict[str, str]] = None,
+):
+    return await proxy_service.forward_multipart(
+        agent=agent,
+        method=method,
+        subpath=subpath,
+        query_items=query_items,
+        files=files,
+        data=data,
+        headers=headers or {},
+        extra_headers=_portal_extra_headers(user),
+    )
 
 
 def _settings_view_payload(config_data: dict) -> dict:
@@ -184,13 +231,13 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
                 {"request": request, "agent_id": agent_id, "sessions": [], "current_session_id": current_session_id},
             )
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/sessions",
             query_items=[("limit", limit)],
             body=None,
-            headers={},
         )
 
         if status_code >= 400:
@@ -232,13 +279,13 @@ async def app_agent_skills_panel(request: Request, agent_id: str):
                 {"request": request, "agent_id": agent_id, "skills": []},
             )
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/skills",
             query_items=[],
             body=None,
-            headers={},
         )
 
         if status_code >= 400:
@@ -272,13 +319,13 @@ async def api_agent_usage(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/usage",
             query_items=[("days", days)],
             body=None,
-            headers={},
         )
 
         if status_code >= 400:
@@ -310,7 +357,8 @@ async def api_agent_ssh_generate(request: Request, agent_id: str):
             raise HTTPException(status_code=403, detail="Forbidden - only owner or admin can generate SSH keys")
 
         # Call agent's API via proxy service to generate SSH key
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="POST",
             subpath="api/ssh/generate",
@@ -356,13 +404,13 @@ async def api_agent_ssh_public_key(request: Request, agent_id: str):
             raise HTTPException(status_code=403, detail="Forbidden")
 
         # Call agent's API via proxy service to get public key
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/ssh/public-key",
             query_items=[],
             body=None,
-            headers={},
         )
 
         if status_code == 200:
@@ -401,13 +449,13 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
                 {"request": request, "agent_id": agent_id, "usage": [], "total_messages": 0, "total_cost": 0},
             )
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/usage",
             query_items=[("days", days)],
             body=None,
-            headers={},
         )
 
         if status_code >= 400:
@@ -448,13 +496,13 @@ async def app_agent_files_panel(request: Request, agent_id: str):
                 {"request": request, "agent_id": agent_id, "files": [], "path": "/"},
             )
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/files/list",
             query_items=[],
             body=None,
-            headers={},
         )
 
         if status_code >= 400:
@@ -504,21 +552,19 @@ async def agent_files_upload(agent_id: str, request: Request):
         # Prepare files for upload
         files = {"file": (file_field.filename, content, file_field.content_type)}
         
-        # Use proxy_service to get the correct EFP URL
-        try:
-            efp_base_url = proxy_service.build_agent_base_url(agent)
-        except ValueError as e:
-            raise HTTPException(status_code=502, detail=str(e))
-        
-        url = f"{efp_base_url}/api/files/upload"
-        
-        async with httpx.AsyncClient(timeout=None) as client:
-            resp = await client.post(url, files=files)
-        
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Upload failed: {resp.text}")
-        
-        return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/json"), status_code=resp.status_code)
+        status_code, content, content_type = await _forward_runtime_multipart(
+            user=user,
+            agent=agent,
+            method="POST",
+            subpath="api/files/upload",
+            query_items=[],
+            files=files,
+        )
+
+        if status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Upload failed: {content.decode('utf-8', errors='ignore')}")
+
+        return Response(content=content, media_type=content_type, status_code=status_code)
     finally:
         db.close()
 
@@ -542,13 +588,13 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
             raise HTTPException(status_code=403, detail="Forbidden")
 
         # Use proxy_service.forward for consistent proxy behavior
-        status_code, content, content_type = await proxy_service.forward(
+        status_code, content, content_type = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath=f"api/files/{file_id}/preview",
             query_items=[("max_chars", str(max_chars))],
             body=None,
-            headers={},
         )
         
         if status_code >= 400:
@@ -584,13 +630,13 @@ async def agent_files_download(agent_id: str, request: Request, path: str = "", 
 
         # Use proxy_service.forward for consistent proxy behavior (frontend uses 'paths')
         query_items = [("paths", p) for p in file_paths]
-        status_code, content, content_type = await proxy_service.forward(
+        status_code, content, content_type = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/files/download",
             query_items=query_items,
             body=None,
-            headers={},
         )
         
         if status_code >= 400:
@@ -642,13 +688,13 @@ async def app_agent_thinking_panel(request: Request, agent_id: str, session_id: 
                 {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "error": "Agent not running"},
             )
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath=f"api/sessions/{session_id}/chatlog",
             query_items=[],
             body=None,
-            headers={},
         )
 
         if status_code >= 400:
@@ -695,13 +741,13 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 },
             )
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/config",
             query_items=[],
             body=None,
-            headers={},
         )
 
         if status_code >= 400:
@@ -905,7 +951,8 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="POST",
             subpath="api/config/save",
@@ -918,13 +965,13 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             status_type = "error"
             status_message = f"Save failed: {content.decode('utf-8', errors='ignore')}"
 
-        read_status, read_content, _ = await proxy_service.forward(
+        read_status, read_content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="GET",
             subpath="api/config",
             query_items=[],
             body=None,
-            headers={},
         )
 
         config_data = config_payload
@@ -995,14 +1042,14 @@ async def app_chat_send(request: Request):
         if attachments:
             payload["attachments"] = attachments
 
-        status_code, content, _ = await proxy_service.forward(
+        status_code, content, _ = await _forward_runtime(
+            user=user,
             agent=agent,
             method="POST",
             subpath="api/chat",
             query_items=[],
             body=json.dumps(payload).encode("utf-8"),
             headers={"content-type": "application/json"},
-            extra_headers=build_portal_identity_headers(user),
         )
 
         if status_code >= 400:

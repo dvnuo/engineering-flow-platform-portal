@@ -166,3 +166,44 @@ def test_build_portal_identity_headers_omits_empty_identity_fields():
     headers = build_portal_identity_headers(user)
 
     assert headers == {"X-Portal-Author-Source": "portal"}
+
+
+def test_proxy_service_forward_multipart_includes_safe_extra_headers(monkeypatch):
+    service = ProxyService()
+    monkeypatch.setattr(service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
+
+    captured = {}
+
+    class _Resp:
+        status_code = 201
+        content = b'{"ok": true}'
+        headers = {"content-type": "application/json"}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, **kwargs):
+            captured.update(kwargs)
+            return _Resp()
+
+    monkeypatch.setattr("app.services.proxy_service.httpx.AsyncClient", lambda timeout=None: _Client())
+
+    agent = SimpleNamespace(service_name="svc", namespace="efp-agents")
+    status_code, _, _ = asyncio.run(service.forward_multipart(
+        agent=agent,
+        method="POST",
+        subpath="api/files/upload",
+        query_items=[],
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        headers={},
+        extra_headers={"X-Portal-Author-Source": "portal", "X-Portal-User-Id": "9"},
+    ))
+
+    assert status_code == 201
+    assert captured["url"] == "http://runtime.local:8000/api/files/upload"
+    assert captured["files"]["file"][0] == "a.txt"
+    assert captured["headers"] == {"X-Portal-Author-Source": "portal", "X-Portal-User-Id": "9"}

@@ -133,13 +133,7 @@ class ProxyService:
         path = f"/{subpath}" if subpath else "/"
         url = f"{base}{path}"
 
-        outbound_headers = {}
-        if headers.get("content-type"):
-            outbound_headers["content-type"] = headers["content-type"]
-        if extra_headers:
-            for key, value in extra_headers.items():
-                if key and value:
-                    outbound_headers[key] = value
+        outbound_headers = self._build_outbound_headers(headers, extra_headers)
 
         async with httpx.AsyncClient(timeout=None) as client:
             resp = await client.request(
@@ -151,3 +145,50 @@ class ProxyService:
             )
         content_type = resp.headers.get("content-type", "application/octet-stream")
         return resp.status_code, resp.content, content_type
+
+    async def forward_multipart(
+        self,
+        agent,
+        method: str,
+        subpath: str,
+        query_items: Iterable[tuple[str, str]],
+        files,
+        data=None,
+        headers: Optional[dict[str, str]] = None,
+        extra_headers: Optional[dict[str, str]] = None,
+    ) -> tuple[int, bytes, str]:
+        try:
+            base = self.build_agent_base_url(agent).rstrip("/")
+        except ValueError as e:
+            error_msg = str(e).encode("utf-8")
+            return 502, error_msg, "text/plain"
+
+        path = f"/{subpath}" if subpath else "/"
+        url = f"{base}{path}"
+        outbound_headers = self._build_outbound_headers(headers or {}, extra_headers)
+
+        async with httpx.AsyncClient(timeout=None) as client:
+            resp = await client.request(
+                method=method,
+                url=url,
+                params=list(query_items),
+                files=files,
+                data=data,
+                headers=outbound_headers,
+            )
+
+        content_type = resp.headers.get("content-type", "application/octet-stream")
+        return resp.status_code, resp.content, content_type
+
+    @staticmethod
+    def _build_outbound_headers(
+        headers: dict[str, str], extra_headers: Optional[dict[str, str]]
+    ) -> dict[str, str]:
+        outbound_headers = {}
+        if headers.get("content-type"):
+            outbound_headers["content-type"] = headers["content-type"]
+        if extra_headers:
+            for key, value in extra_headers.items():
+                if key and value:
+                    outbound_headers[key] = value
+        return outbound_headers
