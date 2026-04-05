@@ -132,37 +132,16 @@ def test_proxy_api_chat_stream():
     assert response.status_code in [400, 401, 403, 404, 500, 502]
 
 
-def _extract_js_function_source(js_text: str, function_name: str) -> str:
-    signature = f"function {function_name}("
-    start = js_text.find(signature)
+def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
+    start_marker = f"// RUNTIME_EVENT_HELPER_START: {helper_name}"
+    end_marker = f"// RUNTIME_EVENT_HELPER_END: {helper_name}"
+    start = js_text.find(start_marker)
     if start < 0:
-        raise AssertionError(f"Unable to find {function_name} in chat_ui.js")
-
-    brace_start = js_text.find("{", start)
-    if brace_start < 0:
-        raise AssertionError(f"Unable to parse opening brace for {function_name}")
-
-    depth = 0
-    for idx in range(brace_start, len(js_text)):
-        ch = js_text[idx]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return js_text[start:idx + 1]
-
-    raise AssertionError(f"Unable to parse closing brace for {function_name}")
-
-def _extract_js_const_line(js_text: str, const_name: str) -> str:
-    signature = f"const {const_name} ="
-    start = js_text.find(signature)
-    if start < 0:
-        raise AssertionError(f"Unable to find {const_name} in chat_ui.js")
-    end = js_text.find(";", start)
+        raise AssertionError(f"Unable to find start marker for {helper_name} in chat_ui.js")
+    end = js_text.find(end_marker, start)
     if end < 0:
-        raise AssertionError(f"Unable to parse terminator for {const_name}")
-    return js_text[start:end + 1]
+        raise AssertionError(f"Unable to find end marker for {helper_name} in chat_ui.js")
+    return js_text[start + len(start_marker):end].strip()
 
 
 def test_chat_ui_runtime_event_helpers_behavior():
@@ -172,14 +151,12 @@ def test_chat_ui_runtime_event_helpers_behavior():
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
-    normalize_fn = _extract_js_function_source(js_file, "normalizeRuntimeEvent")
-    completion_states_const = _extract_js_const_line(js_file, "COMPLETION_RUNTIME_STATES")
-    completion_fn = _extract_js_function_source(js_file, "isCompletionRuntimeState")
+    normalize_block = _extract_js_helper_block(js_file, "normalizeRuntimeEvent")
+    completion_block = _extract_js_helper_block(js_file, "completionRuntimeState")
 
     script = f"""
-{completion_states_const}
-{completion_fn}
-{normalize_fn}
+{completion_block}
+{normalize_block}
 
 const legacy = normalizeRuntimeEvent({{
   type: "tool_result",
@@ -198,6 +175,11 @@ const normalized = normalizeRuntimeEvent({{
   created_at: "2026-04-04T00:00:00Z",
 }});
 
+const precedence = normalizeRuntimeEvent({{
+  type: "legacy_type",
+  event_type: "normalized_type",
+}});
+
 const wrapped = normalizeRuntimeEvent({{
   event: {{
     event_type: "llm_thinking",
@@ -212,6 +194,7 @@ const zeroStringTs = normalizeRuntimeEvent({{ type: "tool_result", ts: "0", data
 const result = {{
   legacy,
   normalized,
+  precedence,
   wrapped,
   zeroTs,
   zeroStringTs,
@@ -253,6 +236,7 @@ console.log(JSON.stringify(result));
     assert normalized["data"]["agent_id"] == "a1"
     assert normalized["state"] == "running"
     assert isinstance(normalized["ts"], (int, float))
+    assert data["precedence"]["type"] == "normalized_type"
 
     wrapped = data["wrapped"]
     assert wrapped["type"] == "llm_thinking"

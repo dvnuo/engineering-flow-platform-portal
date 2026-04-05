@@ -472,14 +472,13 @@ function isTrackableThinkingEvent(type) {
   ].includes(type);
 }
 
-const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
-
+// RUNTIME_EVENT_HELPER_START: normalizeRuntimeEvent
 function normalizeRuntimeEvent(payload) {
   if (!payload || typeof payload !== "object") return null;
 
   // Runtime may wrap the event or send the event at top-level.
   const candidate = payload.event || payload.payload || payload;
-  const type = candidate?.type || candidate?.event_type || "";
+  const type = candidate?.event_type || candidate?.type || "";
   if (!type) return null;
 
   const baseData = (candidate?.data && typeof candidate.data === "object") ? candidate.data : {};
@@ -512,10 +511,14 @@ function normalizeRuntimeEvent(payload) {
     state: candidate?.state || mergedData.state || "",
   };
 }
+// RUNTIME_EVENT_HELPER_END: normalizeRuntimeEvent
 
+// RUNTIME_EVENT_HELPER_START: completionRuntimeState
+const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
 function isCompletionRuntimeState(state) {
   return COMPLETION_RUNTIME_STATES.has(String(state || "").toLowerCase());
 }
+// RUNTIME_EVENT_HELPER_END: completionRuntimeState
 
 function getThinkingEventDisplay(event) {
   const type = event?.type || "event";

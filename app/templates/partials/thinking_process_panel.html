@@ -130,7 +130,7 @@
           {% set display = event.display or {} %}
           {% set icon = display.icon or '🤔' %}
           {% set name = display.name or event_type %}
-          {# Build message: prefer display.message, then event.data.message, then string(event.data), default to empty string #}
+          {# Build message: prefer display.message, summary, detail_payload.message, data.message, string(data), string(detail_payload), default empty #}
           {% if display.message %}
             {% set message = display.message %}
           {% elif event.summary %}
