@@ -58,20 +58,43 @@ class AgentDelegationService:
             return False
         return leader.owner_user_id == getattr(user, "id", None)
 
-    def can_view_delegation(self, delegation, user) -> bool:
+    def is_group_participant(self, group_id: str, user) -> bool:
+        members = self.member_repo.list_by_group(group_id)
+        user_id = getattr(user, "id", None)
+        if user_id is None:
+            return False
+
+        for member in members:
+            if member.user_id is not None and member.user_id == user_id:
+                return True
+            if member.agent_id:
+                agent = self.agent_repo.get_by_id(member.agent_id)
+                if agent and agent.owner_user_id == user_id:
+                    return True
+        return False
+
+    def can_view_delegation(self, delegation, user, group=None) -> bool:
         if getattr(user, "role", None) == "admin":
             return True
 
-        group = self.group_repo.get_by_id(delegation.group_id)
-        if not group:
+        resolved_group = group or self.group_repo.get_by_id(delegation.group_id)
+        if not resolved_group:
             return False
 
-        if self._is_leader_owner(group, user):
+        if self._is_leader_owner(resolved_group, user):
             return True
 
-        return delegation.visibility == "group_visible"
+        if delegation.visibility == "leader_only":
+            return False
 
-    async def create_delegation(self, payload: AgentDelegationCreateRequest):
+        return self.is_group_participant(resolved_group.id, user)
+
+    def can_create_delegation(self, group, user) -> bool:
+        if getattr(user, "role", None) == "admin":
+            return True
+        return self._is_leader_owner(group, user)
+
+    async def create_delegation(self, payload: AgentDelegationCreateRequest, user):
         group = self.group_repo.get_by_id(payload.group_id)
         if not group:
             raise AgentDelegationServiceError(status_code=404, detail="Group not found")
@@ -79,7 +102,14 @@ class AgentDelegationService:
         if payload.leader_agent_id != group.leader_agent_id:
             raise AgentDelegationServiceError(status_code=403, detail="leader_agent_id must match group leader")
 
-        leader_member = self.member_repo.get_by_group_and_agent(group.id, payload.leader_agent_id)
+        leader_agent = self.agent_repo.get_by_id(group.leader_agent_id)
+        if not leader_agent:
+            raise AgentDelegationServiceError(status_code=404, detail="Group leader agent not found")
+
+        if not self.can_create_delegation(group, user):
+            raise AgentDelegationServiceError(status_code=403, detail="Only admin or the group leader owner can create delegations")
+
+        leader_member = self.member_repo.get_by_group_and_agent(group.id, group.leader_agent_id)
         if not leader_member or leader_member.role != "leader":
             raise AgentDelegationServiceError(status_code=403, detail="Leader agent must be a leader member of the group")
 
@@ -195,4 +225,4 @@ class AgentDelegationService:
         if not apply_visibility or user is None:
             return delegations
 
-        return [item for item in delegations if self.can_view_delegation(item, user)]
+        return [item for item in delegations if self.can_view_delegation(item, user, group=group)]

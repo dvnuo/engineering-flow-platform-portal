@@ -14,6 +14,7 @@ from app.schemas.agent_group import (
     AgentGroupTaskCreateRequest,
     AgentGroupTaskSummaryResponse,
 )
+from app.services.agent_delegation_service import AgentDelegationService
 
 
 @dataclass
@@ -212,25 +213,14 @@ class AgentGroupService:
             retry_count=payload.retry_count,
         )
 
-    def _is_leader_owner(self, group, user) -> bool:
-        leader_agent = self.agent_repo.get_by_id(group.leader_agent_id)
-        if not leader_agent:
-            return False
-        return leader_agent.owner_user_id == getattr(user, "id", None)
-
-    def _can_view_delegation(self, group, delegation, user) -> bool:
-        if getattr(user, "role", None) == "admin":
-            return True
-        if self._is_leader_owner(group, user):
-            return True
-        return delegation.visibility == "group_visible"
-
     def list_group_delegations(self, group_id: str, user=None, apply_visibility: bool = False):
         group = self._get_group_or_raise(group_id)
         delegations = self.delegation_repo.list_by_group_id(group_id)
         if not apply_visibility or user is None:
             return delegations
-        return [item for item in delegations if self._can_view_delegation(group, item, user)]
+
+        visibility_service = AgentDelegationService(self.db)
+        return [item for item in delegations if visibility_service.can_view_delegation(item, user, group=group)]
 
     def get_group_task_board(self, group_id: str, user=None, apply_visibility: bool = False) -> dict:
         group = self._get_group_or_raise(group_id)

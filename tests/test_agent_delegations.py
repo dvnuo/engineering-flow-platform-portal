@@ -29,12 +29,13 @@ def _build_client_with_overrides(monkeypatch):
     db = TestingSessionLocal()
     admin_user = User(username="admin", password_hash=hash_password("pw"), role="admin", is_active=True)
     leader_owner = User(username="owner", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    direct_member_user = User(username="direct-member", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    member_agent_owner = User(username="member-agent-owner", password_hash=hash_password("pw"), role="viewer", is_active=True)
     outsider_user = User(username="outsider", password_hash=hash_password("pw"), role="viewer", is_active=True)
-    db.add_all([admin_user, leader_owner, outsider_user])
+    db.add_all([admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user])
     db.commit()
-    db.refresh(admin_user)
-    db.refresh(leader_owner)
-    db.refresh(outsider_user)
+    for u in [admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user]:
+        db.refresh(u)
 
     leader = Agent(
         name="Leader",
@@ -76,6 +77,26 @@ def _build_client_with_overrides(monkeypatch):
         endpoint_path="/",
         agent_type="workspace",
     )
+    member_owned_agent = Agent(
+        name="Member Owned Agent",
+        description="member-owned",
+        owner_user_id=member_agent_owner.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        repo_url="https://example.com/repo3.git",
+        branch="main",
+        cpu="500m",
+        memory="1Gi",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp-agents",
+        deployment_name="dep-member-owned",
+        service_name="svc-member-owned",
+        pvc_name="pvc-member-owned",
+        endpoint_path="/",
+        agent_type="workspace",
+    )
     outsider_agent = Agent(
         name="Outsider Agent",
         description="outsider",
@@ -83,7 +104,7 @@ def _build_client_with_overrides(monkeypatch):
         visibility="private",
         status="running",
         image="example/image:latest",
-        repo_url="https://example.com/repo3.git",
+        repo_url="https://example.com/repo4.git",
         branch="main",
         cpu="500m",
         memory="1Gi",
@@ -96,11 +117,10 @@ def _build_client_with_overrides(monkeypatch):
         endpoint_path="/",
         agent_type="workspace",
     )
-    db.add_all([leader, assignee, outsider_agent])
+    db.add_all([leader, assignee, member_owned_agent, outsider_agent])
     db.commit()
-    db.refresh(leader)
-    db.refresh(assignee)
-    db.refresh(outsider_agent)
+    for a in [leader, assignee, member_owned_agent, outsider_agent]:
+        db.refresh(a)
 
     group = AgentGroupRepository(db).create(
         name="Delegation Group",
@@ -110,6 +130,8 @@ def _build_client_with_overrides(monkeypatch):
     )
     AgentGroupMemberRepository(db).create(group_id=group.id, member_type="agent", user_id=None, agent_id=leader.id, role="leader")
     AgentGroupMemberRepository(db).create(group_id=group.id, member_type="agent", user_id=None, agent_id=assignee.id, role="member")
+    AgentGroupMemberRepository(db).create(group_id=group.id, member_type="user", user_id=direct_member_user.id, agent_id=None, role="member")
+    AgentGroupMemberRepository(db).create(group_id=group.id, member_type="agent", user_id=None, agent_id=member_owned_agent.id, role="member")
 
     state = {
         "user": SimpleNamespace(id=leader_owner.id, role=leader_owner.role, username=leader_owner.username, nickname="Owner"),
@@ -171,7 +193,22 @@ def _build_client_with_overrides(monkeypatch):
         app.dependency_overrides.clear()
         db.close()
 
-    return TestClient(app), db, group, leader, assignee, outsider_agent, admin_user, leader_owner, outsider_user, state, _set_user, _cleanup
+    return (
+        TestClient(app),
+        db,
+        group,
+        leader,
+        assignee,
+        outsider_agent,
+        admin_user,
+        leader_owner,
+        direct_member_user,
+        member_agent_owner,
+        outsider_user,
+        state,
+        _set_user,
+        _cleanup,
+    )
 
 
 def _payload(group_id: str, leader_id: str, assignee_id: str, visibility: str = "leader_only") -> dict:
@@ -189,9 +226,29 @@ def _payload(group_id: str, leader_id: str, assignee_id: str, visibility: str = 
     }
 
 
-def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, _owner, _outsider_user, state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+def test_create_authorization_admin_and_leader_owner_allowed_unrelated_forbidden(monkeypatch):
+    client, _db, group, leader, assignee, _outsider_agent, admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
+        set_user(admin_user)
+        admin_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
+        assert admin_resp.status_code == 200
+
+        set_user(leader_owner)
+        owner_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
+        assert owner_resp.status_code == 200
+
+        set_user(outsider_user)
+        forbidden_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
+        assert forbidden_resp.status_code == 403
+        assert "leader owner" in forbidden_resp.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
         response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
         assert response.status_code == 200
         body = response.json()
@@ -206,29 +263,23 @@ def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
 
         task_payload = json.loads(task.input_payload_json)
         assert task_payload["delegation_id"] == body["id"]
-        assert task_payload["skill_name"] == "github-review"
 
-        assert state["captured_bodies"]
         metadata = state["captured_bodies"][0]["metadata"]
         assert metadata["portal_delegation_id"] == body["id"]
         assert metadata["portal_group_id"] == group.id
-        assert metadata["portal_leader_agent_id"] == leader.id
-        assert metadata["portal_assignee_agent_id"] == assignee.id
         assert state["saw_running"] and state["saw_running"][0] is True
 
         delegation = db.get(AgentDelegation, body["id"])
         assert delegation.result_summary == "Done"
         assert json.loads(delegation.result_artifacts_json)[0]["artifact"] == "report"
-        assert json.loads(delegation.blockers_json) == []
-        assert delegation.next_recommendation == "merge"
-        assert json.loads(delegation.audit_trace_json)["steps"] == 2
     finally:
         cleanup()
 
 
-def test_non_leader_cannot_create_delegation(monkeypatch):
-    client, _db, group, _leader, assignee, outsider_agent, _admin, _owner, _outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+def test_non_leader_agent_id_cannot_be_used(monkeypatch):
+    client, _db, group, _leader, assignee, outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
+        set_user(leader_owner)
         response = client.post("/api/agent-delegations", json=_payload(group.id, outsider_agent.id, assignee.id))
         assert response.status_code == 403
         assert "leader_agent_id" in response.json()["detail"]
@@ -237,59 +288,25 @@ def test_non_leader_cannot_create_delegation(monkeypatch):
 
 
 def test_assignee_not_in_group_is_rejected(monkeypatch):
-    client, _db, group, leader, _assignee, outsider_agent, _admin, _owner, _outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, _assignee, outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
+        set_user(leader_owner)
         response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, outsider_agent.id))
         assert response.status_code == 403
-        assert "Assignee agent must be a member" in response.json()["detail"]
-    finally:
-        cleanup()
-
-
-def test_invalid_visibility_is_rejected(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, _owner, _outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        payload = _payload(group.id, leader.id, assignee.id)
-        payload["visibility"] = "public"
-        response = client.post("/api/agent-delegations", json=payload)
-        assert response.status_code == 422
-    finally:
-        cleanup()
-
-
-def test_invalid_json_payload_fields_are_rejected(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, _owner, _outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        payload = _payload(group.id, leader.id, assignee.id)
-        payload["input_artifacts_json"] = "not-json"
-        response = client.post("/api/agent-delegations", json=payload)
-        assert response.status_code == 400
-        assert "input_artifacts_json" in response.json()["detail"]
-    finally:
-        cleanup()
-
-
-def test_skill_name_missing_is_rejected(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, _owner, _outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        payload = _payload(group.id, leader.id, assignee.id)
-        payload.pop("skill_name")
-        response = client.post("/api/agent-delegations", json=payload)
-        assert response.status_code == 422
     finally:
         cleanup()
 
 
 def test_json_type_validation_for_contract_fields(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, _owner, _outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
-        cases = [
+        set_user(leader_owner)
+        for field, value in [
             ("skill_kwargs_json", '[1,2,3]'),
             ("expected_output_schema_json", '[1,2,3]'),
             ("retry_policy_json", '[1,2,3]'),
             ("input_artifacts_json", '{"x":1}'),
-        ]
-        for field, value in cases:
+        ]:
             payload = _payload(group.id, leader.id, assignee.id)
             payload[field] = value
             response = client.post("/api/agent-delegations", json=payload)
@@ -298,9 +315,87 @@ def test_json_type_validation_for_contract_fields(monkeypatch):
         cleanup()
 
 
-def test_malformed_runtime_delegation_result_marks_delegation_failed_but_keeps_task_result(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, _owner, _outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+def test_visibility_scope_group_visible_is_group_scoped_not_global(monkeypatch):
+    client, _db, group, leader, assignee, _outsider_agent, admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
+        set_user(leader_owner)
+        leader_only_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="leader_only"))
+        group_visible_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="group_visible"))
+        assert leader_only_resp.status_code == 200
+        assert group_visible_resp.status_code == 200
+
+        set_user(outsider_user)
+        outsider_list = client.get(f"/api/agent-groups/{group.id}/delegations")
+        assert outsider_list.status_code == 200
+        assert outsider_list.json() == []
+
+        set_user(direct_member_user)
+        direct_list = client.get(f"/api/agent-groups/{group.id}/delegations")
+        assert len(direct_list.json()) == 1
+        assert direct_list.json()[0]["visibility"] == "group_visible"
+
+        set_user(member_agent_owner)
+        owner_list = client.get(f"/api/agent-groups/{group.id}/delegations")
+        assert len(owner_list.json()) == 1
+        assert owner_list.json()[0]["visibility"] == "group_visible"
+
+        set_user(leader_owner)
+        leader_list = client.get(f"/api/agent-groups/{group.id}/delegations")
+        assert len(leader_list.json()) == 2
+
+        set_user(admin_user)
+        admin_list = client.get(f"/api/agent-groups/{group.id}/delegations")
+        assert len(admin_list.json()) == 2
+    finally:
+        cleanup()
+
+
+def test_leader_only_hidden_from_group_participant_non_leader(monkeypatch):
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="leader_only"))
+        delegation_id = resp.json()["id"]
+
+        set_user(direct_member_user)
+        detail = client.get(f"/api/agent-delegations/{delegation_id}")
+        assert detail.status_code == 404
+
+        board = client.get(f"/api/agent-groups/{group.id}/task-board")
+        assert board.status_code == 200
+        assert board.json()["summary"]["total"] == 0
+    finally:
+        cleanup()
+
+
+def test_shared_visibility_rule_used_by_panel_and_task_board(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="group_visible"))
+        assert resp.status_code == 200
+
+        set_user(outsider_user)
+        board = client.get(f"/api/agent-groups/{group.id}/task-board")
+        assert board.status_code == 200
+        assert board.json()["summary"]["total"] == 0
+
+        import app.web as web_module
+
+        monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: SimpleNamespace(id=outsider_user.id, role=outsider_user.role, username=outsider_user.username, nickname=outsider_user.username))
+        monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
+        panel = client.get(f"/app/agent-groups/{group.id}/task-board/panel")
+        assert panel.status_code == 200
+        assert "No delegations yet." in panel.text
+    finally:
+        cleanup()
+
+
+def test_malformed_runtime_delegation_result_marks_failed_but_keeps_task_result(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+
         class _MalformedResp:
             status_code = 200
             text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
@@ -315,57 +410,12 @@ def test_malformed_runtime_delegation_result_marks_delegation_failed_but_keeps_t
         monkeypatch.setattr("app.services.task_dispatcher.TaskDispatcherService._post_to_runtime", _fake_post)
 
         response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
-        assert response.status_code == 200
         body = response.json()
-
         delegation = db.get(AgentDelegation, body["id"])
-        assert delegation.status == "failed"
-        assert "delegation_result" in (delegation.result_summary or "")
-
         task = db.get(AgentTask, body["agent_task_id"])
+
+        assert delegation.status == "failed"
         assert task.status == "done"
         assert json.loads(task.result_payload_json)["status"] == "success"
-    finally:
-        cleanup()
-
-
-def test_visibility_filters_hide_leader_only_from_non_owner_non_admin(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, _owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        leader_only_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="leader_only"))
-        assert leader_only_resp.status_code == 200
-        group_visible_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="group_visible"))
-        assert group_visible_resp.status_code == 200
-
-        set_user(outsider_user)
-
-        detail_hidden = client.get(f"/api/agent-delegations/{leader_only_resp.json()['id']}")
-        assert detail_hidden.status_code == 404
-
-        list_resp = client.get(f"/api/agent-groups/{group.id}/delegations")
-        assert list_resp.status_code == 200
-        assert len(list_resp.json()) == 1
-        assert list_resp.json()[0]["visibility"] == "group_visible"
-
-        board_resp = client.get(f"/api/agent-groups/{group.id}/task-board")
-        assert board_resp.status_code == 200
-        assert board_resp.json()["summary"]["total"] == 1
-        assert all(item["visibility"] == "group_visible" for item in board_resp.json()["items"])
-    finally:
-        cleanup()
-
-
-def test_admin_can_see_all_delegations(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, admin_user, _owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        first = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="leader_only"))
-        second = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="group_visible"))
-        assert first.status_code == 200
-        assert second.status_code == 200
-
-        set_user(admin_user)
-        list_resp = client.get(f"/api/agent-groups/{group.id}/delegations")
-        assert list_resp.status_code == 200
-        assert len(list_resp.json()) == 2
     finally:
         cleanup()

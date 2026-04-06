@@ -25,10 +25,9 @@ def _raise_group_error(error: AgentGroupServiceError) -> None:
 
 @router.post("/api/agent-delegations", response_model=AgentDelegationResponse)
 async def create_agent_delegation(payload: AgentDelegationCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
     service = AgentDelegationService(db)
     try:
-        delegation = await service.create_delegation(payload)
+        delegation = await service.create_delegation(payload, user=user)
     except AgentDelegationServiceError as error:
         _raise_delegation_error(error)
     return AgentDelegationResponse.model_validate(delegation)
