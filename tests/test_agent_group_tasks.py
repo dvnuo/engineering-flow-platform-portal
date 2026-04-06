@@ -9,6 +9,8 @@ from app.db import Base
 from app.models import Agent, User
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.schemas.agent_group import AgentGroupTaskCreateRequest
+from app.services.agent_group_service import AgentGroupService
 from app.services.auth_service import hash_password
 
 
@@ -219,5 +221,96 @@ def test_group_task_endpoints_return_404_when_group_missing():
             },
         )
         assert create_resp.status_code == 404
+    finally:
+        cleanup()
+
+
+def test_group_tasks_endpoint_calls_service_list(monkeypatch):
+    client, db, group, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    try:
+        expected_task = AgentTaskRepository(db).create(
+            group_id=group.id,
+            parent_agent_id=parent_agent.id,
+            assignee_agent_id=assignee_agent.id,
+            source="portal",
+            task_type="service-list-task",
+            status="queued",
+        )
+        calls: list[str] = []
+
+        def _fake_list_group_tasks(self, group_id: str):
+            calls.append(group_id)
+            return [expected_task]
+
+        monkeypatch.setattr(AgentGroupService, "list_group_tasks", _fake_list_group_tasks)
+
+        response = client.get(f"/api/agent-groups/{group.id}/tasks")
+        assert response.status_code == 200
+        assert calls == [group.id]
+        assert response.json()[0]["id"] == expected_task.id
+    finally:
+        cleanup()
+
+
+def test_group_task_summary_endpoint_calls_service_summary(monkeypatch):
+    client, _db, group, _parent_agent, _assignee_agent, cleanup = _build_client_with_overrides()
+    try:
+        calls: list[str] = []
+
+        def _fake_summary(self, group_id: str):
+            calls.append(group_id)
+            return {
+                "group_id": group_id,
+                "total": 7,
+                "queued": 2,
+                "running": 2,
+                "done": 2,
+                "failed": 1,
+            }
+
+        monkeypatch.setattr(AgentGroupService, "get_group_task_summary", _fake_summary)
+
+        response = client.get(f"/api/agent-groups/{group.id}/task-summary")
+        assert response.status_code == 200
+        assert calls == [group.id]
+        assert response.json()["total"] == 7
+    finally:
+        cleanup()
+
+
+def test_group_task_create_endpoint_calls_service_create(monkeypatch):
+    client, db, group, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    try:
+        calls: list[tuple[str, AgentGroupTaskCreateRequest]] = []
+        expected_task = AgentTaskRepository(db).create(
+            group_id=group.id,
+            parent_agent_id=parent_agent.id,
+            assignee_agent_id=assignee_agent.id,
+            source="portal",
+            task_type="service-create-task",
+            status="queued",
+        )
+
+        def _fake_create(self, group_id: str, payload: AgentGroupTaskCreateRequest):
+            calls.append((group_id, payload))
+            return expected_task
+
+        monkeypatch.setattr(AgentGroupService, "create_group_task", _fake_create)
+
+        response = client.post(
+            f"/api/agent-groups/{group.id}/tasks",
+            json={
+                "parent_agent_id": parent_agent.id,
+                "assignee_agent_id": assignee_agent.id,
+                "source": "portal",
+                "task_type": "group-task",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 200
+        assert len(calls) == 1
+        assert calls[0][0] == group.id
+        assert calls[0][1].assignee_agent_id == assignee_agent.id
+        assert response.json()["id"] == expected_task.id
     finally:
         cleanup()

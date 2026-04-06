@@ -4,8 +4,6 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.agent_group_repo import AgentGroupRepository
-from app.repositories.agent_repo import AgentRepository
-from app.repositories.agent_task_repo import AgentTaskRepository
 from app.schemas.agent_group import (
     AgentGroupCreateRequest,
     AgentGroupDetailResponse,
@@ -91,40 +89,23 @@ def delete_agent_group_member(group_id: str, member_id: str, user=Depends(get_cu
 @router.get("/api/agent-groups/{group_id}/tasks", response_model=list[AgentTaskResponse])
 def list_group_tasks(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
-    group = AgentGroupRepository(db).get_by_id(group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-
-    tasks = AgentTaskRepository(db).list_by_group_id(group_id)
+    service = AgentGroupService(db)
+    try:
+        tasks = service.list_group_tasks(group_id)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
     return [AgentTaskResponse.model_validate(task) for task in tasks]
 
 
 @router.get("/api/agent-groups/{group_id}/task-summary", response_model=AgentGroupTaskSummaryResponse)
 def get_group_task_summary(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
-    group = AgentGroupRepository(db).get_by_id(group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-
-    tasks = AgentTaskRepository(db).list_by_group_id(group_id)
-    counts = {
-        "queued": 0,
-        "running": 0,
-        "done": 0,
-        "failed": 0,
-    }
-    for task in tasks:
-        if task.status in counts:
-            counts[task.status] += 1
-
-    return AgentGroupTaskSummaryResponse(
-        group_id=group_id,
-        total=len(tasks),
-        queued=counts["queued"],
-        running=counts["running"],
-        done=counts["done"],
-        failed=counts["failed"],
-    )
+    service = AgentGroupService(db)
+    try:
+        summary = service.get_group_task_summary(group_id)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
+    return AgentGroupTaskSummaryResponse(**summary)
 
 
 @router.post("/api/agent-groups/{group_id}/tasks", response_model=AgentTaskResponse)
@@ -135,29 +116,9 @@ def create_group_scoped_task(
     db: Session = Depends(get_db),
 ):
     _ = user
-    group = AgentGroupRepository(db).get_by_id(group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-
-    assignee_agent = AgentRepository(db).get_by_id(payload.assignee_agent_id)
-    if not assignee_agent:
-        raise HTTPException(status_code=404, detail="Assignee agent not found")
-
-    if payload.parent_agent_id is not None:
-        parent_agent = AgentRepository(db).get_by_id(payload.parent_agent_id)
-        if not parent_agent:
-            raise HTTPException(status_code=404, detail="Parent agent not found")
-
-    task = AgentTaskRepository(db).create(
-        group_id=group_id,
-        parent_agent_id=payload.parent_agent_id,
-        assignee_agent_id=payload.assignee_agent_id,
-        source=payload.source,
-        task_type=payload.task_type,
-        input_payload_json=payload.input_payload_json,
-        shared_context_ref=payload.shared_context_ref,
-        status=payload.status,
-        result_payload_json=payload.result_payload_json,
-        retry_count=payload.retry_count,
-    )
+    service = AgentGroupService(db)
+    try:
+        task = service.create_group_task(group_id, payload)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
     return AgentTaskResponse.model_validate(task)

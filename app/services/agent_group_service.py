@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
-from app.schemas.agent_group import AgentGroupCreateRequest, AgentGroupMemberCreateRequest
+from app.schemas.agent_group import AgentGroupCreateRequest, AgentGroupMemberCreateRequest, AgentGroupTaskCreateRequest
 
 
 @dataclass
@@ -21,6 +22,7 @@ class AgentGroupService:
         self.group_repo = AgentGroupRepository(db)
         self.member_repo = AgentGroupMemberRepository(db)
         self.agent_repo = AgentRepository(db)
+        self.task_repo = AgentTaskRepository(db)
         self.user_repo = UserRepository(db)
 
     def create_group_with_members(self, payload: AgentGroupCreateRequest, created_by_user_id: int):
@@ -150,3 +152,56 @@ class AgentGroupService:
             raise AgentGroupServiceError(status_code=409, detail="Cannot remove current group leader member")
 
         self.member_repo.delete(member)
+
+    def list_group_tasks(self, group_id: str):
+        group = self.group_repo.get_by_id(group_id)
+        if not group:
+            raise AgentGroupServiceError(status_code=404, detail="Group not found")
+        return self.task_repo.list_by_group_id(group_id)
+
+    def get_group_task_summary(self, group_id: str) -> dict:
+        tasks = self.list_group_tasks(group_id)
+        counts = {
+            "queued": 0,
+            "running": 0,
+            "done": 0,
+            "failed": 0,
+        }
+        for task in tasks:
+            if task.status in counts:
+                counts[task.status] += 1
+        return {
+            "group_id": group_id,
+            "total": len(tasks),
+            "queued": counts["queued"],
+            "running": counts["running"],
+            "done": counts["done"],
+            "failed": counts["failed"],
+        }
+
+    def create_group_task(self, group_id: str, payload: AgentGroupTaskCreateRequest):
+        group = self.group_repo.get_by_id(group_id)
+        if not group:
+            raise AgentGroupServiceError(status_code=404, detail="Group not found")
+
+        assignee_agent = self.agent_repo.get_by_id(payload.assignee_agent_id)
+        if not assignee_agent:
+            raise AgentGroupServiceError(status_code=404, detail="Assignee agent not found")
+
+        if payload.parent_agent_id is not None:
+            parent_agent = self.agent_repo.get_by_id(payload.parent_agent_id)
+            if not parent_agent:
+                raise AgentGroupServiceError(status_code=404, detail="Parent agent not found")
+
+        return self.task_repo.create(
+            group_id=group_id,
+            parent_agent_id=payload.parent_agent_id,
+            assignee_agent_id=payload.assignee_agent_id,
+            source=payload.source,
+            task_type=payload.task_type,
+            input_payload_json=payload.input_payload_json,
+            shared_context_ref=payload.shared_context_ref,
+            status=payload.status,
+            result_payload_json=payload.result_payload_json,
+            retry_count=payload.retry_count,
+        )
