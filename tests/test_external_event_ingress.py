@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -246,10 +247,59 @@ def test_jira_ingest_with_matching_rule_creates_workflow_review_task():
         tasks = AgentTaskRepository(db).list_all()
         assert len(tasks) == 1
         assert tasks[0].task_type == "jira_workflow_review_task"
-        assert '"skill_name": "workflow-review"' in tasks[0].input_payload_json
-        assert '"success_transition": "Done"' in tasks[0].input_payload_json
-        assert '"failure_reassign_to": "requester"' in tasks[0].input_payload_json
+        task_payload = json.loads(tasks[0].input_payload_json)
+        assert task_payload["skill_name"] == "workflow-review"
+        assert task_payload["success_transition"] == "Done"
+        assert task_payload["failure_reassign_to"] == "requester"
+        assert isinstance(task_payload["workflow_context"], dict)
+        assert task_payload["workflow_context"]["strict"] is True
         assert tasks[0].shared_context_ref == "EFP-123"
+    finally:
+        cleanup()
+
+
+def test_jira_ingest_rejects_bad_persisted_rule_config():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+
+        bad_rule = WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Task",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            enabled=True,
+            config_json='{"ok": true}',
+        )
+        bad_rule.config_json = "not-json"
+        WorkflowTransitionRuleRepository(db).save(bad_rule)
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Task",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-999",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "invalid_workflow_rule_config"
+        assert body["message"] == "Matched workflow rule has invalid config_json"
+
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 0
     finally:
         cleanup()
 

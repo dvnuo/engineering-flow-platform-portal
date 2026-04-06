@@ -6,6 +6,7 @@ from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.workflow_transition_rule import WorkflowTransitionRuleCreateRequest, WorkflowTransitionRuleResponse
+from app.services.workflow_rule_config import parse_workflow_rule_config
 
 router = APIRouter(prefix="/api/workflow-transition-rules", tags=["workflow-transition-rules"])
 
@@ -21,7 +22,14 @@ def create_workflow_transition_rule(
     if not target_agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target agent not found")
 
-    rule = WorkflowTransitionRuleRepository(db).create(**payload.model_dump())
+    normalized_config_json, _parsed_config, config_error = parse_workflow_rule_config(payload.config_json)
+    if config_error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=config_error)
+
+    payload_data = payload.model_dump()
+    payload_data["config_json"] = normalized_config_json
+
+    rule = WorkflowTransitionRuleRepository(db).create(**payload_data)
     return WorkflowTransitionRuleResponse.model_validate(rule)
 
 

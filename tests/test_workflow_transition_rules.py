@@ -85,6 +85,7 @@ def test_create_list_and_get_workflow_transition_rules():
                 "failure_transition": "Needs Changes",
                 "success_reassign_to": "reporter",
                 "failure_reassign_to": "requester",
+                "config_json": '{"strict": true, "max_reviews": 2}',
                 "enabled": True,
             },
         )
@@ -92,6 +93,7 @@ def test_create_list_and_get_workflow_transition_rules():
         created = create_resp.json()
         assert created["target_agent_id"] == agent.id
         assert created["system_type"] == "jira"
+        assert created["config_json"] == '{"max_reviews": 2, "strict": true}'
 
         list_resp = client.get("/api/workflow-transition-rules")
         assert list_resp.status_code == 200
@@ -104,5 +106,47 @@ def test_create_list_and_get_workflow_transition_rules():
         fetched = get_resp.json()
         assert fetched["id"] == created["id"]
         assert fetched["trigger_status"] == "In Review"
+    finally:
+        cleanup()
+
+
+def test_create_workflow_transition_rule_rejects_malformed_config_json():
+    client, agent, cleanup = _build_client_with_overrides()
+    try:
+        response = client.post(
+            "/api/workflow-transition-rules",
+            json={
+                "system_type": "jira",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "target_agent_id": agent.id,
+                "config_json": "{bad-json",
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"] == "config_json must be valid JSON"
+    finally:
+        cleanup()
+
+
+def test_create_workflow_transition_rule_rejects_non_object_config_json():
+    client, agent, cleanup = _build_client_with_overrides()
+    try:
+        invalid_values = ["[]", '"x"', "42", "true", "null"]
+        for value in invalid_values:
+            response = client.post(
+                "/api/workflow-transition-rules",
+                json={
+                    "system_type": "jira",
+                    "project_key": "EFP",
+                    "issue_type": "Story",
+                    "trigger_status": "In Review",
+                    "target_agent_id": agent.id,
+                    "config_json": value,
+                },
+            )
+            assert response.status_code == 422
+            assert response.json()["detail"] == "config_json must decode to a JSON object"
     finally:
         cleanup()

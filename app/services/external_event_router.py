@@ -5,6 +5,7 @@ from app.repositories.external_event_subscription_repo import ExternalEventSubsc
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.external_event_ingress import ExternalEventIngressRequest, ExternalEventIngressResponse
 from app.services.runtime_router import RuntimeRouterService
+from app.services.workflow_rule_config import parse_workflow_rule_config
 from sqlalchemy.orm import Session
 
 
@@ -80,6 +81,17 @@ class ExternalEventRouterService:
             matched_workflow_rule_id = matched_rule.id
             matched_agent_id = matched_rule.target_agent_id
             task_type = "jira_workflow_review_task"
+            _normalized_config_json, parsed_workflow_context, config_error = parse_workflow_rule_config(matched_rule.config_json)
+            if config_error:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="invalid_workflow_rule_config",
+                    matched_workflow_rule_id=matched_rule.id,
+                    resolved_task_type=task_type,
+                    message="Matched workflow rule has invalid config_json",
+                )
+
             payload = {
                 "issue_key": request.issue_key,
                 "project_key": request.project_key,
@@ -94,7 +106,7 @@ class ExternalEventRouterService:
                 "explicit_success_assignee": matched_rule.explicit_success_assignee,
                 "explicit_failure_assignee": matched_rule.explicit_failure_assignee,
                 "workflow_rule_id": matched_rule.id,
-                "workflow_context": matched_rule.config_json,
+                "workflow_context": parsed_workflow_context or {},
                 "payload_json": request.payload_json,
                 "metadata_json": request.metadata_json,
             }
