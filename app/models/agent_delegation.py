@@ -23,6 +23,7 @@ class AgentDelegation(Base):
     assignee_agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
     agent_task_id: Mapped[str | None] = mapped_column(ForeignKey("agent_tasks.id"), nullable=True, index=True)
     objective: Mapped[str] = mapped_column(Text, nullable=False)
+    leader_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     scoped_context_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     input_artifacts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     expected_output_schema_json: Mapped[str | None] = mapped_column(Text, nullable=True)

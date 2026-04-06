@@ -13,6 +13,7 @@ class AgentDelegationCreateRequest(BaseModel):
     leader_agent_id: str
     assignee_agent_id: str
     objective: str
+    leader_session_id: str | None = None
     scoped_context_ref: str | None = None
     scoped_context_payload_json: str | None = None
     input_artifacts_json: str | None = None
@@ -61,6 +62,7 @@ class AgentDelegationResponse(BaseModel):
     assignee_agent_id: str
     agent_task_id: str | None = None
     objective: str
+    leader_session_id: str | None = None
     scoped_context_ref: str | None = None
     scoped_context_payload_json: str | None = None
     input_artifacts_json: str | None = None
@@ -87,6 +89,7 @@ class AgentDelegationBoardItemResponse(BaseModel):
     leader_agent_id: str
     assignee_agent_id: str
     objective: str
+    leader_session_id: str | None = None
     visibility: str
     status: str
     agent_task_id: str | None = None

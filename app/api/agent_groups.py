@@ -39,18 +39,19 @@ def create_agent_group(payload: AgentGroupCreateRequest, user=Depends(get_curren
 
 @router.get("/api/agent-groups", response_model=list[AgentGroupResponse])
 def list_agent_groups(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
-    groups = AgentGroupRepository(db).list_all()
+    service = AgentGroupService(db)
+    groups = [group for group in AgentGroupRepository(db).list_all() if service.can_view_group(group, user)]
     return [AgentGroupResponse.model_validate(group) for group in groups]
 
 
 @router.get("/api/agent-groups/{group_id}", response_model=AgentGroupDetailResponse)
 def get_agent_group(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
     service = AgentGroupService(db)
     group = service.group_repo.get_by_id(group_id)
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    if not service.can_view_group(group, user):
+        raise HTTPException(status_code=403, detail="Not allowed to view group")
 
     members = service.member_repo.list_by_group(group.id)
     return AgentGroupDetailResponse(
@@ -66,8 +67,12 @@ def add_agent_group_member(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _ = user
     service = AgentGroupService(db)
+    group = service.group_repo.get_by_id(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if not service.can_manage_group(group, user):
+        raise HTTPException(status_code=403, detail="Not allowed to manage group")
     try:
         member = service.add_group_member(group_id, payload)
     except AgentGroupServiceError as error:
@@ -77,8 +82,12 @@ def add_agent_group_member(
 
 @router.delete("/api/agent-groups/{group_id}/members/{member_id}")
 def delete_agent_group_member(group_id: str, member_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
     service = AgentGroupService(db)
+    group = service.group_repo.get_by_id(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if not service.can_manage_group(group, user):
+        raise HTTPException(status_code=403, detail="Not allowed to manage group")
     try:
         service.remove_group_member(group_id, member_id)
     except AgentGroupServiceError as error:
@@ -88,10 +97,9 @@ def delete_agent_group_member(group_id: str, member_id: str, user=Depends(get_cu
 
 @router.get("/api/agent-groups/{group_id}/tasks", response_model=list[AgentTaskResponse])
 def list_group_tasks(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
     service = AgentGroupService(db)
     try:
-        tasks = service.list_group_tasks(group_id)
+        tasks = service.list_group_tasks(group_id, user=user)
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
     return [AgentTaskResponse.model_validate(task) for task in tasks]
@@ -99,10 +107,9 @@ def list_group_tasks(group_id: str, user=Depends(get_current_user), db: Session 
 
 @router.get("/api/agent-groups/{group_id}/task-summary", response_model=AgentGroupTaskSummaryResponse)
 def get_group_task_summary(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
     service = AgentGroupService(db)
     try:
-        summary = service.get_group_task_summary(group_id)
+        summary = service.get_group_task_summary(group_id, user=user)
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
     return summary
@@ -115,10 +122,9 @@ def create_group_scoped_task(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _ = user
     service = AgentGroupService(db)
     try:
-        task = service.create_group_task(group_id, payload)
+        task = service.create_group_task(group_id, payload, user=user)
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
     return AgentTaskResponse.model_validate(task)

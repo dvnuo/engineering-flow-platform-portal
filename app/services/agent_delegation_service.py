@@ -135,8 +135,10 @@ class AgentDelegationService:
         if payload.visibility not in {"leader_only", "group_visible"}:
             raise AgentDelegationServiceError(status_code=422, detail="Invalid visibility")
 
-        if payload.parent_agent_id and payload.parent_agent_id == payload.assignee_agent_id and payload.leader_agent_id == payload.assignee_agent_id:
-            raise AgentDelegationServiceError(status_code=409, detail="Delegation loop is not allowed")
+        if payload.assignee_agent_id == payload.leader_agent_id:
+            raise AgentDelegationServiceError(status_code=409, detail="Leader agent cannot delegate to itself")
+        if payload.parent_agent_id and payload.assignee_agent_id == payload.parent_agent_id:
+            raise AgentDelegationServiceError(status_code=409, detail="Parent agent cannot delegate to itself")
 
         if not self.agent_repo.get_by_id(payload.assignee_agent_id):
             raise AgentDelegationServiceError(status_code=404, detail="Assignee agent not found")
@@ -183,6 +185,7 @@ class AgentDelegationService:
             assignee_agent_id=payload.assignee_agent_id,
             agent_task_id=None,
             objective=payload.objective,
+            leader_session_id=payload.leader_session_id,
             scoped_context_ref=effective_scoped_context_ref,
             input_artifacts_json=json.dumps(input_artifacts),
             expected_output_schema_json=json.dumps(expected_output_schema),
@@ -210,6 +213,7 @@ class AgentDelegationService:
             "leader_agent_id": payload.leader_agent_id,
             "assignee_agent_id": payload.assignee_agent_id,
             "objective": payload.objective,
+            "leader_session_id": payload.leader_session_id,
             "scoped_context_ref": effective_scoped_context_ref,
             "input_artifacts": input_artifacts,
             "expected_output_schema": expected_output_schema,

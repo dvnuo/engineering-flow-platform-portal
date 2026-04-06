@@ -260,6 +260,10 @@ class TaskDispatcherService:
             "context_ref": materialized_context_ref,
             "metadata": metadata,
         }
+        leader_session_id = input_payload.get("leader_session_id")
+        if isinstance(leader_session_id, str) and leader_session_id.strip():
+            runtime_body["session_id"] = leader_session_id.strip()
+            metadata["portal_leader_session_id"] = leader_session_id.strip()
 
         try:
             runtime_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + "/api/tasks/execute"

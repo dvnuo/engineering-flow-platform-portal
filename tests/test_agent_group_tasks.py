@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, User
+from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.schemas.agent_group import AgentGroupTaskCreateRequest
@@ -28,9 +29,15 @@ def _build_client_with_overrides():
 
     db = TestingSessionLocal()
     owner = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+    participant_user = User(username="participant", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    outsider_user = User(username="outsider", password_hash=hash_password("pw"), role="viewer", is_active=True)
     db.add(owner)
+    db.add(participant_user)
+    db.add(outsider_user)
     db.commit()
     db.refresh(owner)
+    db.refresh(participant_user)
+    db.refresh(outsider_user)
 
     parent_agent = Agent(
         name="Parent Agent",
@@ -83,9 +90,14 @@ def _build_client_with_overrides():
         leader_agent_id=parent_agent.id,
         created_by_user_id=owner.id,
     )
+    AgentGroupMemberRepository(db).create(group_id=group.id, member_type="agent", user_id=None, agent_id=parent_agent.id, role="leader")
+    AgentGroupMemberRepository(db).create(group_id=group.id, member_type="agent", user_id=None, agent_id=assignee_agent.id, role="member")
+    AgentGroupMemberRepository(db).create(group_id=group.id, member_type="user", user_id=participant_user.id, agent_id=None, role="member")
+
+    state = {"user": SimpleNamespace(id=owner.id, role="admin", username=owner.username, nickname="Owner")}
 
     def _override_user():
-        return SimpleNamespace(id=owner.id, role="admin", username=owner.username, nickname="Owner")
+        return state["user"]
 
     def _override_db():
         yield db
@@ -97,11 +109,14 @@ def _build_client_with_overrides():
         app.dependency_overrides.clear()
         db.close()
 
-    return TestClient(app), db, group, parent_agent, assignee_agent, _cleanup
+    def _set_user(user):
+        state["user"] = SimpleNamespace(id=user.id, role=user.role, username=user.username, nickname=user.username)
+
+    return TestClient(app), db, group, parent_agent, assignee_agent, participant_user, outsider_user, _set_user, _cleanup
 
 
 def test_get_group_tasks_returns_group_tasks_only():
-    client, db, group, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    client, db, group, parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         AgentTaskRepository(db).create(
             group_id=group.id,
@@ -131,7 +146,7 @@ def test_get_group_tasks_returns_group_tasks_only():
 
 
 def test_get_group_task_summary_counts_statuses():
-    client, db, group, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    client, db, group, parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         AgentTaskRepository(db).create(
             group_id=group.id,
@@ -180,7 +195,7 @@ def test_get_group_task_summary_counts_statuses():
 
 
 def test_post_group_scoped_task_sets_group_id_from_path():
-    client, _db, group, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    client, _db, group, parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         response = client.post(
             f"/api/agent-groups/{group.id}/tasks",
@@ -201,7 +216,7 @@ def test_post_group_scoped_task_sets_group_id_from_path():
 
 
 def test_group_task_endpoints_return_404_when_group_missing():
-    client, _db, _group, _parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    client, _db, _group, _parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         missing_group_id = "missing-group"
 
@@ -226,7 +241,7 @@ def test_group_task_endpoints_return_404_when_group_missing():
 
 
 def test_group_task_create_returns_404_when_assignee_missing():
-    client, _db, group, parent_agent, _assignee_agent, cleanup = _build_client_with_overrides()
+    client, _db, group, parent_agent, _assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         response = client.post(
             f"/api/agent-groups/{group.id}/tasks",
@@ -245,7 +260,7 @@ def test_group_task_create_returns_404_when_assignee_missing():
 
 
 def test_group_task_create_returns_404_when_parent_missing():
-    client, _db, group, _parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    client, _db, group, _parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         response = client.post(
             f"/api/agent-groups/{group.id}/tasks",
@@ -264,7 +279,7 @@ def test_group_task_create_returns_404_when_parent_missing():
 
 
 def test_group_tasks_endpoint_calls_service_list(monkeypatch):
-    client, db, group, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    client, db, group, parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         expected_task = AgentTaskRepository(db).create(
             group_id=group.id,
@@ -276,7 +291,7 @@ def test_group_tasks_endpoint_calls_service_list(monkeypatch):
         )
         calls: list[str] = []
 
-        def _fake_list_group_tasks(self, group_id: str):
+        def _fake_list_group_tasks(self, group_id: str, user=None):
             calls.append(group_id)
             return [expected_task]
 
@@ -291,11 +306,11 @@ def test_group_tasks_endpoint_calls_service_list(monkeypatch):
 
 
 def test_group_task_summary_endpoint_calls_service_summary(monkeypatch):
-    client, _db, group, _parent_agent, _assignee_agent, cleanup = _build_client_with_overrides()
+    client, _db, group, _parent_agent, _assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         calls: list[str] = []
 
-        def _fake_summary(self, group_id: str):
+        def _fake_summary(self, group_id: str, user=None):
             calls.append(group_id)
             return {
                 "group_id": group_id,
@@ -317,7 +332,7 @@ def test_group_task_summary_endpoint_calls_service_summary(monkeypatch):
 
 
 def test_group_task_create_endpoint_calls_service_create(monkeypatch):
-    client, db, group, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    client, db, group, parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         calls: list[tuple[str, AgentGroupTaskCreateRequest]] = []
         expected_task = AgentTaskRepository(db).create(
@@ -329,7 +344,7 @@ def test_group_task_create_endpoint_calls_service_create(monkeypatch):
             status="queued",
         )
 
-        def _fake_create(self, group_id: str, payload: AgentGroupTaskCreateRequest):
+        def _fake_create(self, group_id: str, payload: AgentGroupTaskCreateRequest, user=None):
             calls.append((group_id, payload))
             return expected_task
 
@@ -350,5 +365,68 @@ def test_group_task_create_endpoint_calls_service_create(monkeypatch):
         assert calls[0][0] == group.id
         assert calls[0][1].assignee_agent_id == assignee_agent.id
         assert response.json()["id"] == expected_task.id
+    finally:
+        cleanup()
+
+
+def test_group_task_create_rejects_non_member_assignee():
+    client, db, group, parent_agent, _assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        outsider_agent = Agent(
+            name="Outsider Agent",
+            description="outsider",
+            owner_user_id=1,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-outsider.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-outsider",
+            service_name="svc-outsider",
+            pvc_name="pvc-outsider",
+            endpoint_path="/",
+            agent_type="workspace",
+        )
+        db.add(outsider_agent)
+        db.commit()
+        db.refresh(outsider_agent)
+
+        response = client.post(
+            f"/api/agent-groups/{group.id}/tasks",
+            json={
+                "parent_agent_id": parent_agent.id,
+                "assignee_agent_id": outsider_agent.id,
+                "source": "portal",
+                "task_type": "group-task",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Assignee agent must be a member of the group"
+    finally:
+        cleanup()
+
+
+def test_group_task_create_rejects_missing_shared_context_ref():
+    client, _db, group, parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        response = client.post(
+            f"/api/agent-groups/{group.id}/tasks",
+            json={
+                "parent_agent_id": parent_agent.id,
+                "assignee_agent_id": assignee_agent.id,
+                "source": "portal",
+                "task_type": "group-task",
+                "shared_context_ref": "ctx-does-not-exist",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Shared context snapshot not found"
     finally:
         cleanup()

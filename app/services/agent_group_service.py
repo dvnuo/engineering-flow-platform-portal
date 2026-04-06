@@ -49,6 +49,20 @@ class AgentGroupService:
             return True
         return delegation_service.is_group_participant(group.id, user)
 
+    def can_view_group(self, group, user) -> bool:
+        return self._can_read_group_resources(group, user)
+
+    def can_manage_group(self, group, user) -> bool:
+        if user is None:
+            return False
+        if self._is_admin(user):
+            return True
+        delegation_service = AgentDelegationService(self.db)
+        return delegation_service._is_leader_owner(group, user)
+
+    def can_manage_group_tasks(self, group, user) -> bool:
+        return self.can_manage_group(group, user)
+
     def _get_group_or_raise(self, group_id: str):
         group = self.group_repo.get_by_id(group_id)
         if not group:
@@ -69,6 +83,8 @@ class AgentGroupService:
 
     def create_group_with_members(self, payload: AgentGroupCreateRequest, created_by_user_id: int):
         leader_agent = self._get_agent_or_raise(payload.leader_agent_id, "Leader agent not found")
+        if leader_agent.agent_type != "workspace":
+            raise AgentGroupServiceError(status_code=422, detail="Leader agent must be a workspace agent")
 
         unique_user_ids = list(dict.fromkeys(payload.member_user_ids))
         unique_agent_ids = list(dict.fromkeys(payload.member_agent_ids))
@@ -185,12 +201,14 @@ class AgentGroupService:
 
         self.member_repo.delete(member)
 
-    def list_group_tasks(self, group_id: str):
-        _group = self._get_group_or_raise(group_id)
+    def list_group_tasks(self, group_id: str, user=None):
+        group = self._get_group_or_raise(group_id)
+        if user is not None and not self.can_view_group(group, user):
+            raise AgentGroupServiceError(status_code=403, detail="Not allowed to view group tasks")
         return self.task_repo.list_by_group_id(group_id)
 
-    def get_group_task_summary(self, group_id: str) -> AgentGroupTaskSummaryResponse:
-        tasks = self.list_group_tasks(group_id)
+    def get_group_task_summary(self, group_id: str, user=None) -> AgentGroupTaskSummaryResponse:
+        tasks = self.list_group_tasks(group_id, user=user)
         counts = {
             "queued": 0,
             "running": 0,
@@ -209,12 +227,22 @@ class AgentGroupService:
             failed=counts["failed"],
         )
 
-    def create_group_task(self, group_id: str, payload: AgentGroupTaskCreateRequest):
-        _group = self._get_group_or_raise(group_id)
-        _assignee_agent = self._get_agent_or_raise(payload.assignee_agent_id, "Assignee agent not found")
+    def create_group_task(self, group_id: str, payload: AgentGroupTaskCreateRequest, user=None):
+        group = self._get_group_or_raise(group_id)
+        if user is not None and not self.can_manage_group_tasks(group, user):
+            raise AgentGroupServiceError(status_code=403, detail="Not allowed to create group tasks")
+        assignee_agent = self._get_agent_or_raise(payload.assignee_agent_id, "Assignee agent not found")
+        assignee_member = self.member_repo.get_by_group_and_agent(group.id, assignee_agent.id)
+        if not assignee_member:
+            raise AgentGroupServiceError(status_code=403, detail="Assignee agent must be a member of the group")
 
         if payload.parent_agent_id is not None:
             self._get_agent_or_raise(payload.parent_agent_id, "Parent agent not found")
+
+        if payload.shared_context_ref:
+            snapshot = self.context_snapshot_repo.get_by_group_and_ref(group.id, payload.shared_context_ref)
+            if not snapshot:
+                raise AgentGroupServiceError(status_code=404, detail="Shared context snapshot not found")
 
         return self.task_repo.create(
             group_id=group_id,

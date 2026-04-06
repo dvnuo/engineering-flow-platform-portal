@@ -218,6 +218,7 @@ def _payload(
     visibility: str = "leader_only",
     scoped_context_ref: str | None = None,
     scoped_context_payload_json: str | None = None,
+    leader_session_id: str | None = None,
 ) -> dict:
     return {
         "group_id": group_id,
@@ -230,6 +231,7 @@ def _payload(
         "input_artifacts_json": '[{"type":"pull_request","id":12}]',
         "expected_output_schema_json": '{"type": "object"}',
         "retry_policy_json": '{"max_retries": 1}',
+        "leader_session_id": leader_session_id,
         "scoped_context_ref": scoped_context_ref,
         "scoped_context_payload_json": scoped_context_payload_json,
     }
@@ -285,6 +287,29 @@ def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
         cleanup()
 
 
+def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        response = client.post(
+            "/api/agent-delegations",
+            json=_payload(group.id, leader.id, assignee.id, leader_session_id="leader-session-123"),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["leader_session_id"] == "leader-session-123"
+
+        delegation = db.get(AgentDelegation, body["id"])
+        assert delegation.leader_session_id == "leader-session-123"
+
+        runtime_body = state["captured_bodies"][0]
+        assert runtime_body["session_id"] == "leader-session-123"
+        assert runtime_body["metadata"]["portal_leader_session_id"] == "leader-session-123"
+        assert runtime_body["input_payload"]["leader_session_id"] == "leader-session-123"
+    finally:
+        cleanup()
+
+
 def test_non_leader_agent_id_cannot_be_used(monkeypatch):
     client, _db, group, _leader, assignee, outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
@@ -302,6 +327,23 @@ def test_assignee_not_in_group_is_rejected(monkeypatch):
         set_user(leader_owner)
         response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, outsider_agent.id))
         assert response.status_code == 403
+    finally:
+        cleanup()
+
+
+def test_self_delegation_is_rejected_for_leader_and_parent(monkeypatch):
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        leader_self = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, leader.id))
+        assert leader_self.status_code == 409
+        assert leader_self.json()["detail"] == "Leader agent cannot delegate to itself"
+
+        parent_self_payload = _payload(group.id, leader.id, assignee.id)
+        parent_self_payload["parent_agent_id"] = assignee.id
+        parent_self = client.post("/api/agent-delegations", json=parent_self_payload)
+        assert parent_self.status_code == 409
+        assert parent_self.json()["detail"] == "Parent agent cannot delegate to itself"
     finally:
         cleanup()
 
