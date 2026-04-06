@@ -130,6 +130,15 @@ class TaskDispatcherService:
         workflow_rule_id = input_payload.get("workflow_rule_id")
         if workflow_rule_id:
             metadata["portal_workflow_rule_id"] = workflow_rule_id
+        subscription_id = input_payload.get("subscription_id")
+        if subscription_id:
+            metadata["portal_subscription_id"] = subscription_id
+        head_sha = input_payload.get("head_sha")
+        if head_sha:
+            metadata["portal_head_sha"] = head_sha
+        dedupe_hint = task.shared_context_ref
+        if dedupe_hint:
+            metadata["portal_dedupe_hint"] = dedupe_hint
 
         runtime_body = {
             "task_id": task.id,

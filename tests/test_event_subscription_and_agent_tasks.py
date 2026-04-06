@@ -125,6 +125,32 @@ def test_create_and_list_external_event_subscriptions():
         cleanup()
 
 
+def test_create_github_review_subscription_persists_config_json():
+    client, parent_agent, _assignee_agent, cleanup = _build_client_with_overrides()
+    try:
+        create_resp = client.post(
+            "/api/external-event-subscriptions",
+            json={
+                "agent_id": parent_agent.id,
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "enabled": True,
+                "config_json": '{"allowed_repos": ["octo/portal", "octo/docs"]}',
+            },
+        )
+        assert create_resp.status_code == 200
+        body = create_resp.json()
+        assert body["config_json"] == '{"allowed_repos": ["octo/portal", "octo/docs"]}'
+
+        list_resp = client.get("/api/external-event-subscriptions")
+        assert list_resp.status_code == 200
+        items = list_resp.json()
+        assert len(items) == 1
+        assert items[0]["config_json"] == '{"allowed_repos": ["octo/portal", "octo/docs"]}'
+    finally:
+        cleanup()
+
+
 def test_list_external_event_subscriptions_by_agent():
     client, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
     try:

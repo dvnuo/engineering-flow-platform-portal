@@ -76,3 +76,19 @@ class RuntimeRouterService:
         if not agent:
             return self.build_routing_decision(None, "no_enabled_binding")
         return self.build_routing_decision(agent, "matched_enabled_binding")
+
+    def resolve_binding_decision_for_event(
+        self,
+        system_type: str,
+        external_account_id: str,
+        db: Session,
+    ) -> RuntimeRoutingDecisionResponse:
+        normalized_system_type = self._normalize_system_type(system_type)
+        agent = self.find_agent_for_identity_binding(
+            system_type=normalized_system_type,
+            external_account_id=external_account_id,
+            db=db,
+        )
+        if not agent:
+            return self.build_routing_decision(None, "no_enabled_binding", execution_mode="async_task")
+        return self.build_routing_decision(agent, "matched_enabled_binding", execution_mode="async_task")

@@ -166,7 +166,7 @@ def test_ingest_matching_subscription_and_binding_creates_task():
                 "event_type": "pull_request_review_requested",
                 "external_account_id": "acct-2",
                 "target_ref": "repo:main",
-                "payload_json": '{"pr": 15}',
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":15,"reviewer":"alice","head_sha":"abc123"}',
             },
         )
         assert response.status_code == 200
@@ -180,7 +180,12 @@ def test_ingest_matching_subscription_and_binding_creates_task():
         assert len(tasks) == 1
         assert tasks[0].assignee_agent_id == agent.id
         assert tasks[0].task_type == "github_review_task"
-        assert tasks[0].status == "queued"
+        assert tasks[0].status == "done"
+        payload = json.loads(tasks[0].input_payload_json)
+        assert payload["owner"] == "octo"
+        assert payload["repo"] == "portal"
+        assert payload["pull_number"] == 15
+        assert payload["subscription_id"] in body["matched_subscription_ids"]
     finally:
         cleanup()
 
@@ -460,7 +465,7 @@ def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
 
         calls = []
 
-        def _fake_resolve_binding_decision(system_type: str, external_account_id: str, db: Session):
+        def _fake_resolve_binding_decision_for_event(system_type: str, external_account_id: str, db: Session):
             calls.append((system_type, external_account_id))
             return RuntimeRoutingDecisionResponse(
                 matched_agent_id=agent.id,
@@ -468,11 +473,15 @@ def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
                 policy_profile_id=None,
                 capability_profile_id=None,
                 reason="matched_enabled_binding",
-                execution_mode="sync",
+                execution_mode="async_task",
                 runtime_target=None,
             )
 
-        monkeypatch.setattr(ingress_api.service.runtime_router, "resolve_binding_decision", _fake_resolve_binding_decision)
+        monkeypatch.setattr(
+            ingress_api.service.runtime_router,
+            "resolve_binding_decision_for_event",
+            _fake_resolve_binding_decision_for_event,
+        )
 
         response = client.post(
             "/api/external-events/ingest",
@@ -485,6 +494,178 @@ def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
         assert response.status_code == 200
         assert response.json()["accepted"] is True
         assert calls == [("portal", "acct-5")]
+    finally:
+        cleanup()
+
+
+def test_github_review_event_requires_external_account_id():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":10}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "missing_external_account_id"
+    finally:
+        cleanup()
+
+
+def test_github_review_event_requires_owner_repo_pull_number():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-req-fields",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-req-fields",
+                "payload_json": '{"owner":"octo","repo":"portal"}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "invalid_github_event_payload"
+    finally:
+        cleanup()
+
+
+def test_github_review_event_dispatch_failed_returns_dispatch_failed(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.external_event_ingress as ingress_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-dispatch-fail",
+            enabled=True,
+        )
+
+        async def _failed_dispatch(*args, **kwargs):
+            return AgentTaskDispatchResult(
+                dispatched=True,
+                task_id="task-1",
+                runtime_status_code=500,
+                task_status="failed",
+                message="Runtime execution reported failure",
+                result_payload_json='{"ok": false}',
+            )
+
+        monkeypatch.setattr(ingress_api.service.task_dispatcher, "dispatch_task", _failed_dispatch)
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-dispatch-fail",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":101}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "dispatch_failed"
+        assert body["created_task_id"] is not None
+    finally:
+        cleanup()
+
+
+def test_github_review_event_dedupe_hint_prevents_duplicate_without_dedupe_key():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-gh-dedupe",
+            enabled=True,
+        )
+        payload = {
+            "source_type": "github",
+            "event_type": "pull_request_review_requested",
+            "external_account_id": "acct-gh-dedupe",
+            "payload_json": '{"owner":"octo","repo":"portal","pull_number":55,"head_sha":"sha-1"}',
+        }
+        first = client.post("/api/external-events/ingest", json=payload)
+        second = client.post("/api/external-events/ingest", json=payload)
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["accepted"] is True
+        assert second.json()["accepted"] is True
+        assert second.json()["deduped"] is True
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 1
+    finally:
+        cleanup()
+
+
+def test_github_review_event_rejected_when_repo_not_allowed():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+            config_json='{"allowed_repos": ["octo/other"]}',
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-repo-scope",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-repo-scope",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":7}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "repo_not_allowed"
     finally:
         cleanup()
 
