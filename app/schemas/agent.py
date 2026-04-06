@@ -14,6 +14,9 @@ class AgentCreateRequest(BaseModel):
     cpu: Optional[str] = None
     memory: Optional[str] = None
     description: Optional[str] = None
+    agent_type: str = "workspace"
+    capability_profile_id: Optional[str] = None
+    policy_profile_id: Optional[str] = None
 
 
 class AgentUpdateRequest(BaseModel):
@@ -25,6 +28,9 @@ class AgentUpdateRequest(BaseModel):
     cpu: Optional[str] = None
     memory: Optional[str] = None
     description: Optional[str] = None
+    agent_type: Optional[str] = None
+    capability_profile_id: Optional[str] = None
+    policy_profile_id: Optional[str] = None
 
 
 class AgentDeleteResponse(BaseModel):
@@ -51,6 +57,9 @@ class AgentResponse(BaseModel):
     owner_user_id: int
     cpu: Optional[str] = None
     memory: Optional[str] = None
+    agent_type: str
+    capability_profile_id: Optional[str] = None
+    policy_profile_id: Optional[str] = None
     disk_size_gi: int
     description: Optional[str] = None
     last_error: Optional[str] = None

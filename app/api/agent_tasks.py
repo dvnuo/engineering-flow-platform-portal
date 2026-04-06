@@ -1,0 +1,68 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app.deps import get_current_user
+from app.repositories.agent_repo import AgentRepository
+from app.repositories.agent_group_repo import AgentGroupRepository
+from app.repositories.agent_task_repo import AgentTaskRepository
+from app.schemas.agent_task import AgentTaskCreateRequest, AgentTaskResponse
+from app.services.task_dispatcher import TaskDispatcherService
+
+router = APIRouter(tags=["agent-tasks"])
+task_dispatcher_service = TaskDispatcherService()
+
+
+@router.post("/api/agent-tasks", response_model=AgentTaskResponse)
+def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    _ = user
+
+    assignee_agent = AgentRepository(db).get_by_id(payload.assignee_agent_id)
+    if not assignee_agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee agent not found")
+
+    if payload.parent_agent_id is not None:
+        parent_agent = AgentRepository(db).get_by_id(payload.parent_agent_id)
+        if not parent_agent:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent agent not found")
+    if payload.group_id is not None:
+        group = AgentGroupRepository(db).get_by_id(payload.group_id)
+        if not group:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    task = AgentTaskRepository(db).create(**payload.model_dump())
+    return AgentTaskResponse.model_validate(task)
+
+
+@router.get("/api/agent-tasks", response_model=list[AgentTaskResponse])
+def list_agent_tasks(group_id: str | None = None, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    _ = user
+    repo = AgentTaskRepository(db)
+    if group_id:
+        tasks = repo.list_by_group_id(group_id)
+    else:
+        tasks = repo.list_all()
+    return [AgentTaskResponse.model_validate(task) for task in tasks]
+
+
+@router.get("/api/agents/{agent_id}/tasks", response_model=list[AgentTaskResponse])
+def list_agent_tasks_by_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    _ = user
+    agent = AgentRepository(db).get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    tasks = AgentTaskRepository(db).list_by_agent(agent_id)
+    return [AgentTaskResponse.model_validate(task) for task in tasks]
+
+
+@router.post("/api/agent-tasks/{task_id}/dispatch")
+async def dispatch_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    result = await task_dispatcher_service.dispatch_task(task_id=task_id, db=db, user=user)
+
+    if not result.dispatched:
+        if result.task_status == "not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result.message)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
+
+    return result.to_dict()
