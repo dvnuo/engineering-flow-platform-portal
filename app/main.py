@@ -11,6 +11,7 @@ from app.api.agent_identity_bindings import router as agent_identity_bindings_ro
 from app.api.runtime_router import router as runtime_router
 from app.api.external_event_subscriptions import router as external_event_subscriptions_router
 from app.api.agent_tasks import router as agent_tasks_router
+from app.api.external_event_ingress import router as external_event_ingress_router
 from app.api.agents import router as agents_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
@@ -69,3 +70,4 @@ app.include_router(copilot_router)
 app.include_router(runtime_router)
 app.include_router(external_event_subscriptions_router)
 app.include_router(agent_tasks_router)
+app.include_router(external_event_ingress_router)
