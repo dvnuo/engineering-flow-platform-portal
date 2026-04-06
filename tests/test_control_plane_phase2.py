@@ -7,6 +7,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, User
+from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
+from app.schemas.runtime_router import RuntimeRoutingDecisionResponse
 from app.services.auth_service import hash_password
 from app.services.runtime_router import RuntimeRouterService
 
@@ -201,12 +203,74 @@ def test_runtime_router_returns_none_when_no_binding_exists(monkeypatch):
             assert found is None
 
             decision = service.resolve_binding_decision("slack", "missing", db)
-            assert decision["matched_agent_id"] is None
-            assert decision["reason"] == "no_enabled_binding"
-            assert decision["runtime_target"] is None
+            assert isinstance(decision, RuntimeRoutingDecisionResponse)
+            assert decision.matched_agent_id is None
+            assert decision.reason == "no_enabled_binding"
+            assert decision.runtime_target is None
         finally:
             db.close()
     finally:
+        cleanup()
+
+
+def test_runtime_router_service_returns_typed_response(monkeypatch):
+    _client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+        Base.metadata.create_all(bind=engine)
+        db = TestingSessionLocal()
+        try:
+            user = User(username="owner2", password_hash=hash_password("pw"), role="admin", is_active=True)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+            routed_agent = Agent(
+                name="Agent Routed",
+                description="desc",
+                owner_user_id=user.id,
+                visibility="private",
+                status="running",
+                image="example/image:latest",
+                repo_url="https://example.com/repo.git",
+                branch="main",
+                cpu="500m",
+                memory="1Gi",
+                disk_size_gi=20,
+                mount_path="/root/.efp",
+                namespace="efp-agents",
+                deployment_name="dep-1",
+                service_name="svc-1",
+                pvc_name="pvc-1",
+                endpoint_path="/",
+                agent_type="workspace",
+            )
+            db.add(routed_agent)
+            db.commit()
+            db.refresh(routed_agent)
+
+            AgentIdentityBindingRepository(db).create(
+                agent_id=routed_agent.id,
+                system_type="github",
+                external_account_id="acct-typed",
+                enabled=True,
+            )
+
+            service = RuntimeRouterService()
+            decision = service.resolve_binding_decision("GitHub", "acct-typed", db)
+            assert isinstance(decision, RuntimeRoutingDecisionResponse)
+            assert decision.matched_agent_id == routed_agent.id
+            assert decision.runtime_target is not None
+            assert decision.runtime_target.agent_id == routed_agent.id
+        finally:
+            db.close()
+    finally:
+        _ = agent
         cleanup()
 
 
@@ -303,6 +367,46 @@ def test_identity_bindings_duplicate_enabled_conflict(monkeypatch):
             json={"system_type": "github", "external_account_id": "acct-123", "enabled": True},
         )
         assert duplicate_resp.status_code == 409
-        assert "already exists" in duplicate_resp.json()["detail"]
+        assert duplicate_resp.json()["detail"] == "Identity binding already exists for this agent/system/account"
+    finally:
+        cleanup()
+
+
+def test_identity_bindings_duplicate_conflict_when_existing_is_disabled(monkeypatch):
+    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        first_resp = client.post(
+            f"/api/agents/{agent.id}/identity-bindings",
+            json={"system_type": "github", "external_account_id": "acct-disabled", "enabled": False},
+        )
+        assert first_resp.status_code == 200
+
+        duplicate_resp = client.post(
+            f"/api/agents/{agent.id}/identity-bindings",
+            json={"system_type": "github", "external_account_id": "acct-disabled", "enabled": True},
+        )
+        assert duplicate_resp.status_code == 409
+        assert duplicate_resp.json()["detail"] == "Identity binding already exists for this agent/system/account"
+    finally:
+        cleanup()
+
+
+def test_identity_bindings_integrity_error_has_same_duplicate_message(monkeypatch):
+    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        import app.api.agent_identity_bindings as bindings_api
+        from sqlalchemy.exc import IntegrityError
+
+        def _raise_integrity(*args, **kwargs):
+            raise IntegrityError("insert", {}, Exception("duplicate"))
+
+        monkeypatch.setattr(bindings_api.AgentIdentityBindingRepository, "create", _raise_integrity)
+
+        response = client.post(
+            f"/api/agents/{agent.id}/identity-bindings",
+            json={"system_type": "github", "external_account_id": "acct-race", "enabled": True},
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Identity binding already exists for this agent/system/account"
     finally:
         cleanup()

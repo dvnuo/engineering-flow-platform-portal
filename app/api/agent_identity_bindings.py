@@ -9,6 +9,7 @@ from app.repositories.agent_repo import AgentRepository
 from app.schemas.agent_identity_binding import AgentIdentityBindingCreateRequest, AgentIdentityBindingResponse
 
 router = APIRouter(prefix="/api/agents", tags=["agent-identity-bindings"])
+DUPLICATE_BINDING_DETAIL = "Identity binding already exists for this agent/system/account"
 
 
 def _can_write(agent, user) -> bool:
@@ -34,16 +35,16 @@ def create_identity_binding(
 
     repo = AgentIdentityBindingRepository(db)
     normalized_system_type = _normalize_system_type(payload.system_type)
-    existing_enabled = repo.get_by_agent_and_binding_key(
+    existing_binding = repo.get_by_agent_and_binding_key(
         agent_id=agent.id,
         system_type=normalized_system_type,
         external_account_id=payload.external_account_id,
-        enabled_only=True,
+        enabled_only=False,
     )
-    if existing_enabled:
+    if existing_binding:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Enabled identity binding already exists for this agent/system/account",
+            detail=DUPLICATE_BINDING_DETAIL,
         )
 
     payload_data = payload.model_dump()
@@ -54,7 +55,7 @@ def create_identity_binding(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Identity binding already exists for this agent/system/account",
+            detail=DUPLICATE_BINDING_DETAIL,
         ) from exc
 
     return AgentIdentityBindingResponse.model_validate(binding)

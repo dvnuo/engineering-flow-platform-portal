@@ -8,9 +8,9 @@ from app.services.runtime_router import RuntimeRouterService
 
 router = APIRouter(prefix="/api/runtime-router", tags=["runtime-router"])
 service = RuntimeRouterService()
+
+
 @router.post("/resolve-binding", response_model=RuntimeRoutingDecisionResponse)
 def resolve_binding(payload: ResolveBindingRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
-    normalized_system_type = payload.system_type.strip().lower()
-    decision = service.resolve_binding_decision(normalized_system_type, payload.external_account_id, db)
-    return RuntimeRoutingDecisionResponse.model_validate(decision)
+    return service.resolve_binding_decision(payload.system_type, payload.external_account_id, db)
