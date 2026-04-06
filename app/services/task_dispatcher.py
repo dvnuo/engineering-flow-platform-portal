@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.services.proxy_service import ProxyService
 
 
@@ -45,6 +46,15 @@ class TaskDispatcherService:
 
     def _build_failure_payload(self, error_code: str, message: str, status_code: int | None = None) -> str:
         return json.dumps({"ok": False, "error_code": error_code, "message": message, "runtime_status_code": status_code})
+
+    def _build_shared_context_not_found_payload(self, group_id: str | None, context_ref: str) -> str:
+        return json.dumps({
+            "ok": False,
+            "error_code": "shared_context_not_found",
+            "message": "Shared context snapshot not found for delegation task",
+            "group_id": group_id,
+            "shared_context_ref": context_ref,
+        })
 
     @staticmethod
     def _extract_delegation_result(normalized_result_payload_json: str | None) -> tuple[dict | None, str | None]:
@@ -160,6 +170,7 @@ class TaskDispatcherService:
         task_repo = AgentTaskRepository(db)
         agent_repo = AgentRepository(db)
         delegation_repo = AgentDelegationRepository(db)
+        context_repo = GroupSharedContextSnapshotRepository(db)
 
         task = task_repo.get_by_id(task_id)
         if not task:
@@ -207,6 +218,7 @@ class TaskDispatcherService:
         if dedupe_hint:
             metadata["portal_dedupe_hint"] = dedupe_hint
 
+        materialized_context_ref = None
         if task.task_type == "delegation_task":
             delegation = delegation_repo.find_by_agent_task_id(task.id)
             if delegation:
@@ -215,12 +227,37 @@ class TaskDispatcherService:
                 metadata["portal_leader_agent_id"] = delegation.leader_agent_id
                 metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
 
+            if task.shared_context_ref:
+                snapshot = context_repo.get_by_group_and_ref(task.group_id or "", task.shared_context_ref) if task.group_id else None
+                if not snapshot:
+                    task.status = "failed"
+                    task.result_payload_json = self._build_shared_context_not_found_payload(task.group_id, task.shared_context_ref)
+                    task_repo.save(task)
+                    if delegation:
+                        delegation.status = "failed"
+                        delegation_repo.save(delegation)
+                    return AgentTaskDispatchResult(False, task.id, None, task.status, "Shared context snapshot not found", task.result_payload_json)
+                try:
+                    parsed_payload = json.loads(snapshot.payload_json)
+                except json.JSONDecodeError:
+                    parsed_payload = None
+                if not isinstance(parsed_payload, dict):
+                    task.status = "failed"
+                    task.result_payload_json = self._build_failure_payload("invalid_shared_context_payload", "Persisted shared context payload must be a JSON object")
+                    task_repo.save(task)
+                    if delegation:
+                        delegation.status = "failed"
+                        delegation_repo.save(delegation)
+                    return AgentTaskDispatchResult(False, task.id, None, task.status, "Invalid shared context payload", task.result_payload_json)
+                materialized_context_ref = parsed_payload
+
         runtime_body = {
             "task_id": task.id,
             "task_type": task.task_type,
             "input_payload": input_payload,
             "source": task.source,
             "shared_context_ref": task.shared_context_ref,
+            "context_ref": materialized_context_ref,
             "metadata": metadata,
         }
 

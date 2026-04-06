@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
@@ -8,6 +9,7 @@ from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.schemas.agent_delegation import AgentDelegationCreateRequest
 from app.services.task_dispatcher import TaskDispatcherService
 
@@ -26,12 +28,25 @@ class AgentDelegationService:
         self.agent_repo = AgentRepository(db)
         self.task_repo = AgentTaskRepository(db)
         self.delegation_repo = AgentDelegationRepository(db)
+        self.context_snapshot_repo = GroupSharedContextSnapshotRepository(db)
         self.dispatcher = TaskDispatcherService()
 
     @staticmethod
     def _parse_json_object(raw: str | None, field_name: str, default_value: dict | None = None) -> dict:
         if raw is None or not raw.strip():
             return dict(default_value or {})
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AgentDelegationServiceError(status_code=400, detail=f"{field_name} must be valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise AgentDelegationServiceError(status_code=422, detail=f"{field_name} must decode to a JSON object")
+        return parsed
+
+    @staticmethod
+    def _parse_optional_json_object(raw: str | None, field_name: str) -> dict | None:
+        if raw is None or not raw.strip():
+            return None
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -139,6 +154,11 @@ class AgentDelegationService:
         )
         retry_policy = self._parse_json_object(payload.retry_policy_json, "retry_policy_json", default_value={})
         skill_kwargs = self._parse_json_object(payload.skill_kwargs_json, "skill_kwargs_json", default_value={})
+        scoped_context_payload = self._parse_optional_json_object(payload.scoped_context_payload_json, "scoped_context_payload_json")
+
+        effective_scoped_context_ref = (payload.scoped_context_ref or "").strip() or None
+        if scoped_context_payload is not None and not effective_scoped_context_ref:
+            effective_scoped_context_ref = f"ctx-{uuid4()}"
 
         ephemeral_policy = self._parse_json_object(group.ephemeral_agent_policy_json, "ephemeral_agent_policy_json", default_value={})
 
@@ -158,7 +178,7 @@ class AgentDelegationService:
             assignee_agent_id=payload.assignee_agent_id,
             agent_task_id=None,
             objective=payload.objective,
-            scoped_context_ref=payload.scoped_context_ref,
+            scoped_context_ref=effective_scoped_context_ref,
             input_artifacts_json=json.dumps(input_artifacts),
             expected_output_schema_json=json.dumps(expected_output_schema),
             deadline_at=payload.deadline_at,
@@ -168,6 +188,16 @@ class AgentDelegationService:
             audit_trace_json=json.dumps(audit_trace),
         )
 
+        if scoped_context_payload is not None and effective_scoped_context_ref:
+            self.context_snapshot_repo.create(
+                group_id=payload.group_id,
+                context_ref=effective_scoped_context_ref,
+                scope_kind="delegation",
+                payload_json=json.dumps(scoped_context_payload),
+                created_by_user_id=getattr(user, "id", None),
+                source_delegation_id=delegation.id,
+            )
+
         task_input_payload = {
             "delegation_id": delegation.id,
             "group_id": payload.group_id,
@@ -175,7 +205,7 @@ class AgentDelegationService:
             "leader_agent_id": payload.leader_agent_id,
             "assignee_agent_id": payload.assignee_agent_id,
             "objective": payload.objective,
-            "scoped_context_ref": payload.scoped_context_ref,
+            "scoped_context_ref": effective_scoped_context_ref,
             "input_artifacts": input_artifacts,
             "expected_output_schema": expected_output_schema,
             "deadline": payload.deadline_at.isoformat() if payload.deadline_at else None,
@@ -191,7 +221,7 @@ class AgentDelegationService:
             group_id=payload.group_id,
             parent_agent_id=payload.parent_agent_id or payload.leader_agent_id,
             assignee_agent_id=payload.assignee_agent_id,
-            shared_context_ref=payload.scoped_context_ref,
+            shared_context_ref=effective_scoped_context_ref,
             input_payload_json=json.dumps(task_input_payload),
             status="queued",
             result_payload_json=None,

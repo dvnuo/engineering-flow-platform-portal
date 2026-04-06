@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from pydantic import BaseModel, field_validator
@@ -13,6 +14,7 @@ class AgentDelegationCreateRequest(BaseModel):
     assignee_agent_id: str
     objective: str
     scoped_context_ref: str | None = None
+    scoped_context_payload_json: str | None = None
     input_artifacts_json: str | None = None
     expected_output_schema_json: str | None = None
     deadline_at: datetime | None = None
@@ -20,6 +22,20 @@ class AgentDelegationCreateRequest(BaseModel):
     visibility: str = "leader_only"
     skill_name: str
     skill_kwargs_json: str | None = None
+
+
+    @field_validator("scoped_context_payload_json")
+    @classmethod
+    def validate_scoped_context_payload_json(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return value
+        try:
+            parsed = json.loads(value)
+        except Exception as exc:
+            raise ValueError("scoped_context_payload_json must be valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("scoped_context_payload_json must decode to a JSON object")
+        return value
 
     @field_validator("visibility")
     @classmethod
@@ -46,6 +62,7 @@ class AgentDelegationResponse(BaseModel):
     agent_task_id: str | None = None
     objective: str
     scoped_context_ref: str | None = None
+    scoped_context_payload_json: str | None = None
     input_artifacts_json: str | None = None
     expected_output_schema_json: str | None = None
     deadline_at: datetime | None = None

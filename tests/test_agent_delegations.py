@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentDelegation, AgentTask, User
+from app.models import Agent, AgentDelegation, AgentTask, GroupSharedContextSnapshot, User
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -211,7 +211,14 @@ def _build_client_with_overrides(monkeypatch):
     )
 
 
-def _payload(group_id: str, leader_id: str, assignee_id: str, visibility: str = "leader_only") -> dict:
+def _payload(
+    group_id: str,
+    leader_id: str,
+    assignee_id: str,
+    visibility: str = "leader_only",
+    scoped_context_ref: str | None = None,
+    scoped_context_payload_json: str | None = None,
+) -> dict:
     return {
         "group_id": group_id,
         "leader_agent_id": leader_id,
@@ -223,6 +230,8 @@ def _payload(group_id: str, leader_id: str, assignee_id: str, visibility: str = 
         "input_artifacts_json": '[{"type":"pull_request","id":12}]',
         "expected_output_schema_json": '{"type": "object"}',
         "retry_policy_json": '{"max_retries": 1}',
+        "scoped_context_ref": scoped_context_ref,
+        "scoped_context_payload_json": scoped_context_payload_json,
     }
 
 
@@ -387,6 +396,87 @@ def test_shared_visibility_rule_used_by_panel_and_task_board(monkeypatch):
         panel = client.get(f"/app/agent-groups/{group.id}/task-board/panel")
         assert panel.status_code == 200
         assert "No delegations yet." in panel.text
+    finally:
+        cleanup()
+
+
+
+def test_delegation_creation_persists_shared_context_snapshot_with_explicit_ref(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        response = client.post(
+            "/api/agent-delegations",
+            json=_payload(
+                group.id,
+                leader.id,
+                assignee.id,
+                scoped_context_ref="ctx-pr-12",
+                scoped_context_payload_json='{"pr": 12, "repo": "portal"}',
+            ),
+        )
+        assert response.status_code == 200
+        body = response.json()
+
+        delegation = db.get(AgentDelegation, body["id"])
+        task = db.get(AgentTask, body["agent_task_id"])
+        assert delegation.scoped_context_ref == "ctx-pr-12"
+        assert task.shared_context_ref == "ctx-pr-12"
+
+        snapshot = db.query(GroupSharedContextSnapshot).filter(
+            GroupSharedContextSnapshot.group_id == group.id,
+            GroupSharedContextSnapshot.context_ref == "ctx-pr-12",
+        ).first()
+        assert snapshot is not None
+        assert snapshot.scope_kind == "delegation"
+        assert json.loads(snapshot.payload_json)["pr"] == 12
+
+        assert state["captured_bodies"][0]["shared_context_ref"] == "ctx-pr-12"
+        assert state["captured_bodies"][0]["context_ref"]["repo"] == "portal"
+    finally:
+        cleanup()
+
+
+def test_delegation_creation_auto_generates_context_ref_when_payload_provided(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        response = client.post(
+            "/api/agent-delegations",
+            json=_payload(
+                group.id,
+                leader.id,
+                assignee.id,
+                scoped_context_ref=None,
+                scoped_context_payload_json='{"doc":"brief"}',
+            ),
+        )
+        assert response.status_code == 200
+        body = response.json()
+
+        delegation = db.get(AgentDelegation, body["id"])
+        assert delegation.scoped_context_ref is not None
+        assert delegation.scoped_context_ref.startswith("ctx-")
+
+        snapshot = db.query(GroupSharedContextSnapshot).filter(
+            GroupSharedContextSnapshot.group_id == group.id,
+            GroupSharedContextSnapshot.context_ref == delegation.scoped_context_ref,
+        ).first()
+        assert snapshot is not None
+    finally:
+        cleanup()
+
+
+def test_dispatch_fails_when_shared_context_ref_missing_snapshot(monkeypatch):
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        response = client.post(
+            "/api/agent-delegations",
+            json=_payload(group.id, leader.id, assignee.id, scoped_context_ref="ctx-missing", scoped_context_payload_json=None),
+        )
+        assert response.status_code == 409
+        assert "Shared context snapshot not found" in response.json()["detail"]
     finally:
         cleanup()
 
