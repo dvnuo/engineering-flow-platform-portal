@@ -7,7 +7,12 @@ from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
-from app.schemas.agent_group import AgentGroupCreateRequest, AgentGroupMemberCreateRequest, AgentGroupTaskCreateRequest
+from app.schemas.agent_group import (
+    AgentGroupCreateRequest,
+    AgentGroupMemberCreateRequest,
+    AgentGroupTaskCreateRequest,
+    AgentGroupTaskSummaryResponse,
+)
 
 
 @dataclass
@@ -25,21 +30,35 @@ class AgentGroupService:
         self.task_repo = AgentTaskRepository(db)
         self.user_repo = UserRepository(db)
 
+    def _get_group_or_raise(self, group_id: str):
+        group = self.group_repo.get_by_id(group_id)
+        if not group:
+            raise AgentGroupServiceError(status_code=404, detail="Group not found")
+        return group
+
+    def _get_agent_or_raise(self, agent_id: str, detail: str):
+        agent = self.agent_repo.get_by_id(agent_id)
+        if not agent:
+            raise AgentGroupServiceError(status_code=404, detail=detail)
+        return agent
+
+    def _get_user_or_raise(self, user_id: int, detail: str):
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise AgentGroupServiceError(status_code=404, detail=detail)
+        return user
+
     def create_group_with_members(self, payload: AgentGroupCreateRequest, created_by_user_id: int):
-        leader_agent = self.agent_repo.get_by_id(payload.leader_agent_id)
-        if not leader_agent:
-            raise AgentGroupServiceError(status_code=404, detail="Leader agent not found")
+        leader_agent = self._get_agent_or_raise(payload.leader_agent_id, "Leader agent not found")
 
         unique_user_ids = list(dict.fromkeys(payload.member_user_ids))
         unique_agent_ids = list(dict.fromkeys(payload.member_agent_ids))
 
         for member_user_id in unique_user_ids:
-            if not self.user_repo.get_by_id(member_user_id):
-                raise AgentGroupServiceError(status_code=404, detail=f"User member not found: {member_user_id}")
+            self._get_user_or_raise(member_user_id, f"User member not found: {member_user_id}")
 
         for member_agent_id in unique_agent_ids:
-            if not self.agent_repo.get_by_id(member_agent_id):
-                raise AgentGroupServiceError(status_code=404, detail=f"Agent member not found: {member_agent_id}")
+            self._get_agent_or_raise(member_agent_id, f"Agent member not found: {member_agent_id}")
 
         try:
             group = self.group_repo.create_no_commit(
@@ -94,9 +113,7 @@ class AgentGroupService:
         return group, members
 
     def add_group_member(self, group_id: str, payload: AgentGroupMemberCreateRequest):
-        group = self.group_repo.get_by_id(group_id)
-        if not group:
-            raise AgentGroupServiceError(status_code=404, detail="Group not found")
+        group = self._get_group_or_raise(group_id)
 
         member_type = (payload.member_type or "").strip().lower()
         if member_type not in {"user", "agent"}:
@@ -108,8 +125,7 @@ class AgentGroupService:
         if member_type == "user":
             if not payload.user_id or payload.agent_id is not None:
                 raise AgentGroupServiceError(status_code=400, detail="user member must set user_id and omit agent_id")
-            if not self.user_repo.get_by_id(payload.user_id):
-                raise AgentGroupServiceError(status_code=404, detail="User member not found")
+            self._get_user_or_raise(payload.user_id, "User member not found")
             existing = self.member_repo.get_by_group_and_user(group.id, payload.user_id)
             if existing:
                 return existing
@@ -124,8 +140,7 @@ class AgentGroupService:
 
         if not payload.agent_id or payload.user_id is not None:
             raise AgentGroupServiceError(status_code=400, detail="agent member must set agent_id and omit user_id")
-        if not self.agent_repo.get_by_id(payload.agent_id):
-            raise AgentGroupServiceError(status_code=404, detail="Agent member not found")
+        self._get_agent_or_raise(payload.agent_id, "Agent member not found")
         existing = self.member_repo.get_by_group_and_agent(group.id, payload.agent_id)
         if existing:
             return existing
@@ -140,9 +155,7 @@ class AgentGroupService:
         return member
 
     def remove_group_member(self, group_id: str, member_id: str) -> None:
-        group = self.group_repo.get_by_id(group_id)
-        if not group:
-            raise AgentGroupServiceError(status_code=404, detail="Group not found")
+        group = self._get_group_or_raise(group_id)
 
         member = self.member_repo.get_by_id(member_id)
         if not member or member.group_id != group_id:
@@ -154,12 +167,10 @@ class AgentGroupService:
         self.member_repo.delete(member)
 
     def list_group_tasks(self, group_id: str):
-        group = self.group_repo.get_by_id(group_id)
-        if not group:
-            raise AgentGroupServiceError(status_code=404, detail="Group not found")
+        _group = self._get_group_or_raise(group_id)
         return self.task_repo.list_by_group_id(group_id)
 
-    def get_group_task_summary(self, group_id: str) -> dict:
+    def get_group_task_summary(self, group_id: str) -> AgentGroupTaskSummaryResponse:
         tasks = self.list_group_tasks(group_id)
         counts = {
             "queued": 0,
@@ -170,28 +181,21 @@ class AgentGroupService:
         for task in tasks:
             if task.status in counts:
                 counts[task.status] += 1
-        return {
-            "group_id": group_id,
-            "total": len(tasks),
-            "queued": counts["queued"],
-            "running": counts["running"],
-            "done": counts["done"],
-            "failed": counts["failed"],
-        }
+        return AgentGroupTaskSummaryResponse(
+            group_id=group_id,
+            total=len(tasks),
+            queued=counts["queued"],
+            running=counts["running"],
+            done=counts["done"],
+            failed=counts["failed"],
+        )
 
     def create_group_task(self, group_id: str, payload: AgentGroupTaskCreateRequest):
-        group = self.group_repo.get_by_id(group_id)
-        if not group:
-            raise AgentGroupServiceError(status_code=404, detail="Group not found")
-
-        assignee_agent = self.agent_repo.get_by_id(payload.assignee_agent_id)
-        if not assignee_agent:
-            raise AgentGroupServiceError(status_code=404, detail="Assignee agent not found")
+        _group = self._get_group_or_raise(group_id)
+        _assignee_agent = self._get_agent_or_raise(payload.assignee_agent_id, "Assignee agent not found")
 
         if payload.parent_agent_id is not None:
-            parent_agent = self.agent_repo.get_by_id(payload.parent_agent_id)
-            if not parent_agent:
-                raise AgentGroupServiceError(status_code=404, detail="Parent agent not found")
+            self._get_agent_or_raise(payload.parent_agent_id, "Parent agent not found")
 
         return self.task_repo.create(
             group_id=group_id,

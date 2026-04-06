@@ -105,7 +105,7 @@ def get_group_task_summary(group_id: str, user=Depends(get_current_user), db: Se
         summary = service.get_group_task_summary(group_id)
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
-    return AgentGroupTaskSummaryResponse(**summary)
+    return summary
 
 
 @router.post("/api/agent-groups/{group_id}/tasks", response_model=AgentTaskResponse)

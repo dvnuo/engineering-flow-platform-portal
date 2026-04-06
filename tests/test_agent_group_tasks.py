@@ -225,6 +225,44 @@ def test_group_task_endpoints_return_404_when_group_missing():
         cleanup()
 
 
+def test_group_task_create_returns_404_when_assignee_missing():
+    client, _db, group, parent_agent, _assignee_agent, cleanup = _build_client_with_overrides()
+    try:
+        response = client.post(
+            f"/api/agent-groups/{group.id}/tasks",
+            json={
+                "parent_agent_id": parent_agent.id,
+                "assignee_agent_id": "missing-assignee",
+                "source": "portal",
+                "task_type": "group-task",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Assignee agent not found"
+    finally:
+        cleanup()
+
+
+def test_group_task_create_returns_404_when_parent_missing():
+    client, _db, group, _parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    try:
+        response = client.post(
+            f"/api/agent-groups/{group.id}/tasks",
+            json={
+                "parent_agent_id": "missing-parent",
+                "assignee_agent_id": assignee_agent.id,
+                "source": "portal",
+                "task_type": "group-task",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Parent agent not found"
+    finally:
+        cleanup()
+
+
 def test_group_tasks_endpoint_calls_service_list(monkeypatch):
     client, db, group, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
     try:
