@@ -1,87 +1,38 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
-from app.repositories.user_repo import UserRepository
+from app.repositories.agent_task_repo import AgentTaskRepository
 from app.schemas.agent_group import (
     AgentGroupCreateRequest,
     AgentGroupDetailResponse,
     AgentGroupMemberCreateRequest,
     AgentGroupMemberResponse,
     AgentGroupResponse,
+    AgentGroupTaskCreateRequest,
+    AgentGroupTaskSummaryResponse,
 )
+from app.schemas.agent_task import AgentTaskResponse
+from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 
 router = APIRouter(tags=["agent-groups"])
 
 
+def _raise_http_service_error(error: AgentGroupServiceError) -> None:
+    raise HTTPException(status_code=error.status_code, detail=error.detail)
+
+
 @router.post("/api/agent-groups", response_model=AgentGroupDetailResponse)
 def create_agent_group(payload: AgentGroupCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    agent_repo = AgentRepository(db)
-    user_repo = UserRepository(db)
-    group_repo = AgentGroupRepository(db)
-    member_repo = AgentGroupMemberRepository(db)
+    service = AgentGroupService(db)
+    try:
+        group, members = service.create_group_with_members(payload, created_by_user_id=user.id)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
 
-    leader_agent = agent_repo.get_by_id(payload.leader_agent_id)
-    if not leader_agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leader agent not found")
-
-    unique_user_ids = list(dict.fromkeys(payload.member_user_ids))
-    unique_agent_ids = list(dict.fromkeys(payload.member_agent_ids))
-
-    for member_user_id in unique_user_ids:
-        if not user_repo.get_by_id(member_user_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User member not found: {member_user_id}")
-
-    for member_agent_id in unique_agent_ids:
-        if not agent_repo.get_by_id(member_agent_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent member not found: {member_agent_id}")
-
-    group = group_repo.create(
-        name=payload.name,
-        leader_agent_id=payload.leader_agent_id,
-        shared_context_policy_json=payload.shared_context_policy_json,
-        task_routing_policy_json=payload.task_routing_policy_json,
-        ephemeral_agent_policy_json=payload.ephemeral_agent_policy_json,
-        created_by_user_id=user.id,
-    )
-
-    member_repo.create(
-        group_id=group.id,
-        member_type="agent",
-        agent_id=payload.leader_agent_id,
-        user_id=None,
-        role="leader",
-    )
-
-    for member_agent_id in unique_agent_ids:
-        if member_agent_id == payload.leader_agent_id:
-            continue
-        if member_repo.get_by_group_and_agent(group.id, member_agent_id):
-            continue
-        member_repo.create(
-            group_id=group.id,
-            member_type="agent",
-            agent_id=member_agent_id,
-            user_id=None,
-            role="member",
-        )
-
-    for member_user_id in unique_user_ids:
-        if member_repo.get_by_group_and_user(group.id, member_user_id):
-            continue
-        member_repo.create(
-            group_id=group.id,
-            member_type="user",
-            user_id=member_user_id,
-            agent_id=None,
-            role="member",
-        )
-
-    members = member_repo.list_by_group(group.id)
     return AgentGroupDetailResponse(
         **AgentGroupResponse.model_validate(group).model_dump(),
         members=[AgentGroupMemberResponse.model_validate(item) for item in members],
@@ -98,14 +49,12 @@ def list_agent_groups(user=Depends(get_current_user), db: Session = Depends(get_
 @router.get("/api/agent-groups/{group_id}", response_model=AgentGroupDetailResponse)
 def get_agent_group(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
-    group_repo = AgentGroupRepository(db)
-    member_repo = AgentGroupMemberRepository(db)
-
-    group = group_repo.get_by_id(group_id)
+    service = AgentGroupService(db)
+    group = service.group_repo.get_by_id(group_id)
     if not group:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+        raise HTTPException(status_code=404, detail="Group not found")
 
-    members = member_repo.list_by_group(group.id)
+    members = service.member_repo.list_by_group(group.id)
     return AgentGroupDetailResponse(
         **AgentGroupResponse.model_validate(group).model_dump(),
         members=[AgentGroupMemberResponse.model_validate(item) for item in members],
@@ -120,73 +69,95 @@ def add_agent_group_member(
     db: Session = Depends(get_db),
 ):
     _ = user
-    group_repo = AgentGroupRepository(db)
-    member_repo = AgentGroupMemberRepository(db)
-    user_repo = UserRepository(db)
-    agent_repo = AgentRepository(db)
-
-    group = group_repo.get_by_id(group_id)
-    if not group:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
-
-    member_type = (payload.member_type or "").strip().lower()
-    if member_type not in {"user", "agent"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="member_type must be 'user' or 'agent'")
-
-    if payload.role == "leader":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Group already has a leader member")
-
-    if member_type == "user":
-        if not payload.user_id or payload.agent_id is not None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user member must set user_id and omit agent_id")
-        if not user_repo.get_by_id(payload.user_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User member not found")
-        existing = member_repo.get_by_group_and_user(group.id, payload.user_id)
-        if existing:
-            return AgentGroupMemberResponse.model_validate(existing)
-        member = member_repo.create(
-            group_id=group.id,
-            member_type="user",
-            user_id=payload.user_id,
-            agent_id=None,
-            role=payload.role,
-        )
-        return AgentGroupMemberResponse.model_validate(member)
-
-    if not payload.agent_id or payload.user_id is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="agent member must set agent_id and omit user_id")
-    if not agent_repo.get_by_id(payload.agent_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent member not found")
-    existing = member_repo.get_by_group_and_agent(group.id, payload.agent_id)
-    if existing:
-        return AgentGroupMemberResponse.model_validate(existing)
-
-    member = member_repo.create(
-        group_id=group.id,
-        member_type="agent",
-        user_id=None,
-        agent_id=payload.agent_id,
-        role=payload.role,
-    )
+    service = AgentGroupService(db)
+    try:
+        member = service.add_group_member(group_id, payload)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
     return AgentGroupMemberResponse.model_validate(member)
 
 
 @router.delete("/api/agent-groups/{group_id}/members/{member_id}")
 def delete_agent_group_member(group_id: str, member_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
-    group_repo = AgentGroupRepository(db)
-    member_repo = AgentGroupMemberRepository(db)
-
-    group = group_repo.get_by_id(group_id)
-    if not group:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
-
-    member = member_repo.get_by_id(member_id)
-    if not member or member.group_id != group_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group member not found")
-
-    if member.role == "leader" and member.agent_id == group.leader_agent_id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot remove current group leader member")
-
-    member_repo.delete(member)
+    service = AgentGroupService(db)
+    try:
+        service.remove_group_member(group_id, member_id)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
     return {"ok": True}
+
+
+@router.get("/api/agent-groups/{group_id}/tasks", response_model=list[AgentTaskResponse])
+def list_group_tasks(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    _ = user
+    group = AgentGroupRepository(db).get_by_id(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    tasks = AgentTaskRepository(db).list_by_group_id(group_id)
+    return [AgentTaskResponse.model_validate(task) for task in tasks]
+
+
+@router.get("/api/agent-groups/{group_id}/task-summary", response_model=AgentGroupTaskSummaryResponse)
+def get_group_task_summary(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    _ = user
+    group = AgentGroupRepository(db).get_by_id(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    tasks = AgentTaskRepository(db).list_by_group_id(group_id)
+    counts = {
+        "queued": 0,
+        "running": 0,
+        "done": 0,
+        "failed": 0,
+    }
+    for task in tasks:
+        if task.status in counts:
+            counts[task.status] += 1
+
+    return AgentGroupTaskSummaryResponse(
+        group_id=group_id,
+        total=len(tasks),
+        queued=counts["queued"],
+        running=counts["running"],
+        done=counts["done"],
+        failed=counts["failed"],
+    )
+
+
+@router.post("/api/agent-groups/{group_id}/tasks", response_model=AgentTaskResponse)
+def create_group_scoped_task(
+    group_id: str,
+    payload: AgentGroupTaskCreateRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _ = user
+    group = AgentGroupRepository(db).get_by_id(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    assignee_agent = AgentRepository(db).get_by_id(payload.assignee_agent_id)
+    if not assignee_agent:
+        raise HTTPException(status_code=404, detail="Assignee agent not found")
+
+    if payload.parent_agent_id is not None:
+        parent_agent = AgentRepository(db).get_by_id(payload.parent_agent_id)
+        if not parent_agent:
+            raise HTTPException(status_code=404, detail="Parent agent not found")
+
+    task = AgentTaskRepository(db).create(
+        group_id=group_id,
+        parent_agent_id=payload.parent_agent_id,
+        assignee_agent_id=payload.assignee_agent_id,
+        source=payload.source,
+        task_type=payload.task_type,
+        input_payload_json=payload.input_payload_json,
+        shared_context_ref=payload.shared_context_ref,
+        status=payload.status,
+        result_payload_json=payload.result_payload_json,
+        retry_count=payload.retry_count,
+    )
+    return AgentTaskResponse.model_validate(task)

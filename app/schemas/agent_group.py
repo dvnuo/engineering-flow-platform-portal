@@ -50,3 +50,24 @@ class AgentGroupResponse(BaseModel):
 
 class AgentGroupDetailResponse(AgentGroupResponse):
     members: list[AgentGroupMemberResponse]
+
+
+class AgentGroupTaskCreateRequest(BaseModel):
+    parent_agent_id: str | None = None
+    assignee_agent_id: str
+    source: str
+    task_type: str
+    input_payload_json: str | None = None
+    shared_context_ref: str | None = None
+    status: str = "queued"
+    result_payload_json: str | None = None
+    retry_count: int = 0
+
+
+class AgentGroupTaskSummaryResponse(BaseModel):
+    group_id: str
+    total: int
+    queued: int
+    running: int
+    done: int
+    failed: int

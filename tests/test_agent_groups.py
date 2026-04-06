@@ -170,3 +170,35 @@ def test_remove_leader_member_is_rejected():
         assert remove_resp.json()["detail"] == "Cannot remove current group leader member"
     finally:
         cleanup()
+
+
+def test_create_group_rolls_back_when_member_write_fails(monkeypatch):
+    client, leader_agent, member_agent, _user_member, cleanup = _build_client_with_overrides()
+    try:
+        from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
+
+        original_create_no_commit = AgentGroupMemberRepository.create_no_commit
+
+        def _boom_after_leader(self, **kwargs):
+            role = kwargs.get("role")
+            if role != "leader":
+                raise RuntimeError("simulated member insert failure")
+            return original_create_no_commit(self, **kwargs)
+
+        monkeypatch.setattr(AgentGroupMemberRepository, "create_no_commit", _boom_after_leader)
+
+        response = client.post(
+            "/api/agent-groups",
+            json={
+                "name": "Broken Group",
+                "leader_agent_id": leader_agent.id,
+                "member_agent_ids": [member_agent.id],
+            },
+        )
+        assert response.status_code == 400
+
+        list_resp = client.get("/api/agent-groups")
+        assert list_resp.status_code == 200
+        assert list_resp.json() == []
+    finally:
+        cleanup()

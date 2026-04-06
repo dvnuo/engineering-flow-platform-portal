@@ -9,10 +9,15 @@ class AgentGroupRepository:
         self.db = db
 
     def create(self, **kwargs) -> AgentGroup:
-        group = AgentGroup(**kwargs)
-        self.db.add(group)
+        group = self.create_no_commit(**kwargs)
         self.db.commit()
         self.db.refresh(group)
+        return group
+
+    def create_no_commit(self, **kwargs) -> AgentGroup:
+        group = AgentGroup(**kwargs)
+        self.db.add(group)
+        self.db.flush()
         return group
 
     def get_by_id(self, group_id: str) -> AgentGroup | None:
