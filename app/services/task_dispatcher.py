@@ -45,6 +45,51 @@ class TaskDispatcherService:
     def _build_failure_payload(self, error_code: str, message: str, status_code: int | None = None) -> str:
         return json.dumps({"ok": False, "error_code": error_code, "message": message, "runtime_status_code": status_code})
 
+    @staticmethod
+    def _normalize_runtime_response(response: httpx.Response) -> tuple[bool, str, str]:
+        runtime_status_code = response.status_code
+        response_text = response.text or ""
+
+        if not (200 <= runtime_status_code < 300):
+            payload = {
+                "ok": False,
+                "error_code": "runtime_http_error",
+                "message": f"Runtime returned non-2xx status: {runtime_status_code}",
+                "runtime_status_code": runtime_status_code,
+            }
+            return False, json.dumps(payload), "Runtime returned non-2xx status"
+
+        try:
+            response_json = response.json()
+        except Exception:
+            response_json = None
+
+        if not isinstance(response_json, dict):
+            payload = {
+                "ok": False,
+                "error_code": "malformed_runtime_response",
+                "message": "Runtime returned malformed 2xx response: expected JSON object",
+                "runtime_status_code": runtime_status_code,
+                "raw_response": response_text,
+            }
+            return False, json.dumps(payload), "Runtime returned malformed response"
+
+        normalized_payload_json = json.dumps(response_json)
+        status_value = response_json.get("status")
+        if status_value is None:
+            return False, normalized_payload_json, "Runtime returned malformed response"
+
+        normalized_status = str(status_value).lower()
+        ok_value = response_json.get("ok")
+
+        if normalized_status == "success" and ok_value is not False:
+            return True, normalized_payload_json, "Task dispatched successfully"
+
+        if normalized_status in {"error", "blocked"} or ok_value is False:
+            return False, normalized_payload_json, "Runtime execution reported failure"
+
+        return False, normalized_payload_json, "Runtime returned malformed response"
+
     async def dispatch_task(self, task_id: str, db: Session, user=None) -> AgentTaskDispatchResult:
         _ = user
         task_repo = AgentTaskRepository(db)
@@ -109,40 +154,18 @@ class TaskDispatcherService:
         try:
             response = await self._post_to_runtime(runtime_url, runtime_body)
             runtime_status_code = response.status_code
-            response_text = response.text or ""
-            try:
-                response_json = response.json()
-                normalized_result_payload_json = json.dumps(response_json)
-            except Exception:
-                response_json = None
-                normalized_result_payload_json = json.dumps({"raw_response": response_text})
-
-            if 200 <= runtime_status_code < 300:
-                is_ok = True
-                if isinstance(response_json, dict):
-                    status_value = str(response_json.get("status", "")).lower()
-                    if response_json.get("ok") is False or status_value in {"failed", "error", "blocked"}:
-                        is_ok = False
-
-                if is_ok:
-                    task.status = "done"
-                    task.result_payload_json = normalized_result_payload_json
-                    task_repo.save(task)
-                    return AgentTaskDispatchResult(True, task.id, runtime_status_code, task.status, "Task dispatched successfully", task.result_payload_json)
-
-                task.status = "failed"
-                task.result_payload_json = normalized_result_payload_json
-                task_repo.save(task)
-                return AgentTaskDispatchResult(True, task.id, runtime_status_code, task.status, "Runtime execution reported failure", task.result_payload_json)
-
-            task.status = "failed"
-            task.result_payload_json = self._build_failure_payload(
-                "runtime_http_error",
-                f"Runtime returned non-2xx status: {runtime_status_code}",
-                status_code=runtime_status_code,
-            )
+            execution_succeeded, normalized_result_payload_json, dispatch_message = self._normalize_runtime_response(response)
+            task.status = "done" if execution_succeeded else "failed"
+            task.result_payload_json = normalized_result_payload_json
             task_repo.save(task)
-            return AgentTaskDispatchResult(True, task.id, runtime_status_code, task.status, "Runtime returned non-2xx status", task.result_payload_json)
+            return AgentTaskDispatchResult(
+                True,
+                task.id,
+                runtime_status_code,
+                task.status,
+                dispatch_message,
+                task.result_payload_json,
+            )
         except Exception as exc:
             task.status = "failed"
             task.result_payload_json = self._build_failure_payload("runtime_request_error", str(exc))

@@ -23,11 +23,21 @@ def _build_client_with_overrides():
 
     class _FakeRuntimeSuccessResponse:
         status_code = 200
-        text = '{"ok": true, "status": "done"}'
+        text = (
+            '{"ok": true, "task_id": "rt-1", "execution_type": "task", "request_id": "req-1",'
+            ' "status": "success", "output_payload": {"handled": true}}'
+        )
 
         @staticmethod
         def json():
-            return {"ok": True, "status": "done"}
+            return {
+                "ok": True,
+                "task_id": "rt-1",
+                "execution_type": "task",
+                "request_id": "req-1",
+                "status": "success",
+                "output_payload": {"handled": True},
+            }
 
     async def _fake_post_to_runtime(_url: str, _body: dict):
         return _FakeRuntimeSuccessResponse()
