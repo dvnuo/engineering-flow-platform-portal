@@ -212,13 +212,29 @@ class AgentGroupService:
             retry_count=payload.retry_count,
         )
 
-    def list_group_delegations(self, group_id: str):
-        _group = self._get_group_or_raise(group_id)
-        return self.delegation_repo.list_by_group_id(group_id)
+    def _is_leader_owner(self, group, user) -> bool:
+        leader_agent = self.agent_repo.get_by_id(group.leader_agent_id)
+        if not leader_agent:
+            return False
+        return leader_agent.owner_user_id == getattr(user, "id", None)
 
-    def get_group_task_board(self, group_id: str) -> dict:
+    def _can_view_delegation(self, group, delegation, user) -> bool:
+        if getattr(user, "role", None) == "admin":
+            return True
+        if self._is_leader_owner(group, user):
+            return True
+        return delegation.visibility == "group_visible"
+
+    def list_group_delegations(self, group_id: str, user=None, apply_visibility: bool = False):
         group = self._get_group_or_raise(group_id)
-        delegations = self.list_group_delegations(group_id)
+        delegations = self.delegation_repo.list_by_group_id(group_id)
+        if not apply_visibility or user is None:
+            return delegations
+        return [item for item in delegations if self._can_view_delegation(group, item, user)]
+
+    def get_group_task_board(self, group_id: str, user=None, apply_visibility: bool = False) -> dict:
+        group = self._get_group_or_raise(group_id)
+        delegations = self.list_group_delegations(group_id, user=user, apply_visibility=apply_visibility)
         counts = {
             "queued": 0,
             "running": 0,

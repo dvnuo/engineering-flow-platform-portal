@@ -1,4 +1,3 @@
-import asyncio
 import json
 from dataclasses import dataclass
 
@@ -30,18 +29,49 @@ class AgentDelegationService:
         self.dispatcher = TaskDispatcherService()
 
     @staticmethod
-    def _parse_json_struct(raw: str | None, field_name: str):
+    def _parse_json_object(raw: str | None, field_name: str, default_value: dict | None = None) -> dict:
         if raw is None or not raw.strip():
-            return None
+            return dict(default_value or {})
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise AgentDelegationServiceError(status_code=400, detail=f"{field_name} must be valid JSON") from exc
-        if not isinstance(parsed, (dict, list)):
-            raise AgentDelegationServiceError(status_code=422, detail=f"{field_name} must decode to a JSON object or array")
+        if not isinstance(parsed, dict):
+            raise AgentDelegationServiceError(status_code=422, detail=f"{field_name} must decode to a JSON object")
         return parsed
 
-    def create_delegation(self, payload: AgentDelegationCreateRequest):
+    @staticmethod
+    def _parse_json_array(raw: str | None, field_name: str) -> list:
+        if raw is None or not raw.strip():
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AgentDelegationServiceError(status_code=400, detail=f"{field_name} must be valid JSON") from exc
+        if not isinstance(parsed, list):
+            raise AgentDelegationServiceError(status_code=422, detail=f"{field_name} must decode to a JSON array")
+        return parsed
+
+    def _is_leader_owner(self, group, user) -> bool:
+        leader = self.agent_repo.get_by_id(group.leader_agent_id)
+        if not leader:
+            return False
+        return leader.owner_user_id == getattr(user, "id", None)
+
+    def can_view_delegation(self, delegation, user) -> bool:
+        if getattr(user, "role", None) == "admin":
+            return True
+
+        group = self.group_repo.get_by_id(delegation.group_id)
+        if not group:
+            return False
+
+        if self._is_leader_owner(group, user):
+            return True
+
+        return delegation.visibility == "group_visible"
+
+    async def create_delegation(self, payload: AgentDelegationCreateRequest):
         group = self.group_repo.get_by_id(payload.group_id)
         if not group:
             raise AgentDelegationServiceError(status_code=404, detail="Group not found")
@@ -68,19 +98,26 @@ class AgentDelegationService:
         if payload.parent_agent_id and not self.agent_repo.get_by_id(payload.parent_agent_id):
             raise AgentDelegationServiceError(status_code=404, detail="Parent agent not found")
 
-        input_artifacts = self._parse_json_struct(payload.input_artifacts_json, "input_artifacts_json")
-        expected_output_schema = self._parse_json_struct(payload.expected_output_schema_json, "expected_output_schema_json")
-        retry_policy = self._parse_json_struct(payload.retry_policy_json, "retry_policy_json")
-        skill_kwargs = self._parse_json_struct(payload.skill_kwargs_json, "skill_kwargs_json")
+        input_artifacts = self._parse_json_array(payload.input_artifacts_json, "input_artifacts_json")
+        if not all(isinstance(item, dict) for item in input_artifacts):
+            raise AgentDelegationServiceError(status_code=422, detail="input_artifacts_json entries must be JSON objects")
 
-        ephemeral_policy = self._parse_json_struct(group.ephemeral_agent_policy_json, "ephemeral_agent_policy_json")
+        expected_output_schema = self._parse_json_object(
+            payload.expected_output_schema_json,
+            "expected_output_schema_json",
+            default_value={},
+        )
+        retry_policy = self._parse_json_object(payload.retry_policy_json, "retry_policy_json", default_value={})
+        skill_kwargs = self._parse_json_object(payload.skill_kwargs_json, "skill_kwargs_json", default_value={})
+
+        ephemeral_policy = self._parse_json_object(group.ephemeral_agent_policy_json, "ephemeral_agent_policy_json", default_value={})
 
         audit_trace = {
             "skill_name": payload.skill_name,
             "skill_kwargs": skill_kwargs,
             "ephemeral_agent_policy": ephemeral_policy,
         }
-        if isinstance(skill_kwargs, dict) and skill_kwargs.get("agent_mode") == "task":
+        if skill_kwargs.get("agent_mode") == "task":
             audit_trace["agent_mode"] = "task"
             audit_trace["ephemeral_task_agent_intent"] = True
 
@@ -92,10 +129,10 @@ class AgentDelegationService:
             agent_task_id=None,
             objective=payload.objective,
             scoped_context_ref=payload.scoped_context_ref,
-            input_artifacts_json=payload.input_artifacts_json,
-            expected_output_schema_json=payload.expected_output_schema_json,
+            input_artifacts_json=json.dumps(input_artifacts),
+            expected_output_schema_json=json.dumps(expected_output_schema),
             deadline_at=payload.deadline_at,
-            retry_policy_json=payload.retry_policy_json,
+            retry_policy_json=json.dumps(retry_policy),
             visibility=payload.visibility,
             status="queued",
             audit_trace_json=json.dumps(audit_trace),
@@ -134,21 +171,28 @@ class AgentDelegationService:
         delegation.agent_task_id = task.id
         self.delegation_repo.save(delegation)
 
-        dispatch_result = asyncio.run(self.dispatcher.dispatch_task(task.id, self.db))
+        dispatch_result = await self.dispatcher.dispatch_task(task.id, self.db)
         if not dispatch_result.dispatched:
             raise AgentDelegationServiceError(status_code=409, detail=f"Delegation task dispatch failed: {dispatch_result.message}")
 
         updated_delegation = self.delegation_repo.get_by_id(delegation.id)
         return updated_delegation or delegation
 
-    def get_delegation(self, delegation_id: str):
+    def get_delegation(self, delegation_id: str, user=None):
         delegation = self.delegation_repo.get_by_id(delegation_id)
         if not delegation:
             raise AgentDelegationServiceError(status_code=404, detail="Delegation not found")
+        if user is not None and not self.can_view_delegation(delegation, user):
+            raise AgentDelegationServiceError(status_code=404, detail="Delegation not found")
         return delegation
 
-    def list_group_delegations(self, group_id: str):
+    def list_group_delegations(self, group_id: str, user=None, apply_visibility: bool = False):
         group = self.group_repo.get_by_id(group_id)
         if not group:
             raise AgentDelegationServiceError(status_code=404, detail="Group not found")
-        return self.delegation_repo.list_by_group_id(group_id)
+
+        delegations = self.delegation_repo.list_by_group_id(group_id)
+        if not apply_visibility or user is None:
+            return delegations
+
+        return [item for item in delegations if self.can_view_delegation(item, user)]

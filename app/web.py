@@ -983,7 +983,7 @@ async def app_group_task_board_panel(request: Request, group_id: str):
 
         service = AgentGroupService(db)
         try:
-            board = service.get_group_task_board(group_id)
+            board = service.get_group_task_board(group_id, user=user, apply_visibility=True)
         except AgentGroupServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 

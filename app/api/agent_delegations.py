@@ -24,11 +24,11 @@ def _raise_group_error(error: AgentGroupServiceError) -> None:
 
 
 @router.post("/api/agent-delegations", response_model=AgentDelegationResponse)
-def create_agent_delegation(payload: AgentDelegationCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def create_agent_delegation(payload: AgentDelegationCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
     service = AgentDelegationService(db)
     try:
-        delegation = service.create_delegation(payload)
+        delegation = await service.create_delegation(payload)
     except AgentDelegationServiceError as error:
         _raise_delegation_error(error)
     return AgentDelegationResponse.model_validate(delegation)
@@ -36,10 +36,9 @@ def create_agent_delegation(payload: AgentDelegationCreateRequest, user=Depends(
 
 @router.get("/api/agent-delegations/{delegation_id}", response_model=AgentDelegationResponse)
 def get_agent_delegation(delegation_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
     service = AgentDelegationService(db)
     try:
-        delegation = service.get_delegation(delegation_id)
+        delegation = service.get_delegation(delegation_id, user=user)
     except AgentDelegationServiceError as error:
         _raise_delegation_error(error)
     return AgentDelegationResponse.model_validate(delegation)
@@ -47,10 +46,9 @@ def get_agent_delegation(delegation_id: str, user=Depends(get_current_user), db:
 
 @router.get("/api/agent-groups/{group_id}/delegations", response_model=list[AgentDelegationResponse])
 def list_group_delegations(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
     service = AgentDelegationService(db)
     try:
-        delegations = service.list_group_delegations(group_id)
+        delegations = service.list_group_delegations(group_id, user=user, apply_visibility=True)
     except AgentDelegationServiceError as error:
         _raise_delegation_error(error)
     return [AgentDelegationResponse.model_validate(item) for item in delegations]
@@ -58,10 +56,9 @@ def list_group_delegations(group_id: str, user=Depends(get_current_user), db: Se
 
 @router.get("/api/agent-groups/{group_id}/task-board", response_model=AgentGroupTaskBoardResponse)
 def get_group_task_board(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
     service = AgentGroupService(db)
     try:
-        board = service.get_group_task_board(group_id)
+        board = service.get_group_task_board(group_id, user=user, apply_visibility=True)
     except AgentGroupServiceError as error:
         _raise_group_error(error)
 

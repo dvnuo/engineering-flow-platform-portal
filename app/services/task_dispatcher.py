@@ -4,9 +4,9 @@ from dataclasses import asdict, dataclass
 import httpx
 from sqlalchemy.orm import Session
 
+from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.services.proxy_service import ProxyService
 
 
@@ -46,7 +46,6 @@ class TaskDispatcherService:
     def _build_failure_payload(self, error_code: str, message: str, status_code: int | None = None) -> str:
         return json.dumps({"ok": False, "error_code": error_code, "message": message, "runtime_status_code": status_code})
 
-
     @staticmethod
     def _extract_delegation_result(normalized_result_payload_json: str | None) -> tuple[dict | None, str | None]:
         if not normalized_result_payload_json:
@@ -67,7 +66,13 @@ class TaskDispatcherService:
             return None, "Runtime response missing delegation_result object"
         return delegation_result, None
 
-    def _sync_delegation_from_task_result(self, db: Session, task, normalized_result_payload_json: str | None) -> None:
+    def _sync_delegation_from_task_result(
+        self,
+        db: Session,
+        task,
+        normalized_result_payload_json: str | None,
+        task_execution_succeeded: bool,
+    ) -> None:
         if task.task_type != "delegation_task":
             return
 
@@ -83,17 +88,26 @@ class TaskDispatcherService:
             delegation_repo.save(delegation)
             return
 
-        status = str(delegation_result.get("status") or "done").lower()
-        delegation.status = "done" if status in {"done", "success", "completed"} else "failed"
-        delegation.result_summary = delegation_result.get("result_summary")
-        result_artifacts = delegation_result.get("result_artifacts")
+        runtime_status = str(delegation_result.get("status") or "done").lower()
+        computed_status = "done" if runtime_status in {"done", "success", "completed"} else "failed"
+        if not task_execution_succeeded:
+            computed_status = "failed"
+        delegation.status = computed_status
+
+        summary = delegation_result.get("summary")
+        if summary is None:
+            summary = delegation_result.get("result_summary")
+        artifacts = delegation_result.get("artifacts")
+        if artifacts is None:
+            artifacts = delegation_result.get("result_artifacts")
         blockers = delegation_result.get("blockers")
         audit_trace = delegation_result.get("audit_trace")
 
-        delegation.result_artifacts_json = json.dumps(result_artifacts) if result_artifacts is not None else None
+        delegation.result_summary = summary
+        delegation.result_artifacts_json = json.dumps(artifacts) if artifacts is not None else None
         delegation.blockers_json = json.dumps(blockers) if blockers is not None else None
         delegation.next_recommendation = delegation_result.get("next_recommendation")
-        delegation.audit_trace_json = json.dumps(audit_trace) if audit_trace is not None else delegation.audit_trace_json
+        delegation.audit_trace_json = json.dumps(audit_trace) if audit_trace is not None else None
         delegation_repo.save(delegation)
 
     @staticmethod
@@ -145,6 +159,7 @@ class TaskDispatcherService:
         _ = user
         task_repo = AgentTaskRepository(db)
         agent_repo = AgentRepository(db)
+        delegation_repo = AgentDelegationRepository(db)
 
         task = task_repo.get_by_id(task_id)
         if not task:
@@ -173,6 +188,7 @@ class TaskDispatcherService:
             task_repo.save(task)
             return AgentTaskDispatchResult(False, task.id, None, task.status, payload_error, task.result_payload_json)
 
+        delegation = None
         metadata = {
             "portal_task_id": task.id,
             "portal_task_source": task.source,
@@ -192,7 +208,6 @@ class TaskDispatcherService:
             metadata["portal_dedupe_hint"] = dedupe_hint
 
         if task.task_type == "delegation_task":
-            delegation_repo = AgentDelegationRepository(db)
             delegation = delegation_repo.find_by_agent_task_id(task.id)
             if delegation:
                 metadata["portal_delegation_id"] = delegation.id
@@ -215,10 +230,17 @@ class TaskDispatcherService:
             task.status = "failed"
             task.result_payload_json = self._build_failure_payload("runtime_url_error", str(exc))
             task_repo.save(task)
+            if delegation:
+                delegation.status = "failed"
+                delegation_repo.save(delegation)
             return AgentTaskDispatchResult(False, task.id, None, task.status, f"Runtime URL resolution failed: {exc}", task.result_payload_json)
 
         task.status = "running"
         task_repo.save(task)
+
+        if delegation:
+            delegation.status = "running"
+            delegation_repo.save(delegation)
 
         try:
             response = await self._post_to_runtime(runtime_url, runtime_body)
@@ -227,7 +249,7 @@ class TaskDispatcherService:
             task.status = "done" if execution_succeeded else "failed"
             task.result_payload_json = normalized_result_payload_json
             task_repo.save(task)
-            self._sync_delegation_from_task_result(db, task, normalized_result_payload_json)
+            self._sync_delegation_from_task_result(db, task, normalized_result_payload_json, execution_succeeded)
             return AgentTaskDispatchResult(
                 True,
                 task.id,
@@ -240,5 +262,5 @@ class TaskDispatcherService:
             task.status = "failed"
             task.result_payload_json = self._build_failure_payload("runtime_request_error", str(exc))
             task_repo.save(task)
-            self._sync_delegation_from_task_result(db, task, task.result_payload_json)
+            self._sync_delegation_from_task_result(db, task, task.result_payload_json, False)
             return AgentTaskDispatchResult(True, task.id, None, task.status, f"Runtime dispatch request failed: {exc}", task.result_payload_json)
