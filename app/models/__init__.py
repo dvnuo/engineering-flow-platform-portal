@@ -6,6 +6,7 @@ from app.models.capability_profile import CapabilityProfile
 from app.models.external_event_subscription import ExternalEventSubscription
 from app.models.policy_profile import PolicyProfile
 from app.models.user import User
+from app.models.workflow_transition_rule import WorkflowTransitionRule
 
 __all__ = [
     "User",
@@ -16,4 +17,5 @@ __all__ = [
     "AgentIdentityBinding",
     "ExternalEventSubscription",
     "AgentTask",
+    "WorkflowTransitionRule",
 ]

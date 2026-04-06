@@ -6,6 +6,7 @@ from app.repositories.capability_profile_repo import CapabilityProfileRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.repositories.user_repo import UserRepository
+from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 
 __all__ = [
     "UserRepository",
@@ -16,4 +17,5 @@ __all__ = [
     "AgentIdentityBindingRepository",
     "ExternalEventSubscriptionRepository",
     "AgentTaskRepository",
+    "WorkflowTransitionRuleRepository",
 ]

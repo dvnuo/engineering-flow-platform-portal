@@ -10,6 +10,7 @@ from app.models import Agent, User
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
+from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.runtime_router import RuntimeRoutingDecisionResponse
 from app.services.auth_service import hash_password
 
@@ -164,23 +165,23 @@ def test_dedupe_key_prevents_duplicate_task_creation():
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
-            source_type="jira",
-            event_type="issue_updated",
+            source_type="portal",
+            event_type="manual_trigger",
             enabled=True,
         )
         AgentIdentityBindingRepository(db).create(
             agent_id=agent.id,
-            system_type="jira",
+            system_type="portal",
             external_account_id="acct-3",
             enabled=True,
         )
 
         payload = {
-            "source_type": "jira",
-            "event_type": "issue_updated",
+            "source_type": "portal",
+            "event_type": "manual_trigger",
             "external_account_id": "acct-3",
-            "dedupe_key": "jira:ISSUE-1:updated",
-            "payload_json": '{"issue":"ISSUE-1"}',
+            "dedupe_key": "portal:manual:1",
+            "payload_json": '{"action":"run"}',
         }
         first = client.post("/api/external-events/ingest", json=payload)
         second = client.post("/api/external-events/ingest", json=payload)
@@ -193,6 +194,147 @@ def test_dedupe_key_prevents_duplicate_task_creation():
 
         tasks = AgentTaskRepository(db).list_all()
         assert len(tasks) == 1
+    finally:
+        cleanup()
+
+
+def test_jira_ingest_with_matching_rule_creates_workflow_review_task():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            skill_name="workflow-review",
+            success_transition="Done",
+            failure_transition="Needs Changes",
+            success_reassign_to="reporter",
+            failure_reassign_to="requester",
+            explicit_success_assignee=None,
+            explicit_failure_assignee=None,
+            enabled=True,
+            config_json='{"strict": true}',
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-123",
+                "issue_assignee": "assignee-1",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["resolved_task_type"] == "jira_workflow_review_task"
+        assert body["matched_workflow_rule_id"] is not None
+
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 1
+        assert tasks[0].task_type == "jira_workflow_review_task"
+        assert '"skill_name": "workflow-review"' in tasks[0].input_payload_json
+        assert '"success_transition": "Done"' in tasks[0].input_payload_json
+        assert '"failure_reassign_to": "requester"' in tasks[0].input_payload_json
+        assert tasks[0].shared_context_ref == "EFP-123"
+    finally:
+        cleanup()
+
+
+def test_jira_rule_assignee_specific_beats_wildcard():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        wildcard_rule = WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Bug",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            skill_name="wildcard-skill",
+            enabled=True,
+        )
+        specific_rule = WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Bug",
+            trigger_status="In Review",
+            assignee_binding="user-42",
+            target_agent_id=agent.id,
+            skill_name="specific-skill",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Bug",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-456",
+                "issue_assignee": "user-42",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["matched_workflow_rule_id"] == specific_rule.id
+        assert body["matched_workflow_rule_id"] != wildcard_rule.id
+
+        task = AgentTaskRepository(db).list_all()[0]
+        assert '"skill_name": "specific-skill"' in task.input_payload_json
+    finally:
+        cleanup()
+
+
+def test_jira_no_matching_rule_returns_rejected():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "NOPE",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "NOPE-1",
+                "issue_assignee": "someone",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "no_matching_workflow_rule"
+        assert body["created_task_id"] is None
     finally:
         cleanup()
 

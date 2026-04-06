@@ -9,6 +9,7 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.capability_profile_repo import CapabilityProfileRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.policy_profile_repo import PolicyProfileRepository
+from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 
 
 def test_agent_repo_init():
@@ -163,5 +164,17 @@ def test_agent_task_repo_methods():
     assert hasattr(repo, "list_all")
     assert hasattr(repo, "list_by_agent")
     assert hasattr(repo, "find_recent_duplicate")
+    assert hasattr(repo, "save")
+    assert hasattr(repo, "delete")
+
+
+def test_workflow_transition_rule_repo_methods():
+    mock_db = MagicMock()
+    repo = WorkflowTransitionRuleRepository(mock_db)
+    assert hasattr(repo, "create")
+    assert hasattr(repo, "get_by_id")
+    assert hasattr(repo, "list_all")
+    assert hasattr(repo, "list_enabled_for_system")
+    assert hasattr(repo, "find_matching_jira_rule")
     assert hasattr(repo, "save")
     assert hasattr(repo, "delete")
