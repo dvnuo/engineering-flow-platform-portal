@@ -57,7 +57,7 @@ def _build_client_with_overrides():
         service_name="svc-parent",
         pvc_name="pvc-parent",
         endpoint_path="/",
-        agent_type="workspace",
+                agent_type="workspace",
     )
     assignee_agent = Agent(
         name="Assignee Agent",
@@ -77,7 +77,7 @@ def _build_client_with_overrides():
         service_name="svc-assignee",
         pvc_name="pvc-assignee",
         endpoint_path="/",
-        agent_type="workspace",
+        agent_type="specialist",
     )
     db.add(parent_agent)
     db.add(assignee_agent)
@@ -390,7 +390,7 @@ def test_group_task_create_rejects_non_member_assignee():
             service_name="svc-outsider",
             pvc_name="pvc-outsider",
             endpoint_path="/",
-            agent_type="workspace",
+            agent_type="specialist",
         )
         db.add(outsider_agent)
         db.commit()
@@ -428,5 +428,24 @@ def test_group_task_create_rejects_missing_shared_context_ref():
         )
         assert response.status_code == 404
         assert response.json()["detail"] == "Shared context snapshot not found"
+    finally:
+        cleanup()
+
+
+def test_group_task_create_rejects_workspace_assignee():
+    client, _db, group, parent_agent, _assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        response = client.post(
+            f"/api/agent-groups/{group.id}/tasks",
+            json={
+                "parent_agent_id": parent_agent.id,
+                "assignee_agent_id": parent_agent.id,
+                "source": "portal",
+                "task_type": "group-task",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Assignee agent must be a specialist or task agent"
     finally:
         cleanup()

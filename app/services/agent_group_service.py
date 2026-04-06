@@ -232,6 +232,8 @@ class AgentGroupService:
         if user is not None and not self.can_manage_group_tasks(group, user):
             raise AgentGroupServiceError(status_code=403, detail="Not allowed to create group tasks")
         assignee_agent = self._get_agent_or_raise(payload.assignee_agent_id, "Assignee agent not found")
+        if assignee_agent.agent_type not in {"specialist", "task"}:
+            raise AgentGroupServiceError(status_code=422, detail="Assignee agent must be a specialist or task agent")
         assignee_member = self.member_repo.get_by_group_and_agent(group.id, assignee_agent.id)
         if not assignee_member:
             raise AgentGroupServiceError(status_code=403, detail="Assignee agent must be a member of the group")

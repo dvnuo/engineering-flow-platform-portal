@@ -140,8 +140,11 @@ class AgentDelegationService:
         if payload.parent_agent_id and payload.assignee_agent_id == payload.parent_agent_id:
             raise AgentDelegationServiceError(status_code=409, detail="Parent agent cannot delegate to itself")
 
-        if not self.agent_repo.get_by_id(payload.assignee_agent_id):
+        assignee_agent = self.agent_repo.get_by_id(payload.assignee_agent_id)
+        if not assignee_agent:
             raise AgentDelegationServiceError(status_code=404, detail="Assignee agent not found")
+        if assignee_agent.agent_type not in {"specialist", "task"}:
+            raise AgentDelegationServiceError(status_code=422, detail="Assignee agent must be a specialist or task agent")
         if payload.parent_agent_id and not self.agent_repo.get_by_id(payload.parent_agent_id):
             raise AgentDelegationServiceError(status_code=404, detail="Parent agent not found")
 
@@ -172,6 +175,7 @@ class AgentDelegationService:
         audit_trace = {
             "skill_name": payload.skill_name,
             "skill_kwargs": skill_kwargs,
+            "strict_delegation_result": True,
             "ephemeral_agent_policy": ephemeral_policy,
         }
         if skill_kwargs.get("agent_mode") == "task":
@@ -214,6 +218,7 @@ class AgentDelegationService:
             "assignee_agent_id": payload.assignee_agent_id,
             "objective": payload.objective,
             "leader_session_id": payload.leader_session_id,
+            "strict_delegation_result": True,
             "scoped_context_ref": effective_scoped_context_ref,
             "input_artifacts": input_artifacts,
             "expected_output_schema": expected_output_schema,

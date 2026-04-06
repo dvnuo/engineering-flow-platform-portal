@@ -226,6 +226,8 @@ class TaskDispatcherService:
                 metadata["portal_group_id"] = delegation.group_id
                 metadata["portal_leader_agent_id"] = delegation.leader_agent_id
                 metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
+            if input_payload.get("strict_delegation_result") is True:
+                metadata["strict_delegation_result"] = True
 
             if task.shared_context_ref:
                 snapshot = context_repo.get_by_group_and_ref(task.group_id or "", task.shared_context_ref) if task.group_id else None

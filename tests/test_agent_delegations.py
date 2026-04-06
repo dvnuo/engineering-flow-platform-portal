@@ -75,7 +75,7 @@ def _build_client_with_overrides(monkeypatch):
         service_name="svc-assignee",
         pvc_name="pvc-assignee",
         endpoint_path="/",
-        agent_type="workspace",
+        agent_type="specialist",
     )
     member_owned_agent = Agent(
         name="Member Owned Agent",
@@ -305,7 +305,9 @@ def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
         runtime_body = state["captured_bodies"][0]
         assert runtime_body["session_id"] == "leader-session-123"
         assert runtime_body["metadata"]["portal_leader_session_id"] == "leader-session-123"
+        assert runtime_body["metadata"]["strict_delegation_result"] is True
         assert runtime_body["input_payload"]["leader_session_id"] == "leader-session-123"
+        assert runtime_body["input_payload"]["strict_delegation_result"] is True
     finally:
         cleanup()
 
@@ -344,6 +346,22 @@ def test_self_delegation_is_rejected_for_leader_and_parent(monkeypatch):
         parent_self = client.post("/api/agent-delegations", json=parent_self_payload)
         assert parent_self.status_code == 409
         assert parent_self.json()["detail"] == "Parent agent cannot delegate to itself"
+    finally:
+        cleanup()
+
+
+def test_delegation_rejects_workspace_assignee(monkeypatch):
+    client, db, group, leader, _assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        workspace_member_assignee = next(
+            member.agent_id
+            for member in AgentGroupMemberRepository(db).list_by_group(group.id)
+            if member.agent_id and db.get(Agent, member.agent_id).owner_user_id == member_agent_owner.id
+        )
+        response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, workspace_member_assignee))
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Assignee agent must be a specialist or task agent"
     finally:
         cleanup()
 
