@@ -6,8 +6,10 @@ from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.schemas.agent_task import AgentTaskCreateRequest, AgentTaskResponse
+from app.services.task_dispatcher import TaskDispatcherService
 
 router = APIRouter(tags=["agent-tasks"])
+task_dispatcher_service = TaskDispatcherService()
 
 
 @router.post("/api/agent-tasks", response_model=AgentTaskResponse)
@@ -43,3 +45,15 @@ def list_agent_tasks_by_agent(agent_id: str, user=Depends(get_current_user), db:
 
     tasks = AgentTaskRepository(db).list_by_agent(agent_id)
     return [AgentTaskResponse.model_validate(task) for task in tasks]
+
+
+@router.post("/api/agent-tasks/{task_id}/dispatch")
+async def dispatch_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    result = await task_dispatcher_service.dispatch_task(task_id=task_id, db=db, user=user)
+
+    if not result.dispatched:
+        if result.task_status == "not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result.message)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
+
+    return result.to_dict()

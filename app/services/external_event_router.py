@@ -1,10 +1,12 @@
 import json
+import asyncio
 
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.external_event_ingress import ExternalEventIngressRequest, ExternalEventIngressResponse
 from app.services.runtime_router import RuntimeRouterService
+from app.services.task_dispatcher import TaskDispatcherService
 from app.services.workflow_rule_config import parse_workflow_rule_config
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,7 @@ from sqlalchemy.orm import Session
 class ExternalEventRouterService:
     def __init__(self) -> None:
         self.runtime_router = RuntimeRouterService()
+        self.task_dispatcher = TaskDispatcherService()
 
     @staticmethod
     def _normalize_source_type(source_type: str) -> str:
@@ -177,6 +180,33 @@ class ExternalEventRouterService:
             result_payload_json=None,
             retry_count=0,
         )
+
+        if source_type == "jira":
+            dispatch_result = asyncio.run(self.task_dispatcher.dispatch_task(task.id, db))
+            if not dispatch_result.dispatched or dispatch_result.task_status == "failed":
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="dispatch_failed",
+                    matched_agent_id=matched_agent_id,
+                    created_task_id=task.id,
+                    matched_workflow_rule_id=matched_workflow_rule_id,
+                    resolved_task_type=task_type,
+                    deduped=False,
+                    message=f"Task created but dispatch failed: {dispatch_result.message}",
+                )
+
+            return ExternalEventIngressResponse(
+                accepted=True,
+                matched_subscription_ids=matched_subscription_ids,
+                routing_reason=routing_reason,
+                matched_agent_id=matched_agent_id,
+                created_task_id=task.id,
+                matched_workflow_rule_id=matched_workflow_rule_id,
+                resolved_task_type=task_type,
+                deduped=False,
+                message="Event routed, task created, and task dispatched",
+            )
 
         return ExternalEventIngressResponse(
             accepted=True,

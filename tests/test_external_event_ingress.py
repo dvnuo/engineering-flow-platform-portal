@@ -13,12 +13,26 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.runtime_router import RuntimeRoutingDecisionResponse
+from app.services.task_dispatcher import AgentTaskDispatchResult
 from app.services.auth_service import hash_password
 
 
 def _build_client_with_overrides():
     from app.main import app
     import app.api.external_event_ingress as ingress_api
+
+    class _FakeRuntimeSuccessResponse:
+        status_code = 200
+        text = '{"ok": true, "status": "done"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "done"}
+
+    async def _fake_post_to_runtime(_url: str, _body: dict):
+        return _FakeRuntimeSuccessResponse()
+
+    ingress_api.service.task_dispatcher._post_to_runtime = _fake_post_to_runtime
 
     engine = create_engine(
         "sqlite://",
@@ -461,5 +475,58 @@ def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
         assert response.status_code == 200
         assert response.json()["accepted"] is True
         assert calls == [("portal", "acct-5")]
+    finally:
+        cleanup()
+
+
+def test_jira_ingress_returns_dispatch_failed_when_dispatch_fails(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.external_event_ingress as ingress_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            target_agent_id=agent.id,
+            enabled=True,
+            config_json='{"strict": true}',
+        )
+
+        async def _failed_dispatch(*args, **kwargs):
+            return AgentTaskDispatchResult(
+                dispatched=True,
+                task_id="task-1",
+                runtime_status_code=500,
+                task_status="failed",
+                message="Runtime returned non-2xx status",
+                result_payload_json='{"ok": false}',
+            )
+
+        monkeypatch.setattr(ingress_api.service.task_dispatcher, "dispatch_task", _failed_dispatch)
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-777",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "dispatch_failed"
+        assert body["created_task_id"] is not None
     finally:
         cleanup()
