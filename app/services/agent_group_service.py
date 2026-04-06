@@ -7,6 +7,7 @@ from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.agent_group import (
     AgentGroupCreateRequest,
@@ -31,7 +32,22 @@ class AgentGroupService:
         self.agent_repo = AgentRepository(db)
         self.task_repo = AgentTaskRepository(db)
         self.delegation_repo = AgentDelegationRepository(db)
+        self.context_snapshot_repo = GroupSharedContextSnapshotRepository(db)
         self.user_repo = UserRepository(db)
+
+    @staticmethod
+    def _is_admin(user) -> bool:
+        return getattr(user, "role", None) == "admin"
+
+    def _can_read_group_resources(self, group, user) -> bool:
+        if user is None:
+            return False
+        if self._is_admin(user):
+            return True
+        delegation_service = AgentDelegationService(self.db)
+        if delegation_service._is_leader_owner(group, user):
+            return True
+        return delegation_service.is_group_participant(group.id, user)
 
     def _get_group_or_raise(self, group_id: str):
         group = self.group_repo.get_by_id(group_id)
@@ -247,3 +263,18 @@ class AgentGroupService:
             },
             "items": delegations,
         }
+
+    def list_group_shared_context_snapshots(self, group_id: str, user):
+        group = self._get_group_or_raise(group_id)
+        if not self._can_read_group_resources(group, user):
+            raise AgentGroupServiceError(status_code=403, detail="Not allowed to read group shared contexts")
+        return self.context_snapshot_repo.list_by_group_id(group.id)
+
+    def get_group_shared_context_snapshot(self, group_id: str, context_ref: str, user):
+        group = self._get_group_or_raise(group_id)
+        if not self._can_read_group_resources(group, user):
+            raise AgentGroupServiceError(status_code=403, detail="Not allowed to read group shared contexts")
+        snapshot = self.context_snapshot_repo.get_by_group_and_ref(group.id, context_ref)
+        if not snapshot:
+            raise AgentGroupServiceError(status_code=404, detail="Shared context snapshot not found")
+        return snapshot

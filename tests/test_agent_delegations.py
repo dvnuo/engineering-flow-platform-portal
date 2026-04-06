@@ -481,6 +481,69 @@ def test_dispatch_fails_when_shared_context_ref_missing_snapshot(monkeypatch):
         cleanup()
 
 
+def test_group_shared_context_list_endpoint_auth_and_shape(monkeypatch):
+    client, db, group, _leader, _assignee, _outsider_agent, admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        db.add(
+            GroupSharedContextSnapshot(
+                group_id=group.id,
+                context_ref="ctx-shared-a",
+                scope_kind="delegation",
+                payload_json='{"topic":"alpha"}',
+                created_by_user_id=leader_owner.id,
+                source_delegation_id=None,
+            )
+        )
+        db.commit()
+
+        for readable_user in [admin_user, leader_owner, direct_member_user, member_agent_owner]:
+            set_user(readable_user)
+            response = client.get(f"/api/agent-groups/{group.id}/shared-contexts")
+            assert response.status_code == 200
+            items = response.json()
+            assert len(items) == 1
+            assert items[0]["context_ref"] == "ctx-shared-a"
+            assert "payload_json" not in items[0]
+
+        set_user(outsider_user)
+        forbidden = client.get(f"/api/agent-groups/{group.id}/shared-contexts")
+        assert forbidden.status_code == 403
+    finally:
+        cleanup()
+
+
+def test_group_shared_context_detail_endpoint_and_not_found(monkeypatch):
+    client, db, group, _leader, _assignee, _outsider_agent, _admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        db.add(
+            GroupSharedContextSnapshot(
+                group_id=group.id,
+                context_ref="ctx-shared-b",
+                scope_kind="delegation",
+                payload_json='{"repo":"portal","pr":22}',
+                created_by_user_id=leader_owner.id,
+                source_delegation_id=None,
+            )
+        )
+        db.commit()
+
+        set_user(leader_owner)
+        response = client.get(f"/api/agent-groups/{group.id}/shared-contexts/ctx-shared-b")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["context_ref"] == "ctx-shared-b"
+        assert json.loads(body["payload_json"])["pr"] == 22
+
+        missing = client.get(f"/api/agent-groups/{group.id}/shared-contexts/ctx-does-not-exist")
+        assert missing.status_code == 404
+
+        set_user(outsider_user)
+        forbidden = client.get(f"/api/agent-groups/{group.id}/shared-contexts/ctx-shared-b")
+        assert forbidden.status_code == 403
+    finally:
+        cleanup()
+
+
 def test_malformed_runtime_delegation_result_marks_failed_but_keeps_task_result(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
