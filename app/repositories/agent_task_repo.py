@@ -32,6 +32,14 @@ class AgentTaskRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    def list_by_group_id(self, group_id: str) -> list[AgentTask]:
+        stmt = (
+            select(AgentTask)
+            .where(AgentTask.group_id == group_id)
+            .order_by(AgentTask.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
     def find_recent_duplicate(
         self,
         assignee_agent_id: str,

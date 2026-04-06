@@ -20,6 +20,7 @@ def _build_client_with_overrides(monkeypatch):
     import app.api.capability_profiles as capability_api
     import app.api.policy_profiles as policy_api
     import app.api.runtime_router as runtime_router_api
+    import app.api.agent_groups as groups_api
 
     monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
     monkeypatch.setattr(agents_api.k8s_service, "update_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -76,6 +77,8 @@ def _build_client_with_overrides(monkeypatch):
     app.dependency_overrides[bindings_api.get_db] = _override_db
     app.dependency_overrides[runtime_router_api.get_current_user] = _override_user
     app.dependency_overrides[runtime_router_api.get_db] = _override_db
+    app.dependency_overrides[groups_api.get_current_user] = _override_user
+    app.dependency_overrides[groups_api.get_db] = _override_db
     app.dependency_overrides[agents_api.get_current_user] = _override_user
     app.dependency_overrides[agents_api.get_db] = _override_db
 
@@ -408,5 +411,67 @@ def test_identity_bindings_integrity_error_has_same_duplicate_message(monkeypatc
         )
         assert response.status_code == 409
         assert response.json()["detail"] == "Identity binding already exists for this agent/system/account"
+    finally:
+        cleanup()
+
+
+def test_create_agent_group_success(monkeypatch):
+    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        response = client.post(
+            "/api/agent-groups",
+            json={
+                "name": "Group Alpha",
+                "leader_agent_id": agent.id,
+                "shared_context_policy_json": '{"scope":"issue"}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "Group Alpha"
+        assert body["leader_agent_id"] == agent.id
+    finally:
+        cleanup()
+
+
+def test_create_group_auto_writes_leader_member_and_detail_has_members(monkeypatch):
+    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create_resp = client.post(
+            "/api/agent-groups",
+            json={"name": "Group Beta", "leader_agent_id": agent.id},
+        )
+        assert create_resp.status_code == 200
+        group = create_resp.json()
+
+        leader_members = [m for m in group["members"] if m["role"] == "leader"]
+        assert len(leader_members) == 1
+        assert leader_members[0]["member_type"] == "agent"
+        assert leader_members[0]["agent_id"] == agent.id
+
+        detail_resp = client.get(f"/api/agent-groups/{group['id']}")
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert any(m["role"] == "leader" for m in detail["members"])
+    finally:
+        cleanup()
+
+
+def test_group_cannot_have_second_leader_member(monkeypatch):
+    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create_resp = client.post(
+            "/api/agent-groups",
+            json={"name": "Group Gamma", "leader_agent_id": agent.id},
+        )
+        assert create_resp.status_code == 200
+        group = create_resp.json()
+
+        add_resp = client.post(
+            f"/api/agent-groups/{group['id']}/members",
+            json={"member_type": "agent", "agent_id": agent.id, "role": "leader"},
+        )
+        assert add_resp.status_code == 409
+        assert add_resp.json()["detail"] == "Group already has a leader member"
     finally:
         cleanup()

@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, User
+from app.repositories.agent_group_repo import AgentGroupRepository
 from app.services.auth_service import hash_password
 
 
@@ -225,5 +226,47 @@ def test_list_tasks_by_assignee_agent():
         assert len(tasks) == 1
         assert tasks[0]["assignee_agent_id"] == assignee_agent.id
         assert tasks[0]["status"] == "running"
+    finally:
+        cleanup()
+
+
+def test_list_agent_tasks_by_group_id_and_response_includes_group_id():
+    client, parent_agent, assignee_agent, cleanup = _build_client_with_overrides()
+    try:
+        from app.main import app
+        import app.api.agent_tasks as tasks_api
+
+        db_gen = app.dependency_overrides[tasks_api.get_db]()
+        try:
+            db = next(db_gen)
+            group = AgentGroupRepository(db).create(
+                name="Task Group",
+                leader_agent_id=parent_agent.id,
+                created_by_user_id=parent_agent.owner_user_id,
+            )
+
+            create_resp = client.post(
+                "/api/agent-tasks",
+                json={
+                    "group_id": group.id,
+                    "parent_agent_id": parent_agent.id,
+                    "assignee_agent_id": assignee_agent.id,
+                    "source": "portal",
+                    "task_type": "group-review",
+                    "status": "queued",
+                },
+            )
+            assert create_resp.status_code == 200
+            created_task = create_resp.json()
+            assert created_task["group_id"] == group.id
+
+            list_resp = client.get(f"/api/agent-tasks?group_id={group.id}")
+            assert list_resp.status_code == 200
+            tasks = list_resp.json()
+            assert len(tasks) == 1
+            assert tasks[0]["group_id"] == group.id
+            assert tasks[0]["task_type"] == "group-review"
+        finally:
+            db_gen.close()
     finally:
         cleanup()
