@@ -999,3 +999,59 @@ async def app_group_task_board_panel(request: Request, group_id: str):
         )
     finally:
         db.close()
+
+
+@router.get("/app/agent-groups/{group_id}/shared-contexts/panel")
+async def app_group_shared_context_list_panel(request: Request, group_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+
+        service = AgentGroupService(db)
+        try:
+            snapshots = service.list_group_shared_context_snapshots(group_id, user=user)
+        except AgentGroupServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+        return templates.TemplateResponse(
+            "partials/group_shared_context_list.html",
+            {
+                "request": request,
+                "group_id": group_id,
+                "items": snapshots,
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/agent-groups/{group_id}/shared-contexts/{context_ref}/panel")
+async def app_group_shared_context_detail_panel(request: Request, group_id: str, context_ref: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+
+        service = AgentGroupService(db)
+        try:
+            snapshot = service.get_group_shared_context_snapshot(group_id, context_ref, user=user)
+        except AgentGroupServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+        return templates.TemplateResponse(
+            "partials/group_shared_context_detail.html",
+            {
+                "request": request,
+                "group_id": group_id,
+                "item": snapshot,
+            },
+        )
+    finally:
+        db.close()

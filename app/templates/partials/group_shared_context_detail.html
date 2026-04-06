@@ -1,0 +1,13 @@
+<div class="space-y-2 text-sm">
+  <div><strong>Group:</strong> {{ group_id }}</div>
+  <div><strong>Context Ref:</strong> {{ item.context_ref }}</div>
+  <div><strong>Scope Kind:</strong> {{ item.scope_kind }}</div>
+  <div><strong>Created By:</strong> {{ item.created_by_user_id or "-" }}</div>
+  <div><strong>Source Delegation:</strong> {{ item.source_delegation_id or "-" }}</div>
+  <div><strong>Created At:</strong> {{ item.created_at }}</div>
+  <div><strong>Updated At:</strong> {{ item.updated_at }}</div>
+  <div>
+    <strong>Payload JSON:</strong>
+    <pre class="mt-1 whitespace-pre-wrap border border-gray-300 p-2">{{ item.payload_json }}</pre>
+  </div>
+</div>

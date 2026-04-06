@@ -400,6 +400,118 @@ def test_shared_visibility_rule_used_by_panel_and_task_board(monkeypatch):
         cleanup()
 
 
+def test_shared_context_list_panel_auth_and_render(monkeypatch):
+    client, db, group, _leader, _assignee, _outsider_agent, admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        snapshot = GroupSharedContextSnapshot(
+            group_id=group.id,
+            context_ref="ctx-panel-list",
+            scope_kind="delegation",
+            payload_json='{"secret":"hidden-in-list"}',
+            created_by_user_id=leader_owner.id,
+            source_delegation_id=None,
+        )
+        db.add(snapshot)
+        db.commit()
+
+        import app.web as web_module
+
+        monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
+
+        monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: None)
+        unauthorized = client.get(f"/app/agent-groups/{group.id}/shared-contexts/panel")
+        assert unauthorized.status_code == 401
+
+        outsider_identity = {
+            "id": outsider_user.id,
+            "role": outsider_user.role,
+            "username": outsider_user.username,
+        }
+
+        monkeypatch.setattr(
+            web_module,
+            "_current_user_from_cookie",
+            lambda _request: SimpleNamespace(id=admin_user.id, role=admin_user.role, username=admin_user.username, nickname=admin_user.username),
+        )
+        allowed = client.get(f"/app/agent-groups/{group.id}/shared-contexts/panel")
+        assert allowed.status_code == 200
+        assert "ctx-panel-list" in allowed.text
+        assert "hidden-in-list" not in allowed.text
+
+        monkeypatch.setattr(
+            web_module,
+            "_current_user_from_cookie",
+            lambda _request: SimpleNamespace(
+                id=outsider_identity["id"],
+                role=outsider_identity["role"],
+                username=outsider_identity["username"],
+                nickname=outsider_identity["username"],
+            ),
+        )
+        forbidden = client.get(f"/app/agent-groups/{group.id}/shared-contexts/panel")
+        assert forbidden.status_code == 403
+    finally:
+        cleanup()
+
+
+def test_shared_context_detail_panel_auth_render_and_missing_ref(monkeypatch):
+    client, db, group, _leader, _assignee, _outsider_agent, _admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        snapshot = GroupSharedContextSnapshot(
+            group_id=group.id,
+            context_ref="ctx-panel-detail",
+            scope_kind="delegation",
+            payload_json='{"repo":"portal","ticket":123}',
+            created_by_user_id=leader_owner.id,
+            source_delegation_id=None,
+        )
+        db.add(snapshot)
+        db.commit()
+
+        import app.web as web_module
+
+        monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
+
+        monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: None)
+        unauthorized = client.get(f"/app/agent-groups/{group.id}/shared-contexts/ctx-panel-detail/panel")
+        assert unauthorized.status_code == 401
+
+        outsider_identity = {
+            "id": outsider_user.id,
+            "role": outsider_user.role,
+            "username": outsider_user.username,
+        }
+
+        monkeypatch.setattr(
+            web_module,
+            "_current_user_from_cookie",
+            lambda _request: SimpleNamespace(id=leader_owner.id, role=leader_owner.role, username=leader_owner.username, nickname=leader_owner.username),
+        )
+        allowed = client.get(f"/app/agent-groups/{group.id}/shared-contexts/ctx-panel-detail/panel")
+        assert allowed.status_code == 200
+        assert "ctx-panel-detail" in allowed.text
+        assert "ticket" in allowed.text
+        assert "123" in allowed.text
+
+        missing = client.get(f"/app/agent-groups/{group.id}/shared-contexts/ctx-missing/panel")
+        assert missing.status_code == 404
+
+        monkeypatch.setattr(
+            web_module,
+            "_current_user_from_cookie",
+            lambda _request: SimpleNamespace(
+                id=outsider_identity["id"],
+                role=outsider_identity["role"],
+                username=outsider_identity["username"],
+                nickname=outsider_identity["username"],
+            ),
+        )
+        forbidden = client.get(f"/app/agent-groups/{group.id}/shared-contexts/ctx-panel-detail/panel")
+        assert forbidden.status_code == 403
+    finally:
+        cleanup()
+
+
 
 def test_delegation_creation_persists_shared_context_snapshot_with_explicit_ref(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
