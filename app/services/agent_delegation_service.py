@@ -160,6 +160,11 @@ class AgentDelegationService:
         if scoped_context_payload is not None and not effective_scoped_context_ref:
             effective_scoped_context_ref = f"ctx-{uuid4()}"
 
+        if effective_scoped_context_ref and scoped_context_payload is None:
+            existing_snapshot = self.context_snapshot_repo.get_by_group_and_ref(payload.group_id, effective_scoped_context_ref)
+            if not existing_snapshot:
+                raise AgentDelegationServiceError(status_code=409, detail="Shared context snapshot not found")
+
         ephemeral_policy = self._parse_json_object(group.ephemeral_agent_policy_json, "ephemeral_agent_policy_json", default_value={})
 
         audit_trace = {
@@ -189,7 +194,7 @@ class AgentDelegationService:
         )
 
         if scoped_context_payload is not None and effective_scoped_context_ref:
-            self.context_snapshot_repo.create(
+            self.context_snapshot_repo.upsert_by_group_and_ref(
                 group_id=payload.group_id,
                 context_ref=effective_scoped_context_ref,
                 scope_kind="delegation",

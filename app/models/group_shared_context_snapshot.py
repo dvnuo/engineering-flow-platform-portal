@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -11,6 +11,7 @@ class GroupSharedContextSnapshot(Base):
     __tablename__ = "group_shared_context_snapshots"
     __table_args__ = (
         Index("ix_group_shared_context_group_ref", "group_id", "context_ref"),
+        UniqueConstraint("group_id", "context_ref", name="uq_group_shared_context_group_ref"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))

@@ -38,6 +38,34 @@ class GroupSharedContextSnapshotRepository:
         self.db.refresh(snapshot)
         return snapshot
 
+
+    def upsert_by_group_and_ref(
+        self,
+        *,
+        group_id: str,
+        context_ref: str,
+        scope_kind: str,
+        payload_json: str,
+        created_by_user_id: int | None,
+        source_delegation_id: str | None,
+    ) -> GroupSharedContextSnapshot:
+        existing = self.get_by_group_and_ref(group_id, context_ref)
+        if not existing:
+            return self.create(
+                group_id=group_id,
+                context_ref=context_ref,
+                scope_kind=scope_kind,
+                payload_json=payload_json,
+                created_by_user_id=created_by_user_id,
+                source_delegation_id=source_delegation_id,
+            )
+
+        existing.payload_json = payload_json
+        existing.scope_kind = scope_kind
+        existing.created_by_user_id = created_by_user_id
+        existing.source_delegation_id = source_delegation_id
+        return self.save(existing)
+
     def delete(self, snapshot: GroupSharedContextSnapshot) -> None:
         self.db.delete(snapshot)
         self.db.commit()
