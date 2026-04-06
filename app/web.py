@@ -969,3 +969,33 @@ async def app_chat_send(request: Request):
         )
     finally:
         db.close()
+
+
+@router.get("/app/agent-groups/{group_id}/task-board/panel")
+async def app_group_task_board_panel(request: Request, group_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+
+        service = AgentGroupService(db)
+        try:
+            board = service.get_group_task_board(group_id)
+        except AgentGroupServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+        return templates.TemplateResponse(
+            "partials/group_task_board.html",
+            {
+                "request": request,
+                "group_id": board["group_id"],
+                "leader_agent_id": board["leader_agent_id"],
+                "summary": board["summary"],
+                "items": board["items"],
+            },
+        )
+    finally:
+        db.close()

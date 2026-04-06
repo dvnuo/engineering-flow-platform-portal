@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
+from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -28,6 +29,7 @@ class AgentGroupService:
         self.member_repo = AgentGroupMemberRepository(db)
         self.agent_repo = AgentRepository(db)
         self.task_repo = AgentTaskRepository(db)
+        self.delegation_repo = AgentDelegationRepository(db)
         self.user_repo = UserRepository(db)
 
     def _get_group_or_raise(self, group_id: str):
@@ -209,3 +211,33 @@ class AgentGroupService:
             result_payload_json=payload.result_payload_json,
             retry_count=payload.retry_count,
         )
+
+    def list_group_delegations(self, group_id: str):
+        _group = self._get_group_or_raise(group_id)
+        return self.delegation_repo.list_by_group_id(group_id)
+
+    def get_group_task_board(self, group_id: str) -> dict:
+        group = self._get_group_or_raise(group_id)
+        delegations = self.list_group_delegations(group_id)
+        counts = {
+            "queued": 0,
+            "running": 0,
+            "done": 0,
+            "failed": 0,
+        }
+        for delegation in delegations:
+            if delegation.status in counts:
+                counts[delegation.status] += 1
+
+        return {
+            "group_id": group_id,
+            "leader_agent_id": group.leader_agent_id,
+            "summary": {
+                "total": len(delegations),
+                "queued": counts["queued"],
+                "running": counts["running"],
+                "done": counts["done"],
+                "failed": counts["failed"],
+            },
+            "items": delegations,
+        }

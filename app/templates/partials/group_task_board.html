@@ -1,0 +1,40 @@
+<div class="space-y-3 text-sm">
+  <div>
+    <strong>Group:</strong> {{ group_id }}<br>
+    <strong>Leader:</strong> {{ leader_agent_id or "-" }}
+  </div>
+  <div>
+    <strong>Total:</strong> {{ summary.total }} |
+    <strong>Queued:</strong> {{ summary.queued }} |
+    <strong>Running:</strong> {{ summary.running }} |
+    <strong>Done:</strong> {{ summary.done }} |
+    <strong>Failed:</strong> {{ summary.failed }}
+  </div>
+
+  <table class="min-w-full border-collapse border border-gray-300">
+    <thead>
+      <tr>
+        <th class="border p-1 text-left">Objective</th>
+        <th class="border p-1 text-left">Assignee</th>
+        <th class="border p-1 text-left">Status</th>
+        <th class="border p-1 text-left">Visibility</th>
+        <th class="border p-1 text-left">Result Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td class="border p-1">{{ item.objective }}</td>
+        <td class="border p-1">{{ item.assignee_agent_id }}</td>
+        <td class="border p-1">{{ item.status }}</td>
+        <td class="border p-1">{{ item.visibility }}</td>
+        <td class="border p-1">{{ item.result_summary or "-" }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td class="border p-2" colspan="5">No delegations yet.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
