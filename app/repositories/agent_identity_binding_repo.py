@@ -38,17 +38,37 @@ class AgentIdentityBindingRepository:
         )
 
     def find_binding(self, system_type: str, external_account_id: str) -> Optional[AgentIdentityBinding]:
+        normalized_system_type = self._normalize_system_type(system_type)
         stmt = (
             select(AgentIdentityBinding)
             .where(
                 and_(
-                    AgentIdentityBinding.system_type == system_type,
+                    AgentIdentityBinding.system_type == normalized_system_type,
                     AgentIdentityBinding.external_account_id == external_account_id,
                     AgentIdentityBinding.enabled.is_(True),
                 )
             )
             .order_by(AgentIdentityBinding.created_at.desc())
         )
+        return self.db.scalars(stmt).first()
+
+    def get_by_agent_and_binding_key(
+        self,
+        agent_id: str,
+        system_type: str,
+        external_account_id: str,
+        enabled_only: bool = False,
+    ) -> Optional[AgentIdentityBinding]:
+        normalized_system_type = self._normalize_system_type(system_type)
+        conditions = [
+            AgentIdentityBinding.agent_id == agent_id,
+            AgentIdentityBinding.system_type == normalized_system_type,
+            AgentIdentityBinding.external_account_id == external_account_id,
+        ]
+        if enabled_only:
+            conditions.append(AgentIdentityBinding.enabled.is_(True))
+
+        stmt = select(AgentIdentityBinding).where(and_(*conditions)).order_by(AgentIdentityBinding.created_at.desc())
         return self.db.scalars(stmt).first()
 
     def save(self, binding: AgentIdentityBinding) -> AgentIdentityBinding:
@@ -60,3 +80,6 @@ class AgentIdentityBindingRepository:
     def delete(self, binding: AgentIdentityBinding) -> None:
         self.db.delete(binding)
         self.db.commit()
+    @staticmethod
+    def _normalize_system_type(system_type: str) -> str:
+        return (system_type or "").strip().lower()

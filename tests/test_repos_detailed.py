@@ -136,5 +136,6 @@ def test_agent_identity_binding_repo_methods():
     assert hasattr(repo, "list_by_agent")
     assert hasattr(repo, "list_enabled_bindings_for_agent")
     assert hasattr(repo, "find_binding")
+    assert hasattr(repo, "get_by_agent_and_binding_key")
     assert hasattr(repo, "save")
     assert hasattr(repo, "delete")
