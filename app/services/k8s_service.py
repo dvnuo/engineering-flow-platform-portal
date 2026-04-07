@@ -120,16 +120,7 @@ class K8sService:
                             "name": "agent",
                             "image": agent.image,
                             "ports": [{"containerPort": 8000}],
-                            "env": [client.V1EnvVar(
-                                name="EFP_CONFIG_KEY",
-                                value_from=client.V1EnvVarSource(
-                                    secret_key_ref=client.V1SecretKeySelector(
-                                        name="efp-agents-secret",
-                                        key="EFP_CONFIG_KEY",
-                                        optional=True,
-                                    )
-                                )
-                            )],
+                            "env": self._build_agent_container_env(),
                             "volumeMounts": volume_mounts,
                         }],
                     }
@@ -387,16 +378,7 @@ class K8sService:
                                 name="agent",
                                 image=agent.image,
                                 ports=[client.V1ContainerPort(container_port=8000)],
-                                env=[client.V1EnvVar(
-                                        name="EFP_CONFIG_KEY",
-                                        value_from=client.V1EnvVarSource(
-                                            secret_key_ref=client.V1SecretKeySelector(
-                                                name="efp-agents-secret",
-                                                key="EFP_CONFIG_KEY",
-                                                optional=True,
-                                            )
-                                        )
-                                    )],
+                                env=self._build_agent_container_env(),
                                 volume_mounts=volume_mounts,
                             )
                         ],
@@ -451,6 +433,46 @@ class K8sService:
                 ),
             ]
         )
+        return env
+
+    def _build_agent_container_env(self):
+        from kubernetes import client
+
+        env = [
+            client.V1EnvVar(
+                name="EFP_CONFIG_KEY",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="efp-agents-secret",
+                        key="EFP_CONFIG_KEY",
+                        optional=True,
+                    )
+                ),
+            ),
+            client.V1EnvVar(
+                name="PORTAL_INTERNAL_API_KEY",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="efp-agents-secret",
+                        key="PORTAL_INTERNAL_API_KEY",
+                        optional=True,
+                    )
+                ),
+            ),
+            client.V1EnvVar(
+                name="RUNTIME_INTERNAL_API_KEY",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="efp-agents-secret",
+                        key="RUNTIME_INTERNAL_API_KEY",
+                        optional=True,
+                    )
+                ),
+            ),
+        ]
+        base_url = (self.settings.portal_internal_base_url or "").strip()
+        if base_url:
+            env.append(client.V1EnvVar(name="PORTAL_INTERNAL_BASE_URL", value=base_url))
         return env
 
     def _git_clone_shell_command(self) -> str:

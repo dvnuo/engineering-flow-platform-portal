@@ -328,3 +328,32 @@ def test_build_portal_execution_headers_omits_internal_key_when_unset(monkeypatc
         assert "X-Portal-Internal-Api-Key" not in headers
     finally:
         deps_module.settings.portal_internal_api_key = original
+
+
+def test_require_internal_api_key_strips_whitespace_and_accepts_match():
+    import app.deps as deps_module
+
+    original = deps_module.settings.portal_internal_api_key
+    deps_module.settings.portal_internal_api_key = " expected-key "
+    try:
+        assert deps_module.require_internal_api_key(" expected-key\n") is True
+    finally:
+        deps_module.settings.portal_internal_api_key = original
+
+
+def test_require_internal_api_key_rejects_wrong_value_with_401():
+    import app.deps as deps_module
+    from fastapi import HTTPException
+
+    original = deps_module.settings.portal_internal_api_key
+    deps_module.settings.portal_internal_api_key = "expected-key"
+    try:
+        try:
+            deps_module.require_internal_api_key("wrong-key")
+        except HTTPException as exc:
+            assert exc.status_code == 401
+            assert exc.detail == "Invalid internal API key"
+        else:
+            raise AssertionError("expected HTTPException for invalid internal API key")
+    finally:
+        deps_module.settings.portal_internal_api_key = original

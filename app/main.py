@@ -26,6 +26,7 @@ from app.db import Base, SessionLocal, engine
 from app.repositories.user_repo import UserRepository
 from app.logger import setup_logging
 from app.services.auth_service import hash_password
+from app.services.schema_guard import assert_phase5_schema_compatibility
 from app.web import router as web_router
 
 settings = get_settings()
@@ -36,6 +37,7 @@ app = FastAPI(title=settings.app_name, debug=settings.debug)
 def on_startup() -> None:
     setup_logging(logging.DEBUG if settings.debug else logging.INFO)
     Base.metadata.create_all(bind=engine)
+    assert_phase5_schema_compatibility(engine)
 
     db = SessionLocal()
     try:

@@ -54,6 +54,9 @@ Access `http://localhost:8000/login`
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
+| `PORTAL_INTERNAL_API_KEY` | Trusted Portal→Runtime chat/auth header key | (empty) |
+| `RUNTIME_INTERNAL_API_KEY` | Portal→Runtime internal API key (`/api/tasks/execute`, `/api/capabilities`) | (empty) |
+| `PORTAL_INTERNAL_BASE_URL` | Runtime adapter callback base URL to reach Portal internal APIs | (empty) |
 | `K8S_ENABLED` | Enable Kubernetes integration | `false` |
 | `K8S_INCLUSTER` | Use in-cluster config | `true` |
 | `K8S_KUBECONFIG` | Path to kubeconfig | `/etc/rancher/k3s/k3s.yaml` |
@@ -67,6 +70,20 @@ Access `http://localhost:8000/login`
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
 
 Phase 5 productization closure notes (upgrade path + capability snapshot contract): `docs/PHASE5_PRODUCTIZATION.md`.
+
+### Phase 5 control-plane contract
+
+- Portal -> EFP trusted chat headers use `X-Portal-Internal-Api-Key` (from `PORTAL_INTERNAL_API_KEY`).
+- Portal -> EFP runtime internal endpoints (`/api/tasks/execute`, `/api/capabilities`) use `X-Internal-Api-Key` (from `RUNTIME_INTERNAL_API_KEY`).
+- EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
+
+### Schema upgrade
+
+For existing databases, run migrations before upgrading Portal:
+
+```bash
+alembic upgrade head
+```
 
 ---
 

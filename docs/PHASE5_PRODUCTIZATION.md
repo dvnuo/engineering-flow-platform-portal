@@ -40,7 +40,30 @@ Accepted payload forms:
 
 If parsing fails or data is missing, Portal falls back to deterministic local seed mappings.
 
-## 3) Kubernetes git credential key wiring
+## 3) Portal container env contract
+
+Portal container should be configured with:
+
+- `BOOTSTRAP_ADMIN_PASSWORD`
+- `PORTAL_INTERNAL_API_KEY`
+- `RUNTIME_INTERNAL_API_KEY`
+- `PORTAL_INTERNAL_BASE_URL` (usually Portal service DNS, for example `http://efp-portal-service.default.svc.cluster.local`)
+
+Portal->Runtime control-plane headers are sourced from these env values.
+
+## 4) Portal-managed runtime env contract (`efp-agents-secret`)
+
+Portal injects runtime container env from `efp-agents-secret`:
+
+- `EFP_CONFIG_KEY`
+- `PORTAL_INTERNAL_API_KEY`
+- `RUNTIME_INTERNAL_API_KEY`
+
+Portal also injects plain env:
+
+- `PORTAL_INTERNAL_BASE_URL` (only when configured; omitted if empty)
+
+## 5) Kubernetes git credential key wiring
 
 Portal runtime creation reads git credentials from `efp-agents-secret`.
 
@@ -51,4 +74,3 @@ Configurable selector keys:
 
 If both credentials are present, clone URL is rewritten to authenticated HTTPS.
 If credentials are absent, clone proceeds with unauthenticated URL.
-
