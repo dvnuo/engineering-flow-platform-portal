@@ -220,6 +220,7 @@ def create_internal_group_task_agent(
     internal_user = SimpleNamespace(id=None, role="admin")
     try:
         group = service.get_group_or_raise(group_id)
+        service.validate_group_leader_context(group, payload.leader_agent_id)
         agent = service.create_group_task_agent(group_id, payload, user=internal_user, source="internal_api")
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)

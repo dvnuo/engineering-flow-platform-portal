@@ -614,6 +614,7 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         group_service_module.K8sService.delete_agent_runtime = lambda _self, _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None)
 
         payload = {
+            "leader_agent_id": group["leader_agent_id"],
             "name": "Internal Ephemeral Task Agent",
             "template_agent_id": specialist_template.id,
             "scope_label": "runtime-scope",
@@ -621,6 +622,24 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
             "task_agent_cleanup_policy": "delete_on_done",
         }
         assert client.post(f"/api/internal/agent-groups/{group['id']}/task-agents", json=payload).status_code == 401
+        missing_leader = client.post(
+            f"/api/internal/agent-groups/{group['id']}/task-agents",
+            json={k: v for k, v in payload.items() if k != "leader_agent_id"},
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert missing_leader.status_code == 422
+        blank_leader = client.post(
+            f"/api/internal/agent-groups/{group['id']}/task-agents",
+            json={**payload, "leader_agent_id": "   "},
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert blank_leader.status_code == 422
+        mismatch_leader = client.post(
+            f"/api/internal/agent-groups/{group['id']}/task-agents",
+            json={**payload, "leader_agent_id": specialist_template.id},
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert mismatch_leader.status_code == 409
         bad_visibility = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json={**payload, "visibility": "INVALID"},

@@ -84,6 +84,10 @@ class AgentGroupService:
     def get_group_or_raise(self, group_id: str):
         return self._get_group_or_raise(group_id)
 
+    def validate_group_leader_context(self, group, leader_agent_id: str) -> None:
+        if leader_agent_id != group.leader_agent_id:
+            raise AgentGroupServiceError(status_code=409, detail="leader_agent_id does not match target group leader")
+
     def _get_agent_or_raise(self, agent_id: str, detail: str):
         agent = self.agent_repo.get_by_id(agent_id)
         if not agent:

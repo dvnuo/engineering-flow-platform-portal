@@ -106,11 +106,20 @@ class AgentGroupTaskAgentCreateRequest(BaseModel):
 
 
 class InternalAgentGroupTaskAgentCreateRequest(BaseModel):
+    leader_agent_id: str
     template_agent_id: str
     name: str
     scope_label: str | None = None
     visibility: str | None = None
     task_agent_cleanup_policy: str | None = None
+
+    @field_validator("leader_agent_id")
+    @classmethod
+    def validate_leader_agent_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("leader_agent_id must not be blank")
+        return normalized
 
     @field_validator("visibility")
     @classmethod
