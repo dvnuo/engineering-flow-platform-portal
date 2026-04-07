@@ -44,12 +44,57 @@ async def create_internal_agent_delegation(
     _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
+    """Internal control-plane write API for runtime-to-portal orchestration.
+
+    This bypasses end-user visibility filtering because it is a system-level control-plane operation.
+    """
     service = AgentDelegationService(db)
     try:
         delegation = await service.create_delegation_from_internal_request(payload)
     except AgentDelegationServiceError as error:
         _raise_delegation_error(error)
     return AgentDelegationResponse.model_validate(delegation)
+
+
+@router.get("/api/internal/agent-groups/{group_id}/delegations", response_model=list[AgentDelegationResponse])
+def list_internal_group_delegations(
+    group_id: str,
+    _: bool = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    """Internal control-plane read API for runtime-to-portal orchestration.
+
+    This intentionally bypasses end-user visibility filtering and returns group-level delegations.
+    """
+    service = AgentDelegationService(db)
+    try:
+        delegations = service.list_group_delegations(group_id, user=None, apply_visibility=False)
+    except AgentDelegationServiceError as error:
+        _raise_delegation_error(error)
+    return [AgentDelegationResponse.model_validate(item) for item in delegations]
+
+
+@router.get("/api/internal/agent-groups/{group_id}/task-board", response_model=AgentGroupTaskBoardResponse)
+def get_internal_group_task_board(
+    group_id: str,
+    _: bool = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    """Internal control-plane read API for runtime-to-portal orchestration.
+
+    This intentionally bypasses end-user visibility filtering and returns full group task-board state.
+    """
+    service = AgentGroupService(db)
+    try:
+        board = service.get_group_task_board(group_id, user=None, apply_visibility=False)
+    except AgentGroupServiceError as error:
+        _raise_group_error(error)
+    return AgentGroupTaskBoardResponse(
+        group_id=board["group_id"],
+        leader_agent_id=board["leader_agent_id"],
+        summary=board["summary"],
+        items=[AgentDelegationBoardItemResponse.model_validate(item) for item in board["items"]],
+    )
 
 
 @router.get("/api/agent-delegations/{delegation_id}", response_model=AgentDelegationResponse)

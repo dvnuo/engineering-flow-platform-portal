@@ -283,6 +283,7 @@ def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
         metadata = state["captured_bodies"][0]["metadata"]
         assert metadata["portal_delegation_id"] == body["id"]
         assert metadata["portal_group_id"] == group.id
+        assert metadata["portal_delegation_reply_target"] == "leader"
         assert state["saw_running"] and state["saw_running"][0] is True
 
         delegation = db.get(AgentDelegation, body["id"])
@@ -310,6 +311,7 @@ def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
         runtime_body = state["captured_bodies"][0]
         assert runtime_body["session_id"] == "leader-session-123"
         assert runtime_body["metadata"]["portal_leader_session_id"] == "leader-session-123"
+        assert runtime_body["metadata"]["portal_delegation_reply_target"] == "leader"
         assert runtime_body["metadata"]["strict_delegation_result"] is True
         assert runtime_body["metadata"]["agent_mode"] == "specialist"
         assert runtime_body["input_payload"]["leader_session_id"] == "leader-session-123"
@@ -845,5 +847,167 @@ def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkey
         assert details["group_id"] == group.id
         assert details["visibility"] == "leader_only"
         assert details["scoped_context_ref"] == "ctx-internal-1"
+    finally:
+        cleanup()
+
+
+def test_internal_read_routes_are_key_protected_and_unfiltered(monkeypatch):
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        leader_only = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="leader_only"))
+        group_visible = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="group_visible"))
+        assert leader_only.status_code == 200
+        assert group_visible.status_code == 200
+
+        for url in [
+            f"/api/internal/agent-groups/{group.id}/delegations",
+            f"/api/internal/agent-groups/{group.id}/task-board",
+        ]:
+            assert client.get(url).status_code == 401
+            assert client.get(url, headers={"X-Internal-Api-Key": "wrong"}).status_code == 401
+
+        delegations_response = client.get(
+            f"/api/internal/agent-groups/{group.id}/delegations",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert delegations_response.status_code == 200
+        items = delegations_response.json()
+        assert len(items) == 2
+        assert {item["visibility"] for item in items} == {"leader_only", "group_visible"}
+
+        board_response = client.get(
+            f"/api/internal/agent-groups/{group.id}/task-board",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert board_response.status_code == 200
+        board = board_response.json()
+        assert board["summary"]["total"] == 2
+    finally:
+        cleanup()
+
+
+def test_auto_cleanup_task_agent_policies_and_audit(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        import app.services.agent_group_service as group_service_module
+
+        group_service_module.K8sService.delete_agent_runtime = lambda _self, _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None)
+
+        assignee.agent_type = "task"
+        assignee.template_agent_id = leader.id
+        assignee.task_scope_label = "scope-a"
+        assignee.task_cleanup_policy = None
+        db.add(assignee)
+        db.commit()
+        set_user(leader_owner)
+
+        done_resp = client.post(
+            "/api/agent-delegations",
+            json={**_payload(group.id, leader.id, assignee.id), "skill_kwargs_json": '{"cleanup_policy":"delete_on_done"}'},
+        )
+        assert done_resp.status_code == 200
+        assert db.get(Agent, assignee.id) is None
+        done_audit = db.query(AuditLog).filter(AuditLog.action == "auto_cleanup_group_task_agent").order_by(AuditLog.id.desc()).first()
+        assert done_audit is not None
+        assert json.loads(done_audit.details_json)["cleanup_policy"] == "delete_on_done"
+
+        recreated = Agent(
+            id=assignee.id,
+            name="Assignee",
+            description="assignee",
+            owner_user_id=leader_owner.id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo2.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-assignee",
+            service_name="svc-assignee",
+            pvc_name="pvc-assignee",
+            endpoint_path="/",
+            agent_type="task",
+        )
+        db.add(recreated)
+        db.commit()
+        AgentGroupMemberRepository(db).create(group_id=group.id, member_type="agent", user_id=None, agent_id=recreated.id, role="member")
+        group.specialist_agent_pool_json = json.dumps([recreated.id])
+        db.add(group)
+        db.commit()
+
+        class _MalformedResp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_self, _url: str, _body: dict):
+            return _MalformedResp()
+
+        monkeypatch.setattr("app.services.task_dispatcher.TaskDispatcherService._post_to_runtime", _fake_post)
+
+        failed_resp = client.post(
+            "/api/agent-delegations",
+            json={**_payload(group.id, leader.id, assignee.id), "skill_kwargs_json": '{"cleanup_policy":"delete_on_terminal"}'},
+        )
+        assert failed_resp.status_code == 200
+        assert db.get(Agent, assignee.id) is None
+        terminal_audit = db.query(AuditLog).filter(AuditLog.action == "auto_cleanup_group_task_agent").order_by(AuditLog.id.desc()).first()
+        assert terminal_audit is not None
+        assert json.loads(terminal_audit.details_json)["cleanup_policy"] == "delete_on_terminal"
+
+        retained = Agent(
+            id=assignee.id,
+            name="Assignee",
+            description="assignee",
+            owner_user_id=leader_owner.id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo2.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-assignee",
+            service_name="svc-assignee",
+            pvc_name="pvc-assignee",
+            endpoint_path="/",
+            agent_type="task",
+        )
+        db.add(retained)
+        db.commit()
+        AgentGroupMemberRepository(db).create(group_id=group.id, member_type="agent", user_id=None, agent_id=retained.id, role="member")
+        group.specialist_agent_pool_json = json.dumps([retained.id])
+        db.add(group)
+        db.commit()
+
+        class _SuccessResp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"delegation_result": {"status": "done"}}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"delegation_result": {"status": "done"}}}
+
+        async def _fake_success_post(_self, _url: str, _body: dict):
+            return _SuccessResp()
+
+        monkeypatch.setattr("app.services.task_dispatcher.TaskDispatcherService._post_to_runtime", _fake_success_post)
+        retain_resp = client.post(
+            "/api/agent-delegations",
+            json={**_payload(group.id, leader.id, assignee.id), "skill_kwargs_json": '{"cleanup_policy":"retain"}'},
+        )
+        assert retain_resp.status_code == 200
+        assert db.get(Agent, assignee.id) is not None
     finally:
         cleanup()

@@ -503,6 +503,41 @@ class AgentGroupService:
             },
         )
 
+    def auto_cleanup_task_agent(self, *, group_id: str, agent_id: str, delegation_id: str | None, task_id: str | None, cleanup_policy: str | None) -> bool:
+        group = self.group_repo.get_by_id(group_id)
+        if not group:
+            return False
+        agent = self.agent_repo.get_by_id(agent_id)
+        if not agent or agent.agent_type != "task":
+            return False
+
+        member = self.member_repo.get_by_group_and_agent(group.id, agent_id)
+        if member:
+            self.member_repo.delete(member)
+
+        pool_ids = [item for item in self._get_specialist_pool_ids(group) if item != agent_id]
+        self._set_specialist_pool_ids(group, pool_ids)
+
+        runtime = self.k8s_service.delete_agent_runtime(agent, destroy_data=True)
+        if runtime.status == "failed":
+            return False
+        self.agent_repo.delete(agent)
+        self.audit_repo.create(
+            action="auto_cleanup_group_task_agent",
+            target_type="agent",
+            target_id=agent_id,
+            details={
+                "group_id": group.id,
+                "leader_agent_id": group.leader_agent_id,
+                "assignee_agent_id": agent_id,
+                "delegation_id": delegation_id,
+                "task_id": task_id,
+                "cleanup_policy": cleanup_policy,
+                "source": "system_cleanup",
+            },
+        )
+        return True
+
     def list_group_delegations(self, group_id: str, user=None, apply_visibility: bool = False):
         group = self._get_group_or_raise(group_id)
         delegations = self.delegation_repo.list_by_group_id(group_id)

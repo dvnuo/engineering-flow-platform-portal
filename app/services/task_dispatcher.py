@@ -96,6 +96,7 @@ class TaskDispatcherService:
             delegation.status = "failed"
             delegation.result_summary = error
             delegation_repo.save(delegation)
+            self._maybe_cleanup_task_agent_after_delegation(db, task, delegation, "failed")
             return
 
         runtime_status = str(delegation_result.get("status") or "done").lower()
@@ -119,6 +120,51 @@ class TaskDispatcherService:
         delegation.next_recommendation = delegation_result.get("next_recommendation")
         delegation.audit_trace_json = json.dumps(audit_trace) if audit_trace is not None else None
         delegation_repo.save(delegation)
+        self._maybe_cleanup_task_agent_after_delegation(db, task, delegation, computed_status)
+
+    @staticmethod
+    def _should_cleanup_task_agent(cleanup_policy: str | None, delegation_status: str) -> bool:
+        if cleanup_policy == "delete_on_done":
+            return delegation_status == "done"
+        if cleanup_policy == "delete_on_terminal":
+            return delegation_status in {"done", "failed"}
+        return False
+
+    def _maybe_cleanup_task_agent_after_delegation(self, db: Session, task, delegation, delegation_status: str) -> None:
+        input_payload, payload_error = self._parse_input_payload(task.input_payload_json)
+        if payload_error or not input_payload:
+            return
+
+        cleanup_policy = input_payload.get("task_agent_cleanup_policy")
+        if not isinstance(cleanup_policy, str) or not cleanup_policy.strip():
+            return
+        cleanup_policy = cleanup_policy.strip()
+        if cleanup_policy == "retain":
+            return
+        if not self._should_cleanup_task_agent(cleanup_policy, delegation_status):
+            return
+
+        assignee_agent_id = input_payload.get("ephemeral_task_agent_id") or task.assignee_agent_id
+        if not assignee_agent_id:
+            return
+
+        agent = AgentRepository(db).get_by_id(assignee_agent_id)
+        if not agent or agent.agent_type != "task":
+            return
+        group_id = task.group_id or delegation.group_id
+        if not group_id:
+            return
+
+        from app.services.agent_group_service import AgentGroupService
+
+        group_service = AgentGroupService(db)
+        group_service.auto_cleanup_task_agent(
+            group_id=group_id,
+            agent_id=assignee_agent_id,
+            delegation_id=delegation.id,
+            task_id=task.id,
+            cleanup_policy=cleanup_policy,
+        )
 
     @staticmethod
     def _normalize_runtime_response(response: httpx.Response) -> tuple[bool, str, str]:
@@ -226,6 +272,7 @@ class TaskDispatcherService:
                 metadata["portal_group_id"] = delegation.group_id
                 metadata["portal_leader_agent_id"] = delegation.leader_agent_id
                 metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
+                metadata["portal_delegation_reply_target"] = "leader"
             if input_payload.get("strict_delegation_result") is True:
                 metadata["strict_delegation_result"] = True
             if input_payload.get("agent_mode") in {"task", "specialist"}:
