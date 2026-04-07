@@ -78,7 +78,7 @@ def add_agent_group_member(
     if not service.can_manage_group(group, user):
         raise HTTPException(status_code=403, detail="Not allowed to manage group")
     try:
-        member = service.add_group_member(group_id, payload)
+        member = service.add_group_member(group_id, payload, user=user)
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
     return AgentGroupMemberResponse.model_validate(member)
@@ -93,7 +93,7 @@ def delete_agent_group_member(group_id: str, member_id: str, user=Depends(get_cu
     if not service.can_manage_group(group, user):
         raise HTTPException(status_code=403, detail="Not allowed to manage group")
     try:
-        service.remove_group_member(group_id, member_id)
+        service.remove_group_member(group_id, member_id, user=user)
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
     return {"ok": True}

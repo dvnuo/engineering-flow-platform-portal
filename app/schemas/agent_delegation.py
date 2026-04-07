@@ -54,6 +54,39 @@ class AgentDelegationCreateRequest(BaseModel):
         return value.strip()
 
 
+class InternalAgentDelegationCreateRequest(BaseModel):
+    group_id: str
+    parent_agent_id: str | None = None
+    leader_agent_id: str
+    assignee_agent_id: str
+    objective: str
+    leader_session_id: str | None = None
+    scoped_context_ref: str | None = None
+    scoped_context_payload: dict | None = None
+    input_artifacts: list[dict] | None = None
+    expected_output_schema: dict | None = None
+    deadline_at: datetime | None = None
+    retry_policy: dict | None = None
+    visibility: str = "leader_only"
+    skill_name: str
+    skill_kwargs: dict | None = None
+
+    @field_validator("visibility")
+    @classmethod
+    def validate_visibility(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized not in ALLOWED_VISIBILITY:
+            raise ValueError("visibility must be 'leader_only' or 'group_visible'")
+        return normalized
+
+    @field_validator("skill_name")
+    @classmethod
+    def validate_skill_name(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("skill_name is required")
+        return value.strip()
+
+
 class AgentDelegationResponse(BaseModel):
     id: str
     group_id: str

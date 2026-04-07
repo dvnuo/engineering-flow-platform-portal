@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -9,8 +10,9 @@ from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.repositories.audit_repo import AuditRepository
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
-from app.schemas.agent_delegation import AgentDelegationCreateRequest
+from app.schemas.agent_delegation import AgentDelegationCreateRequest, InternalAgentDelegationCreateRequest
 from app.services.task_dispatcher import TaskDispatcherService
 
 
@@ -18,6 +20,25 @@ from app.services.task_dispatcher import TaskDispatcherService
 class AgentDelegationServiceError(Exception):
     status_code: int
     detail: str
+
+
+@dataclass
+class _NormalizedDelegationRequest:
+    group_id: str
+    parent_agent_id: str | None
+    leader_agent_id: str
+    assignee_agent_id: str
+    objective: str
+    leader_session_id: str | None
+    scoped_context_ref: str | None
+    scoped_context_payload: dict | None
+    input_artifacts: list[dict]
+    expected_output_schema: dict
+    deadline_at: datetime | None
+    retry_policy: dict
+    visibility: str
+    skill_name: str
+    skill_kwargs: dict
 
 
 class AgentDelegationService:
@@ -29,6 +50,7 @@ class AgentDelegationService:
         self.task_repo = AgentTaskRepository(db)
         self.delegation_repo = AgentDelegationRepository(db)
         self.context_snapshot_repo = GroupSharedContextSnapshotRepository(db)
+        self.audit_repo = AuditRepository(db)
         self.dispatcher = TaskDispatcherService()
 
     @staticmethod
@@ -109,42 +131,119 @@ class AgentDelegationService:
             return True
         return self._is_leader_owner(group, user)
 
+    def _normalize_user_request(self, payload: AgentDelegationCreateRequest) -> _NormalizedDelegationRequest:
+        input_artifacts = self._parse_json_array(payload.input_artifacts_json, "input_artifacts_json")
+        if not all(isinstance(item, dict) for item in input_artifacts):
+            raise AgentDelegationServiceError(status_code=422, detail="input_artifacts_json entries must be JSON objects")
+
+        return _NormalizedDelegationRequest(
+            group_id=payload.group_id,
+            parent_agent_id=payload.parent_agent_id,
+            leader_agent_id=payload.leader_agent_id,
+            assignee_agent_id=payload.assignee_agent_id,
+            objective=payload.objective,
+            leader_session_id=payload.leader_session_id,
+            scoped_context_ref=payload.scoped_context_ref,
+            scoped_context_payload=self._parse_optional_json_object(payload.scoped_context_payload_json, "scoped_context_payload_json"),
+            input_artifacts=input_artifacts,
+            expected_output_schema=self._parse_json_object(payload.expected_output_schema_json, "expected_output_schema_json", default_value={}),
+            deadline_at=payload.deadline_at,
+            retry_policy=self._parse_json_object(payload.retry_policy_json, "retry_policy_json", default_value={}),
+            visibility=payload.visibility,
+            skill_name=payload.skill_name,
+            skill_kwargs=self._parse_json_object(payload.skill_kwargs_json, "skill_kwargs_json", default_value={}),
+        )
+
+    def _normalize_internal_request(self, payload: InternalAgentDelegationCreateRequest) -> _NormalizedDelegationRequest:
+        input_artifacts = payload.input_artifacts or []
+        if not isinstance(input_artifacts, list) or not all(isinstance(item, dict) for item in input_artifacts):
+            raise AgentDelegationServiceError(status_code=422, detail="input_artifacts must be a list of objects")
+        scoped_context_payload = payload.scoped_context_payload
+        if scoped_context_payload is not None and not isinstance(scoped_context_payload, dict):
+            raise AgentDelegationServiceError(status_code=422, detail="scoped_context_payload must be an object")
+        expected_output_schema = payload.expected_output_schema or {}
+        if not isinstance(expected_output_schema, dict):
+            raise AgentDelegationServiceError(status_code=422, detail="expected_output_schema must be an object")
+        retry_policy = payload.retry_policy or {}
+        if not isinstance(retry_policy, dict):
+            raise AgentDelegationServiceError(status_code=422, detail="retry_policy must be an object")
+        skill_kwargs = payload.skill_kwargs or {}
+        if not isinstance(skill_kwargs, dict):
+            raise AgentDelegationServiceError(status_code=422, detail="skill_kwargs must be an object")
+
+        return _NormalizedDelegationRequest(
+            group_id=payload.group_id,
+            parent_agent_id=payload.parent_agent_id,
+            leader_agent_id=payload.leader_agent_id,
+            assignee_agent_id=payload.assignee_agent_id,
+            objective=payload.objective,
+            leader_session_id=payload.leader_session_id,
+            scoped_context_ref=payload.scoped_context_ref,
+            scoped_context_payload=scoped_context_payload,
+            input_artifacts=input_artifacts,
+            expected_output_schema=expected_output_schema,
+            deadline_at=payload.deadline_at,
+            retry_policy=retry_policy,
+            visibility=payload.visibility,
+            skill_name=payload.skill_name,
+            skill_kwargs=skill_kwargs,
+        )
+
     async def create_delegation(self, payload: AgentDelegationCreateRequest, user):
-        group = self.group_repo.get_by_id(payload.group_id)
+        return await self.create_delegation_from_user_request(payload, user)
+
+    async def create_delegation_from_user_request(self, payload: AgentDelegationCreateRequest, user):
+        normalized = self._normalize_user_request(payload)
+        return await self._create_delegation_core(normalized=normalized, user=user, source="user_api")
+
+    async def create_delegation_from_internal_request(self, payload: InternalAgentDelegationCreateRequest):
+        normalized = self._normalize_internal_request(payload)
+        return await self._create_delegation_core(normalized=normalized, user=None, source="internal_runtime_api")
+
+    def _assert_delegation_authorized(self, *, group, leader_agent, normalized: _NormalizedDelegationRequest, user, source: str):
+        if source == "user_api":
+            if not self.can_create_delegation(group, user):
+                raise AgentDelegationServiceError(status_code=403, detail="Only admin or the group leader owner can create delegations")
+        else:
+            if leader_agent.id != normalized.leader_agent_id:
+                raise AgentDelegationServiceError(status_code=403, detail="leader_agent_id must match group leader")
+
+    async def _create_delegation_core(self, *, normalized: _NormalizedDelegationRequest, user, source: str):
+        group = self.group_repo.get_by_id(normalized.group_id)
         if not group:
             raise AgentDelegationServiceError(status_code=404, detail="Group not found")
 
-        if payload.leader_agent_id != group.leader_agent_id:
+        if normalized.leader_agent_id != group.leader_agent_id:
             raise AgentDelegationServiceError(status_code=403, detail="leader_agent_id must match group leader")
 
         leader_agent = self.agent_repo.get_by_id(group.leader_agent_id)
         if not leader_agent:
             raise AgentDelegationServiceError(status_code=404, detail="Group leader agent not found")
 
-        if not self.can_create_delegation(group, user):
-            raise AgentDelegationServiceError(status_code=403, detail="Only admin or the group leader owner can create delegations")
+        self._assert_delegation_authorized(group=group, leader_agent=leader_agent, normalized=normalized, user=user, source=source)
 
         leader_member = self.member_repo.get_by_group_and_agent(group.id, group.leader_agent_id)
         if not leader_member or leader_member.role != "leader":
             raise AgentDelegationServiceError(status_code=403, detail="Leader agent must be a leader member of the group")
 
-        assignee_member = self.member_repo.get_by_group_and_agent(group.id, payload.assignee_agent_id)
+        assignee_member = self.member_repo.get_by_group_and_agent(group.id, normalized.assignee_agent_id)
         if not assignee_member:
             raise AgentDelegationServiceError(status_code=403, detail="Assignee agent must be a member of the group")
 
-        if payload.visibility not in {"leader_only", "group_visible"}:
+        if normalized.visibility not in {"leader_only", "group_visible"}:
             raise AgentDelegationServiceError(status_code=422, detail="Invalid visibility")
 
-        if payload.assignee_agent_id == payload.leader_agent_id:
+        if normalized.assignee_agent_id == normalized.leader_agent_id:
             raise AgentDelegationServiceError(status_code=409, detail="Leader agent cannot delegate to itself")
-        if payload.parent_agent_id and payload.assignee_agent_id == payload.parent_agent_id:
+        if normalized.parent_agent_id and normalized.assignee_agent_id == normalized.parent_agent_id:
             raise AgentDelegationServiceError(status_code=409, detail="Parent agent cannot delegate to itself")
 
-        assignee_agent = self.agent_repo.get_by_id(payload.assignee_agent_id)
+        assignee_agent = self.agent_repo.get_by_id(normalized.assignee_agent_id)
         if not assignee_agent:
             raise AgentDelegationServiceError(status_code=404, detail="Assignee agent not found")
         if assignee_agent.agent_type not in {"specialist", "task"}:
             raise AgentDelegationServiceError(status_code=422, detail="Assignee agent must be a specialist or task agent")
+
         pool_ids: list[str] = []
         has_explicit_pool = bool(group.specialist_agent_pool_json and group.specialist_agent_pool_json.strip())
         if has_explicit_pool:
@@ -162,103 +261,92 @@ class AgentDelegationService:
                 member_agent = self.agent_repo.get_by_id(agent_id)
                 if member_agent and member_agent.agent_type in {"specialist", "task"}:
                     pool_ids.append(agent_id)
+
         if assignee_agent.id not in pool_ids:
             raise AgentDelegationServiceError(status_code=422, detail="Assignee agent must belong to the specialist agent pool")
-        if payload.parent_agent_id and not self.agent_repo.get_by_id(payload.parent_agent_id):
+
+        if normalized.parent_agent_id and not self.agent_repo.get_by_id(normalized.parent_agent_id):
             raise AgentDelegationServiceError(status_code=404, detail="Parent agent not found")
 
-        input_artifacts = self._parse_json_array(payload.input_artifacts_json, "input_artifacts_json")
-        if not all(isinstance(item, dict) for item in input_artifacts):
-            raise AgentDelegationServiceError(status_code=422, detail="input_artifacts_json entries must be JSON objects")
-
-        expected_output_schema = self._parse_json_object(
-            payload.expected_output_schema_json,
-            "expected_output_schema_json",
-            default_value={},
-        )
-        retry_policy = self._parse_json_object(payload.retry_policy_json, "retry_policy_json", default_value={})
-        skill_kwargs = self._parse_json_object(payload.skill_kwargs_json, "skill_kwargs_json", default_value={})
-        scoped_context_payload = self._parse_optional_json_object(payload.scoped_context_payload_json, "scoped_context_payload_json")
-
-        effective_scoped_context_ref = (payload.scoped_context_ref or "").strip() or None
-        if scoped_context_payload is not None and not effective_scoped_context_ref:
+        effective_scoped_context_ref = (normalized.scoped_context_ref or "").strip() or None
+        if normalized.scoped_context_payload is not None and not effective_scoped_context_ref:
             effective_scoped_context_ref = f"ctx-{uuid4()}"
 
-        if effective_scoped_context_ref and scoped_context_payload is None:
-            existing_snapshot = self.context_snapshot_repo.get_by_group_and_ref(payload.group_id, effective_scoped_context_ref)
+        if effective_scoped_context_ref and normalized.scoped_context_payload is None:
+            existing_snapshot = self.context_snapshot_repo.get_by_group_and_ref(normalized.group_id, effective_scoped_context_ref)
             if not existing_snapshot:
                 raise AgentDelegationServiceError(status_code=409, detail="Shared context snapshot not found")
 
         ephemeral_policy = self._parse_json_object(group.ephemeral_agent_policy_json, "ephemeral_agent_policy_json", default_value={})
 
         audit_trace = {
-            "skill_name": payload.skill_name,
-            "skill_kwargs": skill_kwargs,
+            "skill_name": normalized.skill_name,
+            "skill_kwargs": normalized.skill_kwargs,
             "strict_delegation_result": True,
             "ephemeral_agent_policy": ephemeral_policy,
         }
-        if skill_kwargs.get("agent_mode") == "task":
+        if normalized.skill_kwargs.get("agent_mode") == "task":
             audit_trace["agent_mode"] = "task"
             audit_trace["ephemeral_task_agent_intent"] = True
 
         delegation = self.delegation_repo.create(
-            group_id=payload.group_id,
-            parent_agent_id=payload.parent_agent_id,
-            leader_agent_id=payload.leader_agent_id,
-            assignee_agent_id=payload.assignee_agent_id,
+            group_id=normalized.group_id,
+            parent_agent_id=normalized.parent_agent_id,
+            leader_agent_id=normalized.leader_agent_id,
+            assignee_agent_id=normalized.assignee_agent_id,
             agent_task_id=None,
-            objective=payload.objective,
-            leader_session_id=payload.leader_session_id,
+            objective=normalized.objective,
+            leader_session_id=normalized.leader_session_id,
             scoped_context_ref=effective_scoped_context_ref,
-            input_artifacts_json=json.dumps(input_artifacts),
-            expected_output_schema_json=json.dumps(expected_output_schema),
-            deadline_at=payload.deadline_at,
-            retry_policy_json=json.dumps(retry_policy),
-            visibility=payload.visibility,
+            input_artifacts_json=json.dumps(normalized.input_artifacts),
+            expected_output_schema_json=json.dumps(normalized.expected_output_schema),
+            deadline_at=normalized.deadline_at,
+            retry_policy_json=json.dumps(normalized.retry_policy),
+            visibility=normalized.visibility,
             status="queued",
             audit_trace_json=json.dumps(audit_trace),
         )
 
-        if scoped_context_payload is not None and effective_scoped_context_ref:
+        if normalized.scoped_context_payload is not None and effective_scoped_context_ref:
             self.context_snapshot_repo.upsert_by_group_and_ref(
-                group_id=payload.group_id,
+                group_id=normalized.group_id,
                 context_ref=effective_scoped_context_ref,
                 scope_kind="delegation",
-                payload_json=json.dumps(scoped_context_payload),
+                payload_json=json.dumps(normalized.scoped_context_payload),
                 created_by_user_id=getattr(user, "id", None),
                 source_delegation_id=delegation.id,
             )
 
         task_input_payload = {
             "delegation_id": delegation.id,
-            "group_id": payload.group_id,
-            "parent_agent_id": payload.parent_agent_id or payload.leader_agent_id,
-            "leader_agent_id": payload.leader_agent_id,
-            "assignee_agent_id": payload.assignee_agent_id,
-            "objective": payload.objective,
-            "leader_session_id": payload.leader_session_id,
+            "group_id": normalized.group_id,
+            "parent_agent_id": normalized.parent_agent_id or normalized.leader_agent_id,
+            "leader_agent_id": normalized.leader_agent_id,
+            "assignee_agent_id": normalized.assignee_agent_id,
+            "objective": normalized.objective,
+            "leader_session_id": normalized.leader_session_id,
             "strict_delegation_result": True,
             "agent_mode": "task" if assignee_agent.agent_type == "task" else "specialist",
             "ephemeral_task_agent_id": assignee_agent.id if assignee_agent.agent_type == "task" else None,
-            "task_agent_template_id": skill_kwargs.get("task_agent_template_id"),
-            "task_agent_scope": effective_scoped_context_ref or skill_kwargs.get("scope_label"),
-            "task_agent_cleanup_policy": skill_kwargs.get("cleanup_policy") or ephemeral_policy.get("cleanup_policy"),
+            "task_agent_template_id": getattr(assignee_agent, "template_agent_id", None) or normalized.skill_kwargs.get("task_agent_template_id"),
+            "task_agent_scope": effective_scoped_context_ref or getattr(assignee_agent, "task_scope_label", None) or normalized.skill_kwargs.get("scope_label"),
+            "task_agent_cleanup_policy": getattr(assignee_agent, "task_cleanup_policy", None) or normalized.skill_kwargs.get("cleanup_policy") or ephemeral_policy.get("cleanup_policy"),
             "scoped_context_ref": effective_scoped_context_ref,
-            "input_artifacts": input_artifacts,
-            "expected_output_schema": expected_output_schema,
-            "deadline": payload.deadline_at.isoformat() if payload.deadline_at else None,
-            "retry_policy": retry_policy,
-            "visibility": payload.visibility,
-            "skill_name": payload.skill_name,
-            "skill_kwargs": skill_kwargs,
+            "input_artifacts": normalized.input_artifacts,
+            "expected_output_schema": normalized.expected_output_schema,
+            "deadline": normalized.deadline_at.isoformat() if normalized.deadline_at else None,
+            "retry_policy": normalized.retry_policy,
+            "visibility": normalized.visibility,
+            "skill_name": normalized.skill_name,
+            "skill_kwargs": normalized.skill_kwargs,
         }
 
         task = self.task_repo.create(
             task_type="delegation_task",
             source="agent",
-            group_id=payload.group_id,
-            parent_agent_id=payload.parent_agent_id or payload.leader_agent_id,
-            assignee_agent_id=payload.assignee_agent_id,
+            group_id=normalized.group_id,
+            parent_agent_id=normalized.parent_agent_id or normalized.leader_agent_id,
+            assignee_agent_id=normalized.assignee_agent_id,
             shared_context_ref=effective_scoped_context_ref,
             input_payload_json=json.dumps(task_input_payload),
             status="queued",
@@ -268,6 +356,25 @@ class AgentDelegationService:
 
         delegation.agent_task_id = task.id
         self.delegation_repo.save(delegation)
+
+        self.audit_repo.create(
+            action="create_delegation",
+            target_type="agent_delegation",
+            target_id=delegation.id,
+            user_id=getattr(user, "id", None),
+            details={
+                "group_id": normalized.group_id,
+                "leader_agent_id": normalized.leader_agent_id,
+                "assignee_agent_id": normalized.assignee_agent_id,
+                "delegation_id": delegation.id,
+                "task_id": task.id,
+                "visibility": normalized.visibility,
+                "scoped_context_ref": effective_scoped_context_ref,
+                "input_artifacts_count": len(normalized.input_artifacts),
+                "has_expected_output_schema": bool(normalized.expected_output_schema),
+                "source": source,
+            },
+        )
 
         dispatch_result = await self.dispatcher.dispatch_task(task.id, self.db)
         if not dispatch_result.dispatched:

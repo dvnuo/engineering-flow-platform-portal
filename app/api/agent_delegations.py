@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_internal_api_key
 from app.schemas.agent_delegation import (
     AgentDelegationBoardItemResponse,
     AgentDelegationCreateRequest,
+    InternalAgentDelegationCreateRequest,
     AgentDelegationResponse,
     AgentGroupTaskBoardResponse,
 )
@@ -32,6 +33,20 @@ async def create_agent_delegation(payload: AgentDelegationCreateRequest, user=De
     service = AgentDelegationService(db)
     try:
         delegation = await service.create_delegation(payload, user=user)
+    except AgentDelegationServiceError as error:
+        _raise_delegation_error(error)
+    return AgentDelegationResponse.model_validate(delegation)
+
+
+@router.post("/api/internal/agent-delegations", response_model=AgentDelegationResponse)
+async def create_internal_agent_delegation(
+    payload: InternalAgentDelegationCreateRequest,
+    _: bool = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    service = AgentDelegationService(db)
+    try:
+        delegation = await service.create_delegation_from_internal_request(payload)
     except AgentDelegationServiceError as error:
         _raise_delegation_error(error)
     return AgentDelegationResponse.model_validate(delegation)

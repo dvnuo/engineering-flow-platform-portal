@@ -9,6 +9,7 @@ from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.repositories.audit_repo import AuditRepository
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.agent_group import (
@@ -38,6 +39,7 @@ class AgentGroupService:
         self.task_repo = AgentTaskRepository(db)
         self.delegation_repo = AgentDelegationRepository(db)
         self.context_snapshot_repo = GroupSharedContextSnapshotRepository(db)
+        self.audit_repo = AuditRepository(db)
         self.user_repo = UserRepository(db)
         self.k8s_service = K8sService()
         self.settings = get_settings()
@@ -211,9 +213,20 @@ class AgentGroupService:
 
         self.db.refresh(group)
         members = self.member_repo.list_by_group(group.id)
+        self.audit_repo.create(
+            action="create_group",
+            target_type="agent_group",
+            target_id=group.id,
+            user_id=created_by_user_id,
+            details={
+                "group_id": group.id,
+                "leader_agent_id": group.leader_agent_id,
+                "source": "user_api",
+            },
+        )
         return group, members
 
-    def add_group_member(self, group_id: str, payload: AgentGroupMemberCreateRequest):
+    def add_group_member(self, group_id: str, payload: AgentGroupMemberCreateRequest, user=None):
         group = self._get_group_or_raise(group_id)
 
         member_type = (payload.member_type or "").strip().lower()
@@ -237,6 +250,18 @@ class AgentGroupService:
                 agent_id=None,
                 role=payload.role,
             )
+            self.audit_repo.create(
+                action="add_group_member",
+                target_type="agent_group_member",
+                target_id=member.id,
+                details={
+                    "group_id": group.id,
+                    "member_id": member.id,
+                    "leader_agent_id": group.leader_agent_id,
+                    "source": "user_api",
+                },
+                user_id=getattr(user, "id", None),
+            )
             return member
 
         if not payload.agent_id or payload.user_id is not None:
@@ -253,9 +278,22 @@ class AgentGroupService:
             agent_id=payload.agent_id,
             role=payload.role,
         )
+        self.audit_repo.create(
+            action="add_group_member",
+            target_type="agent_group_member",
+            target_id=member.id,
+            details={
+                "group_id": group.id,
+                "member_id": member.id,
+                "leader_agent_id": group.leader_agent_id,
+                "assignee_agent_id": payload.agent_id,
+                "source": "user_api",
+            },
+            user_id=getattr(user, "id", None),
+        )
         return member
 
-    def remove_group_member(self, group_id: str, member_id: str) -> None:
+    def remove_group_member(self, group_id: str, member_id: str, user=None) -> None:
         group = self._get_group_or_raise(group_id)
 
         member = self.member_repo.get_by_id(member_id)
@@ -265,7 +303,20 @@ class AgentGroupService:
         if member.role == "leader" and member.agent_id == group.leader_agent_id:
             raise AgentGroupServiceError(status_code=409, detail="Cannot remove current group leader member")
 
+        member_id = member.id
         self.member_repo.delete(member)
+        self.audit_repo.create(
+            action="remove_group_member",
+            target_type="agent_group_member",
+            target_id=member_id,
+            details={
+                "group_id": group.id,
+                "member_id": member_id,
+                "leader_agent_id": group.leader_agent_id,
+                "source": "user_api",
+            },
+            user_id=getattr(user, "id", None),
+        )
 
     def list_group_tasks(self, group_id: str, user=None):
         group = self._get_group_or_raise(group_id)
@@ -344,6 +395,18 @@ class AgentGroupService:
             candidate_agent_ids=specialist_agent_ids,
         )
         self._set_specialist_pool_ids(group, validated)
+        self.audit_repo.create(
+            action="update_specialist_pool",
+            target_type="agent_group",
+            target_id=group.id,
+            user_id=getattr(user, "id", None),
+            details={
+                "group_id": group.id,
+                "leader_agent_id": group.leader_agent_id,
+                "specialist_pool_size": len(validated),
+                "source": "user_api",
+            },
+        )
         return validated
 
     def create_group_task_agent(self, group_id: str, payload: AgentGroupTaskAgentCreateRequest, user):
@@ -392,6 +455,18 @@ class AgentGroupService:
         pool_ids = self._get_specialist_pool_ids(group)
         if created.id not in pool_ids:
             self._set_specialist_pool_ids(group, pool_ids + [created.id])
+        self.audit_repo.create(
+            action="create_group_task_agent",
+            target_type="agent",
+            target_id=created.id,
+            user_id=getattr(user, "id", None),
+            details={
+                "group_id": group.id,
+                "leader_agent_id": group.leader_agent_id,
+                "assignee_agent_id": created.id,
+                "source": "user_api",
+            },
+        )
         return created
 
     def delete_group_task_agent(self, group_id: str, agent_id: str, user) -> None:
@@ -415,6 +490,18 @@ class AgentGroupService:
         if runtime.status == "failed":
             raise AgentGroupServiceError(status_code=500, detail=runtime.message or "Delete failed")
         self.agent_repo.delete(agent)
+        self.audit_repo.create(
+            action="delete_group_task_agent",
+            target_type="agent",
+            target_id=agent_id,
+            user_id=getattr(user, "id", None),
+            details={
+                "group_id": group.id,
+                "leader_agent_id": group.leader_agent_id,
+                "assignee_agent_id": agent_id,
+                "source": "user_api",
+            },
+        )
 
     def list_group_delegations(self, group_id: str, user=None, apply_visibility: bool = False):
         group = self._get_group_or_raise(group_id)

@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -6,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, User
+from app.models import Agent, AuditLog, User
 from app.services.auth_service import hash_password
 
 
@@ -427,6 +428,9 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
             json={"specialist_agent_ids": [specialist_template.id]},
         )
         assert update_pool.status_code == 200
+        pool_audit = db.query(AuditLog).filter(AuditLog.action == "update_specialist_pool", AuditLog.target_id == group["id"]).first()
+        assert pool_audit is not None
+        assert json.loads(pool_audit.details_json)["specialist_pool_size"] == 1
 
         # mock runtime create/delete path
         agents_api.k8s_service.create_agent_runtime = lambda _agent: SimpleNamespace(status="running", message=None)
@@ -442,12 +446,18 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
         assert create_task_agent.status_code == 200
         created = create_task_agent.json()
         assert created["agent_type"] == "task"
+        create_audit = db.query(AuditLog).filter(AuditLog.action == "create_group_task_agent", AuditLog.target_id == created["id"]).first()
+        assert create_audit is not None
+        assert json.loads(create_audit.details_json)["group_id"] == group["id"]
 
         pool_after_create = client.get(f"/api/agent-groups/{group['id']}/specialist-pool")
         assert created["id"] in pool_after_create.json()["specialist_agent_ids"]
 
         delete_task_agent = client.delete(f"/api/agent-groups/{group['id']}/task-agents/{created['id']}")
         assert delete_task_agent.status_code == 200
+        delete_audit = db.query(AuditLog).filter(AuditLog.action == "delete_group_task_agent", AuditLog.target_id == created["id"]).first()
+        assert delete_audit is not None
+        assert json.loads(delete_audit.details_json)["group_id"] == group["id"]
         pool_after_delete = client.get(f"/api/agent-groups/{group['id']}/specialist-pool")
         assert created["id"] not in pool_after_delete.json()["specialist_agent_ids"]
     finally:

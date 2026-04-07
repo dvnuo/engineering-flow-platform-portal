@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./portal.db"
     secret_key: str = "change-me-in-production"
     session_cookie_name: str = "portal_session"
+    portal_internal_api_key: str = Field(default="", validation_alias="PORTAL_INTERNAL_API_KEY")
 
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = Field(default="", validation_alias="BOOTSTRAP_ADMIN_PASSWORD")

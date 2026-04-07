@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentDelegation, AgentTask, GroupSharedContextSnapshot, User
+from app.models import Agent, AgentDelegation, AgentTask, AuditLog, GroupSharedContextSnapshot, User
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -17,6 +17,7 @@ from app.services.auth_service import hash_password
 def _build_client_with_overrides(monkeypatch):
     from app.main import app
     import app.api.agent_delegations as delegations_api
+    import app.deps as deps_module
 
     engine = create_engine(
         "sqlite://",
@@ -137,7 +138,9 @@ def _build_client_with_overrides(monkeypatch):
         "user": SimpleNamespace(id=leader_owner.id, role=leader_owner.role, username=leader_owner.username, nickname="Owner"),
         "captured_bodies": [],
         "saw_running": [],
+        "original_internal_api_key": deps_module.settings.portal_internal_api_key,
     }
+    deps_module.settings.portal_internal_api_key = "internal-test-key"
 
     monkeypatch.setattr("app.services.proxy_service.ProxyService.build_agent_base_url", lambda _self, _agent: "http://runtime")
 
@@ -191,6 +194,7 @@ def _build_client_with_overrides(monkeypatch):
 
     def _cleanup():
         app.dependency_overrides.clear()
+        deps_module.settings.portal_internal_api_key = state["original_internal_api_key"]
         db.close()
 
     return (
@@ -207,6 +211,7 @@ def _build_client_with_overrides(monkeypatch):
         outsider_user,
         state,
         _set_user,
+        deps_module,
         _cleanup,
     )
 
@@ -238,7 +243,7 @@ def _payload(
 
 
 def test_create_authorization_admin_and_leader_owner_allowed_unrelated_forbidden(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, assignee, _outsider_agent, admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(admin_user)
         admin_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
@@ -257,7 +262,7 @@ def test_create_authorization_admin_and_leader_owner_allowed_unrelated_forbidden
 
 
 def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
@@ -288,7 +293,7 @@ def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
 
 
 def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         response = client.post(
@@ -315,7 +320,7 @@ def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
 
 
 def test_non_leader_agent_id_cannot_be_used(monkeypatch):
-    client, _db, group, _leader, assignee, outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, _leader, assignee, outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         response = client.post("/api/agent-delegations", json=_payload(group.id, outsider_agent.id, assignee.id))
@@ -326,7 +331,7 @@ def test_non_leader_agent_id_cannot_be_used(monkeypatch):
 
 
 def test_assignee_not_in_group_is_rejected(monkeypatch):
-    client, _db, group, leader, _assignee, outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, _assignee, outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, outsider_agent.id))
@@ -336,7 +341,7 @@ def test_assignee_not_in_group_is_rejected(monkeypatch):
 
 
 def test_self_delegation_is_rejected_for_leader_and_parent(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         leader_self = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, leader.id))
@@ -353,7 +358,7 @@ def test_self_delegation_is_rejected_for_leader_and_parent(monkeypatch):
 
 
 def test_delegation_rejects_workspace_assignee(monkeypatch):
-    client, db, group, leader, _assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, leader, _assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         workspace_member_assignee = next(
@@ -369,7 +374,7 @@ def test_delegation_rejects_workspace_assignee(monkeypatch):
 
 
 def test_delegation_rejects_assignee_not_in_specialist_pool(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         group.specialist_agent_pool_json = "[]"
         db.add(group)
@@ -383,7 +388,7 @@ def test_delegation_rejects_assignee_not_in_specialist_pool(monkeypatch):
 
 
 def test_json_type_validation_for_contract_fields(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         for field, value in [
@@ -401,7 +406,7 @@ def test_json_type_validation_for_contract_fields(monkeypatch):
 
 
 def test_visibility_scope_group_visible_is_group_scoped_not_global(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, assignee, _outsider_agent, admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         leader_only_resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="leader_only"))
@@ -436,7 +441,7 @@ def test_visibility_scope_group_visible_is_group_scoped_not_global(monkeypatch):
 
 
 def test_leader_only_hidden_from_group_participant_non_leader(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="leader_only"))
@@ -454,7 +459,7 @@ def test_leader_only_hidden_from_group_participant_non_leader(monkeypatch):
 
 
 def test_shared_visibility_rule_used_by_panel_and_task_board(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         resp = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="group_visible"))
@@ -477,7 +482,7 @@ def test_shared_visibility_rule_used_by_panel_and_task_board(monkeypatch):
 
 
 def test_shared_context_list_panel_auth_and_render(monkeypatch):
-    client, db, group, _leader, _assignee, _outsider_agent, admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, _leader, _assignee, _outsider_agent, admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         snapshot = GroupSharedContextSnapshot(
             group_id=group.id,
@@ -531,7 +536,7 @@ def test_shared_context_list_panel_auth_and_render(monkeypatch):
 
 
 def test_shared_context_detail_panel_auth_render_and_missing_ref(monkeypatch):
-    client, db, group, _leader, _assignee, _outsider_agent, _admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, _leader, _assignee, _outsider_agent, _admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         snapshot = GroupSharedContextSnapshot(
             group_id=group.id,
@@ -590,7 +595,7 @@ def test_shared_context_detail_panel_auth_render_and_missing_ref(monkeypatch):
 
 
 def test_delegation_creation_persists_shared_context_snapshot_with_explicit_ref(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         response = client.post(
@@ -626,7 +631,7 @@ def test_delegation_creation_persists_shared_context_snapshot_with_explicit_ref(
 
 
 def test_delegation_creation_auto_generates_context_ref_when_payload_provided(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         response = client.post(
@@ -656,7 +661,7 @@ def test_delegation_creation_auto_generates_context_ref_when_payload_provided(mo
 
 
 def test_dispatch_fails_when_shared_context_ref_missing_snapshot(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
         response = client.post(
@@ -670,7 +675,7 @@ def test_dispatch_fails_when_shared_context_ref_missing_snapshot(monkeypatch):
 
 
 def test_group_shared_context_list_endpoint_auth_and_shape(monkeypatch):
-    client, db, group, _leader, _assignee, _outsider_agent, admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, _leader, _assignee, _outsider_agent, admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         db.add(
             GroupSharedContextSnapshot(
@@ -701,7 +706,7 @@ def test_group_shared_context_list_endpoint_auth_and_shape(monkeypatch):
 
 
 def test_group_shared_context_detail_endpoint_and_not_found(monkeypatch):
-    client, db, group, _leader, _assignee, _outsider_agent, _admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, _leader, _assignee, _outsider_agent, _admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         db.add(
             GroupSharedContextSnapshot(
@@ -733,7 +738,7 @@ def test_group_shared_context_detail_endpoint_and_not_found(monkeypatch):
 
 
 def test_malformed_runtime_delegation_result_marks_failed_but_keeps_task_result(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
 
@@ -758,5 +763,87 @@ def test_malformed_runtime_delegation_result_marks_failed_but_keeps_task_result(
         assert delegation.status == "failed"
         assert task.status == "done"
         assert json.loads(task.result_payload_json)["status"] == "success"
+    finally:
+        cleanup()
+
+
+def test_internal_api_rejects_missing_and_invalid_api_key(monkeypatch):
+    client, _db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        payload = {
+            "group_id": group.id,
+            "leader_agent_id": leader.id,
+            "assignee_agent_id": assignee.id,
+            "objective": "Internal delegation",
+            "visibility": "leader_only",
+            "skill_name": "review",
+        }
+        missing_key = client.post("/api/internal/agent-delegations", json=payload)
+        assert missing_key.status_code == 401
+
+        bad_key = client.post("/api/internal/agent-delegations", json=payload, headers={"X-Internal-Api-Key": "wrong"})
+        assert bad_key.status_code == 401
+    finally:
+        cleanup()
+
+
+def test_internal_api_rejects_leader_agent_mismatch(monkeypatch):
+    client, _db, group, _leader, assignee, outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        payload = {
+            "group_id": group.id,
+            "leader_agent_id": outsider_agent.id,
+            "assignee_agent_id": assignee.id,
+            "objective": "Internal delegation mismatch",
+            "visibility": "leader_only",
+            "skill_name": "review",
+        }
+        response = client.post("/api/internal/agent-delegations", json=payload, headers={"X-Internal-Api-Key": "internal-test-key"})
+        assert response.status_code == 403
+        assert "leader_agent_id" in response.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        payload = {
+            "group_id": group.id,
+            "leader_agent_id": leader.id,
+            "assignee_agent_id": assignee.id,
+            "objective": "Internal delegation success",
+            "visibility": "leader_only",
+            "skill_name": "review",
+            "scoped_context_ref": "ctx-internal-1",
+            "scoped_context_payload": {"repo": "portal", "pr": 44},
+            "input_artifacts": [{"type": "pull_request", "id": 44}],
+            "skill_kwargs": {"agent_mode": "task"},
+        }
+        response = client.post("/api/internal/agent-delegations", json=payload, headers={"X-Internal-Api-Key": "internal-test-key"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "done"
+
+        task = db.get(AgentTask, body["agent_task_id"])
+        assert task is not None
+        assert task.task_type == "delegation_task"
+
+        snapshot = db.query(GroupSharedContextSnapshot).filter(
+            GroupSharedContextSnapshot.group_id == group.id,
+            GroupSharedContextSnapshot.context_ref == "ctx-internal-1",
+        ).first()
+        assert snapshot is not None
+
+        assert state["captured_bodies"]
+        assert state["captured_bodies"][0]["metadata"]["portal_delegation_id"] == body["id"]
+
+        audit_row = db.query(AuditLog).filter(AuditLog.action == "create_delegation", AuditLog.target_id == body["id"]).first()
+        assert audit_row is not None
+        details = json.loads(audit_row.details_json)
+        assert details["source"] == "internal_runtime_api"
+        assert details["group_id"] == group.id
+        assert details["visibility"] == "leader_only"
+        assert details["scoped_context_ref"] == "ctx-internal-1"
     finally:
         cleanup()
