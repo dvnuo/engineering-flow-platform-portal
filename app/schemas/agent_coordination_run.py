@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.agent_delegation import AgentDelegationBoardItemResponse
 
 
 class AgentCoordinationRunResponse(BaseModel):
@@ -14,6 +16,7 @@ class AgentCoordinationRunResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
+    items: list[AgentDelegationBoardItemResponse] = Field(default_factory=list)
 
     @classmethod
     def from_model(cls, row):
