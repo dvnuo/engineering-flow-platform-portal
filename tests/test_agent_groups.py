@@ -475,38 +475,64 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
         db = next(db_gen)
         deps_module.settings.portal_internal_api_key = "internal-test-key"
 
-        specialist = Agent(
-            name="Internal Specialist",
+        specialist_a = Agent(
+            name="Internal Specialist A",
             description="specialist",
             owner_user_id=leader_agent.owner_user_id,
             visibility="private",
             status="running",
             image="example/image:latest",
-            repo_url="https://example.com/repo-specialist-internal.git",
+            repo_url="https://example.com/repo-specialist-internal-a.git",
             branch="main",
             cpu="500m",
             memory="1Gi",
             disk_size_gi=20,
             mount_path="/root/.efp",
             namespace="efp-agents",
-            deployment_name="dep-specialist-internal",
-            service_name="svc-specialist-internal",
-            pvc_name="pvc-specialist-internal",
+            deployment_name="dep-specialist-internal-a",
+            service_name="svc-specialist-internal-a",
+            pvc_name="pvc-specialist-internal-a",
             endpoint_path="/",
             agent_type="specialist",
         )
-        db.add(specialist)
+        specialist_b = Agent(
+            name="Internal Specialist B",
+            description="specialist",
+            owner_user_id=leader_agent.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-specialist-internal-b.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-specialist-internal-b",
+            service_name="svc-specialist-internal-b",
+            pvc_name="pvc-specialist-internal-b",
+            endpoint_path="/",
+            agent_type="specialist",
+        )
+        db.add(specialist_a)
+        db.add(specialist_b)
         db.commit()
-        db.refresh(specialist)
+        db.refresh(specialist_a)
+        db.refresh(specialist_b)
 
         group = _create_group(client, leader_agent.id)
         assert client.post(
             f"/api/agent-groups/{group['id']}/members",
-            json={"member_type": "agent", "agent_id": specialist.id, "role": "member"},
+            json={"member_type": "agent", "agent_id": specialist_a.id, "role": "member"},
+        ).status_code == 200
+        assert client.post(
+            f"/api/agent-groups/{group['id']}/members",
+            json={"member_type": "agent", "agent_id": specialist_b.id, "role": "member"},
         ).status_code == 200
         assert client.put(
             f"/api/agent-groups/{group['id']}/specialist-pool",
-            json={"specialist_agent_ids": [specialist.id]},
+            json={"specialist_agent_ids": [specialist_b.id, specialist_a.id]},
         ).status_code == 200
 
         assert client.get(f"/api/internal/agent-groups/{group['id']}/specialist-pool").status_code == 401
@@ -522,7 +548,14 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
             headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert ok.status_code == 200
-        assert ok.json() == {"group_id": group["id"], "specialist_agent_ids": [specialist.id]}
+        body = ok.json()
+        assert body["group_id"] == group["id"]
+        assert body["specialist_agent_ids"] == [specialist_b.id, specialist_a.id]
+        assert [item["agent_id"] for item in body["items"]] == [specialist_b.id, specialist_a.id]
+        assert body["items"][0]["name"] == specialist_b.name
+        assert body["items"][0]["agent_type"] == "specialist"
+        assert body["items"][0]["status"] == "running"
+        assert body["items"][0]["visibility"] == "private"
     finally:
         cleanup()
 
@@ -596,6 +629,14 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         assert created_resp.status_code == 200
         created = created_resp.json()
         assert created["agent_type"] == "task"
+        create_audit = db.query(AuditLog).filter(AuditLog.action == "create_group_task_agent", AuditLog.target_id == created["id"]).first()
+        assert create_audit is not None
+        create_details = json.loads(create_audit.details_json)
+        assert create_details["template_agent_id"] == specialist_template.id
+        assert create_details["scope_label"] == "runtime-scope"
+        assert create_details["task_agent_cleanup_policy"] == "on_done"
+        assert create_details["visibility"] == "private"
+        assert create_details["source"] == "internal_api"
         member = AgentGroupMemberRepository(db).get_by_group_and_agent(group["id"], created["id"])
         assert member is not None
         pool = client.get(
@@ -619,6 +660,12 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         )
         assert deleted.status_code == 200
         assert deleted.json() == {"ok": True}
+        delete_audit = db.query(AuditLog).filter(AuditLog.action == "delete_group_task_agent", AuditLog.target_id == created["id"]).first()
+        assert delete_audit is not None
+        delete_details = json.loads(delete_audit.details_json)
+        assert delete_details["source"] == "internal_api"
+        assert delete_details["destroyed_runtime"] is True
+        assert delete_details["previous_scope_label"] == "runtime-scope"
         assert AgentGroupMemberRepository(db).get_by_group_and_agent(group["id"], created["id"]) is None
         pool_after = client.get(
             f"/api/internal/agent-groups/{group['id']}/specialist-pool",

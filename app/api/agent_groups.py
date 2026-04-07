@@ -12,6 +12,8 @@ from app.schemas.agent_group import (
     AgentGroupMemberResponse,
     AgentGroupResponse,
     AgentGroupSpecialistPoolResponse,
+    InternalAgentGroupSpecialistPoolItemResponse,
+    InternalAgentGroupSpecialistPoolResponse,
     AgentGroupSpecialistPoolUpdateRequest,
     AgentGroupTaskAgentCreateRequest,
     InternalAgentGroupTaskAgentCreateRequest,
@@ -186,7 +188,7 @@ def delete_group_task_agent(group_id: str, agent_id: str, user=Depends(get_curre
     return {"ok": True}
 
 
-@router.get("/api/internal/agent-groups/{group_id}/specialist-pool", response_model=AgentGroupSpecialistPoolResponse)
+@router.get("/api/internal/agent-groups/{group_id}/specialist-pool", response_model=InternalAgentGroupSpecialistPoolResponse)
 def get_internal_group_specialist_pool(
     group_id: str,
     _: bool = Depends(require_internal_api_key),
@@ -196,9 +198,14 @@ def get_internal_group_specialist_pool(
     internal_user = SimpleNamespace(id=None, role="admin")
     try:
         specialist_agent_ids = service.get_specialist_pool(group_id, user=internal_user)
+        items = service.get_specialist_pool_descriptors(group_id, user=internal_user)
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
-    return AgentGroupSpecialistPoolResponse(group_id=group_id, specialist_agent_ids=specialist_agent_ids)
+    return InternalAgentGroupSpecialistPoolResponse(
+        group_id=group_id,
+        specialist_agent_ids=specialist_agent_ids,
+        items=[InternalAgentGroupSpecialistPoolItemResponse.model_validate(item) for item in items],
+    )
 
 
 @router.post("/api/internal/agent-groups/{group_id}/task-agents", response_model=AgentResponse)

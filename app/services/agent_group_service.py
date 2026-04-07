@@ -139,6 +139,16 @@ class AgentGroupService:
         group.specialist_agent_pool_json = json.dumps(self._normalize_pool_ids(specialist_agent_ids))
         self.group_repo.save(group)
 
+    @staticmethod
+    def _scope_label_from_description(description: str | None) -> str | None:
+        if not description:
+            return None
+        prefix = "ephemeral-task-agent:"
+        if not description.startswith(prefix):
+            return None
+        value = description[len(prefix) :].strip()
+        return value or None
+
     def create_group_with_members(self, payload: AgentGroupCreateRequest, created_by_user_id: int):
         leader_agent = self._get_agent_or_raise(payload.leader_agent_id, "Leader agent not found")
         if leader_agent.agent_type != "workspace":
@@ -388,6 +398,24 @@ class AgentGroupService:
             raise AgentGroupServiceError(status_code=403, detail="Not allowed to view group")
         return self._get_specialist_pool_ids(group)
 
+    def get_specialist_pool_descriptors(self, group_id: str, user) -> list[dict]:
+        specialist_agent_ids = self.get_specialist_pool(group_id, user)
+        descriptors: list[dict] = []
+        for agent_id in specialist_agent_ids:
+            agent = self.agent_repo.get_by_id(agent_id)
+            if not agent:
+                continue
+            descriptors.append(
+                {
+                    "agent_id": agent.id,
+                    "name": agent.name,
+                    "agent_type": agent.agent_type,
+                    "status": agent.status,
+                    "visibility": agent.visibility,
+                }
+            )
+        return descriptors
+
     def update_specialist_pool(self, group_id: str, specialist_agent_ids: list[str], user) -> list[str]:
         group = self._get_group_or_raise(group_id)
         if not self.can_manage_group(group, user):
@@ -479,11 +507,24 @@ class AgentGroupService:
                 "leader_agent_id": group.leader_agent_id,
                 "assignee_agent_id": created.id,
                 "source": source,
+                "template_agent_id": template_agent.id,
+                "scope_label": getattr(payload, "scope_label", None),
+                "task_agent_cleanup_policy": getattr(payload, "task_agent_cleanup_policy", None)
+                or getattr(payload, "cleanup_policy", None),
+                "visibility": visibility,
             },
         )
         return created
 
-    def delete_group_task_agent(self, group_id: str, agent_id: str, user, *, source: str = "user_api") -> None:
+    def delete_group_task_agent(
+        self,
+        group_id: str,
+        agent_id: str,
+        user,
+        *,
+        source: str = "user_api",
+        cleanup_reason: str | None = None,
+    ) -> None:
         group = self._get_group_or_raise(group_id)
         if not self.can_manage_group(group, user):
             raise AgentGroupServiceError(status_code=403, detail="Not allowed to manage group")
@@ -514,6 +555,9 @@ class AgentGroupService:
                 "leader_agent_id": group.leader_agent_id,
                 "assignee_agent_id": agent_id,
                 "source": source,
+                "destroyed_runtime": True,
+                "previous_scope_label": self._scope_label_from_description(agent.description),
+                "cleanup_reason": cleanup_reason,
             },
         )
 
@@ -558,6 +602,9 @@ class AgentGroupService:
                 "cleanup_policy": cleanup_policy,
                 "coordination_run_id": coordination_run_id,
                 "source": "system_cleanup",
+                "destroyed_runtime": True,
+                "previous_scope_label": self._scope_label_from_description(agent.description),
+                "cleanup_reason": cleanup_policy,
             },
         )
         return True

@@ -80,6 +80,20 @@ class AgentGroupSpecialistPoolResponse(BaseModel):
     specialist_agent_ids: list[str]
 
 
+class InternalAgentGroupSpecialistPoolItemResponse(BaseModel):
+    agent_id: str
+    name: str
+    agent_type: str
+    status: str
+    visibility: str
+
+
+class InternalAgentGroupSpecialistPoolResponse(BaseModel):
+    group_id: str
+    specialist_agent_ids: list[str]
+    items: list[InternalAgentGroupSpecialistPoolItemResponse]
+
+
 class AgentGroupSpecialistPoolUpdateRequest(BaseModel):
     specialist_agent_ids: list[str] = Field(default_factory=list)
 
