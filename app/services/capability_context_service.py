@@ -56,10 +56,11 @@ class CapabilityContextService:
             self.runtime_capability_provider = build_runtime_capability_catalog_provider_from_settings()
         self.catalog_validation_mode = "full_snapshot" if self.runtime_capability_provider.has_full_catalog() else "seed_fallback"
 
-    def _provider_for_db(self, db: Session | None) -> RuntimeCapabilityCatalogProvider:
+    def _provider_for_db(self, db: Session | None, agent_id: str | None = None) -> RuntimeCapabilityCatalogProvider:
         if not db:
             return self.runtime_capability_provider
-        latest = RuntimeCapabilityCatalogSnapshotRepository(db).get_latest()
+        repo = RuntimeCapabilityCatalogSnapshotRepository(db)
+        latest = repo.get_latest_for_agent(agent_id) if agent_id else repo.get_latest()
         if not latest:
             return self.runtime_capability_provider
         try:
@@ -197,8 +198,9 @@ class CapabilityContextService:
         capability_profile_id: str | None,
         resolved: CapabilityProfileResolvedData,
         db: Session | None = None,
+        agent_id: str | None = None,
     ) -> dict:
-        provider = self._provider_for_db(db)
+        provider = self._provider_for_db(db, agent_id=agent_id)
         allowed_capability_ids: list[str] = []
         allowed_capability_types: list[str] = []
         allowed_adapter_actions: list[str] = []

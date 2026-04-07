@@ -53,6 +53,7 @@ class RuntimeRouterService:
             capability_profile_id=capability_profile_id,
             resolved=resolved_profile,
             db=db,
+            agent_id=agent.id if agent else None,
         )
 
         if not agent:

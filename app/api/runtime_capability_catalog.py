@@ -22,9 +22,14 @@ def sync_runtime_capability_catalog(payload: RuntimeCapabilityCatalogSyncRequest
 
 
 @router.get("/latest", response_model=RuntimeCapabilityCatalogSnapshotResponse)
-def get_latest_runtime_capability_catalog(user=Depends(get_current_user), db: Session = Depends(get_db)):
+def get_latest_runtime_capability_catalog(
+    agent_id: str | None = None,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     _ = user
-    snapshot = RuntimeCapabilityCatalogSnapshotRepository(db).get_latest()
+    repo = RuntimeCapabilityCatalogSnapshotRepository(db)
+    snapshot = repo.get_latest_for_agent(agent_id) if agent_id else repo.get_latest()
     if not snapshot:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No runtime capability catalog snapshot found")
     return RuntimeCapabilityCatalogSnapshotResponse.model_validate(snapshot)

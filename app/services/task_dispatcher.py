@@ -364,7 +364,9 @@ class TaskDispatcherService:
             "shared_context_ref": task.shared_context_ref,
         }
         profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
-        capability_context = self.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile, db=db)
+        capability_context = self.capability_context_service.build_runtime_capability_context(
+            profile_id, resolved_profile, db=db, agent_id=agent.id
+        )
         metadata["capability_profile_id"] = capability_context["capability_profile_id"]
         metadata["policy_profile_id"] = agent.policy_profile_id
         metadata["allowed_capability_ids"] = capability_context["allowed_capability_ids"]

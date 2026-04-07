@@ -18,3 +18,11 @@ class RuntimeCapabilityCatalogSnapshotRepository:
     def get_latest(self) -> RuntimeCapabilityCatalogSnapshot | None:
         stmt = select(RuntimeCapabilityCatalogSnapshot).order_by(RuntimeCapabilityCatalogSnapshot.fetched_at.desc())
         return self.db.scalars(stmt).first()
+
+    def get_latest_for_agent(self, agent_id: str) -> RuntimeCapabilityCatalogSnapshot | None:
+        stmt = (
+            select(RuntimeCapabilityCatalogSnapshot)
+            .where(RuntimeCapabilityCatalogSnapshot.source_agent_id == agent_id)
+            .order_by(RuntimeCapabilityCatalogSnapshot.fetched_at.desc())
+        )
+        return self.db.scalars(stmt).first()

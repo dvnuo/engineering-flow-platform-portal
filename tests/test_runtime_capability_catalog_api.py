@@ -96,6 +96,32 @@ def test_sync_api_persists_snapshot_and_latest_reads_it(monkeypatch):
         cleanup()
 
 
+def test_latest_api_can_filter_by_agent_id(monkeypatch):
+    client, agent, cleanup = _build_client(monkeypatch)
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "catalog_version": "v-agent",
+                "capabilities": [
+                    {"capability_id": "adapter:github:review_pull_request", "capability_type": "adapter_action", "action_alias": "review_pull_request"}
+                ],
+            }
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _FakeResponse())
+    try:
+        sync_resp = client.post("/api/runtime-capability-catalog/sync", json={"agent_id": agent.id})
+        assert sync_resp.status_code == 200
+        latest_resp = client.get(f"/api/runtime-capability-catalog/latest?agent_id={agent.id}")
+        assert latest_resp.status_code == 200
+        assert latest_resp.json()["source_agent_id"] == agent.id
+    finally:
+        cleanup()
+
+
 def test_sync_api_returns_clear_error_when_runtime_unreachable(monkeypatch):
     client, agent, cleanup = _build_client(monkeypatch)
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: (_ for _ in ()).throw(httpx.ConnectError("boom")))

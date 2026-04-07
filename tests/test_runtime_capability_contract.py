@@ -1,3 +1,11 @@
+import json
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.db import Base
+from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCatalogSnapshot
 from app.services.capability_context_service import CapabilityContextService, CapabilityProfileValidationError
 from app.services.runtime_capability_catalog import RuntimeCapabilityCatalogProvider, build_default_runtime_capability_catalog_provider
 
@@ -93,6 +101,77 @@ def test_capability_context_rejects_unknown_and_wrong_type_actions():
 def test_seed_fallback_mode_does_not_hard_fail_tool_validation():
     service = CapabilityContextService(runtime_catalog_snapshot_payload=None)
     service.validate_profile_payload({"tool_set_json": '["anything"]', "allowed_actions_json": '["review_pull_request"]'})
+
+
+def test_capability_context_prefers_agent_scoped_snapshot_over_other_agents():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id="agent-a",
+                catalog_version="v-a",
+                catalog_source="runtime_api",
+                payload_json=json.dumps(
+                    {"catalog_version": "v-a", "capabilities": [{"capability_id": "adapter:a:act", "capability_type": "adapter_action", "action_alias": "act"}]}
+                ),
+            )
+        )
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id="agent-b",
+                catalog_version="v-b",
+                catalog_source="runtime_api",
+                payload_json=json.dumps(
+                    {"catalog_version": "v-b", "capabilities": [{"capability_id": "adapter:b:act", "capability_type": "adapter_action", "action_alias": "act"}]}
+                ),
+            )
+        )
+        db.commit()
+
+        service = CapabilityContextService()
+        context = service.build_runtime_capability_context(
+            capability_profile_id="cap-1",
+            resolved=service.resolve_profile(None).model_copy(update={"allowed_actions": ["act"]}),
+            db=db,
+            agent_id="agent-b",
+        )
+        assert context["allowed_adapter_actions"] == ["adapter:b:act"]
+        assert context["runtime_capability_catalog_version"] == "v-b"
+    finally:
+        db.close()
+
+
+def test_capability_context_falls_back_when_no_agent_scoped_snapshot_exists():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id="another-agent",
+                catalog_version="v-other",
+                catalog_source="runtime_api",
+                payload_json=json.dumps(
+                    {"catalog_version": "v-other", "capabilities": [{"capability_id": "adapter:other:act", "capability_type": "adapter_action", "action_alias": "act"}]}
+                ),
+            )
+        )
+        db.commit()
+
+        service = CapabilityContextService(runtime_catalog_snapshot_payload=None)
+        context = service.build_runtime_capability_context(
+            capability_profile_id="cap-1",
+            resolved=service.resolve_profile(None).model_copy(update={"allowed_actions": ["review_pull_request"]}),
+            db=db,
+            agent_id="missing-agent",
+        )
+        assert context["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+    finally:
+        db.close()
 
 
 def _validation_error(fn):

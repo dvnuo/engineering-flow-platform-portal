@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentDelegation, AgentTask, CapabilityProfile, PolicyProfile, User
+from app.models import Agent, AgentDelegation, AgentTask, CapabilityProfile, PolicyProfile, RuntimeCapabilityCatalogSnapshot, User
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.auth_service import hash_password
 
@@ -462,5 +462,53 @@ def test_dispatch_includes_capability_metadata_defaults_when_profile_is_missing(
         assert metadata["allowed_adapter_actions"] == []
         assert metadata["unresolved_actions"] == []
         assert metadata["resolved_action_mappings"] == {}
+    finally:
+        cleanup()
+
+
+def test_dispatch_uses_assignee_agent_scoped_catalog_snapshot(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id=agent.id,
+                catalog_version="dispatch-agent-v1",
+                catalog_source="runtime_api",
+                payload_json='{"catalog_version":"dispatch-agent-v1","capabilities":[{"capability_id":"adapter:github:review_pull_request","capability_type":"adapter_action","action_alias":"review_pull_request"}]}',
+            )
+        )
+        db.commit()
+
+        capability_profile = CapabilityProfile(name="cap-dispatch-snapshot", allowed_actions_json='["review_pull_request"]')
+        db.add(capability_profile)
+        db.commit()
+        db.refresh(capability_profile)
+        agent.capability_profile_id = capability_profile.id
+        db.add(agent)
+        db.commit()
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+        captured = {}
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_url: str, body: dict):
+            captured.update(body)
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        assert captured["metadata"]["runtime_capability_catalog_version"] == "dispatch-agent-v1"
+        assert captured["metadata"]["runtime_capability_catalog_source"] == "runtime_api"
     finally:
         cleanup()

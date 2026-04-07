@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, CapabilityProfile, User
+from app.models import Agent, CapabilityProfile, RuntimeCapabilityCatalogSnapshot, User
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.services.auth_service import hash_password
 from app.services.runtime_router import RuntimeRouterService
@@ -212,5 +212,39 @@ def test_resolve_binding_decision_defaults_to_async_task_for_task_agent():
         decision = RuntimeRouterService().resolve_binding_decision("github", "acct-task", db)
         assert decision.execution_mode == "async_task"
         assert decision.matched_agent_id == task_agent.id
+    finally:
+        db.close()
+
+
+def test_resolve_binding_decision_uses_matched_agent_scoped_catalog_snapshot():
+    db, agent = _build_db()
+    try:
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id=agent.id,
+                catalog_version="agent-specific-v1",
+                catalog_source="runtime_api",
+                payload_json='{"catalog_version":"agent-specific-v1","capabilities":[{"capability_id":"adapter:github:review_pull_request","capability_type":"adapter_action","action_alias":"review_pull_request"}]}',
+            )
+        )
+        db.commit()
+
+        profile = CapabilityProfile(name="cap-agent-snapshot", allowed_actions_json='["review_pull_request"]')
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-agent-snapshot",
+            enabled=True,
+        )
+        decision = RuntimeRouterService().resolve_binding_decision("github", "acct-agent-snapshot", db)
+        assert decision.capability_context.runtime_capability_catalog_version == "agent-specific-v1"
+        assert decision.capability_context.runtime_capability_catalog_source == "runtime_api"
     finally:
         db.close()
