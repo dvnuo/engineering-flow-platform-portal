@@ -459,6 +459,61 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
         cleanup()
 
 
+def test_runtime_router_and_internal_runtime_context_expose_consistent_capability_fields(monkeypatch):
+    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        import app.deps as deps_module
+
+        cap = client.post(
+            "/api/capability-profiles",
+            json={
+                "name": "cap-consistency",
+                "tool_set_json": '["shell"]',
+                "skill_set_json": '["review"]',
+                "allowed_external_systems_json": '["github"]',
+                "allowed_webhook_triggers_json": '["pull_request_review_requested"]',
+                "allowed_actions_json": '["review_pull_request","add_comment"]',
+            },
+        ).json()
+
+        set_profile = client.patch(f"/api/agents/{agent.id}", json={"capability_profile_id": cap["id"]})
+        assert set_profile.status_code == 200
+
+        create_binding = client.post(
+            f"/api/agents/{agent.id}/identity-bindings",
+            json={"system_type": "github", "external_account_id": "acct-consistency", "enabled": True},
+        )
+        assert create_binding.status_code == 200
+
+        routing = client.post(
+            "/api/runtime-router/resolve-binding",
+            json={"system_type": "github", "external_account_id": "acct-consistency"},
+        )
+        assert routing.status_code == 200
+        routing_ctx = routing.json()["capability_context"]
+
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
+        internal = client.get(
+            f"/api/internal/agents/{agent.id}/runtime-context",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert internal.status_code == 200
+        internal_ctx = internal.json()["capability_context"]
+
+        keys = {
+            "allowed_capability_ids",
+            "allowed_capability_types",
+            "allowed_actions",
+            "allowed_adapter_actions",
+            "unresolved_actions",
+            "resolved_action_mappings",
+        }
+        for key in keys:
+            assert routing_ctx[key] == internal_ctx[key]
+    finally:
+        cleanup()
+
+
 def test_identity_bindings_duplicate_enabled_conflict(monkeypatch):
     client, agent, cleanup = _build_client_with_overrides(monkeypatch)
     try:

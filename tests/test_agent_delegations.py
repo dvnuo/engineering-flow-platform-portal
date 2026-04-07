@@ -354,6 +354,22 @@ def test_delegation_rejects_when_assignee_profile_has_empty_skill_set(monkeypatc
         cleanup()
 
 
+def test_delegation_is_permissive_when_assignee_has_no_capability_profile(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        assignee.capability_profile_id = None
+        db.add(assignee)
+        db.commit()
+
+        set_user(leader_owner)
+        payload = _payload(group.id, leader.id, assignee.id)
+        payload["skill_name"] = "review"
+        response = client.post("/api/agent-delegations", json=payload)
+        assert response.status_code == 200
+    finally:
+        cleanup()
+
+
 def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:

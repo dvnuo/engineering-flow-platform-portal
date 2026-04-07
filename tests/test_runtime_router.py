@@ -96,6 +96,7 @@ def test_resolve_binding_decision_returns_capability_context():
         assert decision.capability_context.capability_profile_id == profile.id
         assert decision.capability_context.allowed_external_systems == ["github"]
         assert decision.capability_context.allowed_webhook_triggers == ["pull_request_review_requested"]
+        assert decision.capability_context.allowed_actions == ["review_pull_request", "add_comment"]
         assert "tool:shell" in decision.capability_context.allowed_capability_ids
         assert "skill:review" in decision.capability_context.allowed_capability_ids
         assert "channel_action:jira_get_issue" in decision.capability_context.allowed_capability_ids
@@ -127,6 +128,8 @@ def test_resolve_binding_decision_without_profile_returns_empty_capability_conte
         assert decision.capability_context.capability_profile_id is None
         assert decision.capability_context.allowed_capability_ids == []
         assert decision.capability_context.allowed_external_systems == []
+        assert decision.capability_context.allowed_actions == []
+        assert decision.capability_context.allowed_adapter_actions == []
         assert decision.capability_context.unresolved_actions == []
         assert decision.capability_context.resolved_action_mappings == {}
     finally:
