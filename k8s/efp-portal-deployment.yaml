@@ -72,6 +72,10 @@ spec:
               value: "efp-agents"
             - name: K8S_KUBECONFIG
               value: ""
+            - name: K8S_GIT_USERNAME_KEY
+              value: "GIT_USERNAME"
+            - name: K8S_GIT_TOKEN_KEY
+              value: "GIT_TOKEN"
               # Use /app/data for SQLite database
             - name: DATABASE_URL
               value: "sqlite:////app/data/portal.db"

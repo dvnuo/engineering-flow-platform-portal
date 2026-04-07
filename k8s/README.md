@@ -41,3 +41,8 @@ Add ENV `BOOTSTRAP_ADMIN_PASSWORD` for portal admin
 ```
 kubectl edit deploy efp-portal-deployment
 ```
+
+Optional: customize git credential key names used in `efp-agents-secret`:
+
+- `K8S_GIT_USERNAME_KEY` (default `GIT_USERNAME`)
+- `K8S_GIT_TOKEN_KEY` (default `GIT_TOKEN`)
