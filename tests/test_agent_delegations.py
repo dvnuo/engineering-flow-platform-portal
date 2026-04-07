@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, AuditLog, GroupSharedContextSnapshot, PolicyProfile, User
+from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, AuditLog, CapabilityProfile, GroupSharedContextSnapshot, PolicyProfile, User
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -290,6 +290,25 @@ def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
         delegation = db.get(AgentDelegation, body["id"])
         assert delegation.result_summary == "Done"
         assert json.loads(delegation.result_artifacts_json)[0]["artifact"] == "report"
+    finally:
+        cleanup()
+
+
+def test_delegation_rejects_skill_not_allowed_by_assignee_capability_profile(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        profile = CapabilityProfile(name="cap-no-github-review", skill_set_json='["other-skill"]')
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        assignee.capability_profile_id = profile.id
+        db.add(assignee)
+        db.commit()
+
+        set_user(leader_owner)
+        response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
+        assert response.status_code == 422
+        assert "does not allow skill 'github-review'" in response.json()["detail"]
     finally:
         cleanup()
 

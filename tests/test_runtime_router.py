@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, User
+from app.models import Agent, CapabilityProfile, User
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.services.auth_service import hash_password
 from app.services.runtime_router import RuntimeRouterService
@@ -62,6 +62,61 @@ def test_resolve_binding_decision_defaults_to_sync_execution_mode():
         decision = RuntimeRouterService().resolve_binding_decision("github", "acct-sync", db)
         assert decision.execution_mode == "sync"
         assert decision.matched_agent_id == agent.id
+    finally:
+        db.close()
+
+
+def test_resolve_binding_decision_returns_capability_context():
+    db, agent = _build_db()
+    try:
+        profile = CapabilityProfile(
+            name="cap-router",
+            tool_set_json='["shell"]',
+            channel_set_json='["chat"]',
+            skill_set_json='["review"]',
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["pull_request_review_requested"]',
+            allowed_actions_json='["comment"]',
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-cap",
+            enabled=True,
+        )
+        decision = RuntimeRouterService().resolve_binding_decision("github", "acct-cap", db)
+        assert decision.capability_context is not None
+        assert decision.capability_context.capability_profile_id == profile.id
+        assert decision.capability_context.allowed_external_systems == ["github"]
+        assert decision.capability_context.allowed_webhook_triggers == ["pull_request_review_requested"]
+        assert "shell" in decision.capability_context.allowed_capability_ids
+        assert "review" in decision.capability_context.allowed_capability_ids
+    finally:
+        db.close()
+
+
+def test_resolve_binding_decision_without_profile_returns_empty_capability_context():
+    db, agent = _build_db()
+    try:
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-empty",
+            enabled=True,
+        )
+        decision = RuntimeRouterService().resolve_binding_decision("github", "acct-empty", db)
+        assert decision.matched_agent_id == agent.id
+        assert decision.capability_context is not None
+        assert decision.capability_context.capability_profile_id is None
+        assert decision.capability_context.allowed_capability_ids == []
+        assert decision.capability_context.allowed_external_systems == []
     finally:
         db.close()
 

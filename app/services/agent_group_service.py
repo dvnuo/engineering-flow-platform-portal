@@ -422,6 +422,8 @@ class AgentGroupService:
                     "agent_type": agent.agent_type,
                     "status": agent.status,
                     "visibility": agent.visibility,
+                    "capability_profile_id": agent.capability_profile_id,
+                    "policy_profile_id": agent.policy_profile_id,
                 }
             )
         return descriptors

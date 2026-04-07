@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentDelegation, AgentTask, User
+from app.models import Agent, AgentDelegation, AgentTask, CapabilityProfile, PolicyProfile, User
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.auth_service import hash_password
 
@@ -343,5 +343,62 @@ def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatc
         assert captured["metadata"]["portal_delegation_reply_target"] == "leader"
         assert captured["metadata"]["portal_coordination_run_id"] == "run-55"
         assert captured["metadata"]["portal_coordination_round_index"] == 4
+    finally:
+        cleanup()
+
+
+def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        capability_profile = CapabilityProfile(
+            name="cap-dispatch",
+            tool_set_json='["shell"]',
+            channel_set_json='["chat"]',
+            skill_set_json='["review"]',
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["pull_request_review_requested"]',
+            allowed_actions_json='["comment"]',
+        )
+        policy_profile = PolicyProfile(name="policy-dispatch")
+        db.add(capability_profile)
+        db.add(policy_profile)
+        db.commit()
+        db.refresh(capability_profile)
+        db.refresh(policy_profile)
+
+        agent.capability_profile_id = capability_profile.id
+        agent.policy_profile_id = policy_profile.id
+        db.add(agent)
+        db.commit()
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+        captured = {}
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_url: str, body: dict):
+            captured.update(body)
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        metadata = captured["metadata"]
+        assert metadata["capability_profile_id"] == capability_profile.id
+        assert metadata["policy_profile_id"] == policy_profile.id
+        assert "shell" in metadata["allowed_capability_ids"]
+        assert "tool" in metadata["allowed_capability_types"]
+        assert metadata["allowed_external_systems"] == ["github"]
+        assert metadata["allowed_webhook_triggers"] == ["pull_request_review_requested"]
+        assert metadata["allowed_actions"] == ["comment"]
     finally:
         cleanup()

@@ -14,6 +14,7 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.schemas.agent_delegation import AgentDelegationCreateRequest, InternalAgentDelegationCreateRequest
+from app.services.capability_context_service import CapabilityContextService
 from app.services.task_dispatcher import TaskDispatcherService
 
 
@@ -56,6 +57,14 @@ class AgentDelegationService:
         self.run_repo = AgentCoordinationRunRepository(db)
         self.audit_repo = AuditRepository(db)
         self.dispatcher = TaskDispatcherService()
+        self.capability_context_service = CapabilityContextService()
+
+    def _assert_skill_allowed_for_agent(self, agent, skill_name: str, error_prefix: str) -> None:
+        if not self.capability_context_service.is_skill_allowed(self.db, agent, skill_name):
+            raise AgentDelegationServiceError(
+                status_code=422,
+                detail=f"{error_prefix} capability profile does not allow skill '{skill_name}'",
+            )
 
     @staticmethod
     def _parse_json_object(raw: str | None, field_name: str, default_value: dict | None = None) -> dict:
@@ -256,6 +265,7 @@ class AgentDelegationService:
             raise AgentDelegationServiceError(status_code=404, detail="Assignee agent not found")
         if assignee_agent.agent_type not in {"specialist", "task"}:
             raise AgentDelegationServiceError(status_code=422, detail="Assignee agent must be a specialist or task agent")
+        self._assert_skill_allowed_for_agent(assignee_agent, normalized.skill_name, "Assignee agent")
 
         pool_ids: list[str] = []
         has_explicit_pool = bool(group.specialist_agent_pool_json and group.specialist_agent_pool_json.strip())
@@ -277,6 +287,15 @@ class AgentDelegationService:
 
         if assignee_agent.id not in pool_ids:
             raise AgentDelegationServiceError(status_code=422, detail="Assignee agent must belong to the specialist agent pool")
+
+        requested_agent_mode = normalized.skill_kwargs.get("agent_mode")
+        if requested_agent_mode == "task":
+            template_agent_id = normalized.skill_kwargs.get("task_agent_template_id")
+            if template_agent_id:
+                template_agent = self.agent_repo.get_by_id(template_agent_id)
+                if not template_agent:
+                    raise AgentDelegationServiceError(status_code=404, detail="task_agent_template_id agent not found")
+                self._assert_skill_allowed_for_agent(template_agent, normalized.skill_name, "Template agent")
 
         if normalized.parent_agent_id and not self.agent_repo.get_by_id(normalized.parent_agent_id):
             raise AgentDelegationServiceError(status_code=404, detail="Parent agent not found")

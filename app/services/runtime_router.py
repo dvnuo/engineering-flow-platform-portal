@@ -4,9 +4,13 @@ from app.models.agent import Agent
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.schemas.runtime_router import RuntimeRoutingDecisionResponse, RuntimeTargetInfoResponse
+from app.services.capability_context_service import CapabilityContextService
 
 
 class RuntimeRouterService:
+    def __init__(self) -> None:
+        self.capability_context_service = CapabilityContextService()
+
     @staticmethod
     def _normalize_system_type(system_type: str) -> str:
         return (system_type or "").strip().lower()
@@ -36,10 +40,16 @@ class RuntimeRouterService:
     def build_routing_decision(
         self,
         agent: Agent | None,
+        db: Session,
         reason: str,
         execution_mode: str | None = None,
     ) -> RuntimeRoutingDecisionResponse:
         effective_execution_mode = execution_mode or self._derive_execution_mode(agent)
+        capability_profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
+        capability_context = self.capability_context_service.build_runtime_capability_context(
+            capability_profile_id=capability_profile_id,
+            resolved=resolved_profile,
+        )
 
         if not agent:
             return RuntimeRoutingDecisionResponse(
@@ -50,6 +60,7 @@ class RuntimeRouterService:
                 reason=reason,
                 execution_mode=effective_execution_mode,
                 runtime_target=None,
+                capability_context=capability_context,
             )
         return RuntimeRoutingDecisionResponse(
             matched_agent_id=agent.id,
@@ -59,6 +70,7 @@ class RuntimeRouterService:
             reason=reason,
             execution_mode=effective_execution_mode,
             runtime_target=self.resolve_agent_runtime(agent),
+            capability_context=capability_context,
         )
 
     def resolve_binding_decision(
@@ -74,8 +86,8 @@ class RuntimeRouterService:
             db=db,
         )
         if not agent:
-            return self.build_routing_decision(None, "no_enabled_binding")
-        return self.build_routing_decision(agent, "matched_enabled_binding")
+            return self.build_routing_decision(None, db, "no_enabled_binding")
+        return self.build_routing_decision(agent, db, "matched_enabled_binding")
 
     def resolve_binding_decision_for_event(
         self,
@@ -90,5 +102,5 @@ class RuntimeRouterService:
             db=db,
         )
         if not agent:
-            return self.build_routing_decision(None, "no_enabled_binding", execution_mode="async_task")
-        return self.build_routing_decision(agent, "matched_enabled_binding", execution_mode="async_task")
+            return self.build_routing_decision(None, db, "no_enabled_binding", execution_mode="async_task")
+        return self.build_routing_decision(agent, db, "matched_enabled_binding", execution_mode="async_task")

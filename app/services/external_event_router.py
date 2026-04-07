@@ -5,6 +5,7 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.external_event_ingress import ExternalEventIngressRequest, ExternalEventIngressResponse
+from app.services.capability_context_service import CapabilityContextService
 from app.services.runtime_router import RuntimeRouterService
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.workflow_rule_config import parse_workflow_rule_config
@@ -15,6 +16,7 @@ class ExternalEventRouterService:
     def __init__(self) -> None:
         self.runtime_router = RuntimeRouterService()
         self.task_dispatcher = TaskDispatcherService()
+        self.capability_context_service = CapabilityContextService()
 
     @staticmethod
     def _normalize_source_type(source_type: str) -> str:
@@ -205,6 +207,26 @@ class ExternalEventRouterService:
                 )
 
             matched_agent_id = routing_decision.matched_agent_id
+            capability_context = routing_decision.capability_context
+            allowed_external_systems = capability_context.allowed_external_systems if capability_context else []
+            allowed_webhook_triggers = capability_context.allowed_webhook_triggers if capability_context else []
+
+            if allowed_external_systems and source_type not in allowed_external_systems:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="external_system_not_allowed",
+                    matched_agent_id=matched_agent_id,
+                    message="Matched agent capability profile does not allow this source_type",
+                )
+            if allowed_webhook_triggers and request.event_type not in allowed_webhook_triggers:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="webhook_trigger_not_allowed",
+                    matched_agent_id=matched_agent_id,
+                    message="Matched agent capability profile does not allow this event_type",
+                )
             task_type = self._derive_task_type(source_type, request.event_type)
             if source_type == "github" and request.event_type == "pull_request_review_requested":
                 github_payload, github_error = self._extract_github_review_payload(request, selected_subscription.id)
