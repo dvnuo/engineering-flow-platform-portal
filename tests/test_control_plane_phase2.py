@@ -470,7 +470,16 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
                 "allowed_actions_json": '["review_pull_request"]',
             },
         ).json()
-        policy = client.post("/api/policy-profiles", json={"name": "policy-runtime-context"}).json()
+        policy = client.post(
+            "/api/policy-profiles",
+            json={
+                "name": "policy-runtime-context",
+                "auto_run_rules_json": '{"require_explicit_allow": true, "allow_auto_run": false}',
+                "permission_rules_json": '{"denied_capability_ids": ["tool:shell"], "denied_actions": ["adapter:github:add_comment"]}',
+                "transition_rules_json": '{"external_trigger_allowlist": ["github"], "external_trigger_blocklist": ["slack"]}',
+                "max_parallel_tasks": 2,
+            },
+        ).json()
 
         updated = client.patch(
             f"/api/agents/{agent.id}",
@@ -498,6 +507,14 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
         assert body["capability_context"]["resolved_action_mappings"] == {
             "review_pull_request": "adapter:github:review_pull_request"
         }
+        assert body["policy_context"]["policy_profile_id"] == policy["id"]
+        assert body["policy_context"]["max_parallel_tasks"] == 2
+        assert body["policy_context"]["derived_runtime_rules"]["governance_require_explicit_allow"] is True
+        assert body["policy_context"]["derived_runtime_rules"]["governance_allow_auto_run"] is False
+        assert body["policy_context"]["derived_runtime_rules"]["governance_external_allowlist"] == ["github"]
+        assert body["policy_context"]["derived_runtime_rules"]["governance_external_blocklist"] == ["slack"]
+        assert body["policy_context"]["derived_runtime_rules"]["denied_capability_ids"] == ["tool:shell"]
+        assert body["policy_context"]["derived_runtime_rules"]["denied_adapter_actions"] == ["adapter:github:add_comment"]
     finally:
         cleanup()
 

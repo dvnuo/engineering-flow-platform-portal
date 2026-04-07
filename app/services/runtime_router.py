@@ -4,12 +4,12 @@ from app.models.agent import Agent
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.schemas.runtime_router import RuntimeRoutingDecisionResponse, RuntimeTargetInfoResponse
-from app.services.capability_context_service import CapabilityContextService
+from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 
 
 class RuntimeRouterService:
     def __init__(self) -> None:
-        self.capability_context_service = CapabilityContextService()
+        self.runtime_execution_context_service = RuntimeExecutionContextService()
 
     @staticmethod
     def _normalize_system_type(system_type: str) -> str:
@@ -48,34 +48,32 @@ class RuntimeRouterService:
         execution_mode: str | None = None,
     ) -> RuntimeRoutingDecisionResponse:
         effective_execution_mode = execution_mode or self._derive_execution_mode(agent)
-        capability_profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
-        capability_context = self.capability_context_service.build_runtime_capability_context(
-            capability_profile_id=capability_profile_id,
-            resolved=resolved_profile,
-            db=db,
-            agent_id=agent.id if agent else None,
-        )
+        execution_context = self.runtime_execution_context_service.build_for_agent(db, agent)
+        capability_context = execution_context.get("capability_context")
+        policy_context = execution_context.get("policy_context")
 
         if not agent:
             return RuntimeRoutingDecisionResponse(
                 matched_agent_id=None,
                 matched_agent_type=None,
-                policy_profile_id=None,
-                capability_profile_id=None,
+                policy_profile_id=execution_context.get("policy_profile_id"),
+                capability_profile_id=execution_context.get("capability_profile_id"),
                 reason=reason,
                 execution_mode=effective_execution_mode,
                 runtime_target=None,
                 capability_context=capability_context,
+                policy_context=policy_context,
             )
         return RuntimeRoutingDecisionResponse(
             matched_agent_id=agent.id,
             matched_agent_type=agent.agent_type,
-            policy_profile_id=agent.policy_profile_id,
-            capability_profile_id=agent.capability_profile_id,
+            policy_profile_id=execution_context.get("policy_profile_id"),
+            capability_profile_id=execution_context.get("capability_profile_id"),
             reason=reason,
             execution_mode=effective_execution_mode,
             runtime_target=self.resolve_agent_runtime(agent),
             capability_context=capability_context,
+            policy_context=policy_context,
         )
 
     def resolve_binding_decision(

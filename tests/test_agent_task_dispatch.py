@@ -361,7 +361,12 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
             allowed_webhook_triggers_json='["pull_request_review_requested"]',
             allowed_actions_json='["review_pull_request","add_comment"]',
         )
-        policy_profile = PolicyProfile(name="policy-dispatch")
+        policy_profile = PolicyProfile(
+            name="policy-dispatch",
+            auto_run_rules_json='{"require_explicit_allow": true, "allow_auto_run": false}',
+            permission_rules_json='{"denied_capability_ids":["tool:shell"],"denied_adapter_actions":["adapter:github:add_comment"]}',
+            transition_rules_json='{"external_trigger_allowlist":["github"],"external_trigger_blocklist":["slack"]}',
+        )
         db.add(capability_profile)
         db.add(policy_profile)
         db.commit()
@@ -418,6 +423,16 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         assert metadata["runtime_capability_catalog_version"] is not None
         assert metadata["runtime_capability_catalog_source"] in {"seed_fallback", "settings_snapshot", "runtime_api"}
         assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
+        assert metadata["policy_context"]["policy_profile_id"] == policy_profile.id
+        assert metadata["policy_context"]["auto_run_rules"]["require_explicit_allow"] is True
+        assert metadata["governance_require_explicit_allow"] is True
+        assert metadata["governance_allow_auto_run"] is False
+        assert metadata["governance_external_allowlist"] == ["github"]
+        assert metadata["governance_external_blocklist"] == ["slack"]
+        assert metadata["denied_capability_ids"] == ["tool:shell"]
+        assert metadata["denied_adapter_actions"] == ["adapter:github:add_comment"]
+        assert metadata["portal_task_id"] == task.id
+        assert metadata["portal_task_source"] == task.source
     finally:
         cleanup()
 
@@ -456,6 +471,9 @@ def test_dispatch_includes_capability_metadata_defaults_when_profile_is_missing(
         assert metadata["policy_profile_id"] is None
         assert metadata["runtime_capability_catalog_version"] is not None
         assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
+        assert metadata["policy_context"]["policy_profile_id"] is None
+        assert metadata["portal_task_id"] == task.id
+        assert metadata["portal_task_source"] == task.source
         assert metadata["allowed_capability_ids"] == []
         assert metadata["allowed_capability_types"] == []
         assert metadata["allowed_actions"] == []
