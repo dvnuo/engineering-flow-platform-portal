@@ -306,8 +306,10 @@ def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
         assert runtime_body["session_id"] == "leader-session-123"
         assert runtime_body["metadata"]["portal_leader_session_id"] == "leader-session-123"
         assert runtime_body["metadata"]["strict_delegation_result"] is True
+        assert runtime_body["metadata"]["agent_mode"] == "specialist"
         assert runtime_body["input_payload"]["leader_session_id"] == "leader-session-123"
         assert runtime_body["input_payload"]["strict_delegation_result"] is True
+        assert runtime_body["input_payload"]["agent_mode"] == "specialist"
     finally:
         cleanup()
 
@@ -362,6 +364,20 @@ def test_delegation_rejects_workspace_assignee(monkeypatch):
         response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, workspace_member_assignee))
         assert response.status_code == 422
         assert response.json()["detail"] == "Assignee agent must be a specialist or task agent"
+    finally:
+        cleanup()
+
+
+def test_delegation_rejects_assignee_not_in_specialist_pool(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        group.specialist_agent_pool_json = "[]"
+        db.add(group)
+        db.commit()
+        set_user(leader_owner)
+        response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Assignee agent must belong to the specialist agent pool"
     finally:
         cleanup()
 

@@ -228,6 +228,16 @@ class TaskDispatcherService:
                 metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
             if input_payload.get("strict_delegation_result") is True:
                 metadata["strict_delegation_result"] = True
+            if input_payload.get("agent_mode") in {"task", "specialist"}:
+                metadata["agent_mode"] = input_payload.get("agent_mode")
+            if input_payload.get("ephemeral_task_agent_id"):
+                metadata["ephemeral_task_agent_id"] = input_payload.get("ephemeral_task_agent_id")
+            if input_payload.get("task_agent_template_id"):
+                metadata["task_agent_template_id"] = input_payload.get("task_agent_template_id")
+            if input_payload.get("task_agent_scope"):
+                metadata["task_agent_scope"] = input_payload.get("task_agent_scope")
+            if input_payload.get("task_agent_cleanup_policy"):
+                metadata["task_agent_cleanup_policy"] = input_payload.get("task_agent_cleanup_policy")
 
             if task.shared_context_ref:
                 snapshot = context_repo.get_by_group_and_ref(task.group_id or "", task.shared_context_ref) if task.group_id else None

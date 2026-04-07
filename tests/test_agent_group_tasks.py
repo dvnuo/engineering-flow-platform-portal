@@ -449,3 +449,25 @@ def test_group_task_create_rejects_workspace_assignee():
         assert response.json()["detail"] == "Assignee agent must be a specialist or task agent"
     finally:
         cleanup()
+
+
+def test_group_task_create_rejects_assignee_not_in_specialist_pool():
+    client, db, group, parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        group.specialist_agent_pool_json = "[]"
+        db.add(group)
+        db.commit()
+        response = client.post(
+            f"/api/agent-groups/{group.id}/tasks",
+            json={
+                "parent_agent_id": parent_agent.id,
+                "assignee_agent_id": assignee_agent.id,
+                "source": "portal",
+                "task_type": "group-task",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Assignee agent must belong to the specialist agent pool"
+    finally:
+        cleanup()

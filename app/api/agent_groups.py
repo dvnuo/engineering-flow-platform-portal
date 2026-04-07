@@ -10,9 +10,13 @@ from app.schemas.agent_group import (
     AgentGroupMemberCreateRequest,
     AgentGroupMemberResponse,
     AgentGroupResponse,
+    AgentGroupSpecialistPoolResponse,
+    AgentGroupSpecialistPoolUpdateRequest,
+    AgentGroupTaskAgentCreateRequest,
     AgentGroupTaskCreateRequest,
     AgentGroupTaskSummaryResponse,
 )
+from app.schemas.agent import AgentResponse
 from app.schemas.agent_task import AgentTaskResponse
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 
@@ -128,3 +132,53 @@ def create_group_scoped_task(
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
     return AgentTaskResponse.model_validate(task)
+
+
+@router.get("/api/agent-groups/{group_id}/specialist-pool", response_model=AgentGroupSpecialistPoolResponse)
+def get_group_specialist_pool(group_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    service = AgentGroupService(db)
+    try:
+        specialist_agent_ids = service.get_specialist_pool(group_id, user=user)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
+    return AgentGroupSpecialistPoolResponse(group_id=group_id, specialist_agent_ids=specialist_agent_ids)
+
+
+@router.put("/api/agent-groups/{group_id}/specialist-pool", response_model=AgentGroupSpecialistPoolResponse)
+def update_group_specialist_pool(
+    group_id: str,
+    payload: AgentGroupSpecialistPoolUpdateRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    service = AgentGroupService(db)
+    try:
+        specialist_agent_ids = service.update_specialist_pool(group_id, payload.specialist_agent_ids, user=user)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
+    return AgentGroupSpecialistPoolResponse(group_id=group_id, specialist_agent_ids=specialist_agent_ids)
+
+
+@router.post("/api/agent-groups/{group_id}/task-agents", response_model=AgentResponse)
+def create_group_task_agent(
+    group_id: str,
+    payload: AgentGroupTaskAgentCreateRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    service = AgentGroupService(db)
+    try:
+        agent = service.create_group_task_agent(group_id, payload, user=user)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
+    return AgentResponse.model_validate(agent)
+
+
+@router.delete("/api/agent-groups/{group_id}/task-agents/{agent_id}")
+def delete_group_task_agent(group_id: str, agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    service = AgentGroupService(db)
+    try:
+        service.delete_group_task_agent(group_id, agent_id, user=user)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
+    return {"ok": True}

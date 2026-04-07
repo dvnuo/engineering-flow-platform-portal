@@ -31,6 +31,7 @@ class AgentGroupCreateRequest(BaseModel):
     ephemeral_agent_policy_json: str | None = None
     member_user_ids: list[int] = Field(default_factory=list)
     member_agent_ids: list[str] = Field(default_factory=list)
+    specialist_agent_ids: list[str] | None = None
 
 
 class AgentGroupResponse(BaseModel):
@@ -40,6 +41,7 @@ class AgentGroupResponse(BaseModel):
     shared_context_policy_json: str | None = None
     task_routing_policy_json: str | None = None
     ephemeral_agent_policy_json: str | None = None
+    specialist_agent_pool_json: str | None = None
     created_by_user_id: int
     created_at: datetime
     updated_at: datetime
@@ -71,3 +73,19 @@ class AgentGroupTaskSummaryResponse(BaseModel):
     running: int
     done: int
     failed: int
+
+
+class AgentGroupSpecialistPoolResponse(BaseModel):
+    group_id: str
+    specialist_agent_ids: list[str]
+
+
+class AgentGroupSpecialistPoolUpdateRequest(BaseModel):
+    specialist_agent_ids: list[str] = Field(default_factory=list)
+
+
+class AgentGroupTaskAgentCreateRequest(BaseModel):
+    name: str
+    template_agent_id: str
+    scope_label: str | None = None
+    cleanup_policy: str | None = None

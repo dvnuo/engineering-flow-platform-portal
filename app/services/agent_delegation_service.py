@@ -145,6 +145,25 @@ class AgentDelegationService:
             raise AgentDelegationServiceError(status_code=404, detail="Assignee agent not found")
         if assignee_agent.agent_type not in {"specialist", "task"}:
             raise AgentDelegationServiceError(status_code=422, detail="Assignee agent must be a specialist or task agent")
+        pool_ids: list[str] = []
+        has_explicit_pool = bool(group.specialist_agent_pool_json and group.specialist_agent_pool_json.strip())
+        if has_explicit_pool:
+            try:
+                parsed_pool = json.loads(group.specialist_agent_pool_json)
+            except json.JSONDecodeError:
+                parsed_pool = []
+            if isinstance(parsed_pool, list):
+                pool_ids = [item for item in parsed_pool if isinstance(item, str)]
+        if not has_explicit_pool:
+            member_agents = [member.agent_id for member in self.member_repo.list_by_group(group.id) if member.agent_id]
+            for agent_id in member_agents:
+                if agent_id == group.leader_agent_id:
+                    continue
+                member_agent = self.agent_repo.get_by_id(agent_id)
+                if member_agent and member_agent.agent_type in {"specialist", "task"}:
+                    pool_ids.append(agent_id)
+        if assignee_agent.id not in pool_ids:
+            raise AgentDelegationServiceError(status_code=422, detail="Assignee agent must belong to the specialist agent pool")
         if payload.parent_agent_id and not self.agent_repo.get_by_id(payload.parent_agent_id):
             raise AgentDelegationServiceError(status_code=404, detail="Parent agent not found")
 
@@ -219,6 +238,11 @@ class AgentDelegationService:
             "objective": payload.objective,
             "leader_session_id": payload.leader_session_id,
             "strict_delegation_result": True,
+            "agent_mode": "task" if assignee_agent.agent_type == "task" else "specialist",
+            "ephemeral_task_agent_id": assignee_agent.id if assignee_agent.agent_type == "task" else None,
+            "task_agent_template_id": skill_kwargs.get("task_agent_template_id"),
+            "task_agent_scope": effective_scoped_context_ref or skill_kwargs.get("scope_label"),
+            "task_agent_cleanup_policy": skill_kwargs.get("cleanup_policy") or ephemeral_policy.get("cleanup_policy"),
             "scoped_context_ref": effective_scoped_context_ref,
             "input_artifacts": input_artifacts,
             "expected_output_schema": expected_output_schema,
