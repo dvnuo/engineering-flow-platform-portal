@@ -16,6 +16,7 @@ from app.schemas.agent_group import (
     InternalAgentGroupSpecialistPoolResponse,
     AgentGroupSpecialistPoolUpdateRequest,
     AgentGroupTaskAgentCreateRequest,
+    InternalAgentGroupTaskAgentCreateResponse,
     InternalAgentGroupTaskAgentCreateRequest,
     AgentGroupTaskCreateRequest,
     AgentGroupTaskSummaryResponse,
@@ -208,7 +209,7 @@ def get_internal_group_specialist_pool(
     )
 
 
-@router.post("/api/internal/agent-groups/{group_id}/task-agents", response_model=AgentResponse)
+@router.post("/api/internal/agent-groups/{group_id}/task-agents", response_model=InternalAgentGroupTaskAgentCreateResponse)
 def create_internal_group_task_agent(
     group_id: str,
     payload: InternalAgentGroupTaskAgentCreateRequest,
@@ -221,7 +222,17 @@ def create_internal_group_task_agent(
         agent = service.create_group_task_agent(group_id, payload, user=internal_user, source="internal_api")
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
-    return AgentResponse.model_validate(agent)
+    return InternalAgentGroupTaskAgentCreateResponse(
+        id=agent.id,
+        name=agent.name,
+        agent_type=agent.agent_type,
+        status=agent.status,
+        visibility=agent.visibility,
+        template_agent_id=payload.template_agent_id,
+        scope_label=payload.scope_label,
+        task_agent_cleanup_policy=payload.task_agent_cleanup_policy,
+        source="internal_api",
+    )
 
 
 @router.delete("/api/internal/agent-groups/{group_id}/task-agents/{agent_id}")

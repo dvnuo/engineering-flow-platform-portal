@@ -618,9 +618,21 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
             "template_agent_id": specialist_template.id,
             "scope_label": "runtime-scope",
             "visibility": "private",
-            "task_agent_cleanup_policy": "on_done",
+            "task_agent_cleanup_policy": "delete_on_done",
         }
         assert client.post(f"/api/internal/agent-groups/{group['id']}/task-agents", json=payload).status_code == 401
+        bad_visibility = client.post(
+            f"/api/internal/agent-groups/{group['id']}/task-agents",
+            json={**payload, "visibility": "INVALID"},
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert bad_visibility.status_code == 422
+        bad_cleanup = client.post(
+            f"/api/internal/agent-groups/{group['id']}/task-agents",
+            json={**payload, "task_agent_cleanup_policy": "never"},
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert bad_cleanup.status_code == 422
         created_resp = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json=payload,
@@ -628,13 +640,17 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         )
         assert created_resp.status_code == 200
         created = created_resp.json()
+        assert created["template_agent_id"] == specialist_template.id
+        assert created["scope_label"] == "runtime-scope"
+        assert created["task_agent_cleanup_policy"] == "delete_on_done"
+        assert created["source"] == "internal_api"
         assert created["agent_type"] == "task"
         create_audit = db.query(AuditLog).filter(AuditLog.action == "create_group_task_agent", AuditLog.target_id == created["id"]).first()
         assert create_audit is not None
         create_details = json.loads(create_audit.details_json)
         assert create_details["template_agent_id"] == specialist_template.id
         assert create_details["scope_label"] == "runtime-scope"
-        assert create_details["task_agent_cleanup_policy"] == "on_done"
+        assert create_details["task_agent_cleanup_policy"] == "delete_on_done"
         assert create_details["visibility"] == "private"
         assert create_details["source"] == "internal_api"
         member = AgentGroupMemberRepository(db).get_by_group_and_agent(group["id"], created["id"])
@@ -672,5 +688,19 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
             headers={"X-Internal-Api-Key": "internal-test-key"},
         ).json()
         assert created["id"] not in pool_after["specialist_agent_ids"]
+
+        public_create = client.post(
+            f"/api/agent-groups/{group['id']}/task-agents",
+            json={
+                "name": "Public Ephemeral Task Agent",
+                "template_agent_id": specialist_template.id,
+                "scope_label": "public-scope",
+                "cleanup_policy": "on_done",
+            },
+        )
+        assert public_create.status_code == 200
+        public_body = public_create.json()
+        assert "template_agent_id" not in public_body
+        assert "source" not in public_body
     finally:
         cleanup()

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AgentGroupMemberCreateRequest(BaseModel):
@@ -111,3 +111,37 @@ class InternalAgentGroupTaskAgentCreateRequest(BaseModel):
     scope_label: str | None = None
     visibility: str | None = None
     task_agent_cleanup_policy: str | None = None
+
+    @field_validator("visibility")
+    @classmethod
+    def validate_visibility(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        allowed = {"private", "shared", "public"}
+        if normalized not in allowed:
+            raise ValueError("visibility must be one of: private, shared, public")
+        return normalized
+
+    @field_validator("task_agent_cleanup_policy")
+    @classmethod
+    def validate_cleanup_policy(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        allowed = {"retain", "delete_on_done", "delete_on_terminal"}
+        if normalized not in allowed:
+            raise ValueError("task_agent_cleanup_policy must be one of: retain, delete_on_done, delete_on_terminal")
+        return normalized
+
+
+class InternalAgentGroupTaskAgentCreateResponse(BaseModel):
+    id: str
+    name: str
+    agent_type: str
+    status: str
+    visibility: str
+    template_agent_id: str
+    scope_label: str | None = None
+    task_agent_cleanup_policy: str | None = None
+    source: str
