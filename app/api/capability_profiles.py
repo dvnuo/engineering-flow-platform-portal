@@ -83,7 +83,12 @@ def delete_capability_profile(profile_id: str, user=Depends(get_current_user), d
 
 
 @router.get("/{profile_id}/resolved", response_model=CapabilityProfileResolvedResponse)
-def get_capability_profile_resolved(profile_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def get_capability_profile_resolved(
+    profile_id: str,
+    agent_id: str | None = None,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     _ = user
     profile = CapabilityProfileRepository(db).get_by_id(profile_id)
     if not profile:
@@ -91,7 +96,7 @@ def get_capability_profile_resolved(profile_id: str, user=Depends(get_current_us
 
     try:
         resolved = capability_context_service.resolve_profile(profile)
-        runtime_context = capability_context_service.build_runtime_capability_context(profile.id, resolved, db=db)
+        runtime_context = capability_context_service.build_runtime_capability_context(profile.id, resolved, db=db, agent_id=agent_id)
     except CapabilityProfileValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.detail) from exc
 
