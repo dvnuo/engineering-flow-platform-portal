@@ -1,6 +1,7 @@
 import json
 import asyncio
 
+from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
@@ -102,6 +103,42 @@ class ExternalEventRouterService:
         target = f"{owner}/{repo}"
         return any(isinstance(item, str) and item == target for item in allowed_repos)
 
+    def _evaluate_capability_profile_event_gate(
+        self,
+        *,
+        agent,
+        source_type: str,
+        event_type: str,
+        db: Session,
+        capability_context=None,
+    ) -> dict | None:
+        if not agent:
+            return None
+
+        context = capability_context
+        if context is None:
+            profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
+            context = self.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile)
+
+        if isinstance(context, dict):
+            allowed_external_systems = context.get("allowed_external_systems", [])
+            allowed_webhook_triggers = context.get("allowed_webhook_triggers", [])
+        else:
+            allowed_external_systems = getattr(context, "allowed_external_systems", []) or []
+            allowed_webhook_triggers = getattr(context, "allowed_webhook_triggers", []) or []
+
+        if allowed_external_systems and source_type not in allowed_external_systems:
+            return {
+                "routing_reason": "external_system_not_allowed",
+                "message": "Matched agent capability profile does not allow this source_type",
+            }
+        if allowed_webhook_triggers and event_type not in allowed_webhook_triggers:
+            return {
+                "routing_reason": "webhook_trigger_not_allowed",
+                "message": "Matched agent capability profile does not allow this event_type",
+            }
+        return None
+
     def route_external_event(self, request: ExternalEventIngressRequest, db: Session) -> ExternalEventIngressResponse:
         source_type = self._normalize_source_type(request.source_type)
         subscription_repo = ExternalEventSubscriptionRepository(db)
@@ -152,6 +189,23 @@ class ExternalEventRouterService:
             matched_workflow_rule_id = matched_rule.id
             matched_agent_id = matched_rule.target_agent_id
             task_type = "jira_workflow_review_task"
+            matched_agent = AgentRepository(db).get_by_id(matched_agent_id) if matched_agent_id else None
+            gate_rejection = self._evaluate_capability_profile_event_gate(
+                agent=matched_agent,
+                source_type=source_type,
+                event_type=request.event_type,
+                db=db,
+            )
+            if gate_rejection:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason=gate_rejection["routing_reason"],
+                    matched_agent_id=matched_agent_id,
+                    matched_workflow_rule_id=matched_workflow_rule_id,
+                    resolved_task_type=task_type,
+                    message=gate_rejection["message"],
+                )
             _normalized_config_json, parsed_workflow_context, config_error = parse_workflow_rule_config(matched_rule.config_json)
             if config_error:
                 return ExternalEventIngressResponse(
@@ -207,25 +261,21 @@ class ExternalEventRouterService:
                 )
 
             matched_agent_id = routing_decision.matched_agent_id
-            capability_context = routing_decision.capability_context
-            allowed_external_systems = capability_context.allowed_external_systems if capability_context else []
-            allowed_webhook_triggers = capability_context.allowed_webhook_triggers if capability_context else []
-
-            if allowed_external_systems and source_type not in allowed_external_systems:
+            matched_agent = AgentRepository(db).get_by_id(matched_agent_id)
+            gate_rejection = self._evaluate_capability_profile_event_gate(
+                agent=matched_agent,
+                source_type=source_type,
+                event_type=request.event_type,
+                db=db,
+                capability_context=routing_decision.capability_context,
+            )
+            if gate_rejection:
                 return ExternalEventIngressResponse(
                     accepted=False,
                     matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="external_system_not_allowed",
+                    routing_reason=gate_rejection["routing_reason"],
                     matched_agent_id=matched_agent_id,
-                    message="Matched agent capability profile does not allow this source_type",
-                )
-            if allowed_webhook_triggers and request.event_type not in allowed_webhook_triggers:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="webhook_trigger_not_allowed",
-                    matched_agent_id=matched_agent_id,
-                    message="Matched agent capability profile does not allow this event_type",
+                    message=gate_rejection["message"],
                 )
             task_type = self._derive_task_type(source_type, request.event_type)
             if source_type == "github" and request.event_type == "pull_request_review_requested":
