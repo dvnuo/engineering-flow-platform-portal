@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentDelegation, AgentTask, AuditLog, GroupSharedContextSnapshot, User
+from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, AuditLog, GroupSharedContextSnapshot, User
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -842,6 +842,10 @@ def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkey
         task_payload = json.loads(task.input_payload_json)
         assert task_payload["coordination_run_id"] == "run-42"
         assert task_payload["round_index"] == 2
+        run_row = db.query(AgentCoordinationRun).filter(AgentCoordinationRun.coordination_run_id == "run-42").first()
+        assert run_row is not None
+        assert run_row.latest_round_index == 2
+        assert run_row.status == "done"
 
         snapshot = db.query(GroupSharedContextSnapshot).filter(
             GroupSharedContextSnapshot.group_id == group.id,
@@ -1056,28 +1060,49 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
-        for round_index in [1, 2]:
-            resp = client.post(
-                "/api/internal/agent-delegations",
-                json={
-                    "group_id": group.id,
-                    "leader_agent_id": leader.id,
-                    "assignee_agent_id": assignee.id,
-                    "objective": f"run round {round_index}",
-                    "visibility": "leader_only",
-                    "skill_name": "review",
-                    "coordination_run_id": "run-z",
-                    "round_index": round_index,
-                },
-                headers={"X-Internal-Api-Key": "internal-test-key"},
-            )
-            assert resp.status_code == 200
+        ok_resp = client.post(
+            "/api/internal/agent-delegations",
+            json={
+                "group_id": group.id,
+                "leader_agent_id": leader.id,
+                "assignee_agent_id": assignee.id,
+                "objective": "run round 1",
+                "visibility": "leader_only",
+                "skill_name": "review",
+                "coordination_run_id": "run-z",
+                "round_index": 1,
+            },
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert ok_resp.status_code == 200
 
-        delegations = db.query(AgentDelegation).filter(AgentDelegation.group_id == group.id, AgentDelegation.coordination_run_id == "run-z").all()
-        delegations[0].status = "failed"
-        delegations[1].status = "done"
-        db.add_all(delegations)
-        db.commit()
+        class _MalformedResp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_self, _url: str, _body: dict):
+            return _MalformedResp()
+
+        monkeypatch.setattr("app.services.task_dispatcher.TaskDispatcherService._post_to_runtime", _fake_post)
+        failed_resp = client.post(
+            "/api/internal/agent-delegations",
+            json={
+                "group_id": group.id,
+                "leader_agent_id": leader.id,
+                "assignee_agent_id": assignee.id,
+                "objective": "run round 2",
+                "visibility": "leader_only",
+                "skill_name": "review",
+                "coordination_run_id": "run-z",
+                "round_index": 2,
+            },
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert failed_resp.status_code == 200
 
         board = client.get(
             f"/api/internal/agent-groups/{group.id}/task-board",
@@ -1090,5 +1115,85 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
         assert runs["run-z"]["done"] == 1
         assert runs["run-z"]["failed"] == 1
         assert runs["run-z"]["latest_round_index"] == 2
+    finally:
+        cleanup()
+
+
+def test_internal_coordination_run_read_endpoints(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create = client.post(
+            "/api/internal/agent-delegations",
+            json={
+                "group_id": group.id,
+                "leader_agent_id": leader.id,
+                "assignee_agent_id": assignee.id,
+                "objective": "run api check",
+                "visibility": "leader_only",
+                "skill_name": "review",
+                "coordination_run_id": "run-read-1",
+                "round_index": 1,
+            },
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert create.status_code == 200
+        assert client.get(f"/api/internal/agent-groups/{group.id}/coordination-runs").status_code == 401
+        assert client.get(f"/api/internal/coordination-runs/run-read-1").status_code == 401
+
+        run_list = client.get(
+            f"/api/internal/agent-groups/{group.id}/coordination-runs",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert run_list.status_code == 200
+        assert any(item["coordination_run_id"] == "run-read-1" for item in run_list.json())
+
+        run_detail = client.get(
+            "/api/internal/coordination-runs/run-read-1",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert run_detail.status_code == 200
+        body = run_detail.json()
+        assert body["coordination_run_id"] == "run-read-1"
+        assert body["group_id"] == group.id
+        assert body["latest_round_index"] >= 1
+        assert body["status"] in {"running", "done", "failed", "blocked"}
+    finally:
+        cleanup()
+
+
+def test_coordination_run_status_updates_to_failed_on_terminal_failure(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        class _MalformedResp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_self, _url: str, _body: dict):
+            return _MalformedResp()
+
+        monkeypatch.setattr("app.services.task_dispatcher.TaskDispatcherService._post_to_runtime", _fake_post)
+        create = client.post(
+            "/api/internal/agent-delegations",
+            json={
+                "group_id": group.id,
+                "leader_agent_id": leader.id,
+                "assignee_agent_id": assignee.id,
+                "objective": "run failure check",
+                "visibility": "leader_only",
+                "skill_name": "review",
+                "coordination_run_id": "run-failed-1",
+                "round_index": 1,
+            },
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert create.status_code == 200
+        run_row = db.query(AgentCoordinationRun).filter(AgentCoordinationRun.coordination_run_id == "run-failed-1").first()
+        assert run_row is not None
+        assert run_row.status == "failed"
+        assert run_row.completed_at is not None
     finally:
         cleanup()

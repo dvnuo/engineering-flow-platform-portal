@@ -42,6 +42,14 @@ class AgentDelegationRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    def list_by_coordination_run_id(self, coordination_run_id: str) -> list[AgentDelegation]:
+        stmt = (
+            select(AgentDelegation)
+            .where(AgentDelegation.coordination_run_id == coordination_run_id)
+            .order_by(AgentDelegation.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
     def save(self, delegation: AgentDelegation) -> AgentDelegation:
         self.db.add(delegation)
         self.db.commit()

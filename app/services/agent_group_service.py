@@ -10,6 +10,7 @@ from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.audit_repo import AuditRepository
+from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRepository
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.agent_group import (
@@ -40,6 +41,7 @@ class AgentGroupService:
         self.delegation_repo = AgentDelegationRepository(db)
         self.context_snapshot_repo = GroupSharedContextSnapshotRepository(db)
         self.audit_repo = AuditRepository(db)
+        self.run_repo = AgentCoordinationRunRepository(db)
         self.user_repo = UserRepository(db)
         self.k8s_service = K8sService()
         self.settings = get_settings()
@@ -594,6 +596,34 @@ class AgentGroupService:
             if round_index > bucket["latest_round_index"]:
                 bucket["latest_round_index"] = round_index
 
+        run_ids = [run_id for run_id in run_map.keys()]
+        run_rows = {row.coordination_run_id: row for row in self.run_repo.list_by_group_and_run_ids(group_id, run_ids)}
+        runs: list[dict] = []
+        for run_id, fallback in run_map.items():
+            row = run_rows.get(run_id)
+            if row:
+                summary = {}
+                if row.summary_json:
+                    try:
+                        parsed = json.loads(row.summary_json)
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    if isinstance(parsed, dict):
+                        summary = parsed
+                runs.append(
+                    {
+                        "coordination_run_id": row.coordination_run_id,
+                        "total": int(summary.get("total", fallback["total"])),
+                        "queued": int(summary.get("queued", fallback["queued"])),
+                        "running": int(summary.get("running", fallback["running"])),
+                        "done": int(summary.get("done", fallback["done"])),
+                        "failed": int(summary.get("failed", fallback["failed"])),
+                        "latest_round_index": row.latest_round_index or fallback["latest_round_index"],
+                    }
+                )
+            else:
+                runs.append(fallback)
+
         return {
             "group_id": group_id,
             "leader_agent_id": group.leader_agent_id,
@@ -605,7 +635,7 @@ class AgentGroupService:
                 "failed": counts["failed"],
             },
             "items": delegations,
-            "runs": list(run_map.values()),
+            "runs": runs,
         }
 
     def list_group_shared_context_snapshots(self, group_id: str, user):

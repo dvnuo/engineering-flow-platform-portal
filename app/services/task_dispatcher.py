@@ -1,9 +1,11 @@
 import json
+from datetime import datetime
 from dataclasses import asdict, dataclass
 
 import httpx
 from sqlalchemy.orm import Session
 
+from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRepository
 from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -96,6 +98,7 @@ class TaskDispatcherService:
             delegation.status = "failed"
             delegation.result_summary = error
             delegation_repo.save(delegation)
+            self._sync_coordination_run_from_delegation(db, delegation)
             self._maybe_cleanup_task_agent_after_delegation(db, task, delegation, "failed")
             return
 
@@ -120,7 +123,63 @@ class TaskDispatcherService:
         delegation.next_recommendation = delegation_result.get("next_recommendation")
         delegation.audit_trace_json = json.dumps(audit_trace) if audit_trace is not None else None
         delegation_repo.save(delegation)
+        self._sync_coordination_run_from_delegation(db, delegation)
         self._maybe_cleanup_task_agent_after_delegation(db, task, delegation, computed_status)
+
+    def _sync_coordination_run_from_delegation(self, db: Session, delegation) -> None:
+        run_id = (getattr(delegation, "coordination_run_id", None) or "").strip()
+        if not run_id:
+            return
+        run_repo = AgentCoordinationRunRepository(db)
+        run = run_repo.get_by_coordination_run_id(run_id)
+        if not run:
+            return
+
+        delegations = AgentDelegationRepository(db).list_by_coordination_run_id(run_id)
+        counts = {"queued": 0, "running": 0, "done": 0, "failed": 0}
+        latest_round_index = 1
+        has_blockers = False
+        for item in delegations:
+            status = getattr(item, "status", "")
+            if status in counts:
+                counts[status] += 1
+            latest_round_index = max(latest_round_index, getattr(item, "round_index", 1) or 1)
+            blockers_raw = getattr(item, "blockers_json", None)
+            if blockers_raw:
+                try:
+                    parsed_blockers = json.loads(blockers_raw)
+                except Exception:
+                    parsed_blockers = blockers_raw
+                if parsed_blockers:
+                    has_blockers = True
+
+        if counts["running"] > 0 or counts["queued"] > 0:
+            run_status = "running"
+        elif counts["failed"] > 0:
+            run_status = "failed"
+        elif has_blockers:
+            run_status = "blocked"
+        elif counts["done"] > 0 and counts["done"] == len(delegations):
+            run_status = "done"
+        else:
+            run_status = "running"
+
+        run.status = run_status
+        run.latest_round_index = latest_round_index
+        run.summary_json = json.dumps(
+            {
+                "total": len(delegations),
+                "queued": counts["queued"],
+                "running": counts["running"],
+                "done": counts["done"],
+                "failed": counts["failed"],
+            }
+        )
+        if run_status in {"done", "failed"}:
+            run.completed_at = datetime.utcnow()
+        else:
+            run.completed_at = None
+        run_repo.save(run)
 
     @staticmethod
     def _should_cleanup_task_agent(cleanup_policy: str | None, delegation_status: str) -> bool:

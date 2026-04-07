@@ -4,6 +4,7 @@ from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_delegation_repo import AgentDelegationRepository
+from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRepository
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.capability_profile_repo import CapabilityProfileRepository
@@ -24,6 +25,7 @@ __all__ = [
     "ExternalEventSubscriptionRepository",
     "AgentTaskRepository",
     "AgentDelegationRepository",
+    "AgentCoordinationRunRepository",
     "GroupSharedContextSnapshotRepository",
     "WorkflowTransitionRuleRepository",
 ]

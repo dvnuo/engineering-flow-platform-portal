@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.repositories.agent_delegation_repo import AgentDelegationRepository
+from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRepository
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
@@ -52,6 +53,7 @@ class AgentDelegationService:
         self.task_repo = AgentTaskRepository(db)
         self.delegation_repo = AgentDelegationRepository(db)
         self.context_snapshot_repo = GroupSharedContextSnapshotRepository(db)
+        self.run_repo = AgentCoordinationRunRepository(db)
         self.audit_repo = AuditRepository(db)
         self.dispatcher = TaskDispatcherService()
 
@@ -321,6 +323,28 @@ class AgentDelegationService:
             status="queued",
             audit_trace_json=json.dumps(audit_trace),
         )
+
+        if normalized.coordination_run_id:
+            existing_run = self.run_repo.get_by_coordination_run_id(normalized.coordination_run_id)
+            if existing_run:
+                existing_run.group_id = normalized.group_id
+                existing_run.leader_agent_id = normalized.leader_agent_id
+                existing_run.origin_session_id = normalized.leader_session_id
+                existing_run.latest_round_index = max(existing_run.latest_round_index or 1, normalized.round_index)
+                existing_run.status = "running"
+                existing_run.completed_at = None
+                self.run_repo.save(existing_run)
+            else:
+                self.run_repo.create(
+                    group_id=normalized.group_id,
+                    leader_agent_id=normalized.leader_agent_id,
+                    origin_session_id=normalized.leader_session_id,
+                    coordination_run_id=normalized.coordination_run_id,
+                    status="running",
+                    latest_round_index=normalized.round_index,
+                    summary_json=None,
+                    completed_at=None,
+                )
 
         if normalized.scoped_context_payload is not None and effective_scoped_context_ref:
             self.context_snapshot_repo.upsert_by_group_and_ref(
