@@ -351,6 +351,7 @@ class AgentGroupService:
         counts = {
             "queued": 0,
             "running": 0,
+            "blocked": 0,
             "done": 0,
             "failed": 0,
         }
@@ -633,6 +634,7 @@ class AgentGroupService:
         counts = {
             "queued": 0,
             "running": 0,
+            "blocked": 0,
             "done": 0,
             "failed": 0,
         }
@@ -651,6 +653,7 @@ class AgentGroupService:
                     "total": 0,
                     "queued": 0,
                     "running": 0,
+                    "blocked": 0,
                     "done": 0,
                     "failed": 0,
                     "latest_round_index": 1,
@@ -659,7 +662,7 @@ class AgentGroupService:
             bucket = run_map[run_id]
             bucket["total"] += 1
             status = delegation.status
-            if status in {"queued", "running", "done", "failed"}:
+            if status in {"queued", "running", "blocked", "done", "failed"}:
                 bucket[status] += 1
             round_index = getattr(delegation, "round_index", 1) or 1
             if round_index > bucket["latest_round_index"]:
@@ -703,6 +706,7 @@ class AgentGroupService:
                         "total": int(summary.get("total", fallback["total"])),
                         "queued": int(summary.get("queued", fallback["queued"])),
                         "running": int(summary.get("running", fallback["running"])),
+                        "blocked": int(summary.get("blocked", fallback["blocked"])),
                         "done": int(summary.get("done", fallback["done"])),
                         "failed": int(summary.get("failed", fallback["failed"])),
                         "latest_round_index": row.latest_round_index or fallback["latest_round_index"],
@@ -726,6 +730,7 @@ class AgentGroupService:
                 "total": len(delegations),
                 "queued": counts["queued"],
                 "running": counts["running"],
+                "blocked": counts["blocked"],
                 "done": counts["done"],
                 "failed": counts["failed"],
             },

@@ -157,6 +157,7 @@ class AgentDelegationBoardSummaryResponse(BaseModel):
     total: int
     queued: int
     running: int
+    blocked: int
     done: int
     failed: int
 
@@ -166,6 +167,7 @@ class AgentDelegationRunSummaryResponse(BaseModel):
     total: int
     queued: int
     running: int
+    blocked: int
     done: int
     failed: int
     latest_round_index: int

@@ -176,7 +176,7 @@ class TaskDispatcherService:
             return
 
         delegations = AgentDelegationRepository(db).list_by_coordination_run_id(run_id)
-        counts = {"queued": 0, "running": 0, "done": 0, "failed": 0}
+        counts = {"queued": 0, "running": 0, "blocked": 0, "done": 0, "failed": 0}
         latest_round_index = 1
         has_blockers = False
         deleted_task_agent_ids: list[str] = []
@@ -215,6 +215,7 @@ class TaskDispatcherService:
                 "total": len(delegations),
                 "queued": counts["queued"],
                 "running": counts["running"],
+                "blocked": counts["blocked"],
                 "done": counts["done"],
                 "failed": counts["failed"],
                 "deleted_task_agent_ids": deleted_task_agent_ids,

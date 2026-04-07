@@ -919,6 +919,7 @@ def test_internal_read_routes_are_key_protected_and_unfiltered(monkeypatch):
         assert board_response.status_code == 200
         board = board_response.json()
         assert board["summary"]["total"] == 3
+        assert board["summary"]["blocked"] == 0
         assert board["effective_max_parallel_tasks"] is None
         assert {item["reply_target_type"] for item in board["items"]} == {"leader"}
         assert all("origin_session_id" in item for item in board["items"])
@@ -1118,11 +1119,31 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
         assert board.status_code == 200
         runs = {item["coordination_run_id"]: item for item in board.json()["runs"]}
         assert "run-z" in runs
+        blocked_target = db.query(AgentDelegation).filter(AgentDelegation.coordination_run_id == "run-z", AgentDelegation.status == "failed").first()
+        blocked_target.status = "blocked"
+        db.add(blocked_target)
+        db.commit()
+
+        from app.services.task_dispatcher import TaskDispatcherService
+
+        TaskDispatcherService()._sync_coordination_run_from_delegation(db, blocked_target)
+
+        board = client.get(
+            f"/api/internal/agent-groups/{group.id}/task-board",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert board.status_code == 200
+        runs = {item["coordination_run_id"]: item for item in board.json()["runs"]}
         assert runs["run-z"]["total"] == 2
         assert runs["run-z"]["done"] == 1
-        assert runs["run-z"]["failed"] == 1
+        assert runs["run-z"]["failed"] == 0
+        assert runs["run-z"]["blocked"] == 1
         assert runs["run-z"]["latest_round_index"] == 2
         assert runs["run-z"]["deleted_task_agent_ids"] == []
+        assert board.json()["summary"]["blocked"] == 1
+        run_row = db.query(AgentCoordinationRun).filter(AgentCoordinationRun.coordination_run_id == "run-z").first()
+        run_summary = json.loads(run_row.summary_json or "{}")
+        assert run_summary["blocked"] == 1
     finally:
         cleanup()
 
