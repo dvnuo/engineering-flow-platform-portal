@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 
-def test_app_chat_send_forwards_identity_in_headers_and_body_fallback(monkeypatch):
+def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -65,8 +65,8 @@ def test_app_chat_send_forwards_identity_in_headers_and_body_fallback(monkeypatc
     assert forwarded_payload["message"] == "hi"
     assert forwarded_payload["session_id"] == "s-1"
     assert forwarded_payload["attachments"] == [{"id": "file-1"}]
-    assert forwarded_payload["portal_user_id"] == "123"
-    assert forwarded_payload["portal_user_name"] == "Alice"
+    assert "portal_user_id" not in forwarded_payload
+    assert "portal_user_name" not in forwarded_payload
     assert forwarded_payload["metadata"]["capability_profile_id"] == "cap-web"
     assert forwarded_payload["metadata"]["policy_profile_id"] == "pol-web"
     assert forwarded_payload["metadata"]["policy_context"]["policy_profile_id"] == "pol-web"
@@ -77,7 +77,7 @@ def test_app_chat_send_forwards_identity_in_headers_and_body_fallback(monkeypatc
     assert captured["headers"] == {"content-type": "application/json"}
 
 
-def test_app_chat_send_body_identity_is_server_derived_and_sanitized(monkeypatch):
+def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -134,8 +134,8 @@ def test_app_chat_send_body_identity_is_server_derived_and_sanitized(monkeypatch
 
     assert response.status_code == 200
     forwarded_payload = json.loads(captured["body"].decode("utf-8"))
-    assert forwarded_payload["portal_user_id"] == "456"
-    assert forwarded_payload["portal_user_name"] == "Bob"
+    assert "portal_user_id" not in forwarded_payload
+    assert "portal_user_name" not in forwarded_payload
     assert forwarded_payload["message"] == "hello"
     assert forwarded_payload["attachments"] == [{"id": "file-2"}]
     assert forwarded_payload["metadata"]["capability_profile_id"] == "cap-web"

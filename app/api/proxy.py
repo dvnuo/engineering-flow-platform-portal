@@ -15,7 +15,7 @@ from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_fields, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_identity_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.redaction import sanitize_exception_message
 
@@ -62,15 +62,12 @@ def _build_direct_chat_headers(user) -> dict[str, str]:
 
 def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
     enriched = dict(payload)
+    _ = user
     enriched.pop("metadata", None)
     enriched.pop("capability_context", None)
     enriched.pop("policy_context", None)
-
-    identity = build_portal_identity_fields(user)
-    if identity.get("user_id"):
-        enriched["portal_user_id"] = identity["user_id"]
-    if identity.get("user_name"):
-        enriched["portal_user_name"] = identity["user_name"]
+    enriched.pop("portal_user_id", None)
+    enriched.pop("portal_user_name", None)
 
     enriched["metadata"] = runtime_metadata
     return enriched

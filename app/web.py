@@ -12,7 +12,7 @@ from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_fields, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_identity_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 
 router = APIRouter(tags=["web"])
@@ -59,17 +59,6 @@ def _can_write(agent, user) -> bool:
 
 def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
-
-
-def _portal_identity_payload(user) -> dict[str, str]:
-    identity = build_portal_identity_fields(user)
-    payload = {}
-    if identity.get("user_id"):
-        payload["portal_user_id"] = identity["user_id"]
-    if identity.get("user_name"):
-        payload["portal_user_name"] = identity["user_name"]
-
-    return payload
 
 
 def _portal_execution_headers(user) -> dict[str, str]:
@@ -940,7 +929,6 @@ async def app_chat_send(request: Request):
         metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
         payload = {
             "message": message,
-            **_portal_identity_payload(user),
             "metadata": metadata,
         }
         if session_id:

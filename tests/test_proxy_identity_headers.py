@@ -255,8 +255,8 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
 
     assert response.status_code == 200
     forwarded_payload = json.loads(captured["body"].decode("utf-8"))
-    assert forwarded_payload["portal_user_id"] == "77"
-    assert forwarded_payload["portal_user_name"] == "Runtime User"
+    assert "portal_user_id" not in forwarded_payload
+    assert "portal_user_name" not in forwarded_payload
     assert forwarded_payload["metadata"]["capability_profile_id"] == "server-cap"
     assert forwarded_payload["metadata"]["policy_profile_id"] == "server-pol"
     assert forwarded_payload["metadata"]["governance_require_explicit_allow"] is True
