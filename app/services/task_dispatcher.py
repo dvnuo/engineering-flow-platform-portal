@@ -164,6 +164,7 @@ class TaskDispatcherService:
             delegation_id=delegation.id,
             task_id=task.id,
             cleanup_policy=cleanup_policy,
+            coordination_run_id=getattr(delegation, "coordination_run_id", None),
         )
 
     @staticmethod
@@ -273,6 +274,14 @@ class TaskDispatcherService:
                 metadata["portal_leader_agent_id"] = delegation.leader_agent_id
                 metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
                 metadata["portal_delegation_reply_target"] = getattr(delegation, "reply_target_type", None) or "leader"
+                if getattr(delegation, "coordination_run_id", None):
+                    metadata["portal_coordination_run_id"] = delegation.coordination_run_id
+                metadata["portal_coordination_round_index"] = getattr(delegation, "round_index", 1) or 1
+            else:
+                if input_payload.get("coordination_run_id"):
+                    metadata["portal_coordination_run_id"] = input_payload.get("coordination_run_id")
+                if input_payload.get("round_index") is not None:
+                    metadata["portal_coordination_round_index"] = input_payload.get("round_index")
             if input_payload.get("strict_delegation_result") is True:
                 metadata["strict_delegation_result"] = True
             if input_payload.get("agent_mode") in {"task", "specialist"}:

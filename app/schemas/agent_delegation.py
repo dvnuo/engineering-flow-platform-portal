@@ -53,7 +53,6 @@ class AgentDelegationCreateRequest(BaseModel):
             raise ValueError("skill_name is required")
         return value.strip()
 
-
 class InternalAgentDelegationCreateRequest(BaseModel):
     group_id: str
     parent_agent_id: str | None = None
@@ -70,6 +69,8 @@ class InternalAgentDelegationCreateRequest(BaseModel):
     visibility: str = "leader_only"
     skill_name: str
     skill_kwargs: dict | None = None
+    coordination_run_id: str | None = None
+    round_index: int | None = 1
 
     @field_validator("visibility")
     @classmethod
@@ -86,6 +87,15 @@ class InternalAgentDelegationCreateRequest(BaseModel):
             raise ValueError("skill_name is required")
         return value.strip()
 
+    @field_validator("round_index")
+    @classmethod
+    def validate_round_index(cls, value: int | None) -> int | None:
+        if value is None:
+            return value
+        if value < 1:
+            raise ValueError("round_index must be >= 1")
+        return value
+
 
 class AgentDelegationResponse(BaseModel):
     id: str
@@ -98,6 +108,8 @@ class AgentDelegationResponse(BaseModel):
     leader_session_id: str | None = None
     origin_session_id: str | None = None
     reply_target_type: str
+    coordination_run_id: str | None = None
+    round_index: int
     scoped_context_ref: str | None = None
     scoped_context_payload_json: str | None = None
     input_artifacts_json: str | None = None
@@ -127,6 +139,8 @@ class AgentDelegationBoardItemResponse(BaseModel):
     leader_session_id: str | None = None
     origin_session_id: str | None = None
     reply_target_type: str
+    coordination_run_id: str | None = None
+    round_index: int
     visibility: str
     status: str
     agent_task_id: str | None = None
@@ -147,8 +161,19 @@ class AgentDelegationBoardSummaryResponse(BaseModel):
     failed: int
 
 
+class AgentDelegationRunSummaryResponse(BaseModel):
+    coordination_run_id: str
+    total: int
+    queued: int
+    running: int
+    done: int
+    failed: int
+    latest_round_index: int
+
+
 class AgentGroupTaskBoardResponse(BaseModel):
     group_id: str
     leader_agent_id: str | None = None
     summary: AgentDelegationBoardSummaryResponse
     items: list[AgentDelegationBoardItemResponse]
+    runs: list[AgentDelegationRunSummaryResponse] = []

@@ -39,6 +39,8 @@ class _NormalizedDelegationRequest:
     visibility: str
     skill_name: str
     skill_kwargs: dict
+    coordination_run_id: str | None
+    round_index: int
 
 
 class AgentDelegationService:
@@ -152,6 +154,8 @@ class AgentDelegationService:
             visibility=payload.visibility,
             skill_name=payload.skill_name,
             skill_kwargs=self._parse_json_object(payload.skill_kwargs_json, "skill_kwargs_json", default_value={}),
+            coordination_run_id=None,
+            round_index=1,
         )
 
     def _normalize_internal_request(self, payload: InternalAgentDelegationCreateRequest) -> _NormalizedDelegationRequest:
@@ -187,6 +191,8 @@ class AgentDelegationService:
             visibility=payload.visibility,
             skill_name=payload.skill_name,
             skill_kwargs=skill_kwargs,
+            coordination_run_id=payload.coordination_run_id,
+            round_index=payload.round_index or 1,
         )
 
     async def create_delegation(self, payload: AgentDelegationCreateRequest, user):
@@ -232,6 +238,8 @@ class AgentDelegationService:
 
         if normalized.visibility not in {"leader_only", "group_visible"}:
             raise AgentDelegationServiceError(status_code=422, detail="Invalid visibility")
+        if normalized.round_index < 1:
+            raise AgentDelegationServiceError(status_code=422, detail="round_index must be >= 1")
         reply_target_type = "leader"
         if reply_target_type != "leader":
             raise AgentDelegationServiceError(status_code=422, detail="Unsupported reply target")
@@ -302,6 +310,8 @@ class AgentDelegationService:
             leader_session_id=normalized.leader_session_id,
             origin_session_id=normalized.leader_session_id,
             reply_target_type=reply_target_type,
+            coordination_run_id=normalized.coordination_run_id,
+            round_index=normalized.round_index,
             scoped_context_ref=effective_scoped_context_ref,
             input_artifacts_json=json.dumps(normalized.input_artifacts),
             expected_output_schema_json=json.dumps(normalized.expected_output_schema),
@@ -332,6 +342,8 @@ class AgentDelegationService:
             "leader_session_id": normalized.leader_session_id,
             "origin_session_id": normalized.leader_session_id,
             "reply_target_type": reply_target_type,
+            "coordination_run_id": normalized.coordination_run_id,
+            "round_index": normalized.round_index,
             "strict_delegation_result": True,
             "agent_mode": "task" if assignee_agent.agent_type == "task" else "specialist",
             "ephemeral_task_agent_id": assignee_agent.id if assignee_agent.agent_type == "task" else None,
@@ -380,6 +392,8 @@ class AgentDelegationService:
                 "input_artifacts_count": len(normalized.input_artifacts),
                 "has_expected_output_schema": bool(normalized.expected_output_schema),
                 "source": source,
+                "coordination_run_id": normalized.coordination_run_id,
+                "round_index": normalized.round_index,
             },
         )
 

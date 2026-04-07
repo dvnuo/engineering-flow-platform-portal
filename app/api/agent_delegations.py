@@ -5,6 +5,7 @@ from app.db import get_db
 from app.deps import get_current_user, require_internal_api_key
 from app.schemas.agent_delegation import (
     AgentDelegationBoardItemResponse,
+    AgentDelegationRunSummaryResponse,
     AgentDelegationCreateRequest,
     InternalAgentDelegationCreateRequest,
     AgentDelegationResponse,
@@ -94,6 +95,7 @@ def get_internal_group_task_board(
         leader_agent_id=board["leader_agent_id"],
         summary=board["summary"],
         items=[AgentDelegationBoardItemResponse.model_validate(item) for item in board["items"]],
+        runs=[AgentDelegationRunSummaryResponse.model_validate(item) for item in board.get("runs", [])],
     )
 
 
@@ -130,6 +132,7 @@ def get_group_task_board(group_id: str, user=Depends(get_current_user), db: Sess
         leader_agent_id=board["leader_agent_id"],
         summary=board["summary"],
         items=[AgentDelegationBoardItemResponse.model_validate(item) for item in board["items"]],
+        runs=[AgentDelegationRunSummaryResponse.model_validate(item) for item in board.get("runs", [])],
     )
 
 

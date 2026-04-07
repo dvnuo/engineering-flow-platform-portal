@@ -503,7 +503,16 @@ class AgentGroupService:
             },
         )
 
-    def auto_cleanup_task_agent(self, *, group_id: str, agent_id: str, delegation_id: str | None, task_id: str | None, cleanup_policy: str | None) -> bool:
+    def auto_cleanup_task_agent(
+        self,
+        *,
+        group_id: str,
+        agent_id: str,
+        delegation_id: str | None,
+        task_id: str | None,
+        cleanup_policy: str | None,
+        coordination_run_id: str | None = None,
+    ) -> bool:
         group = self.group_repo.get_by_id(group_id)
         if not group:
             return False
@@ -533,6 +542,7 @@ class AgentGroupService:
                 "delegation_id": delegation_id,
                 "task_id": task_id,
                 "cleanup_policy": cleanup_policy,
+                "coordination_run_id": coordination_run_id,
                 "source": "system_cleanup",
             },
         )
@@ -560,6 +570,30 @@ class AgentGroupService:
             if delegation.status in counts:
                 counts[delegation.status] += 1
 
+        run_map: dict[str, dict] = {}
+        for delegation in delegations:
+            run_id = (getattr(delegation, "coordination_run_id", None) or "").strip()
+            if not run_id:
+                continue
+            if run_id not in run_map:
+                run_map[run_id] = {
+                    "coordination_run_id": run_id,
+                    "total": 0,
+                    "queued": 0,
+                    "running": 0,
+                    "done": 0,
+                    "failed": 0,
+                    "latest_round_index": 1,
+                }
+            bucket = run_map[run_id]
+            bucket["total"] += 1
+            status = delegation.status
+            if status in {"queued", "running", "done", "failed"}:
+                bucket[status] += 1
+            round_index = getattr(delegation, "round_index", 1) or 1
+            if round_index > bucket["latest_round_index"]:
+                bucket["latest_round_index"] = round_index
+
         return {
             "group_id": group_id,
             "leader_agent_id": group.leader_agent_id,
@@ -571,6 +605,7 @@ class AgentGroupService:
                 "failed": counts["failed"],
             },
             "items": delegations,
+            "runs": list(run_map.values()),
         }
 
     def list_group_shared_context_snapshots(self, group_id: str, user):

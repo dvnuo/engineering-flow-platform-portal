@@ -822,6 +822,8 @@ def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkey
             "objective": "Internal delegation success",
             "visibility": "leader_only",
             "skill_name": "review",
+            "coordination_run_id": "run-42",
+            "round_index": 2,
             "scoped_context_ref": "ctx-internal-1",
             "scoped_context_payload": {"repo": "portal", "pr": 44},
             "input_artifacts": [{"type": "pull_request", "id": 44}],
@@ -831,10 +833,15 @@ def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkey
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "done"
+        assert body["coordination_run_id"] == "run-42"
+        assert body["round_index"] == 2
 
         task = db.get(AgentTask, body["agent_task_id"])
         assert task is not None
         assert task.task_type == "delegation_task"
+        task_payload = json.loads(task.input_payload_json)
+        assert task_payload["coordination_run_id"] == "run-42"
+        assert task_payload["round_index"] == 2
 
         snapshot = db.query(GroupSharedContextSnapshot).filter(
             GroupSharedContextSnapshot.group_id == group.id,
@@ -852,6 +859,8 @@ def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkey
         assert details["group_id"] == group.id
         assert details["visibility"] == "leader_only"
         assert details["scoped_context_ref"] == "ctx-internal-1"
+        assert details["coordination_run_id"] == "run-42"
+        assert details["round_index"] == 2
     finally:
         cleanup()
 
@@ -862,8 +871,23 @@ def test_internal_read_routes_are_key_protected_and_unfiltered(monkeypatch):
         set_user(leader_owner)
         leader_only = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="leader_only"))
         group_visible = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id, visibility="group_visible"))
+        internal_with_run = client.post(
+            "/api/internal/agent-delegations",
+            json={
+                "group_id": group.id,
+                "leader_agent_id": leader.id,
+                "assignee_agent_id": assignee.id,
+                "objective": "round task",
+                "visibility": "leader_only",
+                "skill_name": "review",
+                "coordination_run_id": "run-abc",
+                "round_index": 3,
+            },
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
         assert leader_only.status_code == 200
         assert group_visible.status_code == 200
+        assert internal_with_run.status_code == 200
 
         for url in [
             f"/api/internal/agent-groups/{group.id}/delegations",
@@ -878,10 +902,11 @@ def test_internal_read_routes_are_key_protected_and_unfiltered(monkeypatch):
         )
         assert delegations_response.status_code == 200
         items = delegations_response.json()
-        assert len(items) == 2
+        assert len(items) == 3
         assert {item["visibility"] for item in items} == {"leader_only", "group_visible"}
         assert {item["reply_target_type"] for item in items} == {"leader"}
         assert all("origin_session_id" in item for item in items)
+        assert any(item["coordination_run_id"] == "run-abc" and item["round_index"] == 3 for item in items)
 
         board_response = client.get(
             f"/api/internal/agent-groups/{group.id}/task-board",
@@ -889,9 +914,10 @@ def test_internal_read_routes_are_key_protected_and_unfiltered(monkeypatch):
         )
         assert board_response.status_code == 200
         board = board_response.json()
-        assert board["summary"]["total"] == 2
+        assert board["summary"]["total"] == 3
         assert {item["reply_target_type"] for item in board["items"]} == {"leader"}
         assert all("origin_session_id" in item for item in board["items"])
+        assert any(run["coordination_run_id"] == "run-abc" and run["latest_round_index"] == 3 for run in board["runs"])
     finally:
         cleanup()
 
@@ -919,7 +945,9 @@ def test_auto_cleanup_task_agent_policies_and_audit(monkeypatch):
         assert db.get(Agent, assignee.id) is None
         done_audit = db.query(AuditLog).filter(AuditLog.action == "auto_cleanup_group_task_agent").order_by(AuditLog.id.desc()).first()
         assert done_audit is not None
-        assert json.loads(done_audit.details_json)["cleanup_policy"] == "delete_on_done"
+        done_details = json.loads(done_audit.details_json)
+        assert done_details["cleanup_policy"] == "delete_on_done"
+        assert "coordination_run_id" in done_details
 
         recreated = Agent(
             id=assignee.id,
@@ -970,7 +998,9 @@ def test_auto_cleanup_task_agent_policies_and_audit(monkeypatch):
         assert db.get(Agent, assignee.id) is None
         terminal_audit = db.query(AuditLog).filter(AuditLog.action == "auto_cleanup_group_task_agent").order_by(AuditLog.id.desc()).first()
         assert terminal_audit is not None
-        assert json.loads(terminal_audit.details_json)["cleanup_policy"] == "delete_on_terminal"
+        terminal_details = json.loads(terminal_audit.details_json)
+        assert terminal_details["cleanup_policy"] == "delete_on_terminal"
+        assert "coordination_run_id" in terminal_details
 
         retained = Agent(
             id=assignee.id,
@@ -1018,5 +1048,47 @@ def test_auto_cleanup_task_agent_policies_and_audit(monkeypatch):
         )
         assert retain_resp.status_code == 200
         assert db.get(Agent, assignee.id) is not None
+    finally:
+        cleanup()
+
+
+def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        set_user(leader_owner)
+        for round_index in [1, 2]:
+            resp = client.post(
+                "/api/internal/agent-delegations",
+                json={
+                    "group_id": group.id,
+                    "leader_agent_id": leader.id,
+                    "assignee_agent_id": assignee.id,
+                    "objective": f"run round {round_index}",
+                    "visibility": "leader_only",
+                    "skill_name": "review",
+                    "coordination_run_id": "run-z",
+                    "round_index": round_index,
+                },
+                headers={"X-Internal-Api-Key": "internal-test-key"},
+            )
+            assert resp.status_code == 200
+
+        delegations = db.query(AgentDelegation).filter(AgentDelegation.group_id == group.id, AgentDelegation.coordination_run_id == "run-z").all()
+        delegations[0].status = "failed"
+        delegations[1].status = "done"
+        db.add_all(delegations)
+        db.commit()
+
+        board = client.get(
+            f"/api/internal/agent-groups/{group.id}/task-board",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert board.status_code == 200
+        runs = {item["coordination_run_id"]: item for item in board.json()["runs"]}
+        assert "run-z" in runs
+        assert runs["run-z"]["total"] == 2
+        assert runs["run-z"]["done"] == 1
+        assert runs["run-z"]["failed"] == 1
+        assert runs["run-z"]["latest_round_index"] == 2
     finally:
         cleanup()

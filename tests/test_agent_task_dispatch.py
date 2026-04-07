@@ -299,6 +299,8 @@ def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatc
             leader_session_id="leader-session",
             origin_session_id="origin-session",
             reply_target_type="leader",
+            coordination_run_id="run-55",
+            round_index=4,
             visibility="leader_only",
             status="queued",
         )
@@ -326,5 +328,7 @@ def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatc
         assert captured["session_id"] == "origin-session"
         assert captured["metadata"]["portal_leader_session_id"] == "origin-session"
         assert captured["metadata"]["portal_delegation_reply_target"] == "leader"
+        assert captured["metadata"]["portal_coordination_run_id"] == "run-55"
+        assert captured["metadata"]["portal_coordination_round_index"] == 4
     finally:
         cleanup()
