@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, AgentDelegation, AgentTask, User
+from app.services.task_dispatcher import TaskDispatcherService
 from app.services.auth_service import hash_password
 
 
@@ -269,6 +270,18 @@ def test_dispatch_endpoint_invalid_payload_marks_task_failed(monkeypatch):
         assert "decode to a JSON object" in (task.result_payload_json or "")
     finally:
         cleanup()
+
+
+def test_cleanup_telemetry_deleted_task_agent_ids_is_deduped():
+    service = TaskDispatcherService()
+    delegation = SimpleNamespace(audit_trace_json=json.dumps({"cleanup": {"deleted_task_agent_ids": ["a-1"]}}))
+
+    service._append_deleted_task_agent_id_to_delegation(delegation, "a-1")
+    service._append_deleted_task_agent_id_to_delegation(delegation, "a-1")
+    service._append_deleted_task_agent_id_to_delegation(delegation, "a-2")
+
+    parsed = json.loads(delegation.audit_trace_json)
+    assert parsed["cleanup"]["deleted_task_agent_ids"] == ["a-1", "a-2"]
 
 
 def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatch):

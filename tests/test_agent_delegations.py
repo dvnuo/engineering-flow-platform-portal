@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, AuditLog, GroupSharedContextSnapshot, User
+from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, AuditLog, GroupSharedContextSnapshot, PolicyProfile, User
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -919,6 +919,7 @@ def test_internal_read_routes_are_key_protected_and_unfiltered(monkeypatch):
         assert board_response.status_code == 200
         board = board_response.json()
         assert board["summary"]["total"] == 3
+        assert board["effective_max_parallel_tasks"] is None
         assert {item["reply_target_type"] for item in board["items"]} == {"leader"}
         assert all("origin_session_id" in item for item in board["items"])
         assert any(run["coordination_run_id"] == "run-abc" and run["latest_round_index"] == 3 for run in board["runs"])
@@ -947,6 +948,9 @@ def test_auto_cleanup_task_agent_policies_and_audit(monkeypatch):
         )
         assert done_resp.status_code == 200
         assert db.get(Agent, assignee.id) is None
+        done_delegation = db.get(AgentDelegation, done_resp.json()["id"])
+        done_trace = json.loads(done_delegation.audit_trace_json or "{}")
+        assert done_trace["cleanup"]["deleted_task_agent_ids"] == [assignee.id]
         done_audit = db.query(AuditLog).filter(AuditLog.action == "auto_cleanup_group_task_agent").order_by(AuditLog.id.desc()).first()
         assert done_audit is not None
         done_details = json.loads(done_audit.details_json)
@@ -1000,6 +1004,9 @@ def test_auto_cleanup_task_agent_policies_and_audit(monkeypatch):
         )
         assert failed_resp.status_code == 200
         assert db.get(Agent, assignee.id) is None
+        failed_delegation = db.get(AgentDelegation, failed_resp.json()["id"])
+        failed_trace = json.loads(failed_delegation.audit_trace_json or "{}")
+        assert failed_trace["cleanup"]["deleted_task_agent_ids"] == [assignee.id]
         terminal_audit = db.query(AuditLog).filter(AuditLog.action == "auto_cleanup_group_task_agent").order_by(AuditLog.id.desc()).first()
         assert terminal_audit is not None
         terminal_details = json.loads(terminal_audit.details_json)
@@ -1115,6 +1122,28 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
         assert runs["run-z"]["done"] == 1
         assert runs["run-z"]["failed"] == 1
         assert runs["run-z"]["latest_round_index"] == 2
+        assert runs["run-z"]["deleted_task_agent_ids"] == []
+    finally:
+        cleanup()
+
+
+def test_internal_task_board_exposes_effective_max_parallel_tasks(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        policy = PolicyProfile(name="bounded", max_parallel_tasks=4)
+        db.add(policy)
+        db.commit()
+        db.refresh(policy)
+        leader.policy_profile_id = policy.id
+        db.add(leader)
+        db.commit()
+
+        board = client.get(
+            f"/api/internal/agent-groups/{group.id}/task-board",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert board.status_code == 200
+        assert board.json()["effective_max_parallel_tasks"] == 4
     finally:
         cleanup()
 

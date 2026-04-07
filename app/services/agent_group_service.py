@@ -13,6 +13,7 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRepository
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.repositories.user_repo import UserRepository
+from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.schemas.agent_group import (
     AgentGroupCreateRequest,
     InternalAgentGroupTaskAgentCreateRequest,
@@ -44,6 +45,7 @@ class AgentGroupService:
         self.audit_repo = AuditRepository(db)
         self.run_repo = AgentCoordinationRunRepository(db)
         self.user_repo = UserRepository(db)
+        self.policy_profile_repo = PolicyProfileRepository(db)
         self.k8s_service = K8sService()
         self.settings = get_settings()
 
@@ -652,6 +654,7 @@ class AgentGroupService:
                     "done": 0,
                     "failed": 0,
                     "latest_round_index": 1,
+                    "deleted_task_agent_ids": [],
                 }
             bucket = run_map[run_id]
             bucket["total"] += 1
@@ -661,6 +664,19 @@ class AgentGroupService:
             round_index = getattr(delegation, "round_index", 1) or 1
             if round_index > bucket["latest_round_index"]:
                 bucket["latest_round_index"] = round_index
+            audit_raw = getattr(delegation, "audit_trace_json", None)
+            if audit_raw:
+                try:
+                    parsed_audit = json.loads(audit_raw)
+                except json.JSONDecodeError:
+                    parsed_audit = {}
+                if isinstance(parsed_audit, dict):
+                    cleanup = parsed_audit.get("cleanup") or {}
+                    if isinstance(cleanup, dict):
+                        cleanup_ids = cleanup.get("deleted_task_agent_ids") or []
+                        if isinstance(cleanup_ids, list):
+                            merged = [item for item in cleanup_ids if isinstance(item, str) and item]
+                            bucket["deleted_task_agent_ids"] = list(dict.fromkeys(bucket["deleted_task_agent_ids"] + merged))
 
         run_ids = [run_id for run_id in run_map.keys()]
         run_rows = {row.coordination_run_id: row for row in self.run_repo.list_by_group_and_run_ids(group_id, run_ids)}
@@ -678,6 +694,11 @@ class AgentGroupService:
                         summary = parsed
                 runs.append(
                     {
+                        "deleted_task_agent_ids": list(
+                            dict.fromkeys(
+                                [item for item in ((summary.get("deleted_task_agent_ids") if isinstance(summary.get("deleted_task_agent_ids"), list) else [])) if isinstance(item, str) and item]
+                            )
+                        ),
                         "coordination_run_id": row.coordination_run_id,
                         "total": int(summary.get("total", fallback["total"])),
                         "queued": int(summary.get("queued", fallback["queued"])),
@@ -690,9 +711,17 @@ class AgentGroupService:
             else:
                 runs.append(fallback)
 
+        effective_max_parallel_tasks = None
+        leader = self.agent_repo.get_by_id(group.leader_agent_id)
+        if leader and leader.policy_profile_id:
+            policy_profile = self.policy_profile_repo.get_by_id(leader.policy_profile_id)
+            if policy_profile and policy_profile.max_parallel_tasks is not None:
+                effective_max_parallel_tasks = int(policy_profile.max_parallel_tasks)
+
         return {
             "group_id": group_id,
             "leader_agent_id": group.leader_agent_id,
+            "effective_max_parallel_tasks": effective_max_parallel_tasks,
             "summary": {
                 "total": len(delegations),
                 "queued": counts["queued"],

@@ -78,6 +78,46 @@ class TaskDispatcherService:
             return None, "Runtime response missing delegation_result object"
         return delegation_result, None
 
+    @staticmethod
+    def _extract_deleted_task_agent_ids_from_delegation(delegation) -> list[str]:
+        audit_raw = getattr(delegation, "audit_trace_json", None)
+        if not audit_raw:
+            return []
+        try:
+            parsed = json.loads(audit_raw)
+        except Exception:
+            return []
+        if not isinstance(parsed, dict):
+            return []
+        cleanup = parsed.get("cleanup")
+        if not isinstance(cleanup, dict):
+            return []
+        ids = cleanup.get("deleted_task_agent_ids")
+        if not isinstance(ids, list):
+            return []
+        return [item for item in ids if isinstance(item, str) and item]
+
+    @staticmethod
+    def _append_deleted_task_agent_id_to_delegation(delegation, agent_id: str) -> None:
+        if not agent_id:
+            return
+        try:
+            parsed = json.loads(delegation.audit_trace_json) if delegation.audit_trace_json else {}
+        except Exception:
+            parsed = {}
+        if not isinstance(parsed, dict):
+            parsed = {}
+        cleanup = parsed.get("cleanup")
+        if not isinstance(cleanup, dict):
+            cleanup = {}
+        existing = cleanup.get("deleted_task_agent_ids")
+        if not isinstance(existing, list):
+            existing = []
+        merged = list(dict.fromkeys([item for item in existing if isinstance(item, str) and item] + [agent_id]))
+        cleanup["deleted_task_agent_ids"] = merged
+        parsed["cleanup"] = cleanup
+        delegation.audit_trace_json = json.dumps(parsed)
+
     def _sync_delegation_from_task_result(
         self,
         db: Session,
@@ -139,6 +179,7 @@ class TaskDispatcherService:
         counts = {"queued": 0, "running": 0, "done": 0, "failed": 0}
         latest_round_index = 1
         has_blockers = False
+        deleted_task_agent_ids: list[str] = []
         for item in delegations:
             status = getattr(item, "status", "")
             if status in counts:
@@ -152,6 +193,9 @@ class TaskDispatcherService:
                     parsed_blockers = blockers_raw
                 if parsed_blockers:
                     has_blockers = True
+            deleted_task_agent_ids.extend(self._extract_deleted_task_agent_ids_from_delegation(item))
+
+        deleted_task_agent_ids = list(dict.fromkeys(deleted_task_agent_ids))
 
         if counts["running"] > 0 or counts["queued"] > 0:
             run_status = "running"
@@ -173,6 +217,7 @@ class TaskDispatcherService:
                 "running": counts["running"],
                 "done": counts["done"],
                 "failed": counts["failed"],
+                "deleted_task_agent_ids": deleted_task_agent_ids,
             }
         )
         if run_status in {"done", "failed"}:
@@ -217,7 +262,7 @@ class TaskDispatcherService:
         from app.services.agent_group_service import AgentGroupService
 
         group_service = AgentGroupService(db)
-        group_service.auto_cleanup_task_agent(
+        cleaned = group_service.auto_cleanup_task_agent(
             group_id=group_id,
             agent_id=assignee_agent_id,
             delegation_id=delegation.id,
@@ -225,6 +270,10 @@ class TaskDispatcherService:
             cleanup_policy=cleanup_policy,
             coordination_run_id=getattr(delegation, "coordination_run_id", None),
         )
+        if cleaned:
+            self._append_deleted_task_agent_id_to_delegation(delegation, assignee_agent_id)
+            AgentDelegationRepository(db).save(delegation)
+            self._sync_coordination_run_from_delegation(db, delegation)
 
     @staticmethod
     def _normalize_runtime_response(response: httpx.Response) -> tuple[bool, str, str]:

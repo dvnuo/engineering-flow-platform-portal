@@ -169,11 +169,13 @@ class AgentDelegationRunSummaryResponse(BaseModel):
     done: int
     failed: int
     latest_round_index: int
+    deleted_task_agent_ids: list[str] = []
 
 
 class AgentGroupTaskBoardResponse(BaseModel):
     group_id: str
     leader_agent_id: str | None = None
+    effective_max_parallel_tasks: int | None = None
     summary: AgentDelegationBoardSummaryResponse
     items: list[AgentDelegationBoardItemResponse]
     runs: list[AgentDelegationRunSummaryResponse] = []

@@ -93,6 +93,7 @@ def get_internal_group_task_board(
     return AgentGroupTaskBoardResponse(
         group_id=board["group_id"],
         leader_agent_id=board["leader_agent_id"],
+        effective_max_parallel_tasks=board.get("effective_max_parallel_tasks"),
         summary=board["summary"],
         items=[AgentDelegationBoardItemResponse.model_validate(item) for item in board["items"]],
         runs=[AgentDelegationRunSummaryResponse.model_validate(item) for item in board.get("runs", [])],
@@ -130,6 +131,7 @@ def get_group_task_board(group_id: str, user=Depends(get_current_user), db: Sess
     return AgentGroupTaskBoardResponse(
         group_id=board["group_id"],
         leader_agent_id=board["leader_agent_id"],
+        effective_max_parallel_tasks=board.get("effective_max_parallel_tasks"),
         summary=board["summary"],
         items=[AgentDelegationBoardItemResponse.model_validate(item) for item in board["items"]],
         runs=[AgentDelegationRunSummaryResponse.model_validate(item) for item in board.get("runs", [])],
