@@ -117,6 +117,18 @@ def test_settings_loader_path_handles_invalid_snapshot_with_fallback():
     assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
 
 
+def test_settings_loader_path_handles_missing_snapshot_with_fallback():
+    import app.config as config_module
+
+    original_get_settings = config_module.get_settings
+    try:
+        config_module.get_settings = lambda: SimpleNamespace(runtime_capability_catalog_snapshot_json="")
+        provider = build_runtime_capability_catalog_provider_from_settings()
+        assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
+    finally:
+        config_module.get_settings = original_get_settings
+
+
 def _validation_error_detail(fn):
     try:
         fn()
