@@ -355,11 +355,11 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         capability_profile = CapabilityProfile(
             name="cap-dispatch",
             tool_set_json='["shell"]',
-            channel_set_json='["chat"]',
+            channel_set_json='["jira_get_issue"]',
             skill_set_json='["review"]',
             allowed_external_systems_json='["github"]',
             allowed_webhook_triggers_json='["pull_request_review_requested"]',
-            allowed_actions_json='["comment"]',
+            allowed_actions_json='["review_pull_request","add_comment"]',
         )
         policy_profile = PolicyProfile(name="policy-dispatch")
         db.add(capability_profile)
@@ -395,10 +395,18 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         metadata = captured["metadata"]
         assert metadata["capability_profile_id"] == capability_profile.id
         assert metadata["policy_profile_id"] == policy_profile.id
-        assert "shell" in metadata["allowed_capability_ids"]
+        assert "tool:shell" in metadata["allowed_capability_ids"]
+        assert "skill:review" in metadata["allowed_capability_ids"]
+        assert "channel_action:jira_get_issue" in metadata["allowed_capability_ids"]
+        assert "adapter:github:review_pull_request" in metadata["allowed_capability_ids"]
+        assert "adapter:github:add_comment" not in metadata["allowed_capability_ids"]
+        assert "adapter:jira:add_comment" not in metadata["allowed_capability_ids"]
         assert "tool" in metadata["allowed_capability_types"]
+        assert "channel_action" in metadata["allowed_capability_types"]
+        assert "adapter_action" in metadata["allowed_capability_types"]
         assert metadata["allowed_external_systems"] == ["github"]
         assert metadata["allowed_webhook_triggers"] == ["pull_request_review_requested"]
-        assert metadata["allowed_actions"] == ["comment"]
+        assert metadata["allowed_actions"] == ["review_pull_request", "add_comment"]
+        assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
     finally:
         cleanup()

@@ -24,6 +24,7 @@ class RuntimeCapabilityContextResponse(BaseModel):
     allowed_external_systems: list[str] = Field(default_factory=list)
     allowed_webhook_triggers: list[str] = Field(default_factory=list)
     allowed_actions: list[str] = Field(default_factory=list)
+    allowed_adapter_actions: list[str] = Field(default_factory=list)
 
 
 class RuntimeRoutingDecisionResponse(BaseModel):

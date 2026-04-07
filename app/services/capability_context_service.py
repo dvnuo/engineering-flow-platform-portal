@@ -15,6 +15,30 @@ class CapabilityProfileValidationError(Exception):
 
 
 class CapabilityContextService:
+    KNOWN_ADAPTER_ACTION_IDS = {
+        "github": {
+            "review_pull_request": "adapter:github:review_pull_request",
+            "add_comment": "adapter:github:add_comment",
+        },
+        "jira": {
+            "read_issue": "adapter:jira:read_issue",
+            "update_issue": "adapter:jira:update_issue",
+            "assign_issue": "adapter:jira:assign_issue",
+            "transition_issue": "adapter:jira:transition_issue",
+            "add_comment": "adapter:jira:add_comment",
+        },
+        "portal": {
+            "create_delegation": "adapter:portal:create_delegation",
+            "list_group_delegations": "adapter:portal:list_group_delegations",
+            "get_group_task_board": "adapter:portal:get_group_task_board",
+            "list_group_coordination_runs": "adapter:portal:list_group_coordination_runs",
+            "get_coordination_run": "adapter:portal:get_coordination_run",
+            "get_specialist_pool": "adapter:portal:get_specialist_pool",
+            "create_task_agent": "adapter:portal:create_task_agent",
+            "delete_task_agent": "adapter:portal:delete_task_agent",
+        },
+    }
+    KNOWN_ACTION_TO_ADAPTER_IDS: dict[str, list[str]] = {}
     JSON_FIELDS = (
         "tool_set_json",
         "channel_set_json",
@@ -23,6 +47,10 @@ class CapabilityContextService:
         "allowed_webhook_triggers_json",
         "allowed_actions_json",
     )
+
+    for system_actions in KNOWN_ADAPTER_ACTION_IDS.values():
+        for action_name, action_id in system_actions.items():
+            KNOWN_ACTION_TO_ADAPTER_IDS.setdefault(action_name, []).append(action_id)
 
     @staticmethod
     def _parse_string_list(raw_value: str | None, field_name: str) -> list[str]:
@@ -44,6 +72,37 @@ class CapabilityContextService:
             raise CapabilityProfileValidationError(detail=f"{field_name} must contain only string values")
 
         return [item.strip() for item in parsed if item.strip()]
+
+    @staticmethod
+    def _normalize_name(value: str | None) -> str:
+        return (value or "").strip().lower()
+
+    def _normalize_tool_capability_id(self, name: str) -> str | None:
+        normalized = self._normalize_name(name)
+        return f"tool:{normalized}" if normalized else None
+
+    def _normalize_skill_capability_id(self, name: str) -> str | None:
+        normalized = self._normalize_name(name)
+        return f"skill:{normalized}" if normalized else None
+
+    def _normalize_channel_capability_id(self, name: str) -> str | None:
+        normalized = self._normalize_name(name)
+        return f"channel_action:{normalized}" if normalized else None
+
+    def _normalize_action_capability_id(self, name: str) -> str | None:
+        normalized = self._normalize_name(name)
+        if not normalized:
+            return None
+        if normalized.startswith("adapter:"):
+            parts = normalized.split(":")
+            if len(parts) >= 3 and all(parts):
+                return normalized
+            return None
+
+        candidates = self.KNOWN_ACTION_TO_ADAPTER_IDS.get(normalized, [])
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
 
     def validate_profile_payload(self, payload: dict) -> None:
         for field_name in self.JSON_FIELDS:
@@ -70,21 +129,42 @@ class CapabilityContextService:
         profile = CapabilityProfileRepository(db).get_by_id(agent.capability_profile_id)
         return agent.capability_profile_id, self.resolve_profile(profile)
 
-    @staticmethod
-    def build_runtime_capability_context(capability_profile_id: str | None, resolved: CapabilityProfileResolvedData) -> dict:
-        allowed_capability_ids = list(
-            dict.fromkeys(resolved.tool_set + resolved.channel_set + resolved.skill_set + resolved.allowed_actions)
-        )
-
+    def build_runtime_capability_context(self, capability_profile_id: str | None, resolved: CapabilityProfileResolvedData) -> dict:
+        allowed_capability_ids: list[str] = []
         allowed_capability_types: list[str] = []
+        allowed_adapter_actions: list[str] = []
+
+        for tool_name in resolved.tool_set:
+            normalized_id = self._normalize_tool_capability_id(tool_name)
+            if normalized_id and normalized_id not in allowed_capability_ids:
+                allowed_capability_ids.append(normalized_id)
         if resolved.tool_set:
             allowed_capability_types.append("tool")
-        if resolved.channel_set:
-            allowed_capability_types.append("channel")
+
+        for skill_name in resolved.skill_set:
+            normalized_id = self._normalize_skill_capability_id(skill_name)
+            if normalized_id and normalized_id not in allowed_capability_ids:
+                allowed_capability_ids.append(normalized_id)
         if resolved.skill_set:
             allowed_capability_types.append("skill")
-        if resolved.allowed_actions:
-            allowed_capability_types.append("action")
+
+        for channel_name in resolved.channel_set:
+            normalized_id = self._normalize_channel_capability_id(channel_name)
+            if normalized_id and normalized_id not in allowed_capability_ids:
+                allowed_capability_ids.append(normalized_id)
+        if resolved.channel_set:
+            allowed_capability_types.append("channel_action")
+
+        for action_name in resolved.allowed_actions:
+            normalized_action_id = self._normalize_action_capability_id(action_name)
+            if not normalized_action_id:
+                continue
+            if normalized_action_id not in allowed_capability_ids:
+                allowed_capability_ids.append(normalized_action_id)
+            if normalized_action_id not in allowed_adapter_actions:
+                allowed_adapter_actions.append(normalized_action_id)
+        if allowed_adapter_actions:
+            allowed_capability_types.append("adapter_action")
 
         return {
             "capability_profile_id": capability_profile_id,
@@ -96,6 +176,7 @@ class CapabilityContextService:
             "allowed_actions": resolved.allowed_actions,
             "allowed_capability_ids": allowed_capability_ids,
             "allowed_capability_types": allowed_capability_types,
+            "allowed_adapter_actions": allowed_adapter_actions,
         }
 
     def is_skill_allowed(self, db: Session, agent: Agent | None, skill_name: str | None) -> bool:
@@ -107,4 +188,6 @@ class CapabilityContextService:
             return True
         if not resolved.skill_set:
             return False
-        return skill_name in resolved.skill_set
+        normalized_skill_name = self._normalize_name(skill_name)
+        normalized_skill_set = {self._normalize_name(item) for item in resolved.skill_set}
+        return normalized_skill_name in normalized_skill_set

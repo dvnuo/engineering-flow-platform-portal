@@ -313,6 +313,26 @@ def test_delegation_rejects_skill_not_allowed_by_assignee_capability_profile(mon
         cleanup()
 
 
+def test_delegation_skill_gate_is_case_and_whitespace_insensitive(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        profile = CapabilityProfile(name="cap-review-normalized", skill_set_json='["  Review  "]')
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        assignee.capability_profile_id = profile.id
+        db.add(assignee)
+        db.commit()
+
+        set_user(leader_owner)
+        payload = _payload(group.id, leader.id, assignee.id)
+        payload["skill_name"] = "review"
+        response = client.post("/api/agent-delegations", json=payload)
+        assert response.status_code == 200
+    finally:
+        cleanup()
+
+
 def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:

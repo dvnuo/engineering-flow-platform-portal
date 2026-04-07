@@ -417,10 +417,12 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
             "/api/capability-profiles",
             json={
                 "name": "cap-runtime-context",
-                "skill_set_json": '["review"]',
+                "tool_set_json": '["shell"]',
+                "channel_set_json": '["jira_get_issue"]',
+                "skill_set_json": '["Review"]',
                 "allowed_external_systems_json": '["github"]',
                 "allowed_webhook_triggers_json": '["pull_request_review_requested"]',
-                "allowed_actions_json": '["comment"]',
+                "allowed_actions_json": '["review_pull_request","add_comment"]',
             },
         ).json()
         policy = client.post("/api/policy-profiles", json={"name": "policy-runtime-context"}).json()
@@ -442,7 +444,13 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
         assert body["capability_profile_id"] == cap["id"]
         assert body["policy_profile_id"] == policy["id"]
         assert body["capability_context"]["capability_profile_id"] == cap["id"]
-        assert "review" in body["capability_context"]["allowed_capability_ids"]
+        assert "tool:shell" in body["capability_context"]["allowed_capability_ids"]
+        assert "skill:review" in body["capability_context"]["allowed_capability_ids"]
+        assert "channel_action:jira_get_issue" in body["capability_context"]["allowed_capability_ids"]
+        assert "adapter:github:review_pull_request" in body["capability_context"]["allowed_capability_ids"]
+        assert "adapter:github:add_comment" not in body["capability_context"]["allowed_capability_ids"]
+        assert "adapter:jira:add_comment" not in body["capability_context"]["allowed_capability_ids"]
+        assert body["capability_context"]["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
     finally:
         cleanup()
 

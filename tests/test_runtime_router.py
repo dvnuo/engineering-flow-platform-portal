@@ -72,11 +72,11 @@ def test_resolve_binding_decision_returns_capability_context():
         profile = CapabilityProfile(
             name="cap-router",
             tool_set_json='["shell"]',
-            channel_set_json='["chat"]',
+            channel_set_json='["jira_get_issue"]',
             skill_set_json='["review"]',
             allowed_external_systems_json='["github"]',
             allowed_webhook_triggers_json='["pull_request_review_requested"]',
-            allowed_actions_json='["comment"]',
+            allowed_actions_json='["review_pull_request","add_comment"]',
         )
         db.add(profile)
         db.commit()
@@ -96,8 +96,14 @@ def test_resolve_binding_decision_returns_capability_context():
         assert decision.capability_context.capability_profile_id == profile.id
         assert decision.capability_context.allowed_external_systems == ["github"]
         assert decision.capability_context.allowed_webhook_triggers == ["pull_request_review_requested"]
-        assert "shell" in decision.capability_context.allowed_capability_ids
-        assert "review" in decision.capability_context.allowed_capability_ids
+        assert "tool:shell" in decision.capability_context.allowed_capability_ids
+        assert "skill:review" in decision.capability_context.allowed_capability_ids
+        assert "channel_action:jira_get_issue" in decision.capability_context.allowed_capability_ids
+        assert "adapter:github:review_pull_request" in decision.capability_context.allowed_capability_ids
+        assert "adapter:github:add_comment" not in decision.capability_context.allowed_capability_ids
+        assert "adapter:jira:add_comment" not in decision.capability_context.allowed_capability_ids
+        assert decision.capability_context.allowed_adapter_actions == ["adapter:github:review_pull_request"]
+        assert "adapter_action" in decision.capability_context.allowed_capability_types
     finally:
         db.close()
 
