@@ -12,7 +12,7 @@ from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 
 router = APIRouter(tags=["web"])
@@ -59,13 +59,6 @@ def _can_write(agent, user) -> bool:
 
 def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
-
-
-def _portal_execution_headers(user) -> dict[str, str]:
-    headers = build_portal_identity_headers(user)
-    if settings.portal_internal_api_key:
-        headers["X-Portal-Internal-Api-Key"] = settings.portal_internal_api_key
-    return headers
 
 
 async def _forward_runtime(
@@ -943,7 +936,7 @@ async def app_chat_send(request: Request):
             query_items=[],
             body=json.dumps(payload).encode("utf-8"),
             headers={"content-type": "application/json"},
-            extra_headers=_portal_execution_headers(user),
+            extra_headers=build_portal_execution_headers(user),
         )
 
         if status_code >= 400:

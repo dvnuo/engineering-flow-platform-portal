@@ -36,6 +36,7 @@ def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
         return 200, json.dumps({"response": "hello", "session_id": "s-1", "events": []}).encode("utf-8"), "application/json"
 
     monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    monkeypatch.setattr(web_module.settings, "portal_internal_api_key", "portal-internal-key")
     monkeypatch.setattr(
         web_module.runtime_execution_context_service,
         "build_runtime_metadata",
@@ -74,6 +75,7 @@ def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "123"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Alice"
+    assert captured["extra_headers"]["X-Portal-Internal-Api-Key"] == "portal-internal-key"
     assert captured["headers"] == {"content-type": "application/json"}
 
 
@@ -109,6 +111,7 @@ def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
         return 200, json.dumps({"response": "ok", "session_id": "s-2", "events": []}).encode("utf-8"), "application/json"
 
     monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    monkeypatch.setattr(web_module.settings, "portal_internal_api_key", "portal-internal-key")
     monkeypatch.setattr(
         web_module.runtime_execution_context_service,
         "build_runtime_metadata",
@@ -142,3 +145,4 @@ def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
     assert forwarded_payload["metadata"]["policy_profile_id"] == "pol-web"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "456"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Bob"
+    assert captured["extra_headers"]["X-Portal-Internal-Api-Key"] == "portal-internal-key"

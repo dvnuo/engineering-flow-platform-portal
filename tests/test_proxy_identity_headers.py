@@ -38,6 +38,7 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
             "build_runtime_metadata",
             lambda _db, _agent: {"capability_profile_id": None, "policy_profile_id": None, "policy_context": {"policy_profile_id": None}},
         )
+        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
 
         captured = {}
 
@@ -67,6 +68,7 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "55"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
+    assert captured["extra_headers"]["X-Portal-Internal-Api-Key"] == "portal-internal-key"
 
 
 def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch):
@@ -292,3 +294,37 @@ def test_runtime_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
     assert outbound["content-type"] == "application/json"
     assert outbound["X-Portal-User-Id"] == "10"
     assert "X-Internal-Api-Key" not in outbound
+
+
+def test_build_portal_execution_headers_adds_optional_internal_key(monkeypatch):
+    import app.deps as deps_module
+    from app.services.proxy_service import build_portal_execution_headers
+
+    original = deps_module.settings.portal_internal_api_key
+    deps_module.settings.portal_internal_api_key = " internal-key\n"
+    try:
+        user = SimpleNamespace(id=" 55 ", username="user", nickname=" Name\n")
+        headers = build_portal_execution_headers(user)
+        assert headers["X-Portal-Author-Source"] == "portal"
+        assert headers["X-Portal-User-Id"] == "55"
+        assert headers["X-Portal-User-Name"] == "Name"
+        assert headers["X-Portal-Internal-Api-Key"] == "internal-key"
+    finally:
+        deps_module.settings.portal_internal_api_key = original
+
+
+def test_build_portal_execution_headers_omits_internal_key_when_unset(monkeypatch):
+    import app.deps as deps_module
+    from app.services.proxy_service import build_portal_execution_headers
+
+    original = deps_module.settings.portal_internal_api_key
+    deps_module.settings.portal_internal_api_key = ""
+    try:
+        user = SimpleNamespace(id=1, username="alice", nickname=None)
+        headers = build_portal_execution_headers(user)
+        assert headers["X-Portal-Author-Source"] == "portal"
+        assert headers["X-Portal-User-Id"] == "1"
+        assert headers["X-Portal-User-Name"] == "alice"
+        assert "X-Portal-Internal-Api-Key" not in headers
+    finally:
+        deps_module.settings.portal_internal_api_key = original

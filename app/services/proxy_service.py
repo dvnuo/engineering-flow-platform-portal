@@ -51,6 +51,15 @@ def build_portal_identity_headers(user) -> dict[str, str]:
     return headers
 
 
+
+def build_portal_execution_headers(user) -> dict[str, str]:
+    headers = build_portal_identity_headers(user)
+    settings = get_settings()
+    portal_internal_api_key = sanitize_header_value(settings.portal_internal_api_key)
+    if portal_internal_api_key:
+        headers["X-Portal-Internal-Api-Key"] = portal_internal_api_key
+    return headers
+
 def build_runtime_internal_headers() -> dict[str, str]:
     settings = get_settings()
     runtime_internal_api_key = sanitize_header_value(settings.runtime_internal_api_key)

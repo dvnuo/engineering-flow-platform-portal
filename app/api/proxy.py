@@ -15,7 +15,7 @@ from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.redaction import sanitize_exception_message
 
@@ -51,13 +51,6 @@ def _filter_proxy_query_items(query_items):
 def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
     normalized = (subpath or "").strip("/").lower()
     return method.upper() == "POST" and normalized in {"api/chat", "api/chat/stream"}
-
-
-def _build_direct_chat_headers(user) -> dict[str, str]:
-    headers = build_portal_identity_headers(user)
-    if settings.portal_internal_api_key:
-        headers["X-Portal-Internal-Api-Key"] = settings.portal_internal_api_key
-    return headers
 
 
 def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
@@ -98,7 +91,7 @@ async def proxy_agent(
 
         request_body = (await request.body()) or None
         is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
-        extra_headers = _build_direct_chat_headers(user) if is_direct_chat_execution else build_portal_identity_headers(user)
+        extra_headers = build_portal_execution_headers(user) if is_direct_chat_execution else build_portal_identity_headers(user)
 
         if is_direct_chat_execution and content_type and "application/json" in content_type.lower() and request_body:
             try:
