@@ -24,7 +24,10 @@ class RuntimeRouterService:
         )
 
     def _derive_execution_mode(self, agent: Agent | None) -> str:
-        _ = agent
+        if not agent:
+            return "sync"
+        if agent.agent_type in {"specialist", "task"}:
+            return "async_task"
         return "sync"
 
     def find_agent_for_identity_binding(self, system_type: str, external_account_id: str, db: Session) -> Agent | None:

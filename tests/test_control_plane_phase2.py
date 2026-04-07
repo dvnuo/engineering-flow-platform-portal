@@ -370,6 +370,36 @@ def test_capability_profile_create_invalid_json_returns_400(monkeypatch):
         cleanup()
 
 
+def test_capability_profile_create_rejects_unknown_allowed_actions(monkeypatch):
+    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        resp = client.post(
+            "/api/capability-profiles",
+            json={"name": "cap-bad-action", "allowed_actions_json": '["approve"]'},
+        )
+        assert resp.status_code == 400
+        assert "unknown or ambiguous action: approve" in resp.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_capability_profile_update_rejects_logical_duplicate_allowed_actions(monkeypatch):
+    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create = client.post("/api/capability-profiles", json={"name": "cap-dup-action"})
+        assert create.status_code == 200
+        profile_id = create.json()["id"]
+
+        update = client.patch(
+            f"/api/capability-profiles/{profile_id}",
+            json={"allowed_actions_json": '["review_pull_request","adapter:github:review_pull_request"]'},
+        )
+        assert update.status_code == 400
+        assert "duplicate logical action" in update.json()["detail"]
+    finally:
+        cleanup()
+
+
 def test_capability_profile_resolved_endpoint_update_and_delete(monkeypatch):
     client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
     try:
@@ -393,10 +423,10 @@ def test_capability_profile_resolved_endpoint_update_and_delete(monkeypatch):
 
         updated = client.patch(
             f"/api/capability-profiles/{profile_id}",
-            json={"allowed_actions_json": '["approve"]'},
+            json={"allowed_actions_json": '["review_pull_request"]'},
         )
         assert updated.status_code == 200
-        assert updated.json()["allowed_actions_json"] == '["approve"]'
+        assert updated.json()["allowed_actions_json"] == '["review_pull_request"]'
 
         deleted = client.delete(f"/api/capability-profiles/{profile_id}")
         assert deleted.status_code == 200
@@ -422,7 +452,7 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
                 "skill_set_json": '["Review"]',
                 "allowed_external_systems_json": '["github"]',
                 "allowed_webhook_triggers_json": '["pull_request_review_requested"]',
-                "allowed_actions_json": '["review_pull_request","add_comment"]',
+                "allowed_actions_json": '["review_pull_request"]',
             },
         ).json()
         policy = client.post("/api/policy-profiles", json={"name": "policy-runtime-context"}).json()
@@ -448,10 +478,8 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
         assert "skill:review" in body["capability_context"]["allowed_capability_ids"]
         assert "channel_action:jira_get_issue" in body["capability_context"]["allowed_capability_ids"]
         assert "adapter:github:review_pull_request" in body["capability_context"]["allowed_capability_ids"]
-        assert "adapter:github:add_comment" not in body["capability_context"]["allowed_capability_ids"]
-        assert "adapter:jira:add_comment" not in body["capability_context"]["allowed_capability_ids"]
         assert body["capability_context"]["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
-        assert body["capability_context"]["unresolved_actions"] == ["add_comment"]
+        assert body["capability_context"]["unresolved_actions"] == []
         assert body["capability_context"]["resolved_action_mappings"] == {
             "review_pull_request": "adapter:github:review_pull_request"
         }
@@ -472,7 +500,7 @@ def test_runtime_router_and_internal_runtime_context_expose_consistent_capabilit
                 "skill_set_json": '["review"]',
                 "allowed_external_systems_json": '["github"]',
                 "allowed_webhook_triggers_json": '["pull_request_review_requested"]',
-                "allowed_actions_json": '["review_pull_request","add_comment"]',
+                "allowed_actions_json": '["review_pull_request"]',
             },
         ).json()
 

@@ -114,6 +114,37 @@ def test_ingest_no_matching_subscription_returns_rejected():
         cleanup()
 
 
+def test_internal_ingest_requires_internal_api_key():
+    client, _db, _agent, cleanup = _build_client_with_overrides()
+    try:
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},
+        )
+        assert response.status_code == 401
+    finally:
+        cleanup()
+
+
+def test_internal_ingest_with_internal_api_key_reuses_routing_flow():
+    client, _db, _agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.deps as deps_module
+
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+            json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "no_matching_subscription"
+    finally:
+        cleanup()
+
+
 def test_ingest_matching_subscription_without_binding_returns_rejected():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:

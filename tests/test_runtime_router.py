@@ -50,6 +50,33 @@ def _build_db() -> tuple[Session, Agent]:
     return db, agent
 
 
+def _create_agent(db: Session, user: User, agent_type: str) -> Agent:
+    agent = Agent(
+        name=f"Router Agent {agent_type}",
+        description="router",
+        owner_user_id=user.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        repo_url="https://example.com/repo.git",
+        branch="main",
+        cpu="500m",
+        memory="1Gi",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp-agents",
+        deployment_name=f"dep-router-{agent_type}",
+        service_name=f"svc-router-{agent_type}",
+        pvc_name=f"pvc-router-{agent_type}",
+        endpoint_path="/",
+        agent_type=agent_type,
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    return agent
+
+
 def test_resolve_binding_decision_defaults_to_sync_execution_mode():
     db, agent = _build_db()
     try:
@@ -76,7 +103,7 @@ def test_resolve_binding_decision_returns_capability_context():
             skill_set_json='["review"]',
             allowed_external_systems_json='["github"]',
             allowed_webhook_triggers_json='["pull_request_review_requested"]',
-            allowed_actions_json='["review_pull_request","add_comment"]',
+            allowed_actions_json='["review_pull_request"]',
         )
         db.add(profile)
         db.commit()
@@ -96,15 +123,13 @@ def test_resolve_binding_decision_returns_capability_context():
         assert decision.capability_context.capability_profile_id == profile.id
         assert decision.capability_context.allowed_external_systems == ["github"]
         assert decision.capability_context.allowed_webhook_triggers == ["pull_request_review_requested"]
-        assert decision.capability_context.allowed_actions == ["review_pull_request", "add_comment"]
+        assert decision.capability_context.allowed_actions == ["review_pull_request"]
         assert "tool:shell" in decision.capability_context.allowed_capability_ids
         assert "skill:review" in decision.capability_context.allowed_capability_ids
         assert "channel_action:jira_get_issue" in decision.capability_context.allowed_capability_ids
         assert "adapter:github:review_pull_request" in decision.capability_context.allowed_capability_ids
-        assert "adapter:github:add_comment" not in decision.capability_context.allowed_capability_ids
-        assert "adapter:jira:add_comment" not in decision.capability_context.allowed_capability_ids
         assert decision.capability_context.allowed_adapter_actions == ["adapter:github:review_pull_request"]
-        assert decision.capability_context.unresolved_actions == ["add_comment"]
+        assert decision.capability_context.unresolved_actions == []
         assert decision.capability_context.resolved_action_mappings == {
             "review_pull_request": "adapter:github:review_pull_request"
         }
@@ -148,5 +173,41 @@ def test_resolve_binding_decision_for_event_uses_async_task_execution_mode():
         decision = RuntimeRouterService().resolve_binding_decision_for_event("github", "acct-event", db)
         assert decision.execution_mode == "async_task"
         assert decision.matched_agent_id == agent.id
+    finally:
+        db.close()
+
+
+def test_resolve_binding_decision_defaults_to_async_task_for_specialist_agent():
+    db, _agent = _build_db()
+    try:
+        user = db.query(User).first()
+        specialist = _create_agent(db, user, "specialist")
+        AgentIdentityBindingRepository(db).create(
+            agent_id=specialist.id,
+            system_type="github",
+            external_account_id="acct-specialist",
+            enabled=True,
+        )
+        decision = RuntimeRouterService().resolve_binding_decision("github", "acct-specialist", db)
+        assert decision.execution_mode == "async_task"
+        assert decision.matched_agent_id == specialist.id
+    finally:
+        db.close()
+
+
+def test_resolve_binding_decision_defaults_to_async_task_for_task_agent():
+    db, _agent = _build_db()
+    try:
+        user = db.query(User).first()
+        task_agent = _create_agent(db, user, "task")
+        AgentIdentityBindingRepository(db).create(
+            agent_id=task_agent.id,
+            system_type="github",
+            external_account_id="acct-task",
+            enabled=True,
+        )
+        decision = RuntimeRouterService().resolve_binding_decision("github", "acct-task", db)
+        assert decision.execution_mode == "async_task"
+        assert decision.matched_agent_id == task_agent.id
     finally:
         db.close()

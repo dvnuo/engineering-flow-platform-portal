@@ -114,7 +114,27 @@ class CapabilityContextService:
     def validate_profile_payload(self, payload: dict) -> None:
         for field_name in self.JSON_FIELDS:
             if field_name in payload:
-                self._parse_string_list(payload.get(field_name), field_name)
+                parsed_values = self._parse_string_list(payload.get(field_name), field_name)
+                if field_name == "allowed_actions_json":
+                    self._validate_allowed_actions(parsed_values)
+
+    def _validate_allowed_actions(self, actions: list[str]) -> None:
+        seen_action_ids: set[str] = set()
+        for action_name in actions:
+            normalized_name = self._normalize_name(action_name)
+            if not normalized_name:
+                raise CapabilityProfileValidationError(detail="allowed_actions_json must not contain blank action names")
+
+            normalized_action_id = self._normalize_action_capability_id(action_name)
+            if not normalized_action_id:
+                raise CapabilityProfileValidationError(
+                    detail=f"allowed_actions_json contains unknown or ambiguous action: {action_name}"
+                )
+            if normalized_action_id in seen_action_ids:
+                raise CapabilityProfileValidationError(
+                    detail=f"allowed_actions_json contains duplicate logical action: {action_name}"
+                )
+            seen_action_ids.add(normalized_action_id)
 
     def resolve_profile(self, profile: CapabilityProfile | None) -> CapabilityProfileResolvedData:
         if not profile:
