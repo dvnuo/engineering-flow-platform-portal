@@ -16,7 +16,9 @@ from app.api.agent_delegations import router as agent_delegations_router
 from app.api.agent_coordination_runs import router as agent_coordination_runs_router
 from app.api.external_event_ingress import router as external_event_ingress_router
 from app.api.workflow_transition_rules import router as workflow_transition_rules_router
+from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.agents import router as agents_router
+from app.api.internal_agents import router as internal_agents_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
 from app.config import get_settings
@@ -65,6 +67,7 @@ app.include_router(web_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(agents_router)
+app.include_router(internal_agents_router)
 app.include_router(capability_profiles_router)
 app.include_router(policy_profiles_router)
 app.include_router(agent_identity_bindings_router)
@@ -79,3 +82,4 @@ app.include_router(agent_delegations_router)
 app.include_router(agent_coordination_runs_router)
 app.include_router(external_event_ingress_router)
 app.include_router(workflow_transition_rules_router)
+app.include_router(runtime_capability_catalog_router)

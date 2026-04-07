@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentDelegation, AgentTask, User
+from app.models import Agent, AgentDelegation, AgentTask, CapabilityProfile, PolicyProfile, RuntimeCapabilityCatalogSnapshot, User
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.auth_service import hash_password
 
@@ -343,5 +343,172 @@ def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatc
         assert captured["metadata"]["portal_delegation_reply_target"] == "leader"
         assert captured["metadata"]["portal_coordination_run_id"] == "run-55"
         assert captured["metadata"]["portal_coordination_round_index"] == 4
+    finally:
+        cleanup()
+
+
+def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        capability_profile = CapabilityProfile(
+            name="cap-dispatch",
+            tool_set_json='["shell"]',
+            channel_set_json='["jira_get_issue"]',
+            skill_set_json='["review"]',
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["pull_request_review_requested"]',
+            allowed_actions_json='["review_pull_request","add_comment"]',
+        )
+        policy_profile = PolicyProfile(name="policy-dispatch")
+        db.add(capability_profile)
+        db.add(policy_profile)
+        db.commit()
+        db.refresh(capability_profile)
+        db.refresh(policy_profile)
+
+        agent.capability_profile_id = capability_profile.id
+        agent.policy_profile_id = policy_profile.id
+        db.add(agent)
+        db.commit()
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+        captured = {}
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_url: str, body: dict):
+            captured.update(body)
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        metadata = captured["metadata"]
+        assert metadata["capability_profile_id"] == capability_profile.id
+        assert metadata["policy_profile_id"] == policy_profile.id
+        assert "tool:shell" in metadata["allowed_capability_ids"]
+        assert "skill:review" in metadata["allowed_capability_ids"]
+        assert "channel_action:jira_get_issue" in metadata["allowed_capability_ids"]
+        assert "adapter:github:review_pull_request" in metadata["allowed_capability_ids"]
+        assert "adapter:github:add_comment" not in metadata["allowed_capability_ids"]
+        assert "adapter:jira:add_comment" not in metadata["allowed_capability_ids"]
+        assert "tool" in metadata["allowed_capability_types"]
+        assert "channel_action" in metadata["allowed_capability_types"]
+        assert "adapter_action" in metadata["allowed_capability_types"]
+        assert metadata["allowed_external_systems"] == ["github"]
+        assert metadata["allowed_webhook_triggers"] == ["pull_request_review_requested"]
+        assert metadata["allowed_actions"] == ["review_pull_request", "add_comment"]
+        assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+        assert metadata["unresolved_tools"] == []
+        assert metadata["unresolved_skills"] == []
+        assert metadata["unresolved_channels"] == []
+        assert metadata["unresolved_actions"] == ["add_comment"]
+        assert metadata["resolved_action_mappings"] == {
+            "review_pull_request": "adapter:github:review_pull_request"
+        }
+        assert metadata["runtime_capability_catalog_version"] is not None
+        assert metadata["runtime_capability_catalog_source"] in {"seed_fallback", "settings_snapshot", "runtime_api"}
+        assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
+    finally:
+        cleanup()
+
+
+def test_dispatch_includes_capability_metadata_defaults_when_profile_is_missing(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        agent.capability_profile_id = None
+        agent.policy_profile_id = None
+        db.add(agent)
+        db.commit()
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+        captured = {}
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_url: str, body: dict):
+            captured.update(body)
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        metadata = captured["metadata"]
+        assert metadata["capability_profile_id"] is None
+        assert metadata["policy_profile_id"] is None
+        assert metadata["runtime_capability_catalog_version"] is not None
+        assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
+        assert metadata["allowed_capability_ids"] == []
+        assert metadata["allowed_capability_types"] == []
+        assert metadata["allowed_actions"] == []
+        assert metadata["allowed_adapter_actions"] == []
+        assert metadata["unresolved_actions"] == []
+        assert metadata["resolved_action_mappings"] == {}
+    finally:
+        cleanup()
+
+
+def test_dispatch_uses_assignee_agent_scoped_catalog_snapshot(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id=agent.id,
+                catalog_version="dispatch-agent-v1",
+                catalog_source="runtime_api",
+                payload_json='{"catalog_version":"dispatch-agent-v1","capabilities":[{"capability_id":"adapter:github:review_pull_request","capability_type":"adapter_action","action_alias":"review_pull_request"}]}',
+            )
+        )
+        db.commit()
+
+        capability_profile = CapabilityProfile(name="cap-dispatch-snapshot", allowed_actions_json='["review_pull_request"]')
+        db.add(capability_profile)
+        db.commit()
+        db.refresh(capability_profile)
+        agent.capability_profile_id = capability_profile.id
+        db.add(agent)
+        db.commit()
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+        captured = {}
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_url: str, body: dict):
+            captured.update(body)
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        assert captured["metadata"]["runtime_capability_catalog_version"] == "dispatch-agent-v1"
+        assert captured["metadata"]["runtime_capability_catalog_source"] == "runtime_api"
     finally:
         cleanup()

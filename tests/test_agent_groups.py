@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AuditLog, User
+from app.models import Agent, AuditLog, CapabilityProfile, PolicyProfile, User
 from app.services.auth_service import hash_password
 
 
@@ -556,6 +556,8 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
         assert body["items"][0]["agent_type"] == "specialist"
         assert body["items"][0]["status"] == "running"
         assert body["items"][0]["visibility"] == "private"
+        assert "capability_profile_id" in body["items"][0]
+        assert "policy_profile_id" in body["items"][0]
     finally:
         cleanup()
 
@@ -573,6 +575,13 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
         deps_module.settings.portal_internal_api_key = "internal-test-key"
+        capability_profile = CapabilityProfile(name="cap-group-template", skill_set_json='["review"]')
+        policy_profile = PolicyProfile(name="policy-group-template")
+        db.add(capability_profile)
+        db.add(policy_profile)
+        db.commit()
+        db.refresh(capability_profile)
+        db.refresh(policy_profile)
 
         specialist_template = Agent(
             name="Internal Template Specialist",
@@ -593,6 +602,8 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
             pvc_name="pvc-template-internal",
             endpoint_path="/",
             agent_type="specialist",
+            capability_profile_id=capability_profile.id,
+            policy_profile_id=policy_profile.id,
         )
         db.add(specialist_template)
         db.commit()
@@ -666,6 +677,8 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         assert created["group_id"] == group["id"]
         assert created["leader_agent_id"] == group["leader_agent_id"]
         assert created["agent_type"] == "task"
+        assert created["capability_profile_id"] == capability_profile.id
+        assert created["policy_profile_id"] == policy_profile.id
         create_audit = db.query(AuditLog).filter(AuditLog.action == "create_group_task_agent", AuditLog.target_id == created["id"]).first()
         assert create_audit is not None
         create_details = json.loads(create_audit.details_json)

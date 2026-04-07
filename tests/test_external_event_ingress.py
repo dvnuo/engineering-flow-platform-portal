@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, User
+from app.models import Agent, CapabilityProfile, User
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
@@ -114,6 +114,40 @@ def test_ingest_no_matching_subscription_returns_rejected():
         cleanup()
 
 
+def test_internal_ingest_requires_internal_api_key():
+    client, _db, _agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.deps as deps_module
+
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},
+        )
+        assert response.status_code == 401
+    finally:
+        cleanup()
+
+
+def test_internal_ingest_with_internal_api_key_reuses_routing_flow():
+    client, _db, _agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.deps as deps_module
+
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+            json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "no_matching_subscription"
+    finally:
+        cleanup()
+
+
 def test_ingest_matching_subscription_without_binding_returns_rejected():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:
@@ -186,6 +220,88 @@ def test_ingest_matching_subscription_and_binding_creates_task():
         assert payload["repo"] == "portal"
         assert payload["pull_number"] == 15
         assert payload["subscription_id"] in body["matched_subscription_ids"]
+    finally:
+        cleanup()
+
+
+def test_ingest_rejects_when_external_system_not_allowed():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        profile = CapabilityProfile(name="cap-gate-source", allowed_external_systems_json='["jira"]')
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-source-gate",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-source-gate",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":15}',
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["accepted"] is False
+        assert response.json()["routing_reason"] == "external_system_not_allowed"
+    finally:
+        cleanup()
+
+
+def test_ingest_rejects_when_webhook_trigger_not_allowed():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        profile = CapabilityProfile(
+            name="cap-gate-trigger",
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["issue_updated"]',
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-trigger-gate",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-trigger-gate",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":15}',
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["accepted"] is False
+        assert response.json()["routing_reason"] == "webhook_trigger_not_allowed"
     finally:
         cleanup()
 
@@ -283,6 +399,372 @@ def test_jira_ingest_with_matching_rule_creates_workflow_review_task():
         assert isinstance(task_payload["workflow_context"], dict)
         assert task_payload["workflow_context"]["strict"] is True
         assert tasks[0].shared_context_ref == "EFP-123"
+    finally:
+        cleanup()
+
+
+def test_jira_workflow_ingest_rejects_when_external_system_not_allowed():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        profile = CapabilityProfile(
+            name="cap-jira-source-gate",
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["workflow_review_requested"]',
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        rule = WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            skill_name="workflow-review",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-777",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "external_system_not_allowed"
+        assert body["matched_agent_id"] == agent.id
+        assert body["matched_workflow_rule_id"] == rule.id
+    finally:
+        cleanup()
+
+
+def test_jira_workflow_ingest_rejects_when_webhook_trigger_not_allowed():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        profile = CapabilityProfile(
+            name="cap-jira-trigger-gate",
+            allowed_external_systems_json='["jira"]',
+            allowed_webhook_triggers_json='["issue_updated"]',
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        rule = WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            skill_name="workflow-review",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-778",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "webhook_trigger_not_allowed"
+        assert body["matched_agent_id"] == agent.id
+        assert body["matched_workflow_rule_id"] == rule.id
+    finally:
+        cleanup()
+
+
+def test_jira_workflow_ingest_without_capability_profile_remains_permissive():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        agent.capability_profile_id = None
+        db.add(agent)
+        db.commit()
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            skill_name="workflow-review",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-779",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["accepted"] is True
+    finally:
+        cleanup()
+
+
+def test_authorized_capability_profile_allows_github_and_jira_events():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        profile = CapabilityProfile(
+            name="cap-allow-both",
+            allowed_external_systems_json='["github","jira"]',
+            allowed_webhook_triggers_json='["pull_request_review_requested","workflow_review_requested"]',
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-allow-github",
+            enabled=True,
+        )
+        github_resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-allow-github",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":15}',
+            },
+        )
+        assert github_resp.status_code == 200
+        assert github_resp.json()["accepted"] is True
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            skill_name="workflow-review",
+            enabled=True,
+            config_json='{"strict": true}',
+        )
+        jira_resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-456",
+            },
+        )
+        assert jira_resp.status_code == 200
+        assert jira_resp.json()["accepted"] is True
+    finally:
+        cleanup()
+
+
+def test_single_profile_allows_github_but_rejects_jira_workflow():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        profile = CapabilityProfile(
+            name="cap-github-only",
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["pull_request_review_requested"]',
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-combo-gh",
+            enabled=True,
+        )
+        github_resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-combo-gh",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":15}',
+            },
+        )
+        assert github_resp.status_code == 200
+        assert github_resp.json()["accepted"] is True
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            skill_name="workflow-review",
+            enabled=True,
+        )
+        jira_resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-880",
+            },
+        )
+        assert jira_resp.status_code == 200
+        assert jira_resp.json()["accepted"] is False
+        assert jira_resp.json()["routing_reason"] == "external_system_not_allowed"
+    finally:
+        cleanup()
+
+
+def test_single_profile_allows_jira_workflow_but_rejects_github():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        profile = CapabilityProfile(
+            name="cap-jira-only",
+            allowed_external_systems_json='["jira"]',
+            allowed_webhook_triggers_json='["workflow_review_requested"]',
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.capability_profile_id = profile.id
+        db.add(agent)
+        db.commit()
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            assignee_binding=None,
+            target_agent_id=agent.id,
+            skill_name="workflow-review",
+            enabled=True,
+        )
+        jira_resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-881",
+            },
+        )
+        assert jira_resp.status_code == 200
+        assert jira_resp.json()["accepted"] is True
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-combo-gh-denied",
+            enabled=True,
+        )
+        github_resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-combo-gh-denied",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":15}',
+            },
+        )
+        assert github_resp.status_code == 200
+        assert github_resp.json()["accepted"] is False
+        assert github_resp.json()["routing_reason"] == "external_system_not_allowed"
     finally:
         cleanup()
 

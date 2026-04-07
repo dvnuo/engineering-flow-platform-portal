@@ -18,6 +18,7 @@ def _build_client_with_overrides(monkeypatch):
     import app.api.agents as agents_api
     import app.api.agent_identity_bindings as bindings_api
     import app.api.capability_profiles as capability_api
+    import app.api.internal_agents as internal_agents_api
     import app.api.policy_profiles as policy_api
     import app.api.runtime_router as runtime_router_api
     import app.api.agent_groups as groups_api
@@ -81,6 +82,7 @@ def _build_client_with_overrides(monkeypatch):
     app.dependency_overrides[groups_api.get_db] = _override_db
     app.dependency_overrides[agents_api.get_current_user] = _override_user
     app.dependency_overrides[agents_api.get_db] = _override_db
+    app.dependency_overrides[internal_agents_api.get_db] = _override_db
 
     def _cleanup():
         app.dependency_overrides.clear()
@@ -351,6 +353,206 @@ def test_update_agent_allows_clearing_profile_references(monkeypatch):
         assert clear_resp.status_code == 200
         assert clear_resp.json()["capability_profile_id"] is None
         assert clear_resp.json()["policy_profile_id"] is None
+    finally:
+        cleanup()
+
+
+def test_capability_profile_create_invalid_json_returns_400(monkeypatch):
+    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        resp = client.post(
+            "/api/capability-profiles",
+            json={"name": "cap-bad-json", "tool_set_json": "not-json"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "tool_set_json must be valid JSON"
+    finally:
+        cleanup()
+
+
+def test_capability_profile_create_rejects_unknown_allowed_actions(monkeypatch):
+    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        resp = client.post(
+            "/api/capability-profiles",
+            json={"name": "cap-bad-action", "allowed_actions_json": '["approve"]'},
+        )
+        assert resp.status_code == 400
+        assert "unknown or ambiguous action: approve" in resp.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_capability_profile_create_rejects_ambiguous_allowed_actions(monkeypatch):
+    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        resp = client.post(
+            "/api/capability-profiles",
+            json={"name": "cap-ambiguous-action", "allowed_actions_json": '["add_comment"]'},
+        )
+        assert resp.status_code == 400
+        assert "unknown or ambiguous action: add_comment" in resp.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_capability_profile_update_rejects_logical_duplicate_allowed_actions(monkeypatch):
+    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create = client.post("/api/capability-profiles", json={"name": "cap-dup-action"})
+        assert create.status_code == 200
+        profile_id = create.json()["id"]
+
+        update = client.patch(
+            f"/api/capability-profiles/{profile_id}",
+            json={"allowed_actions_json": '["review_pull_request","adapter:github:review_pull_request"]'},
+        )
+        assert update.status_code == 400
+        assert "duplicate logical action" in update.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_capability_profile_resolved_endpoint_update_and_delete(monkeypatch):
+    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create = client.post(
+            "/api/capability-profiles",
+            json={
+                "name": "cap-resolve",
+                "tool_set_json": '["shell"]',
+                "channel_set_json": '["chat"]',
+                "skill_set_json": '["review"]',
+            },
+        )
+        assert create.status_code == 200
+        profile_id = create.json()["id"]
+
+        resolved = client.get(f"/api/capability-profiles/{profile_id}/resolved")
+        assert resolved.status_code == 200
+        assert resolved.json()["resolved"]["tool_set"] == ["shell"]
+        assert resolved.json()["resolved"]["channel_set"] == ["chat"]
+        assert resolved.json()["resolved"]["skill_set"] == ["review"]
+        assert resolved.json()["resolved"]["runtime_capability_catalog_source"] in {"seed_fallback", "settings_snapshot", "runtime_api"}
+        assert resolved.json()["resolved"]["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
+
+        updated = client.patch(
+            f"/api/capability-profiles/{profile_id}",
+            json={"allowed_actions_json": '["review_pull_request"]'},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["allowed_actions_json"] == '["review_pull_request"]'
+
+        deleted = client.delete(f"/api/capability-profiles/{profile_id}")
+        assert deleted.status_code == 200
+        assert deleted.json() == {"ok": True}
+
+        missing = client.get(f"/api/capability-profiles/{profile_id}")
+        assert missing.status_code == 404
+    finally:
+        cleanup()
+
+
+def test_internal_agent_runtime_context_endpoint_returns_effective_context(monkeypatch):
+    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        import app.deps as deps_module
+
+        cap = client.post(
+            "/api/capability-profiles",
+            json={
+                "name": "cap-runtime-context",
+                "tool_set_json": '["shell"]',
+                "channel_set_json": '["jira_get_issue"]',
+                "skill_set_json": '["Review"]',
+                "allowed_external_systems_json": '["github"]',
+                "allowed_webhook_triggers_json": '["pull_request_review_requested"]',
+                "allowed_actions_json": '["review_pull_request"]',
+            },
+        ).json()
+        policy = client.post("/api/policy-profiles", json={"name": "policy-runtime-context"}).json()
+
+        updated = client.patch(
+            f"/api/agents/{agent.id}",
+            json={"capability_profile_id": cap["id"], "policy_profile_id": policy["id"]},
+        )
+        assert updated.status_code == 200
+
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
+        runtime_ctx = client.get(
+            f"/api/internal/agents/{agent.id}/runtime-context",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert runtime_ctx.status_code == 200
+        body = runtime_ctx.json()
+        assert body["agent_id"] == agent.id
+        assert body["capability_profile_id"] == cap["id"]
+        assert body["policy_profile_id"] == policy["id"]
+        assert body["capability_context"]["capability_profile_id"] == cap["id"]
+        assert "tool:shell" in body["capability_context"]["allowed_capability_ids"]
+        assert "skill:review" in body["capability_context"]["allowed_capability_ids"]
+        assert "channel_action:jira_get_issue" in body["capability_context"]["allowed_capability_ids"]
+        assert "adapter:github:review_pull_request" in body["capability_context"]["allowed_capability_ids"]
+        assert body["capability_context"]["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+        assert body["capability_context"]["unresolved_actions"] == []
+        assert body["capability_context"]["resolved_action_mappings"] == {
+            "review_pull_request": "adapter:github:review_pull_request"
+        }
+    finally:
+        cleanup()
+
+
+def test_runtime_router_and_internal_runtime_context_expose_consistent_capability_fields(monkeypatch):
+    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        import app.deps as deps_module
+
+        cap = client.post(
+            "/api/capability-profiles",
+            json={
+                "name": "cap-consistency",
+                "tool_set_json": '["shell"]',
+                "skill_set_json": '["review"]',
+                "allowed_external_systems_json": '["github"]',
+                "allowed_webhook_triggers_json": '["pull_request_review_requested"]',
+                "allowed_actions_json": '["review_pull_request"]',
+            },
+        ).json()
+
+        set_profile = client.patch(f"/api/agents/{agent.id}", json={"capability_profile_id": cap["id"]})
+        assert set_profile.status_code == 200
+
+        create_binding = client.post(
+            f"/api/agents/{agent.id}/identity-bindings",
+            json={"system_type": "github", "external_account_id": "acct-consistency", "enabled": True},
+        )
+        assert create_binding.status_code == 200
+
+        routing = client.post(
+            "/api/runtime-router/resolve-binding",
+            json={"system_type": "github", "external_account_id": "acct-consistency"},
+        )
+        assert routing.status_code == 200
+        routing_ctx = routing.json()["capability_context"]
+
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
+        internal = client.get(
+            f"/api/internal/agents/{agent.id}/runtime-context",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert internal.status_code == 200
+        internal_ctx = internal.json()["capability_context"]
+
+        keys = {
+            "allowed_capability_ids",
+            "allowed_capability_types",
+            "allowed_actions",
+            "allowed_adapter_actions",
+            "unresolved_actions",
+            "resolved_action_mappings",
+        }
+        for key in keys:
+            assert routing_ctx[key] == internal_ctx[key]
     finally:
         cleanup()
 

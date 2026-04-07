@@ -86,6 +86,8 @@ class InternalAgentGroupSpecialistPoolItemResponse(BaseModel):
     agent_type: str
     status: str
     visibility: str
+    capability_profile_id: str | None = None
+    policy_profile_id: str | None = None
 
 
 class InternalAgentGroupSpecialistPoolResponse(BaseModel):
@@ -156,3 +158,5 @@ class InternalAgentGroupTaskAgentCreateResponse(BaseModel):
     source: str
     group_id: str
     leader_agent_id: str
+    capability_profile_id: str | None = None
+    policy_profile_id: str | None = None
