@@ -96,6 +96,8 @@ class AgentDelegationResponse(BaseModel):
     agent_task_id: str | None = None
     objective: str
     leader_session_id: str | None = None
+    origin_session_id: str | None = None
+    reply_target_type: str
     scoped_context_ref: str | None = None
     scoped_context_payload_json: str | None = None
     input_artifacts_json: str | None = None
@@ -123,6 +125,8 @@ class AgentDelegationBoardItemResponse(BaseModel):
     assignee_agent_id: str
     objective: str
     leader_session_id: str | None = None
+    origin_session_id: str | None = None
+    reply_target_type: str
     visibility: str
     status: str
     agent_task_id: str | None = None

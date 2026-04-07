@@ -271,6 +271,7 @@ def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
         assert body["group_id"] == group.id
         assert body["status"] == "done"
         assert body["agent_task_id"] is not None
+        assert body["reply_target_type"] == "leader"
 
         task = AgentTaskRepository(db).get_by_id(body["agent_task_id"])
         assert task is not None
@@ -304,9 +305,13 @@ def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
         assert response.status_code == 200
         body = response.json()
         assert body["leader_session_id"] == "leader-session-123"
+        assert body["origin_session_id"] == "leader-session-123"
+        assert body["reply_target_type"] == "leader"
 
         delegation = db.get(AgentDelegation, body["id"])
         assert delegation.leader_session_id == "leader-session-123"
+        assert delegation.origin_session_id == "leader-session-123"
+        assert delegation.reply_target_type == "leader"
 
         runtime_body = state["captured_bodies"][0]
         assert runtime_body["session_id"] == "leader-session-123"
@@ -875,6 +880,8 @@ def test_internal_read_routes_are_key_protected_and_unfiltered(monkeypatch):
         items = delegations_response.json()
         assert len(items) == 2
         assert {item["visibility"] for item in items} == {"leader_only", "group_visible"}
+        assert {item["reply_target_type"] for item in items} == {"leader"}
+        assert all("origin_session_id" in item for item in items)
 
         board_response = client.get(
             f"/api/internal/agent-groups/{group.id}/task-board",
@@ -883,6 +890,8 @@ def test_internal_read_routes_are_key_protected_and_unfiltered(monkeypatch):
         assert board_response.status_code == 200
         board = board_response.json()
         assert board["summary"]["total"] == 2
+        assert {item["reply_target_type"] for item in board["items"]} == {"leader"}
+        assert all("origin_session_id" in item for item in board["items"])
     finally:
         cleanup()
 

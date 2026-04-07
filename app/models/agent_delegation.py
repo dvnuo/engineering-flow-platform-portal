@@ -24,6 +24,8 @@ class AgentDelegation(Base):
     agent_task_id: Mapped[str | None] = mapped_column(ForeignKey("agent_tasks.id"), nullable=True, index=True)
     objective: Mapped[str] = mapped_column(Text, nullable=False)
     leader_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    origin_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    reply_target_type: Mapped[str] = mapped_column(String(32), nullable=False, default="leader")
     scoped_context_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     input_artifacts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     expected_output_schema_json: Mapped[str | None] = mapped_column(Text, nullable=True)

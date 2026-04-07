@@ -232,6 +232,9 @@ class AgentDelegationService:
 
         if normalized.visibility not in {"leader_only", "group_visible"}:
             raise AgentDelegationServiceError(status_code=422, detail="Invalid visibility")
+        reply_target_type = "leader"
+        if reply_target_type != "leader":
+            raise AgentDelegationServiceError(status_code=422, detail="Unsupported reply target")
 
         if normalized.assignee_agent_id == normalized.leader_agent_id:
             raise AgentDelegationServiceError(status_code=409, detail="Leader agent cannot delegate to itself")
@@ -297,6 +300,8 @@ class AgentDelegationService:
             agent_task_id=None,
             objective=normalized.objective,
             leader_session_id=normalized.leader_session_id,
+            origin_session_id=normalized.leader_session_id,
+            reply_target_type=reply_target_type,
             scoped_context_ref=effective_scoped_context_ref,
             input_artifacts_json=json.dumps(normalized.input_artifacts),
             expected_output_schema_json=json.dumps(normalized.expected_output_schema),
@@ -325,6 +330,8 @@ class AgentDelegationService:
             "assignee_agent_id": normalized.assignee_agent_id,
             "objective": normalized.objective,
             "leader_session_id": normalized.leader_session_id,
+            "origin_session_id": normalized.leader_session_id,
+            "reply_target_type": reply_target_type,
             "strict_delegation_result": True,
             "agent_mode": "task" if assignee_agent.agent_type == "task" else "specialist",
             "ephemeral_task_agent_id": assignee_agent.id if assignee_agent.agent_type == "task" else None,

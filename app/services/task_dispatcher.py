@@ -272,7 +272,7 @@ class TaskDispatcherService:
                 metadata["portal_group_id"] = delegation.group_id
                 metadata["portal_leader_agent_id"] = delegation.leader_agent_id
                 metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
-                metadata["portal_delegation_reply_target"] = "leader"
+                metadata["portal_delegation_reply_target"] = getattr(delegation, "reply_target_type", None) or "leader"
             if input_payload.get("strict_delegation_result") is True:
                 metadata["strict_delegation_result"] = True
             if input_payload.get("agent_mode") in {"task", "specialist"}:
@@ -319,7 +319,7 @@ class TaskDispatcherService:
             "context_ref": materialized_context_ref,
             "metadata": metadata,
         }
-        leader_session_id = input_payload.get("leader_session_id")
+        leader_session_id = (getattr(delegation, "origin_session_id", None) if delegation else None) or input_payload.get("leader_session_id")
         if isinstance(leader_session_id, str) and leader_session_id.strip():
             runtime_body["session_id"] = leader_session_id.strip()
             metadata["portal_leader_session_id"] = leader_session_id.strip()
