@@ -89,3 +89,11 @@ class AgentGroupTaskAgentCreateRequest(BaseModel):
     template_agent_id: str
     scope_label: str | None = None
     cleanup_policy: str | None = None
+
+
+class InternalAgentGroupTaskAgentCreateRequest(BaseModel):
+    template_agent_id: str
+    name: str
+    scope_label: str | None = None
+    visibility: str | None = None
+    task_agent_cleanup_policy: str | None = None

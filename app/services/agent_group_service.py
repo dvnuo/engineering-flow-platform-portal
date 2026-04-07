@@ -15,6 +15,7 @@ from app.repositories.group_shared_context_snapshot_repo import GroupSharedConte
 from app.repositories.user_repo import UserRepository
 from app.schemas.agent_group import (
     AgentGroupCreateRequest,
+    InternalAgentGroupTaskAgentCreateRequest,
     AgentGroupMemberCreateRequest,
     AgentGroupTaskAgentCreateRequest,
     AgentGroupTaskCreateRequest,
@@ -411,7 +412,14 @@ class AgentGroupService:
         )
         return validated
 
-    def create_group_task_agent(self, group_id: str, payload: AgentGroupTaskAgentCreateRequest, user):
+    def create_group_task_agent(
+        self,
+        group_id: str,
+        payload: AgentGroupTaskAgentCreateRequest | InternalAgentGroupTaskAgentCreateRequest,
+        user,
+        *,
+        source: str = "user_api",
+    ):
         group = self._get_group_or_raise(group_id)
         if not self.can_manage_group(group, user):
             raise AgentGroupServiceError(status_code=403, detail="Not allowed to manage group")
@@ -423,11 +431,15 @@ class AgentGroupService:
         if template_agent.id not in self._get_specialist_pool_ids(group):
             raise AgentGroupServiceError(status_code=422, detail="Template agent must belong to the specialist agent pool")
 
+        visibility = "private"
+        if getattr(payload, "visibility", None):
+            visibility = payload.visibility
+
         created = self.agent_repo.create(
             name=payload.name,
             description=f"ephemeral-task-agent:{payload.scope_label or group_id}",
-            owner_user_id=getattr(user, "id", None),
-            visibility="private",
+            owner_user_id=getattr(user, "id", None) or template_agent.owner_user_id,
+            visibility=visibility,
             status="creating",
             image=template_agent.image,
             repo_url=template_agent.repo_url,
@@ -466,12 +478,12 @@ class AgentGroupService:
                 "group_id": group.id,
                 "leader_agent_id": group.leader_agent_id,
                 "assignee_agent_id": created.id,
-                "source": "user_api",
+                "source": source,
             },
         )
         return created
 
-    def delete_group_task_agent(self, group_id: str, agent_id: str, user) -> None:
+    def delete_group_task_agent(self, group_id: str, agent_id: str, user, *, source: str = "user_api") -> None:
         group = self._get_group_or_raise(group_id)
         if not self.can_manage_group(group, user):
             raise AgentGroupServiceError(status_code=403, detail="Not allowed to manage group")
@@ -501,7 +513,7 @@ class AgentGroupService:
                 "group_id": group.id,
                 "leader_agent_id": group.leader_agent_id,
                 "assignee_agent_id": agent_id,
-                "source": "user_api",
+                "source": source,
             },
         )
 

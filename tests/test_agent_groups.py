@@ -462,3 +462,168 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
         assert created["id"] not in pool_after_delete.json()["specialist_agent_ids"]
     finally:
         cleanup()
+
+
+def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
+    client, leader_agent, _member_agent, _user_member, _outsider, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        from app.main import app
+        import app.api.agent_groups as groups_api
+        import app.deps as deps_module
+
+        db_gen = app.dependency_overrides[groups_api.get_db]()
+        db = next(db_gen)
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
+
+        specialist = Agent(
+            name="Internal Specialist",
+            description="specialist",
+            owner_user_id=leader_agent.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-specialist-internal.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-specialist-internal",
+            service_name="svc-specialist-internal",
+            pvc_name="pvc-specialist-internal",
+            endpoint_path="/",
+            agent_type="specialist",
+        )
+        db.add(specialist)
+        db.commit()
+        db.refresh(specialist)
+
+        group = _create_group(client, leader_agent.id)
+        assert client.post(
+            f"/api/agent-groups/{group['id']}/members",
+            json={"member_type": "agent", "agent_id": specialist.id, "role": "member"},
+        ).status_code == 200
+        assert client.put(
+            f"/api/agent-groups/{group['id']}/specialist-pool",
+            json={"specialist_agent_ids": [specialist.id]},
+        ).status_code == 200
+
+        assert client.get(f"/api/internal/agent-groups/{group['id']}/specialist-pool").status_code == 401
+        assert (
+            client.get(
+                f"/api/internal/agent-groups/{group['id']}/specialist-pool",
+                headers={"X-Internal-Api-Key": "wrong"},
+            ).status_code
+            == 401
+        )
+        ok = client.get(
+            f"/api/internal/agent-groups/{group['id']}/specialist-pool",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert ok.status_code == 200
+        assert ok.json() == {"group_id": group["id"], "specialist_agent_ids": [specialist.id]}
+    finally:
+        cleanup()
+
+
+def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards():
+    client, leader_agent, _member_agent, _user_member, _outsider, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        from app.main import app
+        import app.api.agent_groups as groups_api
+        import app.api.agents as agents_api
+        import app.deps as deps_module
+        import app.services.agent_group_service as group_service_module
+        from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
+
+        db_gen = app.dependency_overrides[groups_api.get_db]()
+        db = next(db_gen)
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
+
+        specialist_template = Agent(
+            name="Internal Template Specialist",
+            description="template",
+            owner_user_id=leader_agent.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-template-internal.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-template-internal",
+            service_name="svc-template-internal",
+            pvc_name="pvc-template-internal",
+            endpoint_path="/",
+            agent_type="specialist",
+        )
+        db.add(specialist_template)
+        db.commit()
+        db.refresh(specialist_template)
+
+        group = _create_group(client, leader_agent.id)
+        assert client.post(
+            f"/api/agent-groups/{group['id']}/members",
+            json={"member_type": "agent", "agent_id": specialist_template.id, "role": "member"},
+        ).status_code == 200
+        assert client.put(
+            f"/api/agent-groups/{group['id']}/specialist-pool",
+            json={"specialist_agent_ids": [specialist_template.id]},
+        ).status_code == 200
+
+        agents_api.k8s_service.create_agent_runtime = lambda _agent: SimpleNamespace(status="running", message=None)
+        agents_api.k8s_service.delete_agent_runtime = lambda _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None)
+        group_service_module.K8sService.create_agent_runtime = lambda _self, _agent: SimpleNamespace(status="running", message=None)
+        group_service_module.K8sService.delete_agent_runtime = lambda _self, _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None)
+
+        payload = {
+            "name": "Internal Ephemeral Task Agent",
+            "template_agent_id": specialist_template.id,
+            "scope_label": "runtime-scope",
+            "visibility": "private",
+            "task_agent_cleanup_policy": "on_done",
+        }
+        assert client.post(f"/api/internal/agent-groups/{group['id']}/task-agents", json=payload).status_code == 401
+        created_resp = client.post(
+            f"/api/internal/agent-groups/{group['id']}/task-agents",
+            json=payload,
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert created_resp.status_code == 200
+        created = created_resp.json()
+        assert created["agent_type"] == "task"
+        member = AgentGroupMemberRepository(db).get_by_group_and_agent(group["id"], created["id"])
+        assert member is not None
+        pool = client.get(
+            f"/api/internal/agent-groups/{group['id']}/specialist-pool",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        ).json()
+        assert created["id"] in pool["specialist_agent_ids"]
+
+        assert client.delete(f"/api/internal/agent-groups/{group['id']}/task-agents/{created['id']}").status_code == 401
+        assert (
+            client.delete(
+                f"/api/internal/agent-groups/{group['id']}/task-agents/{group['leader_agent_id']}",
+                headers={"X-Internal-Api-Key": "internal-test-key"},
+            ).status_code
+            == 409
+        )
+
+        deleted = client.delete(
+            f"/api/internal/agent-groups/{group['id']}/task-agents/{created['id']}",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        )
+        assert deleted.status_code == 200
+        assert deleted.json() == {"ok": True}
+        assert AgentGroupMemberRepository(db).get_by_group_and_agent(group["id"], created["id"]) is None
+        pool_after = client.get(
+            f"/api/internal/agent-groups/{group['id']}/specialist-pool",
+            headers={"X-Internal-Api-Key": "internal-test-key"},
+        ).json()
+        assert created["id"] not in pool_after["specialist_agent_ids"]
+    finally:
+        cleanup()

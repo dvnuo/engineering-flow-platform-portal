@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from types import SimpleNamespace
 
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_internal_api_key
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.schemas.agent_group import (
     AgentGroupCreateRequest,
@@ -13,6 +14,7 @@ from app.schemas.agent_group import (
     AgentGroupSpecialistPoolResponse,
     AgentGroupSpecialistPoolUpdateRequest,
     AgentGroupTaskAgentCreateRequest,
+    InternalAgentGroupTaskAgentCreateRequest,
     AgentGroupTaskCreateRequest,
     AgentGroupTaskSummaryResponse,
 )
@@ -179,6 +181,53 @@ def delete_group_task_agent(group_id: str, agent_id: str, user=Depends(get_curre
     service = AgentGroupService(db)
     try:
         service.delete_group_task_agent(group_id, agent_id, user=user)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
+    return {"ok": True}
+
+
+@router.get("/api/internal/agent-groups/{group_id}/specialist-pool", response_model=AgentGroupSpecialistPoolResponse)
+def get_internal_group_specialist_pool(
+    group_id: str,
+    _: bool = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    service = AgentGroupService(db)
+    internal_user = SimpleNamespace(id=None, role="admin")
+    try:
+        specialist_agent_ids = service.get_specialist_pool(group_id, user=internal_user)
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
+    return AgentGroupSpecialistPoolResponse(group_id=group_id, specialist_agent_ids=specialist_agent_ids)
+
+
+@router.post("/api/internal/agent-groups/{group_id}/task-agents", response_model=AgentResponse)
+def create_internal_group_task_agent(
+    group_id: str,
+    payload: InternalAgentGroupTaskAgentCreateRequest,
+    _: bool = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    service = AgentGroupService(db)
+    internal_user = SimpleNamespace(id=None, role="admin")
+    try:
+        agent = service.create_group_task_agent(group_id, payload, user=internal_user, source="internal_api")
+    except AgentGroupServiceError as error:
+        _raise_http_service_error(error)
+    return AgentResponse.model_validate(agent)
+
+
+@router.delete("/api/internal/agent-groups/{group_id}/task-agents/{agent_id}")
+def delete_internal_group_task_agent(
+    group_id: str,
+    agent_id: str,
+    _: bool = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    service = AgentGroupService(db)
+    internal_user = SimpleNamespace(id=None, role="admin")
+    try:
+        service.delete_group_task_agent(group_id, agent_id, user=internal_user, source="internal_api")
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
     return {"ok": True}
