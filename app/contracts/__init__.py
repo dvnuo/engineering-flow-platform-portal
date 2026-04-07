@@ -1,11 +1,9 @@
 from app.contracts.runtime_capabilities import (
-    RuntimeCapabilityContract,
-    build_default_runtime_capability_contract,
-    normalize_action_name,
+    DEFAULT_RUNTIME_ADAPTER_ACTIONS_BY_SYSTEM,
+    get_default_runtime_adapter_actions_by_system,
 )
 
 __all__ = [
-    "RuntimeCapabilityContract",
-    "build_default_runtime_capability_contract",
-    "normalize_action_name",
+    "DEFAULT_RUNTIME_ADAPTER_ACTIONS_BY_SYSTEM",
+    "get_default_runtime_adapter_actions_by_system",
 ]

@@ -3,11 +3,14 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.contracts.runtime_capabilities import RuntimeCapabilityContract, build_default_runtime_capability_contract
 from app.models.agent import Agent
 from app.models.capability_profile import CapabilityProfile
 from app.repositories.capability_profile_repo import CapabilityProfileRepository
 from app.schemas.capability_profile import CapabilityProfileResolvedData
+from app.services.runtime_capability_catalog import (
+    RuntimeCapabilityCatalogProvider,
+    build_default_runtime_capability_catalog_provider,
+)
 
 
 @dataclass
@@ -32,8 +35,8 @@ class CapabilityContextService:
         "allowed_actions_json",
     )
 
-    def __init__(self, runtime_capability_contract: RuntimeCapabilityContract | None = None) -> None:
-        self.runtime_capability_contract = runtime_capability_contract or build_default_runtime_capability_contract()
+    def __init__(self, runtime_capability_provider: RuntimeCapabilityCatalogProvider | None = None) -> None:
+        self.runtime_capability_provider = runtime_capability_provider or build_default_runtime_capability_catalog_provider()
 
     @staticmethod
     def _parse_string_list(raw_value: str | None, field_name: str) -> list[str]:
@@ -73,7 +76,7 @@ class CapabilityContextService:
         return f"channel_action:{normalized}" if normalized else None
 
     def _normalize_action_capability_id(self, name: str) -> str | None:
-        return self.runtime_capability_contract.resolve_action_to_capability_id(name)
+        return self.runtime_capability_provider.resolve_action_to_capability_id(name)
 
     def validate_profile_payload(self, payload: dict) -> None:
         for field_name in self.JSON_FIELDS:
