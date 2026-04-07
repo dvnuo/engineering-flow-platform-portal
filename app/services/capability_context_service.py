@@ -9,7 +9,8 @@ from app.repositories.capability_profile_repo import CapabilityProfileRepository
 from app.schemas.capability_profile import CapabilityProfileResolvedData
 from app.services.runtime_capability_catalog import (
     RuntimeCapabilityCatalogProvider,
-    build_default_runtime_capability_catalog_provider,
+    build_runtime_capability_catalog_provider,
+    build_runtime_capability_catalog_provider_from_settings,
 )
 
 
@@ -35,8 +36,19 @@ class CapabilityContextService:
         "allowed_actions_json",
     )
 
-    def __init__(self, runtime_capability_provider: RuntimeCapabilityCatalogProvider | None = None) -> None:
-        self.runtime_capability_provider = runtime_capability_provider or build_default_runtime_capability_catalog_provider()
+    def __init__(
+        self,
+        runtime_capability_provider: RuntimeCapabilityCatalogProvider | None = None,
+        runtime_catalog_snapshot_payload: list[dict] | None = None,
+    ) -> None:
+        if runtime_capability_provider:
+            self.runtime_capability_provider = runtime_capability_provider
+        elif runtime_catalog_snapshot_payload is not None:
+            self.runtime_capability_provider = build_runtime_capability_catalog_provider(
+                runtime_catalog_snapshot_payload=runtime_catalog_snapshot_payload
+            )
+        else:
+            self.runtime_capability_provider = build_runtime_capability_catalog_provider_from_settings()
 
     @staticmethod
     def _parse_string_list(raw_value: str | None, field_name: str) -> list[str]:

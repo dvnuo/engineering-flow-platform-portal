@@ -1,6 +1,8 @@
 from copy import deepcopy
 
 
+# Fallback seed data used when no runtime catalog snapshot is provided.
+# Runtime remains the source-of-truth; this seed keeps local behavior deterministic.
 DEFAULT_RUNTIME_ADAPTER_ACTIONS_BY_SYSTEM: dict[str, dict[str, str]] = {
     "github": {
         "review_pull_request": "adapter:github:review_pull_request",

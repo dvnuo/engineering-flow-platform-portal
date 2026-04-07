@@ -1,7 +1,9 @@
 from app.services.capability_context_service import CapabilityContextService, CapabilityProfileValidationError
 from app.services.runtime_capability_catalog import (
+    RuntimeCapabilityCatalogLoader,
     RuntimeCapabilityCatalogProvider,
     build_default_runtime_capability_catalog_provider,
+    build_runtime_capability_catalog_provider_from_settings,
 )
 
 
@@ -33,6 +35,19 @@ def test_provider_can_be_built_from_runtime_catalog_payload():
     assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
 
 
+def test_loader_uses_default_seed_when_snapshot_missing():
+    provider = RuntimeCapabilityCatalogLoader.from_snapshot_json(None).build_provider()
+    assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
+
+
+def test_loader_builds_provider_from_runtime_snapshot_json():
+    snapshot_json = (
+        '[{"capability_id":"adapter:runtime:custom_action","capability_type":"adapter_action","action_alias":"custom_action"}]'
+    )
+    provider = RuntimeCapabilityCatalogLoader.from_snapshot_json(snapshot_json).build_provider()
+    assert provider.resolve_action_to_capability_id("custom_action") == "adapter:runtime:custom_action"
+
+
 def test_capability_context_service_allowed_actions_validation_rules():
     service = CapabilityContextService()
 
@@ -49,6 +64,27 @@ def test_capability_context_service_allowed_actions_validation_rules():
             {"allowed_actions_json": '["review_pull_request","adapter:github:review_pull_request"]'}
         )
     )
+
+
+def test_capability_context_service_runtime_snapshot_path_is_first_class():
+    service = CapabilityContextService(
+        runtime_catalog_snapshot_payload=[
+            {
+                "capability_id": "adapter:runtime:custom_action",
+                "capability_type": "adapter_action",
+                "action_alias": "custom_action",
+            }
+        ]
+    )
+    service.validate_profile_payload({"allowed_actions_json": '["custom_action"]'})
+
+
+def test_provider_can_be_constructed_from_settings_snapshot_json():
+    snapshot_json = (
+        '[{"capability_id":"adapter:runtime:settings_action","capability_type":"adapter_action","action_alias":"settings_action"}]'
+    )
+    provider = build_runtime_capability_catalog_provider_from_settings(snapshot_json=snapshot_json)
+    assert provider.resolve_action_to_capability_id("settings_action") == "adapter:runtime:settings_action"
 
 
 def _validation_error_detail(fn):

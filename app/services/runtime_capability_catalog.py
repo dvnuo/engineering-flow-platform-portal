@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 
 from app.contracts.runtime_capabilities import get_default_runtime_adapter_actions_by_system
 
@@ -87,3 +88,38 @@ class RuntimeCapabilityCatalogProvider:
 
 def build_default_runtime_capability_catalog_provider() -> RuntimeCapabilityCatalogProvider:
     return RuntimeCapabilityCatalogProvider.from_seed_mapping(get_default_runtime_adapter_actions_by_system())
+
+
+class RuntimeCapabilityCatalogLoader:
+    def __init__(self, runtime_catalog_snapshot_payload: list[dict] | None = None):
+        self.runtime_catalog_snapshot_payload = runtime_catalog_snapshot_payload
+
+    def build_provider(self) -> RuntimeCapabilityCatalogProvider:
+        if self.runtime_catalog_snapshot_payload:
+            return RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(self.runtime_catalog_snapshot_payload)
+        return build_default_runtime_capability_catalog_provider()
+
+    @classmethod
+    def from_snapshot_json(cls, snapshot_json: str | None) -> "RuntimeCapabilityCatalogLoader":
+        if not snapshot_json or not snapshot_json.strip():
+            return cls(runtime_catalog_snapshot_payload=None)
+        try:
+            parsed = json.loads(snapshot_json)
+        except json.JSONDecodeError:
+            return cls(runtime_catalog_snapshot_payload=None)
+        if not isinstance(parsed, list):
+            return cls(runtime_catalog_snapshot_payload=None)
+        return cls(runtime_catalog_snapshot_payload=parsed)
+
+
+def build_runtime_capability_catalog_provider(runtime_catalog_snapshot_payload: list[dict] | None = None) -> RuntimeCapabilityCatalogProvider:
+    return RuntimeCapabilityCatalogLoader(runtime_catalog_snapshot_payload=runtime_catalog_snapshot_payload).build_provider()
+
+
+def build_runtime_capability_catalog_provider_from_settings(snapshot_json: str | None = None) -> RuntimeCapabilityCatalogProvider:
+    if snapshot_json is None:
+        from app.config import get_settings
+
+        snapshot_json = get_settings().runtime_capability_catalog_snapshot_json
+
+    return RuntimeCapabilityCatalogLoader.from_snapshot_json(snapshot_json).build_provider()

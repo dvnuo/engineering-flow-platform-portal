@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     session_cookie_name: str = "portal_session"
     portal_internal_api_key: str = Field(default="", validation_alias="PORTAL_INTERNAL_API_KEY")
+    runtime_capability_catalog_snapshot_json: str = Field(
+        default="",
+        validation_alias="RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON",
+    )
 
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = Field(default="", validation_alias="BOOTSTRAP_ADMIN_PASSWORD")
