@@ -414,3 +414,45 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         }
     finally:
         cleanup()
+
+
+def test_dispatch_includes_capability_metadata_defaults_when_profile_is_missing(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        agent.capability_profile_id = None
+        agent.policy_profile_id = None
+        db.add(agent)
+        db.commit()
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+        captured = {}
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_url: str, body: dict):
+            captured.update(body)
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        metadata = captured["metadata"]
+        assert metadata["capability_profile_id"] is None
+        assert metadata["policy_profile_id"] is None
+        assert metadata["allowed_capability_ids"] == []
+        assert metadata["allowed_capability_types"] == []
+        assert metadata["allowed_actions"] == []
+        assert metadata["allowed_adapter_actions"] == []
+        assert metadata["unresolved_actions"] == []
+        assert metadata["resolved_action_mappings"] == {}
+    finally:
+        cleanup()
