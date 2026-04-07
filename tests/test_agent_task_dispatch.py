@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentTask, User
+from app.models import Agent, AgentDelegation, AgentTask, User
+from app.services.task_dispatcher import TaskDispatcherService
 from app.services.auth_service import hash_password
 
 
@@ -267,5 +268,80 @@ def test_dispatch_endpoint_invalid_payload_marks_task_failed(monkeypatch):
         db.refresh(task)
         assert task.status == "failed"
         assert "decode to a JSON object" in (task.result_payload_json or "")
+    finally:
+        cleanup()
+
+
+def test_cleanup_telemetry_deleted_task_agent_ids_is_deduped():
+    service = TaskDispatcherService()
+    delegation = SimpleNamespace(audit_trace_json=json.dumps({"cleanup": {"deleted_task_agent_ids": ["a-1"]}}))
+
+    service._append_deleted_task_agent_id_to_delegation(delegation, "a-1")
+    service._append_deleted_task_agent_id_to_delegation(delegation, "a-1")
+    service._append_deleted_task_agent_id_to_delegation(delegation, "a-2")
+
+    parsed = json.loads(delegation.audit_trace_json)
+    assert parsed["cleanup"]["deleted_task_agent_ids"] == ["a-1", "a-2"]
+
+
+def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = AgentTask(
+            assignee_agent_id=agent.id,
+            source="agent",
+            task_type="delegation_task",
+            parent_agent_id=agent.id,
+            input_payload_json='{"leader_session_id":"payload-session","strict_delegation_result":true}',
+            status="queued",
+            retry_count=0,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        delegation = AgentDelegation(
+            group_id="g-1",
+            parent_agent_id=agent.id,
+            leader_agent_id=agent.id,
+            assignee_agent_id=agent.id,
+            agent_task_id=task.id,
+            objective="test",
+            leader_session_id="leader-session",
+            origin_session_id="origin-session",
+            reply_target_type="leader",
+            coordination_run_id="run-55",
+            round_index=4,
+            visibility="leader_only",
+            status="queued",
+        )
+        db.add(delegation)
+        db.commit()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+        captured = {}
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"delegation_result":{"status":"done"}}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"delegation_result": {"status": "done"}}}
+
+        async def _fake_post(_url: str, body: dict):
+            captured.update(body)
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        assert captured["session_id"] == "origin-session"
+        assert captured["metadata"]["portal_leader_session_id"] == "origin-session"
+        assert captured["metadata"]["portal_delegation_reply_target"] == "leader"
+        assert captured["metadata"]["portal_coordination_run_id"] == "run-55"
+        assert captured["metadata"]["portal_coordination_round_index"] == 4
     finally:
         cleanup()

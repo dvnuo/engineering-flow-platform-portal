@@ -16,6 +16,7 @@ class AgentGroup(Base):
     shared_context_policy_json: Mapped[str | None] = mapped_column(Text)
     task_routing_policy_json: Mapped[str | None] = mapped_column(Text)
     ephemeral_agent_policy_json: Mapped[str | None] = mapped_column(Text)
+    specialist_agent_pool_json: Mapped[str | None] = mapped_column(Text)
     created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

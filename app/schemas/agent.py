@@ -1,7 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
+
+ALLOWED_AGENT_TYPES = {"workspace", "specialist", "task"}
 
 
 class AgentCreateRequest(BaseModel):
@@ -18,6 +20,14 @@ class AgentCreateRequest(BaseModel):
     capability_profile_id: Optional[str] = None
     policy_profile_id: Optional[str] = None
 
+    @field_validator("agent_type")
+    @classmethod
+    def validate_agent_type(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized not in ALLOWED_AGENT_TYPES:
+            raise ValueError("agent_type must be one of: workspace, specialist, task")
+        return normalized
+
 
 class AgentUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -31,6 +41,16 @@ class AgentUpdateRequest(BaseModel):
     agent_type: Optional[str] = None
     capability_profile_id: Optional[str] = None
     policy_profile_id: Optional[str] = None
+
+    @field_validator("agent_type")
+    @classmethod
+    def validate_agent_type(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in ALLOWED_AGENT_TYPES:
+            raise ValueError("agent_type must be one of: workspace, specialist, task")
+        return normalized
 
 
 class AgentDeleteResponse(BaseModel):

@@ -9,6 +9,7 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.capability_profile_repo import CapabilityProfileRepository
 from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.schemas.agent import (
+    ALLOWED_AGENT_TYPES,
     AgentCreateRequest,
     AgentDeleteResponse,
     AgentResponse,
@@ -94,6 +95,13 @@ def _validate_profile_references(db: Session, capability_profile_id: str | None,
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PolicyProfile not found")
 
 
+def _validate_agent_type_or_422(agent_type: str | None) -> None:
+    if agent_type is None:
+        return
+    if agent_type not in ALLOWED_AGENT_TYPES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_type must be one of: workspace, specialist, task")
+
+
 @router.get("/mine", response_model=list[AgentResponse])
 def list_mine(user=Depends(get_current_user), db: Session = Depends(get_db)):
     agents = AgentRepository(db).list_by_owner(user.id)
@@ -110,6 +118,7 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
 @router.post("", response_model=AgentResponse)
 def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _validate_profile_references(db, payload.capability_profile_id, payload.policy_profile_id)
+    _validate_agent_type_or_422(payload.agent_type)
 
     repo = AgentRepository(db)
     agent = repo.create(
@@ -166,6 +175,8 @@ def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(get_cu
 
     if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="disk_size_gi must be >= 1")
+    if "agent_type" in changes:
+        _validate_agent_type_or_422(changes["agent_type"])
 
     for field, value in changes.items():
         setattr(agent, field, value)

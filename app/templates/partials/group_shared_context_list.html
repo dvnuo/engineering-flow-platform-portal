@@ -1,0 +1,38 @@
+<div class="space-y-3 text-sm">
+  <div>
+    <strong>Group:</strong> {{ group_id }}
+  </div>
+
+  <table class="min-w-full border-collapse border border-gray-300">
+    <thead>
+      <tr>
+        <th class="border p-1 text-left">Context Ref</th>
+        <th class="border p-1 text-left">Scope Kind</th>
+        <th class="border p-1 text-left">Created By</th>
+        <th class="border p-1 text-left">Source Delegation</th>
+        <th class="border p-1 text-left">Created At</th>
+        <th class="border p-1 text-left">Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td class="border p-1">{{ item.context_ref }}</td>
+        <td class="border p-1">{{ item.scope_kind }}</td>
+        <td class="border p-1">{{ item.created_by_user_id or "-" }}</td>
+        <td class="border p-1">{{ item.source_delegation_id or "-" }}</td>
+        <td class="border p-1">{{ item.created_at }}</td>
+        <td class="border p-1">
+          <a class="text-blue-600 underline" href="/app/agent-groups/{{ group_id }}/shared-contexts/{{ item.context_ref }}/panel">
+            View
+          </a>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td class="border p-2" colspan="6">No shared contexts yet.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
