@@ -117,6 +117,9 @@ def test_ingest_no_matching_subscription_returns_rejected():
 def test_internal_ingest_requires_internal_api_key():
     client, _db, _agent, cleanup = _build_client_with_overrides()
     try:
+        import app.deps as deps_module
+
+        deps_module.settings.portal_internal_api_key = "internal-test-key"
         response = client.post(
             "/api/internal/external-events/ingest",
             json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},

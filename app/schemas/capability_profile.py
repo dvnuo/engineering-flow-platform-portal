@@ -50,6 +50,17 @@ class CapabilityProfileResolvedData(BaseModel):
     allowed_external_systems: list[str] = Field(default_factory=list)
     allowed_webhook_triggers: list[str] = Field(default_factory=list)
     allowed_actions: list[str] = Field(default_factory=list)
+    allowed_capability_ids: list[str] = Field(default_factory=list)
+    allowed_capability_types: list[str] = Field(default_factory=list)
+    allowed_adapter_actions: list[str] = Field(default_factory=list)
+    unresolved_tools: list[str] = Field(default_factory=list)
+    unresolved_skills: list[str] = Field(default_factory=list)
+    unresolved_channels: list[str] = Field(default_factory=list)
+    unresolved_actions: list[str] = Field(default_factory=list)
+    resolved_action_mappings: dict[str, str] = Field(default_factory=dict)
+    runtime_capability_catalog_version: Optional[str] = None
+    runtime_capability_catalog_source: Optional[str] = None
+    catalog_validation_mode: Optional[str] = None
 
 
 class CapabilityProfileResolvedResponse(BaseModel):

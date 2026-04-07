@@ -364,7 +364,7 @@ class TaskDispatcherService:
             "shared_context_ref": task.shared_context_ref,
         }
         profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
-        capability_context = self.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile)
+        capability_context = self.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile, db=db)
         metadata["capability_profile_id"] = capability_context["capability_profile_id"]
         metadata["policy_profile_id"] = agent.policy_profile_id
         metadata["allowed_capability_ids"] = capability_context["allowed_capability_ids"]
@@ -373,8 +373,14 @@ class TaskDispatcherService:
         metadata["allowed_webhook_triggers"] = capability_context["allowed_webhook_triggers"]
         metadata["allowed_actions"] = capability_context["allowed_actions"]
         metadata["allowed_adapter_actions"] = capability_context["allowed_adapter_actions"]
+        metadata["unresolved_tools"] = capability_context["unresolved_tools"]
+        metadata["unresolved_skills"] = capability_context["unresolved_skills"]
+        metadata["unresolved_channels"] = capability_context["unresolved_channels"]
         metadata["unresolved_actions"] = capability_context["unresolved_actions"]
         metadata["resolved_action_mappings"] = capability_context["resolved_action_mappings"]
+        metadata["runtime_capability_catalog_version"] = capability_context["runtime_capability_catalog_version"]
+        metadata["runtime_capability_catalog_source"] = capability_context["runtime_capability_catalog_source"]
+        metadata["catalog_validation_mode"] = capability_context["catalog_validation_mode"]
         workflow_rule_id = input_payload.get("workflow_rule_id")
         if workflow_rule_id:
             metadata["portal_workflow_rule_id"] = workflow_rule_id

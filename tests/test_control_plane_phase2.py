@@ -433,6 +433,8 @@ def test_capability_profile_resolved_endpoint_update_and_delete(monkeypatch):
         assert resolved.json()["resolved"]["tool_set"] == ["shell"]
         assert resolved.json()["resolved"]["channel_set"] == ["chat"]
         assert resolved.json()["resolved"]["skill_set"] == ["review"]
+        assert resolved.json()["resolved"]["runtime_capability_catalog_source"] in {"seed_fallback", "settings_snapshot", "runtime_api"}
+        assert resolved.json()["resolved"]["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
 
         updated = client.patch(
             f"/api/capability-profiles/{profile_id}",

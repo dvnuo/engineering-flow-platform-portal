@@ -52,6 +52,7 @@ class RuntimeRouterService:
         capability_context = self.capability_context_service.build_runtime_capability_context(
             capability_profile_id=capability_profile_id,
             resolved=resolved_profile,
+            db=db,
         )
 
         if not agent:

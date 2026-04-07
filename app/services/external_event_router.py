@@ -118,7 +118,7 @@ class ExternalEventRouterService:
         context = capability_context
         if context is None:
             profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
-            context = self.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile)
+            context = self.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile, db=db)
 
         if isinstance(context, dict):
             allowed_external_systems = context.get("allowed_external_systems", [])

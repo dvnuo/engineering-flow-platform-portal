@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.models.capability_profile import CapabilityProfile
 from app.repositories.capability_profile_repo import CapabilityProfileRepository
+from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.schemas.capability_profile import CapabilityProfileResolvedData
 from app.services.runtime_capability_catalog import (
     RuntimeCapabilityCatalogProvider,
@@ -53,6 +54,19 @@ class CapabilityContextService:
             )
         else:
             self.runtime_capability_provider = build_runtime_capability_catalog_provider_from_settings()
+        self.catalog_validation_mode = "full_snapshot" if self.runtime_capability_provider.has_full_catalog() else "seed_fallback"
+
+    def _provider_for_db(self, db: Session | None) -> RuntimeCapabilityCatalogProvider:
+        if not db:
+            return self.runtime_capability_provider
+        latest = RuntimeCapabilityCatalogSnapshotRepository(db).get_latest()
+        if not latest:
+            return self.runtime_capability_provider
+        try:
+            payload = json.loads(latest.payload_json)
+        except Exception:
+            return self.runtime_capability_provider
+        return RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(payload, source=latest.catalog_source or "runtime_api")
 
     @staticmethod
     def _parse_string_list(raw_value: str | None, field_name: str) -> list[str]:
@@ -79,36 +93,60 @@ class CapabilityContextService:
     def _normalize_name(value: str | None) -> str:
         return (value or "").strip().lower()
 
-    def _normalize_tool_capability_id(self, name: str) -> str | None:
-        normalized = self._normalize_name(name)
-        return f"tool:{normalized}" if normalized else None
+    def _normalize_tool_capability_id(self, name: str, provider: RuntimeCapabilityCatalogProvider | None = None) -> str | None:
+        provider = provider or self.runtime_capability_provider
+        resolved = provider.resolve_tool_name_to_capability_id(name)
+        if resolved:
+            return resolved
+        if provider.get_catalog_source() == "seed_fallback":
+            normalized = self._normalize_name(name)
+            return f"tool:{normalized}" if normalized else None
+        return None
 
-    def _normalize_skill_capability_id(self, name: str) -> str | None:
-        normalized = self._normalize_name(name)
-        return f"skill:{normalized}" if normalized else None
+    def _normalize_skill_capability_id(self, name: str, provider: RuntimeCapabilityCatalogProvider | None = None) -> str | None:
+        provider = provider or self.runtime_capability_provider
+        resolved = provider.resolve_skill_name_to_capability_id(name)
+        if resolved:
+            return resolved
+        if provider.get_catalog_source() == "seed_fallback":
+            normalized = self._normalize_name(name)
+            return f"skill:{normalized}" if normalized else None
+        return None
 
-    def _normalize_channel_capability_id(self, name: str) -> str | None:
-        normalized = self._normalize_name(name)
-        return f"channel_action:{normalized}" if normalized else None
+    def _normalize_channel_capability_id(self, name: str, provider: RuntimeCapabilityCatalogProvider | None = None) -> str | None:
+        provider = provider or self.runtime_capability_provider
+        resolved = provider.resolve_channel_name_to_capability_id(name)
+        if resolved:
+            return resolved
+        if provider.get_catalog_source() == "seed_fallback":
+            normalized = self._normalize_name(name)
+            return f"channel_action:{normalized}" if normalized else None
+        return None
 
-    def _normalize_action_capability_id(self, name: str) -> str | None:
-        return self.runtime_capability_provider.resolve_action_to_capability_id(name)
+    def _normalize_action_capability_id(self, name: str, provider: RuntimeCapabilityCatalogProvider | None = None) -> str | None:
+        return (provider or self.runtime_capability_provider).resolve_action_to_capability_id(name)
 
-    def validate_profile_payload(self, payload: dict) -> None:
+    def validate_profile_payload(self, payload: dict, db: Session | None = None) -> None:
+        provider = self._provider_for_db(db)
+        parsed_map: dict[str, list[str]] = {}
         for field_name in self.JSON_FIELDS:
             if field_name in payload:
-                parsed_values = self._parse_string_list(payload.get(field_name), field_name)
-                if field_name == "allowed_actions_json":
-                    self._validate_allowed_actions(parsed_values)
+                parsed_map[field_name] = self._parse_string_list(payload.get(field_name), field_name)
 
-    def _validate_allowed_actions(self, actions: list[str]) -> None:
+        self._validate_allowed_actions(parsed_map.get("allowed_actions_json", []), provider)
+        if provider.has_full_catalog():
+            self._validate_tool_set(parsed_map.get("tool_set_json", []), provider)
+            self._validate_skill_set(parsed_map.get("skill_set_json", []), provider)
+            self._validate_channel_set(parsed_map.get("channel_set_json", []), provider)
+
+    def _validate_allowed_actions(self, actions: list[str], provider: RuntimeCapabilityCatalogProvider) -> None:
         seen_action_ids: set[str] = set()
         for action_name in actions:
             normalized_name = self._normalize_name(action_name)
             if not normalized_name:
                 raise CapabilityProfileValidationError(detail="allowed_actions_json must not contain blank action names")
 
-            normalized_action_id = self._normalize_action_capability_id(action_name)
+            normalized_action_id = self._normalize_action_capability_id(action_name, provider)
             if not normalized_action_id:
                 raise CapabilityProfileValidationError(
                     detail=f"allowed_actions_json contains unknown or ambiguous action: {action_name}"
@@ -118,6 +156,21 @@ class CapabilityContextService:
                     detail=f"allowed_actions_json contains duplicate logical action: {action_name}"
                 )
             seen_action_ids.add(normalized_action_id)
+
+    def _validate_tool_set(self, tools: list[str], provider: RuntimeCapabilityCatalogProvider) -> None:
+        for tool_name in tools:
+            if not self._normalize_tool_capability_id(tool_name, provider):
+                raise CapabilityProfileValidationError(detail=f"tool_set_json contains unknown tool: {tool_name}")
+
+    def _validate_skill_set(self, skills: list[str], provider: RuntimeCapabilityCatalogProvider) -> None:
+        for skill_name in skills:
+            if not self._normalize_skill_capability_id(skill_name, provider):
+                raise CapabilityProfileValidationError(detail=f"skill_set_json contains unknown skill: {skill_name}")
+
+    def _validate_channel_set(self, channels: list[str], provider: RuntimeCapabilityCatalogProvider) -> None:
+        for channel_name in channels:
+            if not self._normalize_channel_capability_id(channel_name, provider):
+                raise CapabilityProfileValidationError(detail=f"channel_set_json contains unknown channel_action: {channel_name}")
 
     def resolve_profile(self, profile: CapabilityProfile | None) -> CapabilityProfileResolvedData:
         if not profile:
@@ -139,36 +192,51 @@ class CapabilityContextService:
         profile = CapabilityProfileRepository(db).get_by_id(agent.capability_profile_id)
         return agent.capability_profile_id, self.resolve_profile(profile)
 
-    def build_runtime_capability_context(self, capability_profile_id: str | None, resolved: CapabilityProfileResolvedData) -> dict:
+    def build_runtime_capability_context(
+        self,
+        capability_profile_id: str | None,
+        resolved: CapabilityProfileResolvedData,
+        db: Session | None = None,
+    ) -> dict:
+        provider = self._provider_for_db(db)
         allowed_capability_ids: list[str] = []
         allowed_capability_types: list[str] = []
         allowed_adapter_actions: list[str] = []
+        unresolved_tools: list[str] = []
+        unresolved_skills: list[str] = []
+        unresolved_channels: list[str] = []
         unresolved_actions: list[str] = []
         resolved_action_mappings: dict[str, str] = {}
 
         for tool_name in resolved.tool_set:
-            normalized_id = self._normalize_tool_capability_id(tool_name)
-            if normalized_id and normalized_id not in allowed_capability_ids:
+            normalized_id = self._normalize_tool_capability_id(tool_name, provider)
+            if not normalized_id:
+                unresolved_tools.append(tool_name)
+            elif normalized_id not in allowed_capability_ids:
                 allowed_capability_ids.append(normalized_id)
         if resolved.tool_set:
             allowed_capability_types.append("tool")
 
         for skill_name in resolved.skill_set:
-            normalized_id = self._normalize_skill_capability_id(skill_name)
-            if normalized_id and normalized_id not in allowed_capability_ids:
+            normalized_id = self._normalize_skill_capability_id(skill_name, provider)
+            if not normalized_id:
+                unresolved_skills.append(skill_name)
+            elif normalized_id not in allowed_capability_ids:
                 allowed_capability_ids.append(normalized_id)
         if resolved.skill_set:
             allowed_capability_types.append("skill")
 
         for channel_name in resolved.channel_set:
-            normalized_id = self._normalize_channel_capability_id(channel_name)
-            if normalized_id and normalized_id not in allowed_capability_ids:
+            normalized_id = self._normalize_channel_capability_id(channel_name, provider)
+            if not normalized_id:
+                unresolved_channels.append(channel_name)
+            elif normalized_id not in allowed_capability_ids:
                 allowed_capability_ids.append(normalized_id)
         if resolved.channel_set:
             allowed_capability_types.append("channel_action")
 
         for action_name in resolved.allowed_actions:
-            normalized_action_id = self._normalize_action_capability_id(action_name)
+            normalized_action_id = self._normalize_action_capability_id(action_name, provider)
             if not normalized_action_id:
                 unresolved_actions.append(action_name)
                 continue
@@ -191,8 +259,14 @@ class CapabilityContextService:
             "allowed_capability_ids": allowed_capability_ids,
             "allowed_capability_types": allowed_capability_types,
             "allowed_adapter_actions": allowed_adapter_actions,
+            "unresolved_tools": unresolved_tools,
+            "unresolved_skills": unresolved_skills,
+            "unresolved_channels": unresolved_channels,
             "unresolved_actions": unresolved_actions,
             "resolved_action_mappings": resolved_action_mappings,
+            "runtime_capability_catalog_version": provider.get_catalog_version(),
+            "runtime_capability_catalog_source": provider.get_catalog_source(),
+            "catalog_validation_mode": "full_snapshot" if provider.has_full_catalog() else "seed_fallback",
         }
 
     def get_skill_allowance_detail(self, db: Session, agent: Agent | None, skill_name: str | None) -> SkillAllowanceDetail:

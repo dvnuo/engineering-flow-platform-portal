@@ -408,10 +408,16 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         assert metadata["allowed_webhook_triggers"] == ["pull_request_review_requested"]
         assert metadata["allowed_actions"] == ["review_pull_request", "add_comment"]
         assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+        assert metadata["unresolved_tools"] == []
+        assert metadata["unresolved_skills"] == []
+        assert metadata["unresolved_channels"] == []
         assert metadata["unresolved_actions"] == ["add_comment"]
         assert metadata["resolved_action_mappings"] == {
             "review_pull_request": "adapter:github:review_pull_request"
         }
+        assert metadata["runtime_capability_catalog_version"] is not None
+        assert metadata["runtime_capability_catalog_source"] in {"seed_fallback", "settings_snapshot", "runtime_api"}
+        assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
     finally:
         cleanup()
 
@@ -448,6 +454,8 @@ def test_dispatch_includes_capability_metadata_defaults_when_profile_is_missing(
         metadata = captured["metadata"]
         assert metadata["capability_profile_id"] is None
         assert metadata["policy_profile_id"] is None
+        assert metadata["runtime_capability_catalog_version"] is not None
+        assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
         assert metadata["allowed_capability_ids"] == []
         assert metadata["allowed_capability_types"] == []
         assert metadata["allowed_actions"] == []

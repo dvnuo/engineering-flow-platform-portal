@@ -18,7 +18,7 @@ def get_agent_runtime_context(agent_id: str, _: bool = Depends(require_internal_
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     profile_id, resolved_profile = service.capability_context_service.resolve_for_agent(db, agent)
-    capability_context = service.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile)
+    capability_context = service.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile, db=db)
 
     return AgentRuntimeContextResponse(
         agent_id=agent.id,

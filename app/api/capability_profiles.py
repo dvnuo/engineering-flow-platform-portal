@@ -21,7 +21,7 @@ def create_capability_profile(payload: CapabilityProfileCreateRequest, user=Depe
     _ = user
     payload_dict = payload.model_dump()
     try:
-        capability_context_service.validate_profile_payload(payload_dict)
+        capability_context_service.validate_profile_payload(payload_dict, db=db)
     except CapabilityProfileValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.detail) from exc
 
@@ -60,7 +60,7 @@ def update_capability_profile(
 
     changes = payload.model_dump(exclude_unset=True)
     try:
-        capability_context_service.validate_profile_payload(changes)
+        capability_context_service.validate_profile_payload(changes, db=db)
     except CapabilityProfileValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.detail) from exc
 
@@ -91,6 +91,7 @@ def get_capability_profile_resolved(profile_id: str, user=Depends(get_current_us
 
     try:
         resolved = capability_context_service.resolve_profile(profile)
+        runtime_context = capability_context_service.build_runtime_capability_context(profile.id, resolved, db=db)
     except CapabilityProfileValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.detail) from exc
 
@@ -98,7 +99,7 @@ def get_capability_profile_resolved(profile_id: str, user=Depends(get_current_us
         id=profile.id,
         name=profile.name,
         description=profile.description,
-        resolved=resolved,
+        resolved=resolved.model_copy(update=runtime_context),
         created_at=profile.created_at,
         updated_at=profile.updated_at,
     )

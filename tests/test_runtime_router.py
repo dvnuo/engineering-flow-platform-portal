@@ -133,6 +133,9 @@ def test_resolve_binding_decision_returns_capability_context():
         assert decision.capability_context.resolved_action_mappings == {
             "review_pull_request": "adapter:github:review_pull_request"
         }
+        assert decision.capability_context.runtime_capability_catalog_version is not None
+        assert decision.capability_context.runtime_capability_catalog_source in {"seed_fallback", "settings_snapshot", "runtime_api"}
+        assert decision.capability_context.catalog_validation_mode in {"seed_fallback", "full_snapshot"}
         assert "adapter_action" in decision.capability_context.allowed_capability_types
     finally:
         db.close()

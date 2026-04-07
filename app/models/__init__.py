@@ -12,6 +12,7 @@ from app.models.external_event_subscription import ExternalEventSubscription
 from app.models.policy_profile import PolicyProfile
 from app.models.user import User
 from app.models.workflow_transition_rule import WorkflowTransitionRule
+from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCatalogSnapshot
 
 __all__ = [
     "User",
@@ -28,4 +29,5 @@ __all__ = [
     "AgentCoordinationRun",
     "GroupSharedContextSnapshot",
     "WorkflowTransitionRule",
+    "RuntimeCapabilityCatalogSnapshot",
 ]
