@@ -41,6 +41,10 @@ class CapabilityContextService:
         runtime_capability_provider: RuntimeCapabilityCatalogProvider | None = None,
         runtime_catalog_snapshot_payload: list[dict] | None = None,
     ) -> None:
+        # Provider precedence is explicit:
+        # 1) explicit provider injection
+        # 2) explicit runtime snapshot payload
+        # 3) settings-backed loader path (runtime snapshot JSON with seed fallback)
         if runtime_capability_provider:
             self.runtime_capability_provider = runtime_capability_provider
         elif runtime_catalog_snapshot_payload is not None:

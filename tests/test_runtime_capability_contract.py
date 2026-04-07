@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 from app.services.capability_context_service import CapabilityContextService, CapabilityProfileValidationError
 from app.services.runtime_capability_catalog import (
     RuntimeCapabilityCatalogLoader,
     RuntimeCapabilityCatalogProvider,
+    build_runtime_capability_catalog_loader_from_settings,
     build_default_runtime_capability_catalog_provider,
     build_runtime_capability_catalog_provider_from_settings,
 )
@@ -85,6 +88,33 @@ def test_provider_can_be_constructed_from_settings_snapshot_json():
     )
     provider = build_runtime_capability_catalog_provider_from_settings(snapshot_json=snapshot_json)
     assert provider.resolve_action_to_capability_id("settings_action") == "adapter:runtime:settings_action"
+
+
+def test_settings_based_provider_falls_back_to_seed_data_when_snapshot_invalid():
+    provider = build_runtime_capability_catalog_provider_from_settings(snapshot_json="{bad json")
+    assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
+
+
+def test_capability_context_service_default_construction_uses_settings_snapshot(monkeypatch):
+    import app.config as config_module
+
+    original_get_settings = config_module.get_settings
+    try:
+        config_module.get_settings = lambda: SimpleNamespace(
+            runtime_capability_catalog_snapshot_json=(
+                '[{"capability_id":"adapter:runtime:default_path_action","capability_type":"adapter_action","action_alias":"default_path_action"}]'
+            )
+        )
+        service = CapabilityContextService()
+        service.validate_profile_payload({"allowed_actions_json": '["default_path_action"]'})
+    finally:
+        config_module.get_settings = original_get_settings
+
+
+def test_settings_loader_path_handles_invalid_snapshot_with_fallback():
+    loader = build_runtime_capability_catalog_loader_from_settings(snapshot_json="not-json")
+    provider = loader.build_provider()
+    assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
 
 
 def _validation_error_detail(fn):

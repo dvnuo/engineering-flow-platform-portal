@@ -91,6 +91,11 @@ def build_default_runtime_capability_catalog_provider() -> RuntimeCapabilityCata
 
 
 class RuntimeCapabilityCatalogLoader:
+    """Canonical source/loader for building capability catalog providers.
+
+    Runtime snapshot payload (when present) is the preferred source.
+    Static seed mappings are a deterministic fallback.
+    """
     def __init__(self, runtime_catalog_snapshot_payload: list[dict] | None = None):
         self.runtime_catalog_snapshot_payload = runtime_catalog_snapshot_payload
 
@@ -116,10 +121,18 @@ def build_runtime_capability_catalog_provider(runtime_catalog_snapshot_payload: 
     return RuntimeCapabilityCatalogLoader(runtime_catalog_snapshot_payload=runtime_catalog_snapshot_payload).build_provider()
 
 
-def build_runtime_capability_catalog_provider_from_settings(snapshot_json: str | None = None) -> RuntimeCapabilityCatalogProvider:
+def build_runtime_capability_catalog_loader_from_settings(snapshot_json: str | None = None) -> RuntimeCapabilityCatalogLoader:
+    """Main-path loader construction for service wiring.
+
+    This allows runtime snapshot data to be injected via settings while keeping
+    local seed-data fallback behavior for resilience.
+    """
     if snapshot_json is None:
         from app.config import get_settings
 
         snapshot_json = get_settings().runtime_capability_catalog_snapshot_json
+    return RuntimeCapabilityCatalogLoader.from_snapshot_json(snapshot_json)
 
-    return RuntimeCapabilityCatalogLoader.from_snapshot_json(snapshot_json).build_provider()
+
+def build_runtime_capability_catalog_provider_from_settings(snapshot_json: str | None = None) -> RuntimeCapabilityCatalogProvider:
+    return build_runtime_capability_catalog_loader_from_settings(snapshot_json=snapshot_json).build_provider()
