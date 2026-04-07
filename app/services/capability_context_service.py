@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.contracts.runtime_capabilities import RuntimeCapabilityContract, build_default_runtime_capability_contract
 from app.models.agent import Agent
 from app.models.capability_profile import CapabilityProfile
 from app.repositories.capability_profile_repo import CapabilityProfileRepository
@@ -22,30 +23,6 @@ class SkillAllowanceDetail:
 
 
 class CapabilityContextService:
-    KNOWN_ADAPTER_ACTION_IDS = {
-        "github": {
-            "review_pull_request": "adapter:github:review_pull_request",
-            "add_comment": "adapter:github:add_comment",
-        },
-        "jira": {
-            "read_issue": "adapter:jira:read_issue",
-            "update_issue": "adapter:jira:update_issue",
-            "assign_issue": "adapter:jira:assign_issue",
-            "transition_issue": "adapter:jira:transition_issue",
-            "add_comment": "adapter:jira:add_comment",
-        },
-        "portal": {
-            "create_delegation": "adapter:portal:create_delegation",
-            "list_group_delegations": "adapter:portal:list_group_delegations",
-            "get_group_task_board": "adapter:portal:get_group_task_board",
-            "list_group_coordination_runs": "adapter:portal:list_group_coordination_runs",
-            "get_coordination_run": "adapter:portal:get_coordination_run",
-            "get_specialist_pool": "adapter:portal:get_specialist_pool",
-            "create_task_agent": "adapter:portal:create_task_agent",
-            "delete_task_agent": "adapter:portal:delete_task_agent",
-        },
-    }
-    KNOWN_ACTION_TO_ADAPTER_IDS: dict[str, list[str]] = {}
     JSON_FIELDS = (
         "tool_set_json",
         "channel_set_json",
@@ -55,9 +32,8 @@ class CapabilityContextService:
         "allowed_actions_json",
     )
 
-    for system_actions in KNOWN_ADAPTER_ACTION_IDS.values():
-        for action_name, action_id in system_actions.items():
-            KNOWN_ACTION_TO_ADAPTER_IDS.setdefault(action_name, []).append(action_id)
+    def __init__(self, runtime_capability_contract: RuntimeCapabilityContract | None = None) -> None:
+        self.runtime_capability_contract = runtime_capability_contract or build_default_runtime_capability_contract()
 
     @staticmethod
     def _parse_string_list(raw_value: str | None, field_name: str) -> list[str]:
@@ -97,19 +73,7 @@ class CapabilityContextService:
         return f"channel_action:{normalized}" if normalized else None
 
     def _normalize_action_capability_id(self, name: str) -> str | None:
-        normalized = self._normalize_name(name)
-        if not normalized:
-            return None
-        if normalized.startswith("adapter:"):
-            parts = normalized.split(":")
-            if len(parts) >= 3 and all(parts):
-                return normalized
-            return None
-
-        candidates = self.KNOWN_ACTION_TO_ADAPTER_IDS.get(normalized, [])
-        if len(candidates) == 1:
-            return candidates[0]
-        return None
+        return self.runtime_capability_contract.resolve_action_to_capability_id(name)
 
     def validate_profile_payload(self, payload: dict) -> None:
         for field_name in self.JSON_FIELDS:

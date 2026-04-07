@@ -383,6 +383,19 @@ def test_capability_profile_create_rejects_unknown_allowed_actions(monkeypatch):
         cleanup()
 
 
+def test_capability_profile_create_rejects_ambiguous_allowed_actions(monkeypatch):
+    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        resp = client.post(
+            "/api/capability-profiles",
+            json={"name": "cap-ambiguous-action", "allowed_actions_json": '["add_comment"]'},
+        )
+        assert resp.status_code == 400
+        assert "unknown or ambiguous action: add_comment" in resp.json()["detail"]
+    finally:
+        cleanup()
+
+
 def test_capability_profile_update_rejects_logical_duplicate_allowed_actions(monkeypatch):
     client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
     try:
