@@ -451,6 +451,10 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
         assert "adapter:github:add_comment" not in body["capability_context"]["allowed_capability_ids"]
         assert "adapter:jira:add_comment" not in body["capability_context"]["allowed_capability_ids"]
         assert body["capability_context"]["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+        assert body["capability_context"]["unresolved_actions"] == ["add_comment"]
+        assert body["capability_context"]["resolved_action_mappings"] == {
+            "review_pull_request": "adapter:github:review_pull_request"
+        }
     finally:
         cleanup()
 

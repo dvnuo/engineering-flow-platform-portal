@@ -373,6 +373,8 @@ class TaskDispatcherService:
         metadata["allowed_webhook_triggers"] = capability_context["allowed_webhook_triggers"]
         metadata["allowed_actions"] = capability_context["allowed_actions"]
         metadata["allowed_adapter_actions"] = capability_context["allowed_adapter_actions"]
+        metadata["unresolved_actions"] = capability_context["unresolved_actions"]
+        metadata["resolved_action_mappings"] = capability_context["resolved_action_mappings"]
         workflow_rule_id = input_payload.get("workflow_rule_id")
         if workflow_rule_id:
             metadata["portal_workflow_rule_id"] = workflow_rule_id

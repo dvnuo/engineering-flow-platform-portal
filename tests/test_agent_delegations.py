@@ -308,7 +308,7 @@ def test_delegation_rejects_skill_not_allowed_by_assignee_capability_profile(mon
         set_user(leader_owner)
         response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
         assert response.status_code == 422
-        assert "does not allow skill 'github-review'" in response.json()["detail"]
+        assert response.json()["detail"] == "Assignee agent capability profile does not allow skill 'github-review'"
     finally:
         cleanup()
 
@@ -329,6 +329,27 @@ def test_delegation_skill_gate_is_case_and_whitespace_insensitive(monkeypatch):
         payload["skill_name"] = "review"
         response = client.post("/api/agent-delegations", json=payload)
         assert response.status_code == 200
+    finally:
+        cleanup()
+
+
+def test_delegation_rejects_when_assignee_profile_has_empty_skill_set(monkeypatch):
+    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        profile = CapabilityProfile(name="cap-empty-skill-set", skill_set_json="[]")
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        assignee.capability_profile_id = profile.id
+        db.add(assignee)
+        db.commit()
+
+        set_user(leader_owner)
+        payload = _payload(group.id, leader.id, assignee.id)
+        payload["skill_name"] = "review"
+        response = client.post("/api/agent-delegations", json=payload)
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Assignee agent capability profile has empty skill_set; skill 'review' is not allowed"
     finally:
         cleanup()
 

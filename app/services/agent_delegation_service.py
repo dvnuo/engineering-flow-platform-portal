@@ -60,11 +60,18 @@ class AgentDelegationService:
         self.capability_context_service = CapabilityContextService()
 
     def _assert_skill_allowed_for_agent(self, agent, skill_name: str, error_prefix: str) -> None:
-        if not self.capability_context_service.is_skill_allowed(self.db, agent, skill_name):
+        allowance = self.capability_context_service.get_skill_allowance_detail(self.db, agent, skill_name)
+        if allowance.allowed:
+            return
+        if allowance.reason == "empty_skill_set":
             raise AgentDelegationServiceError(
                 status_code=422,
-                detail=f"{error_prefix} capability profile does not allow skill '{skill_name}'",
+                detail=f"{error_prefix} capability profile has empty skill_set; skill '{allowance.normalized_skill_name}' is not allowed",
             )
+        raise AgentDelegationServiceError(
+            status_code=422,
+            detail=f"{error_prefix} capability profile does not allow skill '{allowance.normalized_skill_name}'",
+        )
 
     @staticmethod
     def _parse_json_object(raw: str | None, field_name: str, default_value: dict | None = None) -> dict:

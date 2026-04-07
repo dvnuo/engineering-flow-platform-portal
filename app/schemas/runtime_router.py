@@ -25,6 +25,8 @@ class RuntimeCapabilityContextResponse(BaseModel):
     allowed_webhook_triggers: list[str] = Field(default_factory=list)
     allowed_actions: list[str] = Field(default_factory=list)
     allowed_adapter_actions: list[str] = Field(default_factory=list)
+    unresolved_actions: list[str] = Field(default_factory=list)
+    resolved_action_mappings: dict[str, str] = Field(default_factory=dict)
 
 
 class RuntimeRoutingDecisionResponse(BaseModel):

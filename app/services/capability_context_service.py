@@ -14,6 +14,13 @@ class CapabilityProfileValidationError(Exception):
     detail: str
 
 
+@dataclass
+class SkillAllowanceDetail:
+    allowed: bool
+    reason: str
+    normalized_skill_name: str
+
+
 class CapabilityContextService:
     KNOWN_ADAPTER_ACTION_IDS = {
         "github": {
@@ -133,6 +140,8 @@ class CapabilityContextService:
         allowed_capability_ids: list[str] = []
         allowed_capability_types: list[str] = []
         allowed_adapter_actions: list[str] = []
+        unresolved_actions: list[str] = []
+        resolved_action_mappings: dict[str, str] = {}
 
         for tool_name in resolved.tool_set:
             normalized_id = self._normalize_tool_capability_id(tool_name)
@@ -158,11 +167,13 @@ class CapabilityContextService:
         for action_name in resolved.allowed_actions:
             normalized_action_id = self._normalize_action_capability_id(action_name)
             if not normalized_action_id:
+                unresolved_actions.append(action_name)
                 continue
             if normalized_action_id not in allowed_capability_ids:
                 allowed_capability_ids.append(normalized_action_id)
             if normalized_action_id not in allowed_adapter_actions:
                 allowed_adapter_actions.append(normalized_action_id)
+            resolved_action_mappings[action_name] = normalized_action_id
         if allowed_adapter_actions:
             allowed_capability_types.append("adapter_action")
 
@@ -177,17 +188,25 @@ class CapabilityContextService:
             "allowed_capability_ids": allowed_capability_ids,
             "allowed_capability_types": allowed_capability_types,
             "allowed_adapter_actions": allowed_adapter_actions,
+            "unresolved_actions": unresolved_actions,
+            "resolved_action_mappings": resolved_action_mappings,
         }
 
-    def is_skill_allowed(self, db: Session, agent: Agent | None, skill_name: str | None) -> bool:
-        if not skill_name:
-            return True
+    def get_skill_allowance_detail(self, db: Session, agent: Agent | None, skill_name: str | None) -> SkillAllowanceDetail:
+        normalized_skill_name = self._normalize_name(skill_name)
+        if not normalized_skill_name:
+            return SkillAllowanceDetail(allowed=True, reason="allowed", normalized_skill_name=normalized_skill_name)
 
         profile_id, resolved = self.resolve_for_agent(db, agent)
         if not profile_id:
-            return True
+            return SkillAllowanceDetail(allowed=True, reason="no_profile", normalized_skill_name=normalized_skill_name)
         if not resolved.skill_set:
-            return False
-        normalized_skill_name = self._normalize_name(skill_name)
+            return SkillAllowanceDetail(allowed=False, reason="empty_skill_set", normalized_skill_name=normalized_skill_name)
+
         normalized_skill_set = {self._normalize_name(item) for item in resolved.skill_set}
-        return normalized_skill_name in normalized_skill_set
+        if normalized_skill_name in normalized_skill_set:
+            return SkillAllowanceDetail(allowed=True, reason="allowed", normalized_skill_name=normalized_skill_name)
+        return SkillAllowanceDetail(allowed=False, reason="skill_not_allowed", normalized_skill_name=normalized_skill_name)
+
+    def is_skill_allowed(self, db: Session, agent: Agent | None, skill_name: str | None) -> bool:
+        return self.get_skill_allowance_detail(db, agent, skill_name).allowed

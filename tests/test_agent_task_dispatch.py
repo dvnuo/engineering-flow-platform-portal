@@ -408,5 +408,9 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         assert metadata["allowed_webhook_triggers"] == ["pull_request_review_requested"]
         assert metadata["allowed_actions"] == ["review_pull_request", "add_comment"]
         assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+        assert metadata["unresolved_actions"] == ["add_comment"]
+        assert metadata["resolved_action_mappings"] == {
+            "review_pull_request": "adapter:github:review_pull_request"
+        }
     finally:
         cleanup()

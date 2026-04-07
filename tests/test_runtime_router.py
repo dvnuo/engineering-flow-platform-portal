@@ -103,6 +103,10 @@ def test_resolve_binding_decision_returns_capability_context():
         assert "adapter:github:add_comment" not in decision.capability_context.allowed_capability_ids
         assert "adapter:jira:add_comment" not in decision.capability_context.allowed_capability_ids
         assert decision.capability_context.allowed_adapter_actions == ["adapter:github:review_pull_request"]
+        assert decision.capability_context.unresolved_actions == ["add_comment"]
+        assert decision.capability_context.resolved_action_mappings == {
+            "review_pull_request": "adapter:github:review_pull_request"
+        }
         assert "adapter_action" in decision.capability_context.allowed_capability_types
     finally:
         db.close()
@@ -123,6 +127,8 @@ def test_resolve_binding_decision_without_profile_returns_empty_capability_conte
         assert decision.capability_context.capability_profile_id is None
         assert decision.capability_context.allowed_capability_ids == []
         assert decision.capability_context.allowed_external_systems == []
+        assert decision.capability_context.unresolved_actions == []
+        assert decision.capability_context.resolved_action_mappings == {}
     finally:
         db.close()
 
