@@ -51,6 +51,16 @@ def build_portal_identity_headers(user) -> dict[str, str]:
     return headers
 
 
+def build_runtime_internal_headers() -> dict[str, str]:
+    settings = get_settings()
+    runtime_internal_api_key = sanitize_header_value(settings.runtime_internal_api_key)
+    if not runtime_internal_api_key:
+        raise ValueError("RUNTIME_INTERNAL_API_KEY is not configured")
+    return {"X-Internal-Api-Key": runtime_internal_api_key}
+
+
+
+
 class ProxyService:
     def __init__(self):
         self._core_api = None
@@ -106,6 +116,10 @@ class ProxyService:
                         "Set K8S_NODE_IP environment variable."
                     )
         return self._node_ip
+
+
+    def build_runtime_internal_headers(self) -> dict[str, str]:
+        return build_runtime_internal_headers()
 
     def build_agent_base_url(self, agent) -> str:
         # Try to get NodePort from K8s service

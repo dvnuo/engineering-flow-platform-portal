@@ -45,8 +45,9 @@ class TaskDispatcherService:
         return payload, None
 
     async def _post_to_runtime(self, url: str, body: dict) -> httpx.Response:
+        headers = self.proxy_service.build_runtime_internal_headers()
         async with httpx.AsyncClient(timeout=30.0) as client:
-            return await client.post(url, json=body)
+            return await client.post(url, json=body, headers=headers)
 
     def _build_failure_payload(self, error_code: str, message: str, status_code: int | None = None) -> str:
         return json.dumps({"ok": False, "error_code": error_code, "message": message, "runtime_status_code": status_code})

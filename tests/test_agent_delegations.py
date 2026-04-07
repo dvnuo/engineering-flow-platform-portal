@@ -1054,6 +1054,9 @@ def test_auto_cleanup_task_agent_policies_and_audit(monkeypatch):
             pvc_name="pvc-assignee",
             endpoint_path="/",
             agent_type="task",
+            template_agent_id=leader.id,
+            task_scope_label="scope-a",
+            task_cleanup_policy="delete_on_terminal",
         )
         db.add(recreated)
         db.commit()
@@ -1110,6 +1113,9 @@ def test_auto_cleanup_task_agent_policies_and_audit(monkeypatch):
             pvc_name="pvc-assignee",
             endpoint_path="/",
             agent_type="task",
+            template_agent_id=leader.id,
+            task_scope_label="scope-a",
+            task_cleanup_policy="retain",
         )
         db.add(retained)
         db.commit()

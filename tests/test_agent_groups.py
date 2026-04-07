@@ -679,6 +679,14 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         assert created["agent_type"] == "task"
         assert created["capability_profile_id"] == capability_profile.id
         assert created["policy_profile_id"] == policy_profile.id
+        persisted_agent = db.get(Agent, created["id"])
+        assert persisted_agent is not None
+        assert persisted_agent.template_agent_id == specialist_template.id
+        assert persisted_agent.task_scope_label == "runtime-scope"
+        assert persisted_agent.task_cleanup_policy == "delete_on_done"
+        assert created["template_agent_id"] == persisted_agent.template_agent_id
+        assert created["scope_label"] == persisted_agent.task_scope_label
+        assert created["task_agent_cleanup_policy"] == persisted_agent.task_cleanup_policy
         create_audit = db.query(AuditLog).filter(AuditLog.action == "create_group_task_agent", AuditLog.target_id == created["id"]).first()
         assert create_audit is not None
         create_details = json.loads(create_audit.details_json)

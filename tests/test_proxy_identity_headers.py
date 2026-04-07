@@ -266,3 +266,29 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
     assert captured["extra_headers"]["X-Portal-User-Id"] == "77"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
     assert captured["extra_headers"]["X-Portal-Internal-Api-Key"] == "portal-internal-key"
+
+
+def test_build_runtime_internal_headers_returns_only_internal_header(monkeypatch):
+    import app.deps as deps_module
+    from app.services.proxy_service import build_runtime_internal_headers
+
+    original = deps_module.settings.runtime_internal_api_key
+    deps_module.settings.runtime_internal_api_key = "runtime-s2s-key"
+    try:
+        headers = build_runtime_internal_headers()
+        assert headers == {"X-Internal-Api-Key": "runtime-s2s-key"}
+    finally:
+        deps_module.settings.runtime_internal_api_key = original
+
+
+def test_runtime_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
+    from app.services.proxy_service import ProxyService
+
+    outbound = ProxyService._build_outbound_headers(
+        headers={"content-type": "application/json"},
+        extra_headers={"X-Internal-Api-Key": "runtime-s2s-key", "X-Portal-User-Id": "10"},
+    )
+
+    assert outbound["content-type"] == "application/json"
+    assert outbound["X-Portal-User-Id"] == "10"
+    assert "X-Internal-Api-Key" not in outbound

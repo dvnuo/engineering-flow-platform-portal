@@ -530,3 +530,39 @@ def test_dispatch_uses_assignee_agent_scoped_catalog_snapshot(monkeypatch):
         assert captured["metadata"]["runtime_capability_catalog_source"] == "runtime_api"
     finally:
         cleanup()
+
+
+def test_post_to_runtime_includes_internal_api_key_header(monkeypatch):
+    service = TaskDispatcherService()
+    captured = {}
+
+    monkeypatch.setattr(
+        service.proxy_service,
+        "build_runtime_internal_headers",
+        lambda: {"X-Internal-Api-Key": "runtime-s2s-key"},
+    )
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json, headers=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers or {}
+            return SimpleNamespace(status_code=200, json=lambda: {"ok": True}, text='{"ok": true}')
+
+    monkeypatch.setattr("app.services.task_dispatcher.httpx.AsyncClient", _FakeClient)
+
+    import asyncio
+
+    result = asyncio.run(service._post_to_runtime("http://runtime/api/tasks/execute", {"task_id": "t-1"}))
+    assert result.status_code == 200
+    assert captured["headers"]["X-Internal-Api-Key"] == "runtime-s2s-key"
+    assert captured["json"]["task_id"] == "t-1"
