@@ -644,6 +644,8 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         assert created["scope_label"] == "runtime-scope"
         assert created["task_agent_cleanup_policy"] == "delete_on_done"
         assert created["source"] == "internal_api"
+        assert created["group_id"] == group["id"]
+        assert created["leader_agent_id"] == group["leader_agent_id"]
         assert created["agent_type"] == "task"
         create_audit = db.query(AuditLog).filter(AuditLog.action == "create_group_task_agent", AuditLog.target_id == created["id"]).first()
         assert create_audit is not None

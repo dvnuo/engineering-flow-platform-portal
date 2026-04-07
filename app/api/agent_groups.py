@@ -219,6 +219,7 @@ def create_internal_group_task_agent(
     service = AgentGroupService(db)
     internal_user = SimpleNamespace(id=None, role="admin")
     try:
+        group = service.get_group_or_raise(group_id)
         agent = service.create_group_task_agent(group_id, payload, user=internal_user, source="internal_api")
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
@@ -232,6 +233,8 @@ def create_internal_group_task_agent(
         scope_label=payload.scope_label,
         task_agent_cleanup_policy=payload.task_agent_cleanup_policy,
         source="internal_api",
+        group_id=group.id,
+        leader_agent_id=group.leader_agent_id,
     )
 
 

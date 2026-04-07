@@ -145,3 +145,5 @@ class InternalAgentGroupTaskAgentCreateResponse(BaseModel):
     scope_label: str | None = None
     task_agent_cleanup_policy: str | None = None
     source: str
+    group_id: str
+    leader_agent_id: str

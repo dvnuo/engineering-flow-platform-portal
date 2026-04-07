@@ -81,6 +81,9 @@ class AgentGroupService:
             raise AgentGroupServiceError(status_code=404, detail="Group not found")
         return group
 
+    def get_group_or_raise(self, group_id: str):
+        return self._get_group_or_raise(group_id)
+
     def _get_agent_or_raise(self, agent_id: str, detail: str):
         agent = self.agent_repo.get_by_id(agent_id)
         if not agent:
