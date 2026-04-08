@@ -4,7 +4,7 @@ from pathlib import Path
 def test_env_runs_standard_migrations_without_create_all_shortcut():
     source = Path("alembic/env.py").read_text(encoding="utf-8")
     assert "Base.metadata.create_all" not in source
-    assert "should_bootstrap_empty_db" not in source
+    assert "alembic_bootstrap" not in source
 
 
 def test_initial_baseline_migration_exists_and_is_root():

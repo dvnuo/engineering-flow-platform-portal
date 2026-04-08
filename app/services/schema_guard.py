@@ -11,6 +11,20 @@ REQUIRED_PORTAL_TABLES = (
     "alembic_version",
     "users",
     "agents",
+    "audit_logs",
+    "agent_delegations",
+    "agent_coordination_runs",
+    "agent_session_metadata",
+    "capability_profiles",
+    "policy_profiles",
+    "agent_identity_bindings",
+    "workflow_transition_rules",
+    "external_event_subscriptions",
+    "runtime_capability_catalog_snapshots",
+    "agent_groups",
+    "agent_group_members",
+    "agent_tasks",
+    "group_shared_context_snapshots",
 )
 
 
@@ -20,8 +34,10 @@ def assert_portal_schema_ready(engine: Engine) -> None:
     missing = [table for table in REQUIRED_PORTAL_TABLES if table not in existing_tables]
     if not missing:
         return
+    missing_joined = ", ".join(sorted(missing))
     raise RuntimeError(
-        "Database is not initialized for this Portal build. "
+        "Database schema is incomplete for this Portal build. "
+        f"Missing tables: {missing_joined}. "
         "Run 'alembic upgrade head' before starting Portal."
     )
 
