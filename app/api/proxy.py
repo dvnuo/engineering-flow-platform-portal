@@ -4,8 +4,11 @@ import logging
 logger = logging.getLogger(__name__)
 from urllib.parse import urlencode
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 import websockets
 
 from app.config import get_settings
@@ -55,6 +58,16 @@ def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
 
 def _content_type_is_json(content_type: str | None) -> bool:
     return bool(content_type and "application/json" in content_type.lower())
+
+
+def _select_streaming_response_headers(upstream_headers) -> dict[str, str]:
+    allowed = {"content-type", "cache-control", "x-accel-buffering"}
+    selected = {}
+    for key in allowed:
+        value = upstream_headers.get(key)
+        if value:
+            selected[key] = value
+    return selected
 
 
 def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
@@ -122,6 +135,42 @@ async def proxy_agent(
             parsed_payload = _enrich_chat_payload_with_runtime_metadata(parsed_payload, runtime_metadata, user)
             request_body = json.dumps(parsed_payload).encode("utf-8")
 
+        normalized_subpath = (subpath or "").strip("/").lower()
+        if request.method.upper() == "POST" and normalized_subpath == "api/chat/stream":
+            try:
+                base = proxy_service.build_agent_base_url(agent).rstrip("/")
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+            upstream_url = f"{base}/api/chat/stream"
+            outbound_headers = proxy_service._build_outbound_headers(forward_headers, extra_headers)
+            client = httpx.AsyncClient(timeout=None)
+            try:
+                upstream_response = await client.stream(
+                    method="POST",
+                    url=upstream_url,
+                    params=_filter_proxy_query_items(request.query_params.multi_items()),
+                    content=request_body,
+                    headers=outbound_headers,
+                ).__aenter__()
+            except Exception:
+                await client.aclose()
+                raise
+
+            async def _close_stream_resources() -> None:
+                await upstream_response.aclose()
+                await client.aclose()
+
+            stream_headers = _select_streaming_response_headers(upstream_response.headers)
+            media_type = upstream_response.headers.get("content-type")
+            return StreamingResponse(
+                upstream_response.aiter_raw(),
+                status_code=upstream_response.status_code,
+                media_type=media_type,
+                headers=stream_headers,
+                background=BackgroundTask(_close_stream_resources),
+            )
+
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
             method=request.method,
@@ -178,9 +227,14 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
     finally:
         db.close()
 
+    try:
+        base = proxy_service.build_agent_base_url(agent).rstrip("/")
+    except ValueError:
+        await websocket.close(code=1011, reason="Runtime URL unavailable")
+        return
+
     await websocket.accept()
 
-    base = proxy_service.build_agent_base_url(agent).rstrip("/")
     if base.startswith("https://"):
         ws_base = "wss://" + base[len("https://") :]
     elif base.startswith("http://"):

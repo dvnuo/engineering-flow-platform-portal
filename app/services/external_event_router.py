@@ -1,7 +1,8 @@
 import json
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import threading
 
+from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
@@ -425,19 +426,7 @@ class ExternalEventRouterService:
 
         should_dispatch = source_type == "jira" or (source_type == "github" and request.event_type == "pull_request_review_requested")
         if should_dispatch:
-            dispatch_result = self._dispatch_task_sync(task.id, db)
-            if not dispatch_result.dispatched or dispatch_result.task_status == "failed":
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="dispatch_failed",
-                    matched_agent_id=matched_agent_id,
-                    created_task_id=task.id,
-                    matched_workflow_rule_id=matched_workflow_rule_id,
-                    resolved_task_type=task_type,
-                    deduped=False,
-                    message=f"Task created but dispatch failed: {dispatch_result.message}",
-                )
+            self._dispatch_task_in_background(task.id)
 
             return ExternalEventIngressResponse(
                 accepted=True,
@@ -448,7 +437,7 @@ class ExternalEventRouterService:
                 matched_workflow_rule_id=matched_workflow_rule_id,
                 resolved_task_type=task_type,
                 deduped=False,
-                message="Event routed, task created, and task dispatched",
+                message="Event routed, task created, and scheduled for background dispatch",
             )
 
         return ExternalEventIngressResponse(
@@ -463,12 +452,14 @@ class ExternalEventRouterService:
             message="Event routed and task created",
         )
 
-    def _dispatch_task_sync(self, task_id: str, db: Session):
-        coroutine = self.task_dispatcher.dispatch_task(task_id, db)
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coroutine)
+    def _dispatch_task_in_background(self, task_id: str) -> None:
+        # Dispatch runs out-of-band so webhook ACK is control-plane only and never waits on runtime completion.
+        def _runner() -> None:
+            db_session = SessionLocal()
+            try:
+                asyncio.run(self.task_dispatcher.dispatch_task(task_id, db_session))
+            finally:
+                db_session.close()
 
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            return executor.submit(lambda: asyncio.run(coroutine)).result()
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()

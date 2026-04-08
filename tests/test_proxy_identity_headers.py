@@ -627,3 +627,99 @@ def test_require_internal_api_key_rejects_wrong_value_with_401():
             raise AssertionError("expected HTTPException for invalid internal API key")
     finally:
         deps_module.settings.portal_internal_api_key = original
+
+
+def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=77, username="runtime-user", nickname="Runtime User", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=77,
+        visibility="private",
+        status="running",
+        capability_profile_id="cap-1",
+        policy_profile_id="pol-1",
+    )
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
+        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
+        monkeypatch.setattr(
+            proxy_module.runtime_execution_context_service,
+            "build_runtime_metadata",
+            lambda _db, _agent: {"capability_profile_id": "server-cap"},
+        )
+        monkeypatch.setattr(
+            proxy_module.proxy_service,
+            "build_agent_base_url",
+            lambda _agent: "http://runtime.local:8000",
+        )
+
+        calls = {"forward_count": 0, "stream_request": None}
+
+        async def _fake_forward(**_kwargs):
+            calls["forward_count"] += 1
+            return 200, b'{"ok": true}', "application/json"
+
+        class _FakeUpstreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream", "cache-control": "no-cache", "x-accel-buffering": "no"}
+
+            async def aiter_raw(self):
+                for chunk in (b"chunk-1\n", b"chunk-2\n"):
+                    yield chunk
+
+            async def aclose(self):
+                return None
+
+        class _FakeStreamContext:
+            async def __aenter__(self):
+                return _FakeUpstreamResponse()
+
+        class _FakeAsyncClient:
+            def __init__(self, timeout=None):
+                self.timeout = timeout
+
+            def stream(self, **kwargs):
+                calls["stream_request"] = kwargs
+                return _FakeStreamContext()
+
+            async def aclose(self):
+                return None
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        monkeypatch.setattr(proxy_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+        client = TestClient(app)
+        with client.stream(
+            "POST",
+            "/a/agent-1/api/chat/stream?token=secret&stream=runtime",
+            content=b'{"message":"hello"}',
+            headers={"content-type": "application/json"},
+        ) as response:
+            body_chunks = list(response.iter_bytes())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert b"".join(body_chunks) == b"chunk-1\nchunk-2\n"
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["x-accel-buffering"] == "no"
+    assert calls["forward_count"] == 0
+    assert calls["stream_request"]["url"] == "http://runtime.local:8000/api/chat/stream"
+    assert calls["stream_request"]["params"] == [("stream", "runtime")]
