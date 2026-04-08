@@ -35,8 +35,10 @@ Accepted payload forms:
 - `capability_id` (or alias `id`) - required string
 - `capability_type` (or alias `type`) - required string
 - `logical_name` - optional string (used for tool/skill/channel mapping)
-- `external_system` - optional string (used for adapter action aliases)
-- `action` - optional string (used for adapter action aliases)
+- `adapter_system` - optional string (canonical field for adapter action mapping)
+- `action_alias` - optional string (canonical field for adapter action mapping)
+- `external_system` - optional string (compatibility alias for `adapter_system`)
+- `action` - optional string (compatibility alias for `action_alias`)
 
 If parsing fails or data is missing, Portal falls back to deterministic local seed mappings.
 

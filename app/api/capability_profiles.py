@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_admin
 from app.repositories.capability_profile_repo import CapabilityProfileRepository
 from app.schemas.capability_profile import (
     CapabilityProfileCreateRequest,
@@ -49,7 +49,7 @@ def get_capability_profile(profile_id: str, user=Depends(get_current_user), db: 
 def update_capability_profile(
     profile_id: str,
     payload: CapabilityProfileUpdateRequest,
-    user=Depends(get_current_user),
+    user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     _ = user
@@ -72,8 +72,7 @@ def update_capability_profile(
 
 
 @router.delete("/{profile_id}")
-def delete_capability_profile(profile_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
+def delete_capability_profile(profile_id: str, user=Depends(require_admin), db: Session = Depends(get_db)):
     repo = CapabilityProfileRepository(db)
     profile = repo.get_by_id(profile_id)
     if not profile:
