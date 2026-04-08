@@ -35,6 +35,17 @@ class RuntimeCapabilityContextResponse(BaseModel):
     catalog_validation_mode: Optional[str] = None
 
 
+class RuntimePolicyContextResponse(BaseModel):
+    policy_profile_id: Optional[str] = None
+    auto_run_rules: dict = Field(default_factory=dict)
+    permission_rules: dict = Field(default_factory=dict)
+    audit_rules: dict = Field(default_factory=dict)
+    transition_rules: dict = Field(default_factory=dict)
+    max_parallel_tasks: Optional[int] = None
+    escalation_rules: dict = Field(default_factory=dict)
+    derived_runtime_rules: dict = Field(default_factory=dict)
+
+
 class RuntimeRoutingDecisionResponse(BaseModel):
     matched_agent_id: Optional[str] = None
     matched_agent_type: Optional[str] = None
@@ -44,6 +55,7 @@ class RuntimeRoutingDecisionResponse(BaseModel):
     execution_mode: str = "sync"
     runtime_target: Optional[RuntimeTargetInfoResponse] = None
     capability_context: Optional[RuntimeCapabilityContextResponse] = None
+    policy_context: Optional[RuntimePolicyContextResponse] = None
 
 
 class AgentRuntimeContextResponse(BaseModel):
@@ -52,4 +64,5 @@ class AgentRuntimeContextResponse(BaseModel):
     capability_profile_id: Optional[str] = None
     policy_profile_id: Optional[str] = None
     capability_context: RuntimeCapabilityContextResponse
+    policy_context: RuntimePolicyContextResponse
     runtime_target: RuntimeTargetInfoResponse

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 logger = logging.getLogger(__name__)
 from urllib.parse import urlencode
@@ -14,11 +15,13 @@ from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
+from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.redaction import sanitize_exception_message
 
 router = APIRouter(tags=["proxy"])
 proxy_service = ProxyService()
+runtime_execution_context_service = RuntimeExecutionContextService()
 settings = get_settings()
 
 
@@ -43,6 +46,24 @@ def _filter_proxy_query_items(query_items):
     return [(k, v) for k, v in query_items if k.lower() != "token"]
 
 
+
+
+def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
+    normalized = (subpath or "").strip("/").lower()
+    return method.upper() == "POST" and normalized in {"api/chat", "api/chat/stream"}
+
+
+def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
+    enriched = dict(payload)
+    _ = user
+    enriched.pop("metadata", None)
+    enriched.pop("capability_context", None)
+    enriched.pop("policy_context", None)
+    enriched.pop("portal_user_id", None)
+    enriched.pop("portal_user_name", None)
+
+    enriched["metadata"] = runtime_metadata
+    return enriched
 @router.api_route("/a/{agent_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @router.api_route("/a/{agent_id}/{subpath:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_agent(
@@ -68,14 +89,28 @@ async def proxy_agent(
         if content_type:
             forward_headers["content-type"] = content_type
 
+        request_body = (await request.body()) or None
+        is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
+        extra_headers = build_portal_execution_headers(user) if is_direct_chat_execution else build_portal_identity_headers(user)
+
+        if is_direct_chat_execution and content_type and "application/json" in content_type.lower() and request_body:
+            try:
+                parsed_payload = json.loads(request_body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                parsed_payload = None
+            if isinstance(parsed_payload, dict):
+                runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
+                parsed_payload = _enrich_chat_payload_with_runtime_metadata(parsed_payload, runtime_metadata, user)
+                request_body = json.dumps(parsed_payload).encode("utf-8")
+
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
             method=request.method,
             subpath=subpath,
             query_items=_filter_proxy_query_items(request.query_params.multi_items()),
-            body=(await request.body()) or None,
+            body=request_body,
             headers=forward_headers,
-            extra_headers=build_portal_identity_headers(user),
+            extra_headers=extra_headers,
         )
     except Exception as exc:
         logger.exception("Proxy error agent_id=%s method=%s subpath=%s", agent_id, request.method, subpath)

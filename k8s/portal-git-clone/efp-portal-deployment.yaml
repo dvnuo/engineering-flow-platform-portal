@@ -70,8 +70,26 @@ spec:
               value: "true"
             - name: AGENTS_NAMESPACE
               value: "efp-agents"
+            - name: PORTAL_INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: PORTAL_INTERNAL_API_KEY
+                  optional: true
+            - name: RUNTIME_INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: RUNTIME_INTERNAL_API_KEY
+                  optional: true
+            - name: PORTAL_INTERNAL_BASE_URL
+              value: "http://efp-portal-service.default.svc.cluster.local"
             - name: BOOTSTRAP_ADMIN_PASSWORD
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: BOOTSTRAP_ADMIN_PASSWORD
+                  optional: true
             - name: K8S_KUBECONFIG
               value: ""
               # Use /app/data for SQLite database

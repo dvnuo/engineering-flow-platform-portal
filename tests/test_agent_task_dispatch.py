@@ -257,6 +257,119 @@ def test_dispatch_endpoint_marks_task_failed_on_malformed_2xx_without_status(mon
         cleanup()
 
 
+def test_dispatch_late_runtime_success_cannot_overwrite_stale(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = AgentTask(
+            assignee_agent_id=agent.id,
+            source="github",
+            task_type="github_review_task",
+            input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
+            shared_context_ref="github:review:octo/portal:1:acct:sha-1",
+            status="queued",
+            retry_count=0,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+        stale_payload = json.dumps(
+            {
+                "ok": False,
+                "error_code": "superseded_by_new_head_sha",
+                "message": "GitHub review task superseded by a newer PR head_sha",
+                "superseded_by_task_id": "new-task-1",
+                "superseded_by_head_sha": "sha-2",
+            }
+        )
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_url: str, _body: dict):
+            fresh = db.get(AgentTask, task.id)
+            fresh.status = "stale"
+            fresh.result_payload_json = stale_payload
+            db.add(fresh)
+            db.commit()
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["task_status"] == "stale"
+        assert "late_runtime_result_ignored_because_task_is_stale" in body["message"]
+
+        db.refresh(task)
+        assert task.status == "stale"
+        assert task.result_payload_json == stale_payload
+    finally:
+        cleanup()
+
+
+def test_dispatch_runtime_superseded_error_is_recorded_as_stale(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = AgentTask(
+            assignee_agent_id=agent.id,
+            source="github",
+            task_type="github_review_task",
+            input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
+            shared_context_ref="github:review:octo/portal:1:acct:sha-1",
+            status="queued",
+            retry_count=0,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+        class _Resp:
+            status_code = 200
+            text = (
+                '{"ok": false, "status": "error", '
+                '"output_payload": {"error_code": "superseded_by_new_head_sha", "message": "superseded"}}'
+            )
+
+            @staticmethod
+            def json():
+                return {
+                    "ok": False,
+                    "status": "error",
+                    "output_payload": {"error_code": "superseded_by_new_head_sha", "message": "superseded"},
+                }
+
+        async def _fake_post(_url: str, _body: dict):
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["task_status"] == "stale"
+
+        db.refresh(task)
+        assert task.status == "stale"
+        parsed = json.loads(task.result_payload_json or "{}")
+        assert parsed["output_payload"]["error_code"] == "superseded_by_new_head_sha"
+    finally:
+        cleanup()
+
+
 def test_dispatch_endpoint_invalid_payload_marks_task_failed(monkeypatch):
     client, db, agent, cleanup = _build_client_with_overrides()
     try:
@@ -343,6 +456,11 @@ def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatc
         assert captured["metadata"]["portal_delegation_reply_target"] == "leader"
         assert captured["metadata"]["portal_coordination_run_id"] == "run-55"
         assert captured["metadata"]["portal_coordination_round_index"] == 4
+        assert captured["metadata"]["portal_delegation_id"] == delegation.id
+        assert captured["metadata"]["current_delegation_id"] == delegation.id
+        assert captured["metadata"]["portal_group_id"] == "g-1"
+        assert captured["metadata"]["group_id"] == "g-1"
+        assert captured["metadata"]["current_coordination_run_id"] == "run-55"
     finally:
         cleanup()
 
@@ -361,7 +479,12 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
             allowed_webhook_triggers_json='["pull_request_review_requested"]',
             allowed_actions_json='["review_pull_request","add_comment"]',
         )
-        policy_profile = PolicyProfile(name="policy-dispatch")
+        policy_profile = PolicyProfile(
+            name="policy-dispatch",
+            auto_run_rules_json='{"require_explicit_allow": true, "allow_auto_run": false}',
+            permission_rules_json='{"denied_capability_ids":["tool:shell"],"denied_adapter_actions":["adapter:github:add_comment"]}',
+            transition_rules_json='{"external_trigger_allowlist":["github"],"external_trigger_blocklist":["slack"]}',
+        )
         db.add(capability_profile)
         db.add(policy_profile)
         db.commit()
@@ -418,6 +541,19 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         assert metadata["runtime_capability_catalog_version"] is not None
         assert metadata["runtime_capability_catalog_source"] in {"seed_fallback", "settings_snapshot", "runtime_api"}
         assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
+        assert metadata["policy_context"]["policy_profile_id"] == policy_profile.id
+        assert metadata["policy_context"]["auto_run_rules"]["require_explicit_allow"] is True
+        assert metadata["governance_require_explicit_allow"] is True
+        assert metadata["governance_allow_auto_run"] is False
+        assert metadata["governance_external_allowlist"] == ["github"]
+        assert metadata["governance_external_blocklist"] == ["slack"]
+        assert metadata["denied_capability_ids"] == ["tool:shell"]
+        assert metadata["denied_adapter_actions"] == ["adapter:github:add_comment"]
+        assert metadata["portal_task_id"] == task.id
+        assert metadata["portal_task_source"] == task.source
+        assert metadata["current_task_id"] == task.id
+        assert metadata["source_type"] == task.source
+        assert metadata["source_ref"] == task.id
     finally:
         cleanup()
 
@@ -456,6 +592,12 @@ def test_dispatch_includes_capability_metadata_defaults_when_profile_is_missing(
         assert metadata["policy_profile_id"] is None
         assert metadata["runtime_capability_catalog_version"] is not None
         assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
+        assert metadata["policy_context"]["policy_profile_id"] is None
+        assert metadata["portal_task_id"] == task.id
+        assert metadata["portal_task_source"] == task.source
+        assert metadata["current_task_id"] == task.id
+        assert metadata["source_type"] == task.source
+        assert metadata["source_ref"] == task.id
         assert metadata["allowed_capability_ids"] == []
         assert metadata["allowed_capability_types"] == []
         assert metadata["allowed_actions"] == []
@@ -512,3 +654,39 @@ def test_dispatch_uses_assignee_agent_scoped_catalog_snapshot(monkeypatch):
         assert captured["metadata"]["runtime_capability_catalog_source"] == "runtime_api"
     finally:
         cleanup()
+
+
+def test_post_to_runtime_includes_internal_api_key_header(monkeypatch):
+    service = TaskDispatcherService()
+    captured = {}
+
+    monkeypatch.setattr(
+        service.proxy_service,
+        "build_runtime_internal_headers",
+        lambda: {"X-Internal-Api-Key": "runtime-s2s-key"},
+    )
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json, headers=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers or {}
+            return SimpleNamespace(status_code=200, json=lambda: {"ok": True}, text='{"ok": true}')
+
+    monkeypatch.setattr("app.services.task_dispatcher.httpx.AsyncClient", _FakeClient)
+
+    import asyncio
+
+    result = asyncio.run(service._post_to_runtime("http://runtime/api/tasks/execute", {"task_id": "t-1"}))
+    assert result.status_code == 200
+    assert captured["headers"]["X-Internal-Api-Key"] == "runtime-s2s-key"
+    assert captured["json"]["task_id"] == "t-1"

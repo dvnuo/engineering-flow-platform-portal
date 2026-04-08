@@ -72,6 +72,34 @@ class AgentTaskRepository:
         self.db.refresh(task)
         return task
 
+    def save_all(self, tasks: list[AgentTask]) -> None:
+        if not tasks:
+            return
+        for task in tasks:
+            self.db.add(task)
+        self.db.commit()
+
+    def list_active_github_review_tasks_for_family(
+        self,
+        *,
+        assignee_agent_id: str,
+        family_prefix: str,
+    ) -> list[AgentTask]:
+        stmt = (
+            select(AgentTask)
+            .where(
+                and_(
+                    AgentTask.assignee_agent_id == assignee_agent_id,
+                    AgentTask.source == "github",
+                    AgentTask.task_type == "github_review_task",
+                    AgentTask.status.in_(["queued", "running"]),
+                    AgentTask.shared_context_ref.like(f"{family_prefix}%"),
+                )
+            )
+            .order_by(AgentTask.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
     def delete(self, task: AgentTask) -> None:
         self.db.delete(task)
         self.db.commit()

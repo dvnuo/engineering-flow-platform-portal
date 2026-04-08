@@ -1,3 +1,5 @@
+import hmac
+
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
@@ -31,9 +33,10 @@ def require_admin(user=Depends(get_current_user)):
 
 
 def require_internal_api_key(x_internal_api_key: str | None = Header(default=None)):
-    expected = settings.portal_internal_api_key
+    expected = str(settings.portal_internal_api_key or "").strip()
     if not expected:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Internal API key is not configured")
-    if not x_internal_api_key or x_internal_api_key != expected:
+    provided = str(x_internal_api_key or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid internal API key")
     return True

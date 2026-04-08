@@ -72,39 +72,7 @@ class K8sService:
         labels = self._agent_common_labels(agent)
         annotations = self._agent_patch_annotations(agent)
         
-        # Build env vars for git clone
-        default_branch = getattr(self.settings, "default_agent_branch", "master")
-        env = []
-        if agent.repo_url:
-            env.extend([
-                client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
-                client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or default_branch),
-            ])
-            
-            # Add git credentials from secret if configured
-            if self.settings.k8s_git_username_key and self.settings.k8s_git_token_key:
-                env.extend([
-                    client.V1EnvVar(
-                        name="GIT_USERNAME",
-                        value_from=client.V1EnvVarSource(
-                            secret_key_ref=client.V1SecretKeySelector(
-                                name="efp-agents-secret",
-                                key=self.settings.k8s_git_username_key,
-                                optional=True,
-                            )
-                        )
-                    ),
-                    client.V1EnvVar(
-                        name="GIT_TOKEN",
-                        value_from=client.V1EnvVarSource(
-                            secret_key_ref=client.V1SecretKeySelector(
-                                name="efp-agents-secret",
-                                key=self.settings.k8s_git_token_key,
-                                optional=True,
-                            )
-                        )
-                    ),
-                ])
+        env = self._build_git_clone_env(agent)
         
         # Build the init container spec
         init_containers = []
@@ -117,14 +85,7 @@ class K8sService:
                     image=getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest",
                     command=["sh", "-c"],
                     args=[
-                        "mkdir -p /app && "
-                        "mkdir -p /tmp/app && cd /tmp/app && "
-                        "REPO_URL=\"${GIT_REPO_URL}\" && "
-                        "REPO_URL=\"$(echo ${REPO_URL} | sed 's#^\\(https://[^/]*\\)\\(/.*\\)#\\1:443\\2#')\" && "
-                        "[ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && "
-                        "REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && "
-                        "git -c http.sslVerify=false clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
-                        "cp -rf /tmp/app/. /app/ "
+                        self._git_clone_shell_command()
                     ],
                     env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
@@ -159,16 +120,7 @@ class K8sService:
                             "name": "agent",
                             "image": agent.image,
                             "ports": [{"containerPort": 8000}],
-                            "env": [client.V1EnvVar(
-                                name="EFP_CONFIG_KEY",
-                                value_from=client.V1EnvVarSource(
-                                    secret_key_ref=client.V1SecretKeySelector(
-                                        name="efp-agents-secret",
-                                        key="EFP_CONFIG_KEY",
-                                        optional=True,
-                                    )
-                                )
-                            )],
+                            "env": self._build_agent_container_env(),
                             "volumeMounts": volume_mounts,
                         }],
                     }
@@ -380,40 +332,9 @@ class K8sService:
         volume_mounts = []
         
         if agent.repo_url:
-            branch = agent.branch or getattr(self.settings, "default_agent_branch", "master")
             git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
             code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
-            # Clone git repo to /app (will be mounted)
-            # Add environment variables for git clone
-            env = [
-                client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
-                client.V1EnvVar(name="GIT_BRANCH", value=branch),
-            ]
-            
-            # Add git credentials from secret if configured
-            if self.settings.k8s_git_username_key and self.settings.k8s_git_token_key:
-                env.extend([
-                    client.V1EnvVar(
-                        name="GIT_USERNAME",
-                        value_from=client.V1EnvVarSource(
-                            secret_key_ref=client.V1SecretKeySelector(
-                                name="efp-agents-secret",
-                                key=self.settings.k8s_git_username_key,
-                                optional=True,
-                            )
-                        )
-                    ),
-                    client.V1EnvVar(
-                        name="GIT_TOKEN",
-                        value_from=client.V1EnvVarSource(
-                            secret_key_ref=client.V1SecretKeySelector(
-                                name="efp-agents-secret",
-                                key=self.settings.k8s_git_token_key,
-                                optional=True,
-                            )
-                        )
-                    ),
-                ])
+            env = self._build_git_clone_env(agent)
             
             init_containers.append(
                 client.V1Container(
@@ -421,9 +342,7 @@ class K8sService:
                     image=git_image,
                     command=["sh", "-c"],
                     args=[
-                        "mkdir -p /app && mkdir -p /tmp/app && cd /tmp/app &&"
-                        "REPO_URL=\"${GIT_REPO_URL}\" && REPO_URL=\"$(echo ${REPO_URL} | sed 's#^\\(https://[^/]*\\)\\(/.*\\)#\\1:443\\2#')\" && [ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ] && REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\" && git -c http.sslVerify=false clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . &&"
-                        "cp -rf /tmp/app/. /app/ "
+                        self._git_clone_shell_command()
                     ],
                     env=env,
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
@@ -459,16 +378,7 @@ class K8sService:
                                 name="agent",
                                 image=agent.image,
                                 ports=[client.V1ContainerPort(container_port=8000)],
-                                env=[client.V1EnvVar(
-                                        name="EFP_CONFIG_KEY",
-                                        value_from=client.V1EnvVarSource(
-                                            secret_key_ref=client.V1SecretKeySelector(
-                                                name="efp-agents-secret",
-                                                key="EFP_CONFIG_KEY",
-                                                optional=True,
-                                            )
-                                        )
-                                    )],
+                                env=self._build_agent_container_env(),
                                 volume_mounts=volume_mounts,
                             )
                         ],
@@ -487,6 +397,96 @@ class K8sService:
         except Exception as exc:
             if not self._is_already_exists(exc):
                 raise
+
+    def _build_git_clone_env(self, agent):
+        from kubernetes import client
+
+        default_branch = getattr(self.settings, "default_agent_branch", "master")
+        env = [
+            client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
+            client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or default_branch),
+        ]
+        if not (self.settings.k8s_git_username_key and self.settings.k8s_git_token_key):
+            return env
+
+        env.extend(
+            [
+                client.V1EnvVar(
+                    name="GIT_USERNAME",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name="efp-agents-secret",
+                            key=self.settings.k8s_git_username_key,
+                            optional=True,
+                        )
+                    ),
+                ),
+                client.V1EnvVar(
+                    name="GIT_TOKEN",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name="efp-agents-secret",
+                            key=self.settings.k8s_git_token_key,
+                            optional=True,
+                        )
+                    ),
+                ),
+            ]
+        )
+        return env
+
+    def _build_agent_container_env(self):
+        from kubernetes import client
+
+        env = [
+            client.V1EnvVar(
+                name="EFP_CONFIG_KEY",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="efp-agents-secret",
+                        key="EFP_CONFIG_KEY",
+                        optional=True,
+                    )
+                ),
+            ),
+            client.V1EnvVar(
+                name="PORTAL_INTERNAL_API_KEY",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="efp-agents-secret",
+                        key="PORTAL_INTERNAL_API_KEY",
+                        optional=True,
+                    )
+                ),
+            ),
+            client.V1EnvVar(
+                name="RUNTIME_INTERNAL_API_KEY",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="efp-agents-secret",
+                        key="RUNTIME_INTERNAL_API_KEY",
+                        optional=True,
+                    )
+                ),
+            ),
+        ]
+        base_url = (self.settings.portal_internal_base_url or "").strip()
+        if base_url:
+            env.append(client.V1EnvVar(name="PORTAL_INTERNAL_BASE_URL", value=base_url))
+        return env
+
+    def _git_clone_shell_command(self) -> str:
+        return (
+            "mkdir -p /app && "
+            "mkdir -p /tmp/app && cd /tmp/app && "
+            "REPO_URL=\"${GIT_REPO_URL}\" && "
+            "REPO_URL=\"$(echo ${REPO_URL} | sed 's#^\\(https://[^/]*\\)\\(/.*\\)#\\1:443\\2#')\" && "
+            "if [ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ]; then "
+            "REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\"; "
+            "fi && "
+            "git -c http.sslVerify=false clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
+            "cp -rf /tmp/app/. /app/ "
+        )
 
     def _ensure_service(self, agent) -> None:
         from kubernetes import client

@@ -10,7 +10,7 @@ from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
-from app.services.capability_context_service import CapabilityContextService
+from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.proxy_service import ProxyService
 
 
@@ -27,10 +27,18 @@ class AgentTaskDispatchResult:
         return asdict(self)
 
 
+@dataclass
+class NormalizedRuntimeOutcome:
+    terminal_status: str  # done | failed | stale
+    result_payload_json: str
+    message: str
+    runtime_status_code: int | None
+
+
 class TaskDispatcherService:
     def __init__(self) -> None:
         self.proxy_service = ProxyService()
-        self.capability_context_service = CapabilityContextService()
+        self.runtime_execution_context_service = RuntimeExecutionContextService()
 
     @staticmethod
     def _parse_input_payload(input_payload_json: str | None) -> tuple[dict | None, str | None]:
@@ -45,8 +53,9 @@ class TaskDispatcherService:
         return payload, None
 
     async def _post_to_runtime(self, url: str, body: dict) -> httpx.Response:
+        headers = self.proxy_service.build_runtime_internal_headers()
         async with httpx.AsyncClient(timeout=30.0) as client:
-            return await client.post(url, json=body)
+            return await client.post(url, json=body, headers=headers)
 
     def _build_failure_payload(self, error_code: str, message: str, status_code: int | None = None) -> str:
         return json.dumps({"ok": False, "error_code": error_code, "message": message, "runtime_status_code": status_code})
@@ -279,7 +288,7 @@ class TaskDispatcherService:
             self._sync_coordination_run_from_delegation(db, delegation)
 
     @staticmethod
-    def _normalize_runtime_response(response: httpx.Response) -> tuple[bool, str, str]:
+    def _normalize_runtime_response(response: httpx.Response) -> NormalizedRuntimeOutcome:
         runtime_status_code = response.status_code
         response_text = response.text or ""
 
@@ -290,7 +299,12 @@ class TaskDispatcherService:
                 "message": f"Runtime returned non-2xx status: {runtime_status_code}",
                 "runtime_status_code": runtime_status_code,
             }
-            return False, json.dumps(payload), "Runtime returned non-2xx status"
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=json.dumps(payload),
+                message="Runtime returned non-2xx status",
+                runtime_status_code=runtime_status_code,
+            )
 
         try:
             response_json = response.json()
@@ -305,23 +319,56 @@ class TaskDispatcherService:
                 "runtime_status_code": runtime_status_code,
                 "raw_response": response_text,
             }
-            return False, json.dumps(payload), "Runtime returned malformed response"
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=json.dumps(payload),
+                message="Runtime returned malformed response",
+                runtime_status_code=runtime_status_code,
+            )
 
         normalized_payload_json = json.dumps(response_json)
         status_value = response_json.get("status")
         if status_value is None:
-            return False, normalized_payload_json, "Runtime returned malformed response"
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=normalized_payload_json,
+                message="Runtime returned malformed response",
+                runtime_status_code=runtime_status_code,
+            )
 
         normalized_status = str(status_value).lower()
         ok_value = response_json.get("ok")
+        output_payload = response_json.get("output_payload")
+        if isinstance(output_payload, dict) and output_payload.get("error_code") == "superseded_by_new_head_sha":
+            return NormalizedRuntimeOutcome(
+                terminal_status="stale",
+                result_payload_json=normalized_payload_json,
+                message="Runtime reported task superseded by newer head_sha",
+                runtime_status_code=runtime_status_code,
+            )
 
         if normalized_status == "success" and ok_value is not False:
-            return True, normalized_payload_json, "Task dispatched successfully"
+            return NormalizedRuntimeOutcome(
+                terminal_status="done",
+                result_payload_json=normalized_payload_json,
+                message="Task dispatched successfully",
+                runtime_status_code=runtime_status_code,
+            )
 
         if normalized_status in {"error", "blocked"} or ok_value is False:
-            return False, normalized_payload_json, "Runtime execution reported failure"
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=normalized_payload_json,
+                message="Runtime execution reported failure",
+                runtime_status_code=runtime_status_code,
+            )
 
-        return False, normalized_payload_json, "Runtime returned malformed response"
+        return NormalizedRuntimeOutcome(
+            terminal_status="failed",
+            result_payload_json=normalized_payload_json,
+            message="Runtime returned malformed response",
+            runtime_status_code=runtime_status_code,
+        )
 
     async def dispatch_task(self, task_id: str, db: Session, user=None) -> AgentTaskDispatchResult:
         _ = user
@@ -362,27 +409,13 @@ class TaskDispatcherService:
             "portal_task_id": task.id,
             "portal_task_source": task.source,
             "shared_context_ref": task.shared_context_ref,
+            "current_task_id": task.id,
+            "source_type": task.source or "portal",
+            "source_ref": task.id,
         }
-        profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
-        capability_context = self.capability_context_service.build_runtime_capability_context(
-            profile_id, resolved_profile, db=db, agent_id=agent.id
-        )
-        metadata["capability_profile_id"] = capability_context["capability_profile_id"]
-        metadata["policy_profile_id"] = agent.policy_profile_id
-        metadata["allowed_capability_ids"] = capability_context["allowed_capability_ids"]
-        metadata["allowed_capability_types"] = capability_context["allowed_capability_types"]
-        metadata["allowed_external_systems"] = capability_context["allowed_external_systems"]
-        metadata["allowed_webhook_triggers"] = capability_context["allowed_webhook_triggers"]
-        metadata["allowed_actions"] = capability_context["allowed_actions"]
-        metadata["allowed_adapter_actions"] = capability_context["allowed_adapter_actions"]
-        metadata["unresolved_tools"] = capability_context["unresolved_tools"]
-        metadata["unresolved_skills"] = capability_context["unresolved_skills"]
-        metadata["unresolved_channels"] = capability_context["unresolved_channels"]
-        metadata["unresolved_actions"] = capability_context["unresolved_actions"]
-        metadata["resolved_action_mappings"] = capability_context["resolved_action_mappings"]
-        metadata["runtime_capability_catalog_version"] = capability_context["runtime_capability_catalog_version"]
-        metadata["runtime_capability_catalog_source"] = capability_context["runtime_capability_catalog_source"]
-        metadata["catalog_validation_mode"] = capability_context["catalog_validation_mode"]
+        if task.group_id:
+            metadata["group_id"] = task.group_id
+        metadata = self.runtime_execution_context_service.build_runtime_metadata(db, agent, metadata)
         workflow_rule_id = input_payload.get("workflow_rule_id")
         if workflow_rule_id:
             metadata["portal_workflow_rule_id"] = workflow_rule_id
@@ -401,16 +434,21 @@ class TaskDispatcherService:
             delegation = delegation_repo.find_by_agent_task_id(task.id)
             if delegation:
                 metadata["portal_delegation_id"] = delegation.id
+                metadata["current_delegation_id"] = delegation.id
                 metadata["portal_group_id"] = delegation.group_id
+                if delegation.group_id:
+                    metadata["group_id"] = delegation.group_id
                 metadata["portal_leader_agent_id"] = delegation.leader_agent_id
                 metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
                 metadata["portal_delegation_reply_target"] = getattr(delegation, "reply_target_type", None) or "leader"
                 if getattr(delegation, "coordination_run_id", None):
                     metadata["portal_coordination_run_id"] = delegation.coordination_run_id
+                    metadata["current_coordination_run_id"] = delegation.coordination_run_id
                 metadata["portal_coordination_round_index"] = getattr(delegation, "round_index", 1) or 1
             else:
                 if input_payload.get("coordination_run_id"):
                     metadata["portal_coordination_run_id"] = input_payload.get("coordination_run_id")
+                    metadata["current_coordination_run_id"] = input_payload.get("coordination_run_id")
                 if input_payload.get("round_index") is not None:
                     metadata["portal_coordination_round_index"] = input_payload.get("round_index")
             if input_payload.get("strict_delegation_result") is True:
@@ -484,23 +522,54 @@ class TaskDispatcherService:
 
         try:
             response = await self._post_to_runtime(runtime_url, runtime_body)
-            runtime_status_code = response.status_code
-            execution_succeeded, normalized_result_payload_json, dispatch_message = self._normalize_runtime_response(response)
-            task.status = "done" if execution_succeeded else "failed"
-            task.result_payload_json = normalized_result_payload_json
-            task_repo.save(task)
-            self._sync_delegation_from_task_result(db, task, normalized_result_payload_json, execution_succeeded)
+            outcome = self._normalize_runtime_response(response)
+            fresh_task = task_repo.get_by_id(task.id)
+            if not fresh_task:
+                return AgentTaskDispatchResult(True, task.id, outcome.runtime_status_code, "not_found", "Task disappeared during dispatch", None)
+
+            if fresh_task.status == "stale":
+                return AgentTaskDispatchResult(
+                    True,
+                    fresh_task.id,
+                    outcome.runtime_status_code,
+                    "stale",
+                    "late_runtime_result_ignored_because_task_is_stale",
+                    fresh_task.result_payload_json,
+                )
+
+            fresh_task.status = outcome.terminal_status
+            fresh_task.result_payload_json = outcome.result_payload_json
+            task_repo.save(fresh_task)
+            if outcome.terminal_status in {"done", "failed"}:
+                self._sync_delegation_from_task_result(
+                    db,
+                    fresh_task,
+                    outcome.result_payload_json,
+                    outcome.terminal_status == "done",
+                )
             return AgentTaskDispatchResult(
                 True,
-                task.id,
-                runtime_status_code,
-                task.status,
-                dispatch_message,
-                task.result_payload_json,
+                fresh_task.id,
+                outcome.runtime_status_code,
+                fresh_task.status,
+                outcome.message,
+                fresh_task.result_payload_json,
             )
         except Exception as exc:
-            task.status = "failed"
-            task.result_payload_json = self._build_failure_payload("runtime_request_error", str(exc))
-            task_repo.save(task)
-            self._sync_delegation_from_task_result(db, task, task.result_payload_json, False)
-            return AgentTaskDispatchResult(True, task.id, None, task.status, f"Runtime dispatch request failed: {exc}", task.result_payload_json)
+            fresh_task = task_repo.get_by_id(task.id)
+            if not fresh_task:
+                return AgentTaskDispatchResult(True, task.id, None, "not_found", f"Runtime dispatch request failed: {exc}", None)
+            if fresh_task.status == "stale":
+                return AgentTaskDispatchResult(
+                    True,
+                    fresh_task.id,
+                    None,
+                    "stale",
+                    "late_runtime_result_ignored_because_task_is_stale",
+                    fresh_task.result_payload_json,
+                )
+            fresh_task.status = "failed"
+            fresh_task.result_payload_json = self._build_failure_payload("runtime_request_error", str(exc))
+            task_repo.save(fresh_task)
+            self._sync_delegation_from_task_result(db, fresh_task, fresh_task.result_payload_json, False)
+            return AgentTaskDispatchResult(True, fresh_task.id, None, fresh_task.status, f"Runtime dispatch request failed: {exc}", fresh_task.result_payload_json)

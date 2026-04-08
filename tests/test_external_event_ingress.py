@@ -20,6 +20,8 @@ from app.services.auth_service import hash_password
 def _build_client_with_overrides():
     from app.main import app
     import app.api.external_event_ingress as ingress_api
+    import app.api.provider_webhooks as provider_api
+    from app.db import get_db as shared_get_db
 
     class _FakeRuntimeSuccessResponse:
         status_code = 200
@@ -43,6 +45,7 @@ def _build_client_with_overrides():
         return _FakeRuntimeSuccessResponse()
 
     ingress_api.service.task_dispatcher._post_to_runtime = _fake_post_to_runtime
+    provider_api.service.task_dispatcher._post_to_runtime = _fake_post_to_runtime
 
     engine = create_engine(
         "sqlite://",
@@ -90,6 +93,7 @@ def _build_client_with_overrides():
 
     app.dependency_overrides[ingress_api.get_current_user] = _override_user
     app.dependency_overrides[ingress_api.get_db] = _override_db
+    app.dependency_overrides[shared_get_db] = _override_db
 
     def _cleanup():
         app.dependency_overrides.clear()
@@ -1119,6 +1123,127 @@ def test_github_review_event_dedupe_hint_prevents_duplicate_without_dedupe_key()
         cleanup()
 
 
+def test_github_review_event_new_head_sha_supersedes_previous_active_task(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.external_event_ingress as ingress_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-gh-stale",
+            enabled=True,
+        )
+
+        async def _no_op_dispatch(task_id: str, _db):
+            return AgentTaskDispatchResult(
+                dispatched=True,
+                task_id=task_id,
+                runtime_status_code=202,
+                task_status="queued",
+                message="queued for test",
+                result_payload_json=None,
+            )
+
+        monkeypatch.setattr(ingress_api.service.task_dispatcher, "dispatch_task", _no_op_dispatch)
+
+        first = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-gh-stale",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":55,"head_sha":"sha-1"}',
+            },
+        )
+        second = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-gh-stale",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":55,"head_sha":"sha-2"}',
+            },
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["accepted"] is True
+        assert second.json()["accepted"] is True
+        assert second.json()["deduped"] is False
+
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 2
+        tasks_by_id = {task.id: task for task in tasks}
+        first_task = tasks_by_id[first.json()["created_task_id"]]
+        second_task = tasks_by_id[second.json()["created_task_id"]]
+        assert first_task.status == "stale"
+        stale_payload = json.loads(first_task.result_payload_json or "{}")
+        assert stale_payload["error_code"] == "superseded_by_new_head_sha"
+        assert stale_payload["superseded_by_task_id"] == second_task.id
+        assert stale_payload["superseded_by_head_sha"] == "sha-2"
+        assert second_task.status == "queued"
+    finally:
+        cleanup()
+
+
+def test_github_review_event_new_head_sha_does_not_stale_done_task():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-gh-done",
+            enabled=True,
+        )
+        first = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-gh-done",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":77,"head_sha":"sha-1"}',
+            },
+        )
+        assert first.status_code == 200
+        assert first.json()["accepted"] is True
+
+        second = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-gh-done",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":77,"head_sha":"sha-2"}',
+            },
+        )
+        assert second.status_code == 200
+        assert second.json()["accepted"] is True
+        assert second.json()["deduped"] is False
+
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 2
+        tasks_by_id = {task.id: task for task in tasks}
+        first_task = tasks_by_id[first.json()["created_task_id"]]
+        second_task = tasks_by_id[second.json()["created_task_id"]]
+        assert first_task.status == "done"
+        assert second_task.status == "done"
+    finally:
+        cleanup()
+
+
 def test_github_review_event_rejected_when_repo_not_allowed():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:
@@ -1201,5 +1326,139 @@ def test_jira_ingress_returns_dispatch_failed_when_dispatch_fails(monkeypatch):
         assert body["accepted"] is False
         assert body["routing_reason"] == "dispatch_failed"
         assert body["created_task_id"] is not None
+    finally:
+        cleanup()
+
+
+def test_github_provider_webhook_review_requested_routes_to_existing_router(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    original_secret = None
+    try:
+        import app.api.provider_webhooks as provider_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            target_ref="octo/portal",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="alice",
+            enabled=True,
+        )
+        original_secret = provider_api.settings.github_webhook_secret
+        provider_api.settings.github_webhook_secret = ""
+
+        response = client.post(
+            "/api/webhooks/github",
+            json={
+                "action": "review_requested",
+                "pull_request": {"number": 15, "head": {"sha": "abc123"}},
+                "repository": {"name": "portal", "owner": {"login": "octo"}},
+                "requested_reviewer": {"login": "alice"},
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["resolved_task_type"] == "github_review_task"
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 1
+        assert tasks[0].task_type == "github_review_task"
+    finally:
+        if original_secret is not None:
+            import app.api.provider_webhooks as provider_api
+
+            provider_api.settings.github_webhook_secret = original_secret
+        cleanup()
+
+
+def test_github_provider_webhook_invalid_signature_returns_401(monkeypatch):
+    client, _db, _agent, cleanup = _build_client_with_overrides()
+    original_secret = None
+    try:
+        import app.api.provider_webhooks as provider_api
+
+        original_secret = provider_api.settings.github_webhook_secret
+        provider_api.settings.github_webhook_secret = "top-secret"
+        response = client.post(
+            "/api/webhooks/github",
+            headers={"X-Hub-Signature-256": "sha256=bad"},
+            json={"action": "review_requested"},
+        )
+        assert response.status_code == 401
+    finally:
+        if original_secret is not None:
+            import app.api.provider_webhooks as provider_api
+
+            provider_api.settings.github_webhook_secret = original_secret
+        cleanup()
+
+
+def test_jira_provider_webhook_routes_to_workflow_review_task(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    original_secret = None
+    try:
+        import app.api.provider_webhooks as provider_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            target_ref="EFP",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            assignee_binding="jira-assignee-1",
+            target_agent_id=agent.id,
+            enabled=True,
+            config_json='{"strict": true}',
+        )
+        original_secret = provider_api.settings.jira_webhook_shared_secret
+        provider_api.settings.jira_webhook_shared_secret = ""
+        response = client.post(
+            "/api/webhooks/jira",
+            json={
+                "issue": {
+                    "key": "EFP-1",
+                    "fields": {
+                        "project": {"key": "EFP"},
+                        "issuetype": {"name": "Story"},
+                        "status": {"name": "In Review"},
+                        "assignee": {"accountId": "jira-assignee-1"},
+                    },
+                }
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["resolved_task_type"] == "jira_workflow_review_task"
+    finally:
+        if original_secret is not None:
+            import app.api.provider_webhooks as provider_api
+
+            provider_api.settings.jira_webhook_shared_secret = original_secret
+        cleanup()
+
+
+def test_provider_webhook_unsupported_events_return_noop_response():
+    client, _db, _agent, cleanup = _build_client_with_overrides()
+    try:
+        github_resp = client.post("/api/webhooks/github", json={"action": "opened"})
+        jira_resp = client.post("/api/webhooks/jira", json={"foo": "bar"})
+        assert github_resp.status_code == 200
+        assert github_resp.json()["accepted"] is False
+        assert github_resp.json()["routing_reason"] == "unsupported_github_event"
+        assert jira_resp.status_code == 200
+        assert jira_resp.json()["accepted"] is False
+        assert jira_resp.json()["routing_reason"] == "unsupported_jira_event"
     finally:
         cleanup()

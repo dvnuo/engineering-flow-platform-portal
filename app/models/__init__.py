@@ -3,6 +3,7 @@ from app.models.agent import Agent
 from app.models.agent_group import AgentGroup
 from app.models.agent_group_member import AgentGroupMember
 from app.models.agent_task import AgentTask
+from app.models.agent_session_metadata import AgentSessionMetadata
 from app.models.agent_delegation import AgentDelegation
 from app.models.agent_coordination_run import AgentCoordinationRun
 from app.models.group_shared_context_snapshot import GroupSharedContextSnapshot
@@ -25,6 +26,7 @@ __all__ = [
     "AgentIdentityBinding",
     "ExternalEventSubscription",
     "AgentTask",
+    "AgentSessionMetadata",
     "AgentDelegation",
     "AgentCoordinationRun",
     "GroupSharedContextSnapshot",

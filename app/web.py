@@ -12,7 +12,8 @@ from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_fields, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
+from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -26,6 +27,7 @@ def escape_data_attr(s):
 templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
 proxy_service = ProxyService()
+runtime_execution_context_service = RuntimeExecutionContextService()
 base_uri = settings.base_uri
 
 
@@ -57,17 +59,6 @@ def _can_write(agent, user) -> bool:
 
 def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
-
-
-def _portal_identity_payload(user) -> dict[str, str]:
-    identity = build_portal_identity_fields(user)
-    payload = {}
-    if identity.get("user_id"):
-        payload["portal_user_id"] = identity["user_id"]
-    if identity.get("user_name"):
-        payload["portal_user_name"] = identity["user_name"]
-
-    return payload
 
 
 async def _forward_runtime(
@@ -928,23 +919,24 @@ async def app_chat_send(request: Request):
         if agent.status != "running":
             raise HTTPException(status_code=409, detail="Agent not running")
 
+        metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
         payload = {
             "message": message,
-            **_portal_identity_payload(user),
+            "metadata": metadata,
         }
         if session_id:
             payload["session_id"] = session_id
         if attachments:
             payload["attachments"] = attachments
 
-        status_code, content, _ = await _forward_runtime(
-            user=user,
+        status_code, content, _ = await proxy_service.forward(
             agent=agent,
             method="POST",
             subpath="api/chat",
             query_items=[],
             body=json.dumps(payload).encode("utf-8"),
             headers={"content-type": "application/json"},
+            extra_headers=build_portal_execution_headers(user),
         )
 
         if status_code >= 400:

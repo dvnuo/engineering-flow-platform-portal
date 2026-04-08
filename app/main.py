@@ -15,6 +15,9 @@ from app.api.agent_groups import router as agent_groups_router
 from app.api.agent_delegations import router as agent_delegations_router
 from app.api.agent_coordination_runs import router as agent_coordination_runs_router
 from app.api.external_event_ingress import router as external_event_ingress_router
+from app.api.provider_webhooks import router as provider_webhooks_router
+from app.api.internal_control_plane_exports import router as internal_control_plane_exports_router
+from app.api.internal_session_metadata import router as internal_session_metadata_router
 from app.api.workflow_transition_rules import router as workflow_transition_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.agents import router as agents_router
@@ -26,6 +29,7 @@ from app.db import Base, SessionLocal, engine
 from app.repositories.user_repo import UserRepository
 from app.logger import setup_logging
 from app.services.auth_service import hash_password
+from app.services.schema_guard import assert_phase5_schema_compatibility
 from app.web import router as web_router
 
 settings = get_settings()
@@ -36,6 +40,7 @@ app = FastAPI(title=settings.app_name, debug=settings.debug)
 def on_startup() -> None:
     setup_logging(logging.DEBUG if settings.debug else logging.INFO)
     Base.metadata.create_all(bind=engine)
+    assert_phase5_schema_compatibility(engine)
 
     db = SessionLocal()
     try:
@@ -81,5 +86,8 @@ app.include_router(agent_groups_router)
 app.include_router(agent_delegations_router)
 app.include_router(agent_coordination_runs_router)
 app.include_router(external_event_ingress_router)
+app.include_router(provider_webhooks_router)
 app.include_router(workflow_transition_rules_router)
 app.include_router(runtime_capability_catalog_router)
+app.include_router(internal_control_plane_exports_router)
+app.include_router(internal_session_metadata_router)
