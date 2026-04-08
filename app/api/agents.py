@@ -176,6 +176,8 @@ def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(get_cu
     if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="disk_size_gi must be >= 1")
     if "agent_type" in changes:
+        if changes["agent_type"] is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_type cannot be null")
         _validate_agent_type_or_422(changes["agent_type"])
 
     for field, value in changes.items():
