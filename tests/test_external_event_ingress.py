@@ -1123,6 +1123,127 @@ def test_github_review_event_dedupe_hint_prevents_duplicate_without_dedupe_key()
         cleanup()
 
 
+def test_github_review_event_new_head_sha_supersedes_previous_active_task(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.external_event_ingress as ingress_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-gh-stale",
+            enabled=True,
+        )
+
+        async def _no_op_dispatch(task_id: str, _db):
+            return AgentTaskDispatchResult(
+                dispatched=True,
+                task_id=task_id,
+                runtime_status_code=202,
+                task_status="queued",
+                message="queued for test",
+                result_payload_json=None,
+            )
+
+        monkeypatch.setattr(ingress_api.service.task_dispatcher, "dispatch_task", _no_op_dispatch)
+
+        first = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-gh-stale",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":55,"head_sha":"sha-1"}',
+            },
+        )
+        second = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-gh-stale",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":55,"head_sha":"sha-2"}',
+            },
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["accepted"] is True
+        assert second.json()["accepted"] is True
+        assert second.json()["deduped"] is False
+
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 2
+        tasks_by_id = {task.id: task for task in tasks}
+        first_task = tasks_by_id[first.json()["created_task_id"]]
+        second_task = tasks_by_id[second.json()["created_task_id"]]
+        assert first_task.status == "stale"
+        stale_payload = json.loads(first_task.result_payload_json or "{}")
+        assert stale_payload["error_code"] == "superseded_by_new_head_sha"
+        assert stale_payload["superseded_by_task_id"] == second_task.id
+        assert stale_payload["superseded_by_head_sha"] == "sha-2"
+        assert second_task.status == "queued"
+    finally:
+        cleanup()
+
+
+def test_github_review_event_new_head_sha_does_not_stale_done_task():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-gh-done",
+            enabled=True,
+        )
+        first = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-gh-done",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":77,"head_sha":"sha-1"}',
+            },
+        )
+        assert first.status_code == 200
+        assert first.json()["accepted"] is True
+
+        second = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-gh-done",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":77,"head_sha":"sha-2"}',
+            },
+        )
+        assert second.status_code == 200
+        assert second.json()["accepted"] is True
+        assert second.json()["deduped"] is False
+
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 2
+        tasks_by_id = {task.id: task for task in tasks}
+        first_task = tasks_by_id[first.json()["created_task_id"]]
+        second_task = tasks_by_id[second.json()["created_task_id"]]
+        assert first_task.status == "done"
+        assert second_task.status == "done"
+    finally:
+        cleanup()
+
+
 def test_github_review_event_rejected_when_repo_not_allowed():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:

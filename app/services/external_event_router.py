@@ -92,6 +92,70 @@ class ExternalEventRouterService:
         return f"github:review:{owner}/{repo}:{pull_number}:{request.external_account_id}:{head_sha}"
 
     @staticmethod
+    def _build_github_review_family_prefix(request: ExternalEventIngressRequest, payload: dict | None) -> str | None:
+        if request.source_type.strip().lower() != "github" or request.event_type != "pull_request_review_requested":
+            return None
+        if not payload:
+            return None
+        owner = payload.get("owner")
+        repo = payload.get("repo")
+        pull_number = payload.get("pull_number")
+        if not owner or not repo or pull_number is None or not request.external_account_id:
+            return None
+        return f"github:review:{owner}/{repo}:{pull_number}:{request.external_account_id}:"
+
+    @staticmethod
+    def _extract_github_head_sha_from_dedupe_key(dedupe_key: str | None) -> str | None:
+        if not dedupe_key:
+            return None
+        if not dedupe_key.startswith("github:review:"):
+            return None
+        return dedupe_key.rsplit(":", 1)[-1]
+
+    @staticmethod
+    def _build_github_superseded_payload(*, superseding_task_id: str, new_head_sha: str | None) -> str:
+        return json.dumps(
+            {
+                "ok": False,
+                "error_code": "superseded_by_new_head_sha",
+                "message": "GitHub review task superseded by a newer PR head_sha",
+                "superseded_by_task_id": superseding_task_id,
+                "superseded_by_head_sha": new_head_sha,
+            }
+        )
+
+    def _stale_superseded_github_review_tasks(
+        self,
+        *,
+        task_repo: AgentTaskRepository,
+        assignee_agent_id: str,
+        family_prefix: str | None,
+        new_dedupe_key: str | None,
+        new_head_sha: str | None,
+        superseding_task_id: str,
+    ) -> None:
+        if not family_prefix:
+            return
+        candidates = task_repo.list_active_github_review_tasks_for_family(
+            assignee_agent_id=assignee_agent_id,
+            family_prefix=family_prefix,
+        )
+        stale_payload = self._build_github_superseded_payload(
+            superseding_task_id=superseding_task_id,
+            new_head_sha=new_head_sha,
+        )
+        to_update = []
+        for task in candidates:
+            if task.id == superseding_task_id:
+                continue
+            if new_dedupe_key and task.shared_context_ref == new_dedupe_key:
+                continue
+            task.status = "stale"
+            task.result_payload_json = stale_payload
+            to_update.append(task)
+        task_repo.save_all(to_update)
+
+    @staticmethod
     def _is_allowed_github_repo(subscription, owner: str, repo: str) -> bool:
         config_obj = ExternalEventRouterService._parse_json_object(subscription.config_json)
         if not config_obj:
@@ -307,11 +371,13 @@ class ExternalEventRouterService:
             routing_reason = routing_decision.reason
 
         dedupe_hint = request.dedupe_key
+        github_family_prefix = None
         if source_type == "jira":
             shared_context_ref = request.issue_key or request.dedupe_key or request.target_ref
         else:
             payload_obj = self._parse_json_object(input_payload_json)
             dedupe_hint = self._build_github_dedupe_hint(request, payload_obj) or request.dedupe_key
+            github_family_prefix = self._build_github_review_family_prefix(request, payload_obj)
             shared_context_ref = dedupe_hint or request.target_ref
 
         if dedupe_hint:
@@ -346,6 +412,16 @@ class ExternalEventRouterService:
             result_payload_json=None,
             retry_count=0,
         )
+
+        if source_type == "github" and request.event_type == "pull_request_review_requested":
+            self._stale_superseded_github_review_tasks(
+                task_repo=task_repo,
+                assignee_agent_id=matched_agent_id,
+                family_prefix=github_family_prefix,
+                new_dedupe_key=dedupe_hint,
+                new_head_sha=self._extract_github_head_sha_from_dedupe_key(dedupe_hint),
+                superseding_task_id=task.id,
+            )
 
         should_dispatch = source_type == "jira" or (source_type == "github" and request.event_type == "pull_request_review_requested")
         if should_dispatch:
