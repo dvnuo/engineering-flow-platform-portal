@@ -225,3 +225,82 @@ def test_agent_tasks_by_agent_is_admin_or_owner_only():
         assert forbidden.status_code == 403
     finally:
         cleanup()
+
+
+def test_non_admin_cannot_create_task_for_other_users_assignee_agent():
+    client, _db, _group, leader_agent, _specialist_agent, outsider_agent, _admin_user, _leader_owner, _participant_user, outsider_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(outsider_user)
+        response = client.post(
+            "/api/agent-tasks",
+            json={
+                "parent_agent_id": outsider_agent.id,
+                "assignee_agent_id": leader_agent.id,
+                "source": "portal",
+                "task_type": "review",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Forbidden"
+    finally:
+        cleanup()
+
+
+def test_non_admin_cannot_create_task_with_parent_agent_they_do_not_own():
+    client, _db, _group, leader_agent, _specialist_agent, outsider_agent, _admin_user, _leader_owner, _participant_user, outsider_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(outsider_user)
+        response = client.post(
+            "/api/agent-tasks",
+            json={
+                "parent_agent_id": leader_agent.id,
+                "assignee_agent_id": outsider_agent.id,
+                "source": "portal",
+                "task_type": "review",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Forbidden"
+    finally:
+        cleanup()
+
+
+def test_owner_can_create_non_group_task_for_owned_agents():
+    client, _db, _group, leader_agent, specialist_agent, _outsider_agent, _admin_user, leader_owner, _participant_user, _outsider_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(leader_owner)
+        response = client.post(
+            "/api/agent-tasks",
+            json={
+                "parent_agent_id": leader_agent.id,
+                "assignee_agent_id": specialist_agent.id,
+                "source": "portal",
+                "task_type": "review",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["assignee_agent_id"] == specialist_agent.id
+    finally:
+        cleanup()
+
+
+def test_admin_can_create_non_group_task_for_any_agent():
+    client, _db, _group, leader_agent, _specialist_agent, outsider_agent, admin_user, _leader_owner, _participant_user, _outsider_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(admin_user)
+        response = client.post(
+            "/api/agent-tasks",
+            json={
+                "parent_agent_id": leader_agent.id,
+                "assignee_agent_id": outsider_agent.id,
+                "source": "portal",
+                "task_type": "review",
+                "status": "queued",
+            },
+        )
+        assert response.status_code == 200
+    finally:
+        cleanup()
