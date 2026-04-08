@@ -257,6 +257,119 @@ def test_dispatch_endpoint_marks_task_failed_on_malformed_2xx_without_status(mon
         cleanup()
 
 
+def test_dispatch_late_runtime_success_cannot_overwrite_stale(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = AgentTask(
+            assignee_agent_id=agent.id,
+            source="github",
+            task_type="github_review_task",
+            input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
+            shared_context_ref="github:review:octo/portal:1:acct:sha-1",
+            status="queued",
+            retry_count=0,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+        stale_payload = json.dumps(
+            {
+                "ok": False,
+                "error_code": "superseded_by_new_head_sha",
+                "message": "GitHub review task superseded by a newer PR head_sha",
+                "superseded_by_task_id": "new-task-1",
+                "superseded_by_head_sha": "sha-2",
+            }
+        )
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+        async def _fake_post(_url: str, _body: dict):
+            fresh = db.get(AgentTask, task.id)
+            fresh.status = "stale"
+            fresh.result_payload_json = stale_payload
+            db.add(fresh)
+            db.commit()
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["task_status"] == "stale"
+        assert "late_runtime_result_ignored_because_task_is_stale" in body["message"]
+
+        db.refresh(task)
+        assert task.status == "stale"
+        assert task.result_payload_json == stale_payload
+    finally:
+        cleanup()
+
+
+def test_dispatch_runtime_superseded_error_is_recorded_as_stale(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = AgentTask(
+            assignee_agent_id=agent.id,
+            source="github",
+            task_type="github_review_task",
+            input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
+            shared_context_ref="github:review:octo/portal:1:acct:sha-1",
+            status="queued",
+            retry_count=0,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+        class _Resp:
+            status_code = 200
+            text = (
+                '{"ok": false, "status": "error", '
+                '"output_payload": {"error_code": "superseded_by_new_head_sha", "message": "superseded"}}'
+            )
+
+            @staticmethod
+            def json():
+                return {
+                    "ok": False,
+                    "status": "error",
+                    "output_payload": {"error_code": "superseded_by_new_head_sha", "message": "superseded"},
+                }
+
+        async def _fake_post(_url: str, _body: dict):
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["task_status"] == "stale"
+
+        db.refresh(task)
+        assert task.status == "stale"
+        parsed = json.loads(task.result_payload_json or "{}")
+        assert parsed["output_payload"]["error_code"] == "superseded_by_new_head_sha"
+    finally:
+        cleanup()
+
+
 def test_dispatch_endpoint_invalid_payload_marks_task_failed(monkeypatch):
     client, db, agent, cleanup = _build_client_with_overrides()
     try:

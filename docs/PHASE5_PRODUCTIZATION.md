@@ -90,3 +90,11 @@ Internal APIs:
   - `current_task_id`
 
 Registry scope is metadata-only; it is not a full chat-history store.
+
+## 7) GitHub review stale terminal semantics
+
+For GitHub review tasks superseded by newer PR `head_sha`:
+
+- Portal marks superseded active tasks as `stale`.
+- `stale` is a superseded terminal state (not `failed`).
+- If runtime results arrive late for an already-stale task, Portal keeps `stale` and does not overwrite it back to `done`/`failed`.

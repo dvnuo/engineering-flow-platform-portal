@@ -27,6 +27,14 @@ class AgentTaskDispatchResult:
         return asdict(self)
 
 
+@dataclass
+class NormalizedRuntimeOutcome:
+    terminal_status: str  # done | failed | stale
+    result_payload_json: str
+    message: str
+    runtime_status_code: int | None
+
+
 class TaskDispatcherService:
     def __init__(self) -> None:
         self.proxy_service = ProxyService()
@@ -280,7 +288,7 @@ class TaskDispatcherService:
             self._sync_coordination_run_from_delegation(db, delegation)
 
     @staticmethod
-    def _normalize_runtime_response(response: httpx.Response) -> tuple[bool, str, str]:
+    def _normalize_runtime_response(response: httpx.Response) -> NormalizedRuntimeOutcome:
         runtime_status_code = response.status_code
         response_text = response.text or ""
 
@@ -291,7 +299,12 @@ class TaskDispatcherService:
                 "message": f"Runtime returned non-2xx status: {runtime_status_code}",
                 "runtime_status_code": runtime_status_code,
             }
-            return False, json.dumps(payload), "Runtime returned non-2xx status"
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=json.dumps(payload),
+                message="Runtime returned non-2xx status",
+                runtime_status_code=runtime_status_code,
+            )
 
         try:
             response_json = response.json()
@@ -306,23 +319,56 @@ class TaskDispatcherService:
                 "runtime_status_code": runtime_status_code,
                 "raw_response": response_text,
             }
-            return False, json.dumps(payload), "Runtime returned malformed response"
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=json.dumps(payload),
+                message="Runtime returned malformed response",
+                runtime_status_code=runtime_status_code,
+            )
 
         normalized_payload_json = json.dumps(response_json)
         status_value = response_json.get("status")
         if status_value is None:
-            return False, normalized_payload_json, "Runtime returned malformed response"
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=normalized_payload_json,
+                message="Runtime returned malformed response",
+                runtime_status_code=runtime_status_code,
+            )
 
         normalized_status = str(status_value).lower()
         ok_value = response_json.get("ok")
+        output_payload = response_json.get("output_payload")
+        if isinstance(output_payload, dict) and output_payload.get("error_code") == "superseded_by_new_head_sha":
+            return NormalizedRuntimeOutcome(
+                terminal_status="stale",
+                result_payload_json=normalized_payload_json,
+                message="Runtime reported task superseded by newer head_sha",
+                runtime_status_code=runtime_status_code,
+            )
 
         if normalized_status == "success" and ok_value is not False:
-            return True, normalized_payload_json, "Task dispatched successfully"
+            return NormalizedRuntimeOutcome(
+                terminal_status="done",
+                result_payload_json=normalized_payload_json,
+                message="Task dispatched successfully",
+                runtime_status_code=runtime_status_code,
+            )
 
         if normalized_status in {"error", "blocked"} or ok_value is False:
-            return False, normalized_payload_json, "Runtime execution reported failure"
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=normalized_payload_json,
+                message="Runtime execution reported failure",
+                runtime_status_code=runtime_status_code,
+            )
 
-        return False, normalized_payload_json, "Runtime returned malformed response"
+        return NormalizedRuntimeOutcome(
+            terminal_status="failed",
+            result_payload_json=normalized_payload_json,
+            message="Runtime returned malformed response",
+            runtime_status_code=runtime_status_code,
+        )
 
     async def dispatch_task(self, task_id: str, db: Session, user=None) -> AgentTaskDispatchResult:
         _ = user
@@ -476,23 +522,54 @@ class TaskDispatcherService:
 
         try:
             response = await self._post_to_runtime(runtime_url, runtime_body)
-            runtime_status_code = response.status_code
-            execution_succeeded, normalized_result_payload_json, dispatch_message = self._normalize_runtime_response(response)
-            task.status = "done" if execution_succeeded else "failed"
-            task.result_payload_json = normalized_result_payload_json
-            task_repo.save(task)
-            self._sync_delegation_from_task_result(db, task, normalized_result_payload_json, execution_succeeded)
+            outcome = self._normalize_runtime_response(response)
+            fresh_task = task_repo.get_by_id(task.id)
+            if not fresh_task:
+                return AgentTaskDispatchResult(True, task.id, outcome.runtime_status_code, "not_found", "Task disappeared during dispatch", None)
+
+            if fresh_task.status == "stale":
+                return AgentTaskDispatchResult(
+                    True,
+                    fresh_task.id,
+                    outcome.runtime_status_code,
+                    "stale",
+                    "late_runtime_result_ignored_because_task_is_stale",
+                    fresh_task.result_payload_json,
+                )
+
+            fresh_task.status = outcome.terminal_status
+            fresh_task.result_payload_json = outcome.result_payload_json
+            task_repo.save(fresh_task)
+            if outcome.terminal_status in {"done", "failed"}:
+                self._sync_delegation_from_task_result(
+                    db,
+                    fresh_task,
+                    outcome.result_payload_json,
+                    outcome.terminal_status == "done",
+                )
             return AgentTaskDispatchResult(
                 True,
-                task.id,
-                runtime_status_code,
-                task.status,
-                dispatch_message,
-                task.result_payload_json,
+                fresh_task.id,
+                outcome.runtime_status_code,
+                fresh_task.status,
+                outcome.message,
+                fresh_task.result_payload_json,
             )
         except Exception as exc:
-            task.status = "failed"
-            task.result_payload_json = self._build_failure_payload("runtime_request_error", str(exc))
-            task_repo.save(task)
-            self._sync_delegation_from_task_result(db, task, task.result_payload_json, False)
-            return AgentTaskDispatchResult(True, task.id, None, task.status, f"Runtime dispatch request failed: {exc}", task.result_payload_json)
+            fresh_task = task_repo.get_by_id(task.id)
+            if not fresh_task:
+                return AgentTaskDispatchResult(True, task.id, None, "not_found", f"Runtime dispatch request failed: {exc}", None)
+            if fresh_task.status == "stale":
+                return AgentTaskDispatchResult(
+                    True,
+                    fresh_task.id,
+                    None,
+                    "stale",
+                    "late_runtime_result_ignored_because_task_is_stale",
+                    fresh_task.result_payload_json,
+                )
+            fresh_task.status = "failed"
+            fresh_task.result_payload_json = self._build_failure_payload("runtime_request_error", str(exc))
+            task_repo.save(fresh_task)
+            self._sync_delegation_from_task_result(db, fresh_task, fresh_task.result_payload_json, False)
+            return AgentTaskDispatchResult(True, fresh_task.id, None, fresh_task.status, f"Runtime dispatch request failed: {exc}", fresh_task.result_payload_json)

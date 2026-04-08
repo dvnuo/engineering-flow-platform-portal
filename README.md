@@ -93,6 +93,12 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
   - `GET /api/internal/agents/{agent_id}/sessions/metadata`
   - optional filters: `group_id`, `latest_event_state`, `current_task_id`
 
+### GitHub review supersession lifecycle
+
+- For GitHub `pull_request_review_requested`, Portal dedupes exact duplicates by `(owner/repo/pull_number/reviewer/head_sha)`.
+- When a newer `head_sha` arrives, Portal creates a new review task and marks older active review tasks as `stale`.
+- `stale` is treated as a superseded terminal state; late runtime results do not overwrite a task already marked `stale`.
+
 ### Schema upgrade
 
 For existing databases, run migrations before upgrading Portal:
