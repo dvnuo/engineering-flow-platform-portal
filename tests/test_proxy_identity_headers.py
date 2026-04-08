@@ -97,6 +97,7 @@ def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
+        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
 
         async def _fake_forward(**kwargs):
             if kwargs.get("subpath") in {"api/ssh/public-key", "api/ssh/generate", "api/config/save"}:
@@ -348,7 +349,7 @@ def test_runtime_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
     assert "X-Internal-Api-Key" not in outbound
 
 
-def test_build_portal_execution_headers_adds_optional_internal_key(monkeypatch):
+def test_build_portal_execution_headers_adds_internal_key(monkeypatch):
     import app.deps as deps_module
     from app.services.proxy_service import build_portal_execution_headers
 
@@ -365,7 +366,7 @@ def test_build_portal_execution_headers_adds_optional_internal_key(monkeypatch):
         deps_module.settings.portal_internal_api_key = original
 
 
-def test_build_portal_execution_headers_omits_internal_key_when_unset(monkeypatch):
+def test_build_portal_execution_headers_requires_internal_key_when_unset(monkeypatch):
     import app.deps as deps_module
     from app.services.proxy_service import build_portal_execution_headers
 
@@ -373,13 +374,66 @@ def test_build_portal_execution_headers_omits_internal_key_when_unset(monkeypatc
     deps_module.settings.portal_internal_api_key = ""
     try:
         user = SimpleNamespace(id=1, username="alice", nickname=None)
-        headers = build_portal_execution_headers(user)
-        assert headers["X-Portal-Author-Source"] == "portal"
-        assert headers["X-Portal-User-Id"] == "1"
-        assert headers["X-Portal-User-Name"] == "alice"
-        assert "X-Portal-Internal-Api-Key" not in headers
+        try:
+            build_portal_execution_headers(user)
+        except ValueError as exc:
+            assert str(exc) == "PORTAL_INTERNAL_API_KEY is not configured"
+        else:
+            raise AssertionError("expected ValueError when internal API key is unset")
     finally:
         deps_module.settings.portal_internal_api_key = original
+
+
+def test_proxy_direct_chat_returns_503_when_portal_internal_api_key_missing(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=77, username="runtime-user", nickname="Runtime User", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=77,
+        visibility="private",
+        status="running",
+        capability_profile_id="cap-1",
+        policy_profile_id="pol-1",
+    )
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
+        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "")
+
+        calls = {"count": 0}
+
+        async def _fake_forward(**kwargs):
+            calls["count"] += 1
+            return 200, b'{"ok": true}', "application/json"
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+
+        client = TestClient(app)
+        response = client.post(
+            "/a/agent-1/api/chat",
+            content=b'{"message":"hello"}',
+            headers={"content-type": "application/json"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "PORTAL_INTERNAL_API_KEY is not configured"
+    assert calls["count"] == 0
 
 
 def test_require_internal_api_key_strips_whitespace_and_accepts_match():
