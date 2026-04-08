@@ -57,6 +57,10 @@ Access `http://localhost:8000/login`
 | `PORTAL_INTERNAL_API_KEY` | Trusted Portal→Runtime chat/auth header key | (empty) |
 | `RUNTIME_INTERNAL_API_KEY` | Portal→Runtime internal API key (`/api/tasks/execute`, `/api/capabilities`) | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Runtime adapter callback base URL to reach Portal internal APIs | (empty) |
+| `GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC secret for `/api/webhooks/github` | (empty) |
+| `JIRA_WEBHOOK_SHARED_SECRET` | Shared secret expected in `X-Efp-Webhook-Secret` for `/api/webhooks/jira` | (empty) |
+| `ALLOW_INSECURE_PROVIDER_WEBHOOKS` | **Dev-only opt-out** to allow provider webhooks without configured secrets (unsafe in production) | `false` |
+| `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `K8S_ENABLED` | Enable Kubernetes integration | `false` |
 | `K8S_INCLUSTER` | Use in-cluster config | `true` |
 | `K8S_KUBECONFIG` | Path to kubeconfig | `/etc/rancher/k3s/k3s.yaml` |

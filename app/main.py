@@ -25,11 +25,11 @@ from app.api.internal_agents import router as internal_agents_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
 from app.config import get_settings
-from app.db import Base, SessionLocal, engine
+from app.db import SessionLocal, engine
 from app.repositories.user_repo import UserRepository
 from app.logger import setup_logging
 from app.services.auth_service import hash_password
-from app.services.schema_guard import assert_phase5_schema_compatibility
+from app.services.schema_guard import assert_phase5_schema_compatibility, assert_portal_schema_ready
 from app.web import router as web_router
 
 settings = get_settings()
@@ -39,7 +39,7 @@ app = FastAPI(title=settings.app_name, debug=settings.debug)
 @app.on_event("startup")
 def on_startup() -> None:
     setup_logging(logging.DEBUG if settings.debug else logging.INFO)
-    Base.metadata.create_all(bind=engine)
+    assert_portal_schema_ready(engine)
     assert_phase5_schema_compatibility(engine)
 
     db = SessionLocal()

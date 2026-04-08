@@ -3,8 +3,6 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
-from alembic.script import ScriptDirectory
-from sqlalchemy import inspect, text
 from sqlalchemy import engine_from_config, pool
 
 from app.config import get_settings
@@ -44,17 +42,6 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        inspector = inspect(connection)
-        table_names = set(inspector.get_table_names())
-        if "agents" not in table_names and "alembic_version" not in table_names:
-            Base.metadata.create_all(bind=connection)
-            head_revision = ScriptDirectory.from_config(config).get_current_head()
-            connection.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"))
-            connection.execute(text("DELETE FROM alembic_version"))
-            connection.execute(text("INSERT INTO alembic_version (version_num) VALUES (:v)"), {"v": head_revision})
-            connection.commit()
-            return
-
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():

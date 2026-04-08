@@ -13,6 +13,10 @@ router = APIRouter(tags=["agent-tasks"])
 task_dispatcher_service = TaskDispatcherService()
 
 
+def _can_write(agent, user) -> bool:
+    return user.role == "admin" or agent.owner_user_id == user.id
+
+
 @router.post("/api/agent-tasks", response_model=AgentTaskResponse)
 def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     group_service = AgentGroupService(db)
@@ -27,11 +31,15 @@ def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_
     assignee_agent = AgentRepository(db).get_by_id(payload.assignee_agent_id)
     if not assignee_agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee agent not found")
+    if not _can_write(assignee_agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     if payload.parent_agent_id is not None:
         parent_agent = AgentRepository(db).get_by_id(payload.parent_agent_id)
         if not parent_agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent agent not found")
+        if user.role != "admin" and parent_agent.owner_user_id != user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     task = AgentTaskRepository(db).create(**payload.model_dump())
     return AgentTaskResponse.model_validate(task)
 
