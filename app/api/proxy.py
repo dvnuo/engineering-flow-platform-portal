@@ -91,7 +91,16 @@ async def proxy_agent(
 
         request_body = (await request.body()) or None
         is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
-        extra_headers = build_portal_execution_headers(user) if is_direct_chat_execution else build_portal_identity_headers(user)
+        if is_direct_chat_execution:
+            try:
+                extra_headers = build_portal_execution_headers(user)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="PORTAL_INTERNAL_API_KEY is not configured",
+                ) from exc
+        else:
+            extra_headers = build_portal_identity_headers(user)
 
         if is_direct_chat_execution and content_type and "application/json" in content_type.lower() and request_body:
             try:
