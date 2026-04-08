@@ -7,6 +7,23 @@ REQUIRED_AGENT_COLUMNS = (
     "task_scope_label",
     "task_cleanup_policy",
 )
+REQUIRED_PORTAL_TABLES = (
+    "alembic_version",
+    "users",
+    "agents",
+)
+
+
+def assert_portal_schema_ready(engine: Engine) -> None:
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    missing = [table for table in REQUIRED_PORTAL_TABLES if table not in existing_tables]
+    if not missing:
+        return
+    raise RuntimeError(
+        "Database is not initialized for this Portal build. "
+        "Run 'alembic upgrade head' before starting Portal."
+    )
 
 
 def assert_phase5_schema_compatibility(engine: Engine) -> None:
@@ -24,4 +41,3 @@ def assert_phase5_schema_compatibility(engine: Engine) -> None:
         "Database schema is incompatible with this Portal build. Missing columns on 'agents': "
         f"{missing_joined}. Run `alembic upgrade head` before starting Portal."
     )
-

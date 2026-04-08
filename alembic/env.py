@@ -10,6 +10,7 @@ from sqlalchemy import engine_from_config, pool
 from app.config import get_settings
 from app.db import Base
 from app import models  # noqa: F401
+from app.services.alembic_bootstrap import should_bootstrap_empty_db
 
 
 config = context.config
@@ -46,7 +47,7 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         inspector = inspect(connection)
         table_names = set(inspector.get_table_names())
-        if "agents" not in table_names and "alembic_version" not in table_names:
+        if should_bootstrap_empty_db(table_names):
             Base.metadata.create_all(bind=connection)
             head_revision = ScriptDirectory.from_config(config).get_current_head()
             connection.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"))
