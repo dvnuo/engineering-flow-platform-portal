@@ -74,3 +74,19 @@ Configurable selector keys:
 
 If both credentials are present, clone URL is rewritten to authenticated HTTPS.
 If credentials are absent, clone proceeds with unauthenticated URL.
+
+## 6) Session Metadata Registry semantics
+
+Portal keeps runtime session metadata in `agent_session_metadata` using **composite key `(agent_id, session_id)`**.
+This is intentionally agent-scoped and avoids collisions across different agents reusing the same external session id.
+
+Internal APIs:
+
+- `PUT /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
+- `GET /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
+- `GET /api/internal/agents/{agent_id}/sessions/metadata` with optional filters:
+  - `group_id`
+  - `latest_event_state`
+  - `current_task_id`
+
+Registry scope is metadata-only; it is not a full chat-history store.

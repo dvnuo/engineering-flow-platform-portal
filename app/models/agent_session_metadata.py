@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -11,8 +11,9 @@ from typing import Optional
 class AgentSessionMetadata(Base):
     __tablename__ = "agent_session_metadata"
     __table_args__ = (
-        Index("ix_agent_session_metadata_session_id", "session_id", unique=True),
+        UniqueConstraint("agent_id", "session_id", name="uq_agent_session_metadata_agent_session"),
         Index("ix_agent_session_metadata_agent_id", "agent_id"),
+        Index("ix_agent_session_metadata_agent_updated_at", "agent_id", "updated_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -33,4 +34,3 @@ class AgentSessionMetadata(Base):
     metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-

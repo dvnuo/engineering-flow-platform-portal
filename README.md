@@ -77,6 +77,16 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 - Portal -> EFP runtime internal endpoints (`/api/tasks/execute`, `/api/capabilities`) use `X-Internal-Api-Key` (from `RUNTIME_INTERNAL_API_KEY`).
 - EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
 
+### Session Metadata Registry (internal)
+
+- Registry key semantics: **`(agent_id, session_id)`** (agent-scoped), not globally-unique `session_id`.
+- Exact upsert/get:
+  - `PUT /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
+  - `GET /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
+- List/query:
+  - `GET /api/internal/agents/{agent_id}/sessions/metadata`
+  - optional filters: `group_id`, `latest_event_state`, `current_task_id`
+
 ### Schema upgrade
 
 For existing databases, run migrations before upgrading Portal:
