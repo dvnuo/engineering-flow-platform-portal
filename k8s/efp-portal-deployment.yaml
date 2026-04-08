@@ -81,13 +81,11 @@ spec:
                 secretKeyRef:
                   name: efp-portal-secret
                   key: PORTAL_INTERNAL_API_KEY
-                  optional: true
             - name: RUNTIME_INTERNAL_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: efp-portal-secret
                   key: RUNTIME_INTERNAL_API_KEY
-                  optional: true
             - name: PORTAL_INTERNAL_BASE_URL
               value: "http://efp-portal-service.default.svc.cluster.local"
             - name: K8S_KUBECONFIG

@@ -134,6 +134,59 @@ def test_policy_profiles_create_and_list(monkeypatch):
         cleanup()
 
 
+def test_policy_profile_create_rejects_invalid_json_rules(monkeypatch):
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        response = client.post(
+            "/api/policy-profiles",
+            json={
+                "name": "pol-bad-json",
+                "permission_rules_json": "not-json",
+            },
+        )
+        assert response.status_code == 422
+        assert "permission_rules_json must be valid JSON" in response.text
+    finally:
+        cleanup()
+
+
+def test_policy_profile_create_rejects_non_object_json_rules(monkeypatch):
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        response = client.post(
+            "/api/policy-profiles",
+            json={
+                "name": "pol-bad-shape",
+                "transition_rules_json": '["github"]',
+            },
+        )
+        assert response.status_code == 422
+        assert "transition_rules_json must decode to a JSON object" in response.text
+    finally:
+        cleanup()
+
+
+def test_policy_profile_create_accepts_valid_json_rule_objects(monkeypatch):
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        response = client.post(
+            "/api/policy-profiles",
+            json={
+                "name": "pol-valid-rules",
+                "permission_rules_json": '{"denied_capability_ids": ["tool:shell"]}',
+                "transition_rules_json": '{"external_trigger_allowlist": ["github"]}',
+                "max_parallel_tasks": 2,
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["permission_rules_json"] == '{"denied_capability_ids": ["tool:shell"]}'
+        assert body["transition_rules_json"] == '{"external_trigger_allowlist": ["github"]}'
+        assert body["max_parallel_tasks"] == 2
+    finally:
+        cleanup()
+
+
 def test_capability_profiles_endpoints_are_admin_only(monkeypatch):
     client, _agent, admin_user, viewer_user, set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:

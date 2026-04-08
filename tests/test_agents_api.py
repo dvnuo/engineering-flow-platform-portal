@@ -112,3 +112,27 @@ def test_invalid_agent_type_on_update_returns_422(monkeypatch):
         assert patch_resp.status_code == 422
     finally:
         cleanup()
+
+
+def test_null_agent_type_on_update_returns_422_and_does_not_mutate_agent(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+
+        create_resp = client.post(
+            "/api/agents",
+            json={"name": "workspace-agent", "image": "example/image:latest", "agent_type": "workspace"},
+        )
+        assert create_resp.status_code == 200
+        agent_id = create_resp.json()["id"]
+
+        patch_resp = client.patch(f"/api/agents/{agent_id}", json={"agent_type": None})
+        assert patch_resp.status_code == 422
+        assert patch_resp.json()["detail"] == "agent_type cannot be null"
+
+        get_resp = client.get(f"/api/agents/{agent_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["agent_type"] == "workspace"
+    finally:
+        cleanup()
