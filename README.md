@@ -32,6 +32,9 @@ Portal is the web interface for Engineering Flow Platform. It provides agent man
 # Install dependencies
 pip install -r requirements.txt
 
+# Apply schema migrations (required for both first-time setup and upgrades)
+alembic upgrade head
+
 # Start server
 uvicorn app.main:app --reload
 ```
@@ -54,9 +57,9 @@ Access `http://localhost:8000/login`
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
-| `PORTAL_INTERNAL_API_KEY` | Trusted Portal→Runtime chat/auth header key | (empty) |
-| `RUNTIME_INTERNAL_API_KEY` | Portal→Runtime internal API key (`/api/tasks/execute`, `/api/capabilities`) | (empty) |
-| `PORTAL_INTERNAL_BASE_URL` | Runtime adapter callback base URL to reach Portal internal APIs | (empty) |
+| `PORTAL_INTERNAL_API_KEY` | **Required** trusted Portal→Runtime execution key for chat/auth headers (`X-Portal-Internal-Api-Key`) | (empty) |
+| `RUNTIME_INTERNAL_API_KEY` | **Required** Portal→Runtime internal key for control-plane endpoints (for example `/api/tasks/execute`, `/api/capabilities`) | (empty) |
+| `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC secret for `/api/webhooks/github` | (empty) |
 | `JIRA_WEBHOOK_SHARED_SECRET` | Shared secret expected in `X-Efp-Webhook-Secret` for `/api/webhooks/jira` | (empty) |
 | `ALLOW_INSECURE_PROVIDER_WEBHOOKS` | **Dev-only opt-out** to allow provider webhooks without configured secrets (unsafe in production) | `false` |
@@ -80,6 +83,12 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 - Portal -> EFP trusted chat headers use `X-Portal-Internal-Api-Key` (from `PORTAL_INTERNAL_API_KEY`).
 - Portal -> EFP runtime internal endpoints (`/api/tasks/execute`, `/api/capabilities`) use `X-Internal-Api-Key` (from `RUNTIME_INTERNAL_API_KEY`).
 - EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
+
+### Phase 5 required internal keys
+
+- `PORTAL_INTERNAL_API_KEY` is required for trusted chat execution paths.
+- `RUNTIME_INTERNAL_API_KEY` is required for runtime internal control-plane paths.
+- Missing keys cause runtime request failures (for example 503s), not optional feature degradation.
 
 ### Internal control-plane export contract
 
@@ -105,7 +114,7 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 
 ### Schema upgrade
 
-For existing databases, run migrations before upgrading Portal:
+Portal requires Alembic migrations before startup for both first-time setup on a new database and upgrades of an existing database:
 
 ```bash
 alembic upgrade head
