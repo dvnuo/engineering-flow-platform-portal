@@ -1,4 +1,5 @@
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.group_shared_context_snapshot import GroupSharedContextSnapshot
@@ -51,14 +52,20 @@ class GroupSharedContextSnapshotRepository:
     ) -> GroupSharedContextSnapshot:
         existing = self.get_by_group_and_ref(group_id, context_ref)
         if not existing:
-            return self.create(
-                group_id=group_id,
-                context_ref=context_ref,
-                scope_kind=scope_kind,
-                payload_json=payload_json,
-                created_by_user_id=created_by_user_id,
-                source_delegation_id=source_delegation_id,
-            )
+            try:
+                return self.create(
+                    group_id=group_id,
+                    context_ref=context_ref,
+                    scope_kind=scope_kind,
+                    payload_json=payload_json,
+                    created_by_user_id=created_by_user_id,
+                    source_delegation_id=source_delegation_id,
+                )
+            except IntegrityError:
+                self.db.rollback()
+                existing = self.get_by_group_and_ref(group_id, context_ref)
+                if not existing:
+                    raise
 
         existing.payload_json = payload_json
         existing.scope_kind = scope_kind

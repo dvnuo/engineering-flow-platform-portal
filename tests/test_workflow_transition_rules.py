@@ -23,15 +23,18 @@ def _build_client_with_overrides():
     Base.metadata.create_all(bind=engine)
 
     db = TestingSessionLocal()
-    user = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
-    db.add(user)
+    admin_user = User(username="admin", password_hash=hash_password("pw"), role="admin", is_active=True)
+    owner_user = User(username="owner", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    other_user = User(username="other", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    db.add_all([admin_user, owner_user, other_user])
     db.commit()
-    db.refresh(user)
+    for item in [admin_user, owner_user, other_user]:
+        db.refresh(item)
 
     agent = Agent(
         name="Workflow Agent",
         description="workflow",
-        owner_user_id=user.id,
+        owner_user_id=owner_user.id,
         visibility="private",
         status="running",
         image="example/image:latest",
@@ -49,11 +52,36 @@ def _build_client_with_overrides():
         agent_type="workspace",
     )
     db.add(agent)
+    other_agent = Agent(
+        name="Other Workflow Agent",
+        description="workflow-other",
+        owner_user_id=other_user.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        repo_url="https://example.com/repo-other.git",
+        branch="main",
+        cpu="500m",
+        memory="1Gi",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp-agents",
+        deployment_name="dep-wf-other",
+        service_name="svc-wf-other",
+        pvc_name="pvc-wf-other",
+        endpoint_path="/",
+        agent_type="workspace",
+    )
+    db.add(other_agent)
     db.commit()
     db.refresh(agent)
+    db.refresh(other_agent)
+
+    state = {"user": admin_user}
 
     def _override_user():
-        return SimpleNamespace(id=user.id, role="admin", username=user.username, nickname="Owner")
+        user = state["user"]
+        return SimpleNamespace(id=user.id, role=user.role, username=user.username, nickname="Owner")
 
     def _override_db():
         yield db
@@ -65,12 +93,16 @@ def _build_client_with_overrides():
         app.dependency_overrides.clear()
         db.close()
 
-    return TestClient(app), agent, _cleanup
+    def _set_user(user_obj):
+        state["user"] = user_obj
+
+    return TestClient(app), agent, other_agent, admin_user, owner_user, other_user, _set_user, _cleanup
 
 
 def test_create_list_and_get_workflow_transition_rules():
-    client, agent, cleanup = _build_client_with_overrides()
+    client, agent, _other_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        set_user(owner_user)
         create_resp = client.post(
             "/api/workflow-transition-rules",
             json={
@@ -95,12 +127,14 @@ def test_create_list_and_get_workflow_transition_rules():
         assert created["system_type"] == "jira"
         assert created["config_json"] == '{"max_reviews": 2, "strict": true}'
 
+        set_user(_admin_user)
         list_resp = client.get("/api/workflow-transition-rules")
         assert list_resp.status_code == 200
         items = list_resp.json()
         assert len(items) == 1
         assert items[0]["project_key"] == "EFP"
 
+        set_user(owner_user)
         get_resp = client.get(f"/api/workflow-transition-rules/{created['id']}")
         assert get_resp.status_code == 200
         fetched = get_resp.json()
@@ -111,8 +145,9 @@ def test_create_list_and_get_workflow_transition_rules():
 
 
 def test_create_workflow_transition_rule_rejects_malformed_config_json():
-    client, agent, cleanup = _build_client_with_overrides()
+    client, agent, _other_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        set_user(owner_user)
         response = client.post(
             "/api/workflow-transition-rules",
             json={
@@ -131,8 +166,9 @@ def test_create_workflow_transition_rule_rejects_malformed_config_json():
 
 
 def test_create_workflow_transition_rule_rejects_non_object_config_json():
-    client, agent, cleanup = _build_client_with_overrides()
+    client, agent, _other_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        set_user(owner_user)
         invalid_values = ["[]", '"x"', "42", "true", "null"]
         for value in invalid_values:
             response = client.post(
@@ -148,5 +184,68 @@ def test_create_workflow_transition_rule_rejects_non_object_config_json():
             )
             assert response.status_code == 422
             assert response.json()["detail"] == "config_json must decode to a JSON object"
+    finally:
+        cleanup()
+
+
+def test_workflow_transition_rule_authorization():
+    client, agent, other_agent, admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(other_user)
+        forbidden_create = client.post(
+            "/api/workflow-transition-rules",
+            json={
+                "system_type": "jira",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "target_agent_id": agent.id,
+            },
+        )
+        assert forbidden_create.status_code == 403
+
+        set_user(owner_user)
+        allowed_create = client.post(
+            "/api/workflow-transition-rules",
+            json={
+                "system_type": "jira",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "target_agent_id": agent.id,
+            },
+        )
+        assert allowed_create.status_code == 200
+        created_id = allowed_create.json()["id"]
+
+        set_user(other_user)
+        forbidden_list = client.get("/api/workflow-transition-rules")
+        assert forbidden_list.status_code == 403
+
+        set_user(owner_user)
+        own_get = client.get(f"/api/workflow-transition-rules/{created_id}")
+        assert own_get.status_code == 200
+
+        set_user(other_user)
+        forbidden_get = client.get(f"/api/workflow-transition-rules/{created_id}")
+        assert forbidden_get.status_code == 403
+
+        set_user(admin_user)
+        admin_list = client.get("/api/workflow-transition-rules")
+        assert admin_list.status_code == 200
+        admin_get = client.get(f"/api/workflow-transition-rules/{created_id}")
+        assert admin_get.status_code == 200
+
+        admin_create_other = client.post(
+            "/api/workflow-transition-rules",
+            json={
+                "system_type": "jira",
+                "project_key": "OPS",
+                "issue_type": "Task",
+                "trigger_status": "Todo",
+                "target_agent_id": other_agent.id,
+            },
+        )
+        assert admin_create_other.status_code == 200
     finally:
         cleanup()

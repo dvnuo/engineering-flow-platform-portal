@@ -270,6 +270,58 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
     assert captured["extra_headers"]["X-Portal-Internal-Api-Key"] == "portal-internal-key"
 
 
+def test_proxy_direct_chat_rejects_malformed_json_without_forwarding(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=77, username="runtime-user", nickname="Runtime User", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=77,
+        visibility="private",
+        status="running",
+        capability_profile_id="cap-1",
+        policy_profile_id="pol-1",
+    )
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
+        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
+
+        calls = {"count": 0}
+
+        async def _fake_forward(**kwargs):
+            calls["count"] += 1
+            return 200, b'{"ok": true}', "application/json"
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+
+        client = TestClient(app)
+        response = client.post(
+            "/a/agent-1/api/chat",
+            content=b'{"message":',
+            headers={"content-type": "application/json"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid JSON payload"
+    assert calls["count"] == 0
+
+
 def test_build_runtime_internal_headers_returns_only_internal_header(monkeypatch):
     import app.deps as deps_module
     from app.services.proxy_service import build_runtime_internal_headers

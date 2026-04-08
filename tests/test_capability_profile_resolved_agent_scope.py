@@ -14,6 +14,7 @@ from app.services.auth_service import hash_password
 def _build_client(monkeypatch):
     from app.main import app
     import app.api.capability_profiles as capability_api
+    import app.deps as deps_module
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -104,7 +105,7 @@ def _build_client(monkeypatch):
     def _override_db():
         yield db
 
-    app.dependency_overrides[capability_api.get_current_user] = _override_user
+    app.dependency_overrides[deps_module.get_current_user] = _override_user
     app.dependency_overrides[capability_api.get_db] = _override_db
 
     def _cleanup():
