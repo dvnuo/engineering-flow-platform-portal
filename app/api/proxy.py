@@ -53,6 +53,10 @@ def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
     return method.upper() == "POST" and normalized in {"api/chat", "api/chat/stream"}
 
 
+def _content_type_is_json(content_type: str | None) -> bool:
+    return bool(content_type and "application/json" in content_type.lower())
+
+
 def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
     enriched = dict(payload)
     _ = user
@@ -102,15 +106,21 @@ async def proxy_agent(
         else:
             extra_headers = build_portal_identity_headers(user)
 
-        if is_direct_chat_execution and content_type and "application/json" in content_type.lower() and request_body:
+        if is_direct_chat_execution and request_body:
+            if not _content_type_is_json(content_type):
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail="Direct chat execution requires application/json content-type",
+                )
             try:
                 parsed_payload = json.loads(request_body.decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
-            if isinstance(parsed_payload, dict):
-                runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
-                parsed_payload = _enrich_chat_payload_with_runtime_metadata(parsed_payload, runtime_metadata, user)
-                request_body = json.dumps(parsed_payload).encode("utf-8")
+            if not isinstance(parsed_payload, dict):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON payload must be an object")
+            runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
+            parsed_payload = _enrich_chat_payload_with_runtime_metadata(parsed_payload, runtime_metadata, user)
+            request_body = json.dumps(parsed_payload).encode("utf-8")
 
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
