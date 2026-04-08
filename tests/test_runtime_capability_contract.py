@@ -50,6 +50,22 @@ def test_action_resolution_only_accepts_adapter_action_aliases():
     assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
 
 
+def test_runtime_catalog_parser_accepts_legacy_adapter_field_aliases():
+    provider = RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+        {
+            "capabilities": [
+                {
+                    "capability_id": "adapter:github:review_pull_request",
+                    "capability_type": "adapter_action",
+                    "external_system": "github",
+                    "action": "review_pull_request",
+                }
+            ]
+        }
+    )
+    assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
+
+
 def test_seed_fallback_remains_compatible():
     provider = build_default_runtime_capability_catalog_provider()
     assert provider.get_catalog_source() == "seed_fallback"

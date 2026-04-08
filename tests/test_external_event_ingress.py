@@ -21,6 +21,7 @@ def _build_client_with_overrides():
     from app.main import app
     import app.api.external_event_ingress as ingress_api
     import app.api.provider_webhooks as provider_api
+    import app.deps as deps_module
     from app.db import get_db as shared_get_db
 
     class _FakeRuntimeSuccessResponse:
@@ -56,15 +57,17 @@ def _build_client_with_overrides():
     Base.metadata.create_all(bind=engine)
 
     db = TestingSessionLocal()
-    user = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
-    db.add(user)
+    admin_user = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+    viewer_user = User(username="viewer", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    db.add_all([admin_user, viewer_user])
     db.commit()
-    db.refresh(user)
+    db.refresh(admin_user)
+    db.refresh(viewer_user)
 
     agent = Agent(
         name="Router Agent",
         description="router",
-        owner_user_id=user.id,
+        owner_user_id=admin_user.id,
         visibility="private",
         status="running",
         image="example/image:latest",
@@ -85,25 +88,31 @@ def _build_client_with_overrides():
     db.commit()
     db.refresh(agent)
 
+    state = {"user": admin_user}
+
     def _override_user():
-        return SimpleNamespace(id=user.id, role="admin", username=user.username, nickname="Owner")
+        user = state["user"]
+        return SimpleNamespace(id=user.id, role=user.role, username=user.username, nickname="Owner")
 
     def _override_db():
         yield db
 
-    app.dependency_overrides[ingress_api.get_current_user] = _override_user
     app.dependency_overrides[ingress_api.get_db] = _override_db
     app.dependency_overrides[shared_get_db] = _override_db
+    app.dependency_overrides[deps_module.get_current_user] = _override_user
 
     def _cleanup():
         app.dependency_overrides.clear()
         db.close()
 
-    return TestClient(app), db, agent, _cleanup
+    def _set_user(user_obj):
+        state["user"] = user_obj
+
+    return TestClient(app), db, agent, admin_user, viewer_user, _set_user, _cleanup
 
 
 def test_ingest_no_matching_subscription_returns_rejected():
-    client, _db, _agent, cleanup = _build_client_with_overrides()
+    client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         response = client.post(
             "/api/external-events/ingest",
@@ -118,8 +127,22 @@ def test_ingest_no_matching_subscription_returns_rejected():
         cleanup()
 
 
+def test_public_ingest_is_admin_only():
+    client, _db, _agent, _admin_user, viewer_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(viewer_user)
+        response = client.post(
+            "/api/external-events/ingest",
+            json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Admin only"
+    finally:
+        cleanup()
+
+
 def test_internal_ingest_requires_internal_api_key():
-    client, _db, _agent, cleanup = _build_client_with_overrides()
+    client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         import app.deps as deps_module
 
@@ -134,7 +157,7 @@ def test_internal_ingest_requires_internal_api_key():
 
 
 def test_internal_ingest_with_internal_api_key_reuses_routing_flow():
-    client, _db, _agent, cleanup = _build_client_with_overrides()
+    client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         import app.deps as deps_module
 
@@ -153,7 +176,7 @@ def test_internal_ingest_with_internal_api_key_reuses_routing_flow():
 
 
 def test_ingest_matching_subscription_without_binding_returns_rejected():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -181,7 +204,7 @@ def test_ingest_matching_subscription_without_binding_returns_rejected():
 
 
 def test_ingest_matching_subscription_and_binding_creates_task():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -229,7 +252,7 @@ def test_ingest_matching_subscription_and_binding_creates_task():
 
 
 def test_ingest_rejects_when_external_system_not_allowed():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         profile = CapabilityProfile(name="cap-gate-source", allowed_external_systems_json='["jira"]')
         db.add(profile)
@@ -268,7 +291,7 @@ def test_ingest_rejects_when_external_system_not_allowed():
 
 
 def test_ingest_rejects_when_webhook_trigger_not_allowed():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         profile = CapabilityProfile(
             name="cap-gate-trigger",
@@ -311,7 +334,7 @@ def test_ingest_rejects_when_webhook_trigger_not_allowed():
 
 
 def test_dedupe_key_prevents_duplicate_task_creation():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -349,7 +372,7 @@ def test_dedupe_key_prevents_duplicate_task_creation():
 
 
 def test_jira_ingest_with_matching_rule_creates_workflow_review_task():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -408,7 +431,7 @@ def test_jira_ingest_with_matching_rule_creates_workflow_review_task():
 
 
 def test_jira_workflow_ingest_rejects_when_external_system_not_allowed():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         profile = CapabilityProfile(
             name="cap-jira-source-gate",
@@ -461,7 +484,7 @@ def test_jira_workflow_ingest_rejects_when_external_system_not_allowed():
 
 
 def test_jira_workflow_ingest_rejects_when_webhook_trigger_not_allowed():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         profile = CapabilityProfile(
             name="cap-jira-trigger-gate",
@@ -514,7 +537,7 @@ def test_jira_workflow_ingest_rejects_when_webhook_trigger_not_allowed():
 
 
 def test_jira_workflow_ingest_without_capability_profile_remains_permissive():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         agent.capability_profile_id = None
         db.add(agent)
@@ -555,7 +578,7 @@ def test_jira_workflow_ingest_without_capability_profile_remains_permissive():
 
 
 def test_authorized_capability_profile_allows_github_and_jira_events():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         profile = CapabilityProfile(
             name="cap-allow-both",
@@ -628,7 +651,7 @@ def test_authorized_capability_profile_allows_github_and_jira_events():
 
 
 def test_single_profile_allows_github_but_rejects_jira_workflow():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         profile = CapabilityProfile(
             name="cap-github-only",
@@ -701,7 +724,7 @@ def test_single_profile_allows_github_but_rejects_jira_workflow():
 
 
 def test_single_profile_allows_jira_workflow_but_rejects_github():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         profile = CapabilityProfile(
             name="cap-jira-only",
@@ -774,7 +797,7 @@ def test_single_profile_allows_jira_workflow_but_rejects_github():
 
 
 def test_jira_ingest_rejects_bad_persisted_rule_config():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -820,7 +843,7 @@ def test_jira_ingest_rejects_bad_persisted_rule_config():
 
 
 def test_jira_rule_assignee_specific_beats_wildcard():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -874,7 +897,7 @@ def test_jira_rule_assignee_specific_beats_wildcard():
 
 
 def test_jira_no_matching_rule_returns_rejected():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -905,7 +928,7 @@ def test_jira_no_matching_rule_returns_rejected():
 
 
 def test_target_ref_filtering_blocks_non_matching_target():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -938,7 +961,7 @@ def test_target_ref_filtering_blocks_non_matching_target():
 
 
 def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         import app.api.external_event_ingress as ingress_api
 
@@ -985,7 +1008,7 @@ def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
 
 
 def test_github_review_event_requires_external_account_id():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -1010,7 +1033,7 @@ def test_github_review_event_requires_external_account_id():
 
 
 def test_github_review_event_requires_owner_repo_pull_number():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -1042,7 +1065,7 @@ def test_github_review_event_requires_owner_repo_pull_number():
 
 
 def test_github_review_event_dispatch_failed_returns_dispatch_failed(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         import app.api.external_event_ingress as ingress_api
 
@@ -1090,7 +1113,7 @@ def test_github_review_event_dispatch_failed_returns_dispatch_failed(monkeypatch
 
 
 def test_github_review_event_dedupe_hint_prevents_duplicate_without_dedupe_key():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -1124,7 +1147,7 @@ def test_github_review_event_dedupe_hint_prevents_duplicate_without_dedupe_key()
 
 
 def test_github_review_event_new_head_sha_supersedes_previous_active_task(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         import app.api.external_event_ingress as ingress_api
 
@@ -1194,7 +1217,7 @@ def test_github_review_event_new_head_sha_supersedes_previous_active_task(monkey
 
 
 def test_github_review_event_new_head_sha_does_not_stale_done_task():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -1245,7 +1268,7 @@ def test_github_review_event_new_head_sha_does_not_stale_done_task():
 
 
 def test_github_review_event_rejected_when_repo_not_allowed():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         ExternalEventSubscriptionRepository(db).create(
             agent_id=agent.id,
@@ -1278,7 +1301,7 @@ def test_github_review_event_rejected_when_repo_not_allowed():
 
 
 def test_jira_ingress_returns_dispatch_failed_when_dispatch_fails(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         import app.api.external_event_ingress as ingress_api
 
@@ -1331,7 +1354,7 @@ def test_jira_ingress_returns_dispatch_failed_when_dispatch_fails(monkeypatch):
 
 
 def test_github_provider_webhook_review_requested_routes_to_existing_router(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     original_secret = None
     try:
         import app.api.provider_webhooks as provider_api
@@ -1377,7 +1400,7 @@ def test_github_provider_webhook_review_requested_routes_to_existing_router(monk
 
 
 def test_github_provider_webhook_invalid_signature_returns_401(monkeypatch):
-    client, _db, _agent, cleanup = _build_client_with_overrides()
+    client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     original_secret = None
     try:
         import app.api.provider_webhooks as provider_api
@@ -1399,7 +1422,7 @@ def test_github_provider_webhook_invalid_signature_returns_401(monkeypatch):
 
 
 def test_jira_provider_webhook_routes_to_workflow_review_task(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     original_secret = None
     try:
         import app.api.provider_webhooks as provider_api
@@ -1450,7 +1473,7 @@ def test_jira_provider_webhook_routes_to_workflow_review_task(monkeypatch):
 
 
 def test_provider_webhook_unsupported_events_return_noop_response():
-    client, _db, _agent, cleanup = _build_client_with_overrides()
+    client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         github_resp = client.post("/api/webhooks/github", json={"action": "opened"})
         jira_resp = client.post("/api/webhooks/jira", json={"foo": "bar"})

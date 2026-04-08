@@ -96,10 +96,10 @@ class RuntimeCapabilityCatalogProvider:
                 continue
             capability_id = item.get("capability_id") or item.get("id")
             capability_type = item.get("capability_type") or item.get("type") or ""
-            logical_name = item.get("logical_name") or item.get("name") or item.get("action_alias") or ""
+            logical_name = item.get("logical_name") or item.get("name") or item.get("action_alias") or item.get("action") or ""
             enabled = item.get("enabled", True)
-            action_alias = item.get("action_alias")
-            adapter_system = item.get("adapter_system")
+            action_alias = item.get("action_alias") or item.get("action")
+            adapter_system = item.get("adapter_system") or item.get("external_system")
             if not isinstance(capability_id, str):
                 continue
             entries.append(
