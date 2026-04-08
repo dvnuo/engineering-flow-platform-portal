@@ -37,6 +37,13 @@ class AgentIdentityBindingRepository:
             ).all()
         )
 
+    def find_all(self) -> list[AgentIdentityBinding]:
+        return list(
+            self.db.scalars(
+                select(AgentIdentityBinding).order_by(AgentIdentityBinding.created_at.desc())
+            ).all()
+        )
+
     def find_binding(self, system_type: str, external_account_id: str) -> Optional[AgentIdentityBinding]:
         normalized_system_type = self._normalize_system_type(system_type)
         stmt = (

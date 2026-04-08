@@ -1,5 +1,6 @@
 import json
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -348,7 +349,7 @@ class ExternalEventRouterService:
 
         should_dispatch = source_type == "jira" or (source_type == "github" and request.event_type == "pull_request_review_requested")
         if should_dispatch:
-            dispatch_result = asyncio.run(self.task_dispatcher.dispatch_task(task.id, db))
+            dispatch_result = self._dispatch_task_sync(task.id, db)
             if not dispatch_result.dispatched or dispatch_result.task_status == "failed":
                 return ExternalEventIngressResponse(
                     accepted=False,
@@ -385,3 +386,13 @@ class ExternalEventRouterService:
             deduped=False,
             message="Event routed and task created",
         )
+
+    def _dispatch_task_sync(self, task_id: str, db: Session):
+        coroutine = self.task_dispatcher.dispatch_task(task_id, db)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coroutine)
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(lambda: asyncio.run(coroutine)).result()
