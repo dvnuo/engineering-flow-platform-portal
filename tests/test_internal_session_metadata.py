@@ -89,17 +89,33 @@ def test_internal_session_metadata_upsert_create_and_update():
         create_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
             headers={"X-Internal-Api-Key": "internal-key"},
-            json={"group_id": "g-1", "latest_event_type": "task_created", "metadata_json": '{"k":"v"}'},
+            json={
+                "group_id": "g-1",
+                "current_task_id": "t-1",
+                "source_type": "jira",
+                "source_ref": "task-1",
+                "latest_event_type": "task_created",
+                "metadata_json": '{"k":"v"}',
+            },
         )
         assert create_resp.status_code == 200
         created = create_resp.json()
         assert created["session_id"] == "s-1"
         assert created["group_id"] == "g-1"
+        assert created["current_task_id"] == "t-1"
+        assert created["source_type"] == "jira"
+        assert created["source_ref"] == "task-1"
 
         update_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
             headers={"X-Internal-Api-Key": "internal-key"},
-            json={"group_id": "g-2", "latest_event_state": "running"},
+            json={
+                "group_id": "g-2",
+                "current_task_id": "t-1",
+                "source_type": "jira",
+                "source_ref": "task-1",
+                "latest_event_state": "running",
+            },
         )
         assert update_resp.status_code == 200
         updated = update_resp.json()
@@ -114,6 +130,9 @@ def test_internal_session_metadata_upsert_create_and_update():
         fetched = get_resp.json()
         assert fetched["id"] == created["id"]
         assert fetched["session_id"] == "s-1"
+        assert fetched["current_task_id"] == "t-1"
+        assert fetched["source_type"] == "jira"
+        assert fetched["source_ref"] == "task-1"
     finally:
         deps_module.settings.portal_internal_api_key = original
         cleanup()

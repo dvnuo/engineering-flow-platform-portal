@@ -97,7 +97,13 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
         rules = rules_resp.json()
         assert len(rules) == 1
         assert rules[0]["system_type"] == "jira"
+        assert rules[0]["provider_type"] == "jira"
+        assert rules[0]["is_enabled"] is True
+        assert rules[0]["enabled"] is True
         assert rules[0]["project_key"] == "EFP"
+        assert rules[0]["project_keys"] == ["EFP"]
+        assert rules[0]["trigger_status"] == "In Review"
+        assert rules[0]["trigger_statuses"] == ["In Review"]
 
         bindings_resp = client.get(
             "/api/internal/agent-identity-bindings?system_type=jira&enabled=true",
@@ -106,7 +112,11 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
         assert bindings_resp.status_code == 200
         bindings = bindings_resp.json()
         assert len(bindings) == 1
+        assert bindings[0]["system_type"] == "jira"
+        assert bindings[0]["provider_type"] == "jira"
         assert bindings[0]["external_account_id"] == "jira-acct-1"
+        assert bindings[0]["scope"] == '{"projects":["EFP"]}'
+        assert bindings[0]["scope_json"] == '{"projects":["EFP"]}'
     finally:
         deps_module.settings.portal_internal_api_key = original
         cleanup()

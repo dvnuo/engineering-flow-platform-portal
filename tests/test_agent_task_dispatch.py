@@ -343,6 +343,11 @@ def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatc
         assert captured["metadata"]["portal_delegation_reply_target"] == "leader"
         assert captured["metadata"]["portal_coordination_run_id"] == "run-55"
         assert captured["metadata"]["portal_coordination_round_index"] == 4
+        assert captured["metadata"]["portal_delegation_id"] == delegation.id
+        assert captured["metadata"]["current_delegation_id"] == delegation.id
+        assert captured["metadata"]["portal_group_id"] == "g-1"
+        assert captured["metadata"]["group_id"] == "g-1"
+        assert captured["metadata"]["current_coordination_run_id"] == "run-55"
     finally:
         cleanup()
 
@@ -433,6 +438,9 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         assert metadata["denied_adapter_actions"] == ["adapter:github:add_comment"]
         assert metadata["portal_task_id"] == task.id
         assert metadata["portal_task_source"] == task.source
+        assert metadata["current_task_id"] == task.id
+        assert metadata["source_type"] == task.source
+        assert metadata["source_ref"] == task.id
     finally:
         cleanup()
 
@@ -474,6 +482,9 @@ def test_dispatch_includes_capability_metadata_defaults_when_profile_is_missing(
         assert metadata["policy_context"]["policy_profile_id"] is None
         assert metadata["portal_task_id"] == task.id
         assert metadata["portal_task_source"] == task.source
+        assert metadata["current_task_id"] == task.id
+        assert metadata["source_type"] == task.source
+        assert metadata["source_ref"] == task.id
         assert metadata["allowed_capability_ids"] == []
         assert metadata["allowed_capability_types"] == []
         assert metadata["allowed_actions"] == []

@@ -77,6 +77,12 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 - Portal -> EFP runtime internal endpoints (`/api/tasks/execute`, `/api/capabilities`) use `X-Internal-Api-Key` (from `RUNTIME_INTERNAL_API_KEY`).
 - EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
 
+### Internal control-plane export contract
+
+- `GET /api/internal/workflow-transition-rules` keeps existing fields (`system_type`, `is_enabled`, `project_key`, `trigger_status`) and also provides compatibility aliases (`provider_type`, `enabled`, `project_keys`, `trigger_statuses`).
+- `GET /api/internal/agent-identity-bindings` keeps existing fields (`system_type`, `scope`, `enabled`) and also provides compatibility aliases (`provider_type`, `scope_json`).
+- Task dispatch metadata now carries canonical session-registry fields used by Runtime publishing: `group_id`, `current_task_id`, `current_delegation_id`, `current_coordination_run_id`.
+
 ### Session Metadata Registry (internal)
 
 - Registry key semantics: **`(agent_id, session_id)`** (agent-scoped), not globally-unique `session_id`.

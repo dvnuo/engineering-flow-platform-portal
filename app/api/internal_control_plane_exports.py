@@ -45,9 +45,12 @@ def list_internal_workflow_transition_rules(
             {
                 "id": item.id,
                 "system_type": item.system_type,
+                "provider_type": item.system_type,
                 "project_key": item.project_key,
+                "project_keys": [item.project_key] if item.project_key else [],
                 "issue_type": item.issue_type,
                 "trigger_status": item.trigger_status,
+                "trigger_statuses": [item.trigger_status] if item.trigger_status else [],
                 "assignee_binding": item.assignee_binding,
                 "target_agent_id": item.target_agent_id,
                 "skill_name": item.skill_name,
@@ -61,6 +64,7 @@ def list_internal_workflow_transition_rules(
                 "transition_comment_template": parsed_cfg.get("transition_comment_template"),
                 "config_json": item.config_json,
                 "is_enabled": item.enabled,
+                "enabled": item.enabled,
             }
         )
     return data
@@ -91,9 +95,11 @@ def list_internal_agent_identity_bindings(
             "id": item.id,
             "agent_id": item.agent_id,
             "system_type": item.system_type,
+            "provider_type": item.system_type,
             "external_account_id": item.external_account_id,
             "username": item.username,
             "scope": item.scope_json,
+            "scope_json": item.scope_json,
             "enabled": item.enabled,
         }
         for item in bindings

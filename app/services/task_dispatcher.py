@@ -363,7 +363,12 @@ class TaskDispatcherService:
             "portal_task_id": task.id,
             "portal_task_source": task.source,
             "shared_context_ref": task.shared_context_ref,
+            "current_task_id": task.id,
+            "source_type": task.source or "portal",
+            "source_ref": task.id,
         }
+        if task.group_id:
+            metadata["group_id"] = task.group_id
         metadata = self.runtime_execution_context_service.build_runtime_metadata(db, agent, metadata)
         workflow_rule_id = input_payload.get("workflow_rule_id")
         if workflow_rule_id:
@@ -383,16 +388,21 @@ class TaskDispatcherService:
             delegation = delegation_repo.find_by_agent_task_id(task.id)
             if delegation:
                 metadata["portal_delegation_id"] = delegation.id
+                metadata["current_delegation_id"] = delegation.id
                 metadata["portal_group_id"] = delegation.group_id
+                if delegation.group_id:
+                    metadata["group_id"] = delegation.group_id
                 metadata["portal_leader_agent_id"] = delegation.leader_agent_id
                 metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
                 metadata["portal_delegation_reply_target"] = getattr(delegation, "reply_target_type", None) or "leader"
                 if getattr(delegation, "coordination_run_id", None):
                     metadata["portal_coordination_run_id"] = delegation.coordination_run_id
+                    metadata["current_coordination_run_id"] = delegation.coordination_run_id
                 metadata["portal_coordination_round_index"] = getattr(delegation, "round_index", 1) or 1
             else:
                 if input_payload.get("coordination_run_id"):
                     metadata["portal_coordination_run_id"] = input_payload.get("coordination_run_id")
+                    metadata["current_coordination_run_id"] = input_payload.get("coordination_run_id")
                 if input_payload.get("round_index") is not None:
                     metadata["portal_coordination_round_index"] = input_payload.get("round_index")
             if input_payload.get("strict_delegation_result") is True:
