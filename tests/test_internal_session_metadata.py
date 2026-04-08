@@ -262,3 +262,59 @@ def test_list_session_metadata_with_filters_and_sorting():
     finally:
         deps_module.settings.portal_internal_api_key = original
         cleanup()
+
+
+def test_agent_session_metadata_upsert_recovers_from_insert_race(monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.agent_session_metadata import AgentSessionMetadata
+    from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
+
+    class _FakeDB:
+        def __init__(self):
+            self.rollback_calls = 0
+            self.commit_calls = 0
+
+        def add(self, _obj):
+            return None
+
+        def commit(self):
+            self.commit_calls += 1
+            if self.commit_calls == 1:
+                raise IntegrityError("insert", {}, Exception("duplicate"))
+
+        def rollback(self):
+            self.rollback_calls += 1
+
+        def refresh(self, _obj):
+            return None
+
+    db = _FakeDB()
+    repo = AgentSessionMetadataRepository(db)  # type: ignore[arg-type]
+    existing = AgentSessionMetadata(agent_id="agent-1", session_id="s-1", group_id="old-group", latest_event_state="queued")
+    existing.id = "existing-row"
+
+    calls = {"count": 0}
+
+    def _fake_get(*, agent_id: str, session_id: str):
+        _ = (agent_id, session_id)
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return None
+        return existing
+
+    monkeypatch.setattr(repo, "get_by_agent_and_session", _fake_get)
+
+    result = repo.upsert(
+        agent_id="agent-1",
+        session_id="s-1",
+        group_id="new-group",
+        latest_event_state="running",
+        metadata_json='{"k":"v"}',
+    )
+
+    assert result is existing
+    assert result.group_id == "new-group"
+    assert result.latest_event_state == "running"
+    assert result.metadata_json == '{"k":"v"}'
+    assert db.rollback_calls == 1

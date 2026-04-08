@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.agent_session_metadata import AgentSessionMetadata
@@ -38,7 +39,8 @@ class AgentSessionMetadataRepository:
 
     def upsert(self, *, agent_id: str, session_id: str, **fields) -> AgentSessionMetadata:
         record = self.get_by_agent_and_session(agent_id=agent_id, session_id=session_id)
-        if record is None:
+        is_new = record is None
+        if is_new:
             record = AgentSessionMetadata(agent_id=agent_id, session_id=session_id)
 
         for key, value in fields.items():
@@ -49,6 +51,22 @@ class AgentSessionMetadataRepository:
         record.updated_at = datetime.utcnow()
 
         self.db.add(record)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError:
+            if not is_new:
+                raise
+            self.db.rollback()
+            record = self.get_by_agent_and_session(agent_id=agent_id, session_id=session_id)
+            if record is None:
+                raise
+            for key, value in fields.items():
+                if hasattr(record, key):
+                    setattr(record, key, value)
+            record.agent_id = agent_id
+            record.session_id = session_id
+            record.updated_at = datetime.utcnow()
+            self.db.add(record)
+            self.db.commit()
         self.db.refresh(record)
         return record
