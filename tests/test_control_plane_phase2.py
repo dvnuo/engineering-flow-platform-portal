@@ -22,6 +22,7 @@ def _build_client_with_overrides(monkeypatch):
     import app.api.policy_profiles as policy_api
     import app.api.runtime_router as runtime_router_api
     import app.api.agent_groups as groups_api
+    import app.deps as deps_module
 
     monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
     monkeypatch.setattr(agents_api.k8s_service, "update_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -35,15 +36,17 @@ def _build_client_with_overrides(monkeypatch):
     Base.metadata.create_all(bind=engine)
 
     db = TestingSessionLocal()
-    user = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
-    db.add(user)
+    admin_user = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+    viewer_user = User(username="viewer", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    db.add_all([admin_user, viewer_user])
     db.commit()
-    db.refresh(user)
+    db.refresh(admin_user)
+    db.refresh(viewer_user)
 
     agent = Agent(
         name="Agent One",
         description="desc",
-        owner_user_id=user.id,
+        owner_user_id=admin_user.id,
         visibility="private",
         status="running",
         image="example/image:latest",
@@ -64,8 +67,11 @@ def _build_client_with_overrides(monkeypatch):
     db.commit()
     db.refresh(agent)
 
+    state = {"user": admin_user}
+
     def _override_user():
-        return SimpleNamespace(id=user.id, role="admin", username=user.username, nickname="Owner")
+        user = state["user"]
+        return SimpleNamespace(id=user.id, role=user.role, username=user.username, nickname="Owner")
 
     def _override_db():
         yield db
@@ -76,23 +82,26 @@ def _build_client_with_overrides(monkeypatch):
     app.dependency_overrides[policy_api.get_db] = _override_db
     app.dependency_overrides[bindings_api.get_current_user] = _override_user
     app.dependency_overrides[bindings_api.get_db] = _override_db
-    app.dependency_overrides[runtime_router_api.get_current_user] = _override_user
     app.dependency_overrides[runtime_router_api.get_db] = _override_db
     app.dependency_overrides[groups_api.get_current_user] = _override_user
     app.dependency_overrides[groups_api.get_db] = _override_db
     app.dependency_overrides[agents_api.get_current_user] = _override_user
     app.dependency_overrides[agents_api.get_db] = _override_db
     app.dependency_overrides[internal_agents_api.get_db] = _override_db
+    app.dependency_overrides[deps_module.get_current_user] = _override_user
 
     def _cleanup():
         app.dependency_overrides.clear()
         db.close()
 
-    return TestClient(app), agent, _cleanup
+    def _set_user(user_obj):
+        state["user"] = user_obj
+
+    return TestClient(app), agent, admin_user, viewer_user, _set_user, _cleanup
 
 
 def test_capability_profiles_create_and_list(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         create_resp = client.post(
             "/api/capability-profiles",
@@ -110,7 +119,7 @@ def test_capability_profiles_create_and_list(monkeypatch):
 
 
 def test_policy_profiles_create_and_list(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         create_resp = client.post(
             "/api/policy-profiles",
@@ -128,7 +137,7 @@ def test_policy_profiles_create_and_list(monkeypatch):
 
 
 def test_identity_bindings_create_and_list_for_agent(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         create_resp = client.post(
             f"/api/agents/{agent.id}/identity-bindings",
@@ -152,7 +161,7 @@ def test_identity_bindings_create_and_list_for_agent(monkeypatch):
 
 
 def test_agent_response_includes_additive_control_plane_fields(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         response = client.get(f"/api/agents/{agent.id}")
         assert response.status_code == 200
@@ -165,7 +174,7 @@ def test_agent_response_includes_additive_control_plane_fields(monkeypatch):
 
 
 def test_runtime_router_resolves_agent_by_binding(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         create_binding_resp = client.post(
             f"/api/agents/{agent.id}/identity-bindings",
@@ -191,8 +200,28 @@ def test_runtime_router_resolves_agent_by_binding(monkeypatch):
         cleanup()
 
 
+def test_runtime_router_resolve_binding_is_admin_only(monkeypatch):
+    client, agent, _admin_user, viewer_user, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create_binding_resp = client.post(
+            f"/api/agents/{agent.id}/identity-bindings",
+            json={"system_type": "jira", "external_account_id": "jira-user-7", "enabled": True},
+        )
+        assert create_binding_resp.status_code == 200
+
+        set_user(viewer_user)
+        forbidden = client.post(
+            "/api/runtime-router/resolve-binding",
+            json={"system_type": "JIRA", "external_account_id": "jira-user-7"},
+        )
+        assert forbidden.status_code == 403
+        assert forbidden.json()["detail"] == "Admin only"
+    finally:
+        cleanup()
+
+
 def test_runtime_router_returns_none_when_no_binding_exists(monkeypatch):
-    _client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    _client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         service = RuntimeRouterService()
         engine = create_engine(
@@ -219,7 +248,7 @@ def test_runtime_router_returns_none_when_no_binding_exists(monkeypatch):
 
 
 def test_runtime_router_service_returns_typed_response(monkeypatch):
-    _client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    _client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         engine = create_engine(
             "sqlite://",
@@ -280,7 +309,7 @@ def test_runtime_router_service_returns_typed_response(monkeypatch):
 
 
 def test_create_agent_rejects_nonexistent_capability_profile(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         response = client.post(
             "/api/agents",
@@ -297,7 +326,7 @@ def test_create_agent_rejects_nonexistent_capability_profile(monkeypatch):
 
 
 def test_create_agent_rejects_nonexistent_policy_profile(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         response = client.post(
             "/api/agents",
@@ -314,7 +343,7 @@ def test_create_agent_rejects_nonexistent_policy_profile(monkeypatch):
 
 
 def test_update_agent_rejects_invalid_profile_references(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         cap_resp = client.patch(f"/api/agents/{agent.id}", json={"capability_profile_id": "missing-capability"})
         assert cap_resp.status_code == 404
@@ -328,7 +357,7 @@ def test_update_agent_rejects_invalid_profile_references(monkeypatch):
 
 
 def test_update_agent_allows_clearing_profile_references(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         cap_create = client.post("/api/capability-profiles", json={"name": "cap-for-update"})
         policy_create = client.post("/api/policy-profiles", json={"name": "policy-for-update"})
@@ -358,7 +387,7 @@ def test_update_agent_allows_clearing_profile_references(monkeypatch):
 
 
 def test_capability_profile_create_invalid_json_returns_400(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         resp = client.post(
             "/api/capability-profiles",
@@ -371,7 +400,7 @@ def test_capability_profile_create_invalid_json_returns_400(monkeypatch):
 
 
 def test_capability_profile_create_rejects_unknown_allowed_actions(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         resp = client.post(
             "/api/capability-profiles",
@@ -384,7 +413,7 @@ def test_capability_profile_create_rejects_unknown_allowed_actions(monkeypatch):
 
 
 def test_capability_profile_create_rejects_ambiguous_allowed_actions(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         resp = client.post(
             "/api/capability-profiles",
@@ -397,7 +426,7 @@ def test_capability_profile_create_rejects_ambiguous_allowed_actions(monkeypatch
 
 
 def test_capability_profile_update_rejects_logical_duplicate_allowed_actions(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         create = client.post("/api/capability-profiles", json={"name": "cap-dup-action"})
         assert create.status_code == 200
@@ -414,7 +443,7 @@ def test_capability_profile_update_rejects_logical_duplicate_allowed_actions(mon
 
 
 def test_capability_profile_resolved_endpoint_update_and_delete(monkeypatch):
-    client, _agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         create = client.post(
             "/api/capability-profiles",
@@ -453,8 +482,34 @@ def test_capability_profile_resolved_endpoint_update_and_delete(monkeypatch):
         cleanup()
 
 
+def test_capability_profile_patch_and_delete_are_admin_only(monkeypatch):
+    client, _agent, admin_user, viewer_user, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create = client.post("/api/capability-profiles", json={"name": "cap-admin-only"})
+        assert create.status_code == 200
+        profile_id = create.json()["id"]
+
+        set_user(viewer_user)
+        forbidden_patch = client.patch(f"/api/capability-profiles/{profile_id}", json={"description": "x"})
+        assert forbidden_patch.status_code == 403
+        assert forbidden_patch.json()["detail"] == "Admin only"
+
+        forbidden_delete = client.delete(f"/api/capability-profiles/{profile_id}")
+        assert forbidden_delete.status_code == 403
+        assert forbidden_delete.json()["detail"] == "Admin only"
+
+        set_user(admin_user)
+        allowed_patch = client.patch(f"/api/capability-profiles/{profile_id}", json={"description": "ok"})
+        assert allowed_patch.status_code == 200
+
+        allowed_delete = client.delete(f"/api/capability-profiles/{profile_id}")
+        assert allowed_delete.status_code == 200
+    finally:
+        cleanup()
+
+
 def test_internal_agent_runtime_context_endpoint_returns_effective_context(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         import app.deps as deps_module
 
@@ -475,8 +530,8 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
             json={
                 "name": "policy-runtime-context",
                 "auto_run_rules_json": '{"require_explicit_allow": true, "allow_auto_run": false}',
-                "permission_rules_json": '{"denied_capability_ids": ["tool:shell"], "denied_actions": ["adapter:github:add_comment"]}',
-                "transition_rules_json": '{"external_trigger_allowlist": ["github"], "external_trigger_blocklist": ["slack"]}',
+                "permission_rules_json": '{"denied_capability_ids": [" tool:shell ", ""], "denied_actions": [" adapter:github:add_comment "]}',
+                "transition_rules_json": '{"external_trigger_allowlist": [" github ", "   ", "jira"], "external_trigger_blocklist": [" slack "]}',
                 "max_parallel_tasks": 2,
             },
         ).json()
@@ -511,7 +566,7 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
         assert body["policy_context"]["max_parallel_tasks"] == 2
         assert body["policy_context"]["derived_runtime_rules"]["governance_require_explicit_allow"] is True
         assert body["policy_context"]["derived_runtime_rules"]["governance_allow_auto_run"] is False
-        assert body["policy_context"]["derived_runtime_rules"]["governance_external_allowlist"] == ["github"]
+        assert body["policy_context"]["derived_runtime_rules"]["governance_external_allowlist"] == ["github", "jira"]
         assert body["policy_context"]["derived_runtime_rules"]["governance_external_blocklist"] == ["slack"]
         assert body["policy_context"]["derived_runtime_rules"]["denied_capability_ids"] == ["tool:shell"]
         assert body["policy_context"]["derived_runtime_rules"]["denied_adapter_actions"] == ["adapter:github:add_comment"]
@@ -520,7 +575,7 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
 
 
 def test_runtime_router_and_internal_runtime_context_expose_consistent_capability_fields(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         import app.deps as deps_module
 
@@ -575,7 +630,7 @@ def test_runtime_router_and_internal_runtime_context_expose_consistent_capabilit
 
 
 def test_identity_bindings_duplicate_enabled_conflict(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         first_resp = client.post(
             f"/api/agents/{agent.id}/identity-bindings",
@@ -595,7 +650,7 @@ def test_identity_bindings_duplicate_enabled_conflict(monkeypatch):
 
 
 def test_identity_bindings_duplicate_conflict_when_existing_is_disabled(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         first_resp = client.post(
             f"/api/agents/{agent.id}/identity-bindings",
@@ -614,7 +669,7 @@ def test_identity_bindings_duplicate_conflict_when_existing_is_disabled(monkeypa
 
 
 def test_identity_bindings_integrity_error_has_same_duplicate_message(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         import app.api.agent_identity_bindings as bindings_api
         from sqlalchemy.exc import IntegrityError
@@ -635,7 +690,7 @@ def test_identity_bindings_integrity_error_has_same_duplicate_message(monkeypatc
 
 
 def test_create_agent_group_success(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         response = client.post(
             "/api/agent-groups",
@@ -654,7 +709,7 @@ def test_create_agent_group_success(monkeypatch):
 
 
 def test_create_group_auto_writes_leader_member_and_detail_has_members(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         create_resp = client.post(
             "/api/agent-groups",
@@ -677,7 +732,7 @@ def test_create_group_auto_writes_leader_member_and_detail_has_members(monkeypat
 
 
 def test_group_cannot_have_second_leader_member(monkeypatch):
-    client, agent, cleanup = _build_client_with_overrides(monkeypatch)
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         create_resp = client.post(
             "/api/agent-groups",
