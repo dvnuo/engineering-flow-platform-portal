@@ -482,8 +482,8 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         policy_profile = PolicyProfile(
             name="policy-dispatch",
             auto_run_rules_json='{"require_explicit_allow": true, "allow_auto_run": false}',
-            permission_rules_json='{"denied_capability_ids":["tool:shell"],"denied_adapter_actions":["adapter:github:add_comment"]}',
-            transition_rules_json='{"external_trigger_allowlist":["github"],"external_trigger_blocklist":["slack"]}',
+            permission_rules_json='{"denied_capability_ids":[" tool:shell ", ""],"denied_adapter_actions":[" adapter:github:add_comment "]}',
+            transition_rules_json='{"external_trigger_allowlist":[" github ","   ","jira"],"external_trigger_blocklist":[" slack "]}',
         )
         db.add(capability_profile)
         db.add(policy_profile)
@@ -545,7 +545,7 @@ def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
         assert metadata["policy_context"]["auto_run_rules"]["require_explicit_allow"] is True
         assert metadata["governance_require_explicit_allow"] is True
         assert metadata["governance_allow_auto_run"] is False
-        assert metadata["governance_external_allowlist"] == ["github"]
+        assert metadata["governance_external_allowlist"] == ["github", "jira"]
         assert metadata["governance_external_blocklist"] == ["slack"]
         assert metadata["denied_capability_ids"] == ["tool:shell"]
         assert metadata["denied_adapter_actions"] == ["adapter:github:add_comment"]

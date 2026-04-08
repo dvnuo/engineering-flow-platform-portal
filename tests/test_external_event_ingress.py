@@ -1356,6 +1356,7 @@ def test_jira_ingress_returns_dispatch_failed_when_dispatch_fails(monkeypatch):
 def test_github_provider_webhook_review_requested_routes_to_existing_router(monkeypatch):
     client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     original_secret = None
+    original_allow_insecure = None
     try:
         import app.api.provider_webhooks as provider_api
 
@@ -1373,7 +1374,9 @@ def test_github_provider_webhook_review_requested_routes_to_existing_router(monk
             enabled=True,
         )
         original_secret = provider_api.settings.github_webhook_secret
+        original_allow_insecure = provider_api.settings.allow_insecure_provider_webhooks
         provider_api.settings.github_webhook_secret = ""
+        provider_api.settings.allow_insecure_provider_webhooks = True
 
         response = client.post(
             "/api/webhooks/github",
@@ -1396,6 +1399,7 @@ def test_github_provider_webhook_review_requested_routes_to_existing_router(monk
             import app.api.provider_webhooks as provider_api
 
             provider_api.settings.github_webhook_secret = original_secret
+            provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
         cleanup()
 
 
@@ -1424,6 +1428,7 @@ def test_github_provider_webhook_invalid_signature_returns_401(monkeypatch):
 def test_jira_provider_webhook_routes_to_workflow_review_task(monkeypatch):
     client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     original_secret = None
+    original_allow_insecure = None
     try:
         import app.api.provider_webhooks as provider_api
 
@@ -1445,7 +1450,9 @@ def test_jira_provider_webhook_routes_to_workflow_review_task(monkeypatch):
             config_json='{"strict": true}',
         )
         original_secret = provider_api.settings.jira_webhook_shared_secret
+        original_allow_insecure = provider_api.settings.allow_insecure_provider_webhooks
         provider_api.settings.jira_webhook_shared_secret = ""
+        provider_api.settings.allow_insecure_provider_webhooks = True
         response = client.post(
             "/api/webhooks/jira",
             json={
@@ -1469,12 +1476,44 @@ def test_jira_provider_webhook_routes_to_workflow_review_task(monkeypatch):
             import app.api.provider_webhooks as provider_api
 
             provider_api.settings.jira_webhook_shared_secret = original_secret
+            provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
+        cleanup()
+
+
+def test_jira_provider_webhook_invalid_shared_secret_returns_401():
+    client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    original_secret = None
+    original_allow_insecure = None
+    try:
+        import app.api.provider_webhooks as provider_api
+
+        original_secret = provider_api.settings.jira_webhook_shared_secret
+        original_allow_insecure = provider_api.settings.allow_insecure_provider_webhooks
+        provider_api.settings.jira_webhook_shared_secret = "jira-top-secret"
+        provider_api.settings.allow_insecure_provider_webhooks = False
+        response = client.post(
+            "/api/webhooks/jira",
+            headers={"X-Efp-Webhook-Secret": "bad"},
+            json={"issue": {"fields": {}}},
+        )
+        assert response.status_code == 401
+    finally:
+        if original_secret is not None:
+            import app.api.provider_webhooks as provider_api
+
+            provider_api.settings.jira_webhook_shared_secret = original_secret
+            provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
         cleanup()
 
 
 def test_provider_webhook_unsupported_events_return_noop_response():
     client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    original_allow_insecure = None
     try:
+        import app.api.provider_webhooks as provider_api
+
+        original_allow_insecure = provider_api.settings.allow_insecure_provider_webhooks
+        provider_api.settings.allow_insecure_provider_webhooks = True
         github_resp = client.post("/api/webhooks/github", json={"action": "opened"})
         jira_resp = client.post("/api/webhooks/jira", json={"foo": "bar"})
         assert github_resp.status_code == 200
@@ -1484,4 +1523,39 @@ def test_provider_webhook_unsupported_events_return_noop_response():
         assert jira_resp.json()["accepted"] is False
         assert jira_resp.json()["routing_reason"] == "unsupported_jira_event"
     finally:
+        if original_allow_insecure is not None:
+            import app.api.provider_webhooks as provider_api
+
+            provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
+        cleanup()
+
+
+def test_provider_webhooks_return_503_when_secrets_are_unset_by_default():
+    client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    original_gh_secret = None
+    original_jira_secret = None
+    original_allow_insecure = None
+    try:
+        import app.api.provider_webhooks as provider_api
+
+        original_gh_secret = provider_api.settings.github_webhook_secret
+        original_jira_secret = provider_api.settings.jira_webhook_shared_secret
+        original_allow_insecure = provider_api.settings.allow_insecure_provider_webhooks
+        provider_api.settings.github_webhook_secret = ""
+        provider_api.settings.jira_webhook_shared_secret = ""
+        provider_api.settings.allow_insecure_provider_webhooks = False
+
+        github_resp = client.post("/api/webhooks/github", json={"action": "opened"})
+        jira_resp = client.post("/api/webhooks/jira", json={"foo": "bar"})
+        assert github_resp.status_code == 503
+        assert github_resp.json()["detail"] == "GitHub webhook secret is not configured"
+        assert jira_resp.status_code == 503
+        assert jira_resp.json()["detail"] == "Jira webhook secret is not configured"
+    finally:
+        if original_gh_secret is not None:
+            import app.api.provider_webhooks as provider_api
+
+            provider_api.settings.github_webhook_secret = original_gh_secret
+            provider_api.settings.jira_webhook_shared_secret = original_jira_secret
+            provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
         cleanup()
