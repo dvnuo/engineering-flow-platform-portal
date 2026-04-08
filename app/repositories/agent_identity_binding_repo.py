@@ -10,6 +10,8 @@ class AgentIdentityBindingRepository:
         self.db = db
 
     def create(self, **kwargs) -> AgentIdentityBinding:
+        if "system_type" in kwargs and kwargs["system_type"] is not None:
+            kwargs["system_type"] = self._normalize_system_type(kwargs["system_type"])
         binding = AgentIdentityBinding(**kwargs)
         self.db.add(binding)
         self.db.commit()
@@ -79,6 +81,8 @@ class AgentIdentityBindingRepository:
         return self.db.scalars(stmt).first()
 
     def save(self, binding: AgentIdentityBinding) -> AgentIdentityBinding:
+        if binding.system_type:
+            binding.system_type = self._normalize_system_type(binding.system_type)
         self.db.add(binding)
         self.db.commit()
         self.db.refresh(binding)
@@ -87,6 +91,7 @@ class AgentIdentityBindingRepository:
     def delete(self, binding: AgentIdentityBinding) -> None:
         self.db.delete(binding)
         self.db.commit()
+
     @staticmethod
     def _normalize_system_type(system_type: str) -> str:
         return (system_type or "").strip().lower()
