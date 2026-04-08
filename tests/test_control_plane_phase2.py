@@ -76,9 +76,7 @@ def _build_client_with_overrides(monkeypatch):
     def _override_db():
         yield db
 
-    app.dependency_overrides[capability_api.get_current_user] = _override_user
     app.dependency_overrides[capability_api.get_db] = _override_db
-    app.dependency_overrides[policy_api.get_current_user] = _override_user
     app.dependency_overrides[policy_api.get_db] = _override_db
     app.dependency_overrides[bindings_api.get_current_user] = _override_user
     app.dependency_overrides[bindings_api.get_db] = _override_db
@@ -132,6 +130,64 @@ def test_policy_profiles_create_and_list(monkeypatch):
         assert list_resp.status_code == 200
         assert len(list_resp.json()) == 1
         assert list_resp.json()[0]["name"] == "pol-basic"
+    finally:
+        cleanup()
+
+
+def test_capability_profiles_endpoints_are_admin_only(monkeypatch):
+    client, _agent, admin_user, viewer_user, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create = client.post("/api/capability-profiles", json={"name": "cap-admin-gate"})
+        assert create.status_code == 200
+        profile_id = create.json()["id"]
+
+        set_user(viewer_user)
+        forbidden_create = client.post("/api/capability-profiles", json={"name": "cap-viewer-denied"})
+        assert forbidden_create.status_code == 403
+        assert forbidden_create.json()["detail"] == "Admin only"
+
+        forbidden_list = client.get("/api/capability-profiles")
+        assert forbidden_list.status_code == 403
+        assert forbidden_list.json()["detail"] == "Admin only"
+
+        forbidden_get = client.get(f"/api/capability-profiles/{profile_id}")
+        assert forbidden_get.status_code == 403
+        assert forbidden_get.json()["detail"] == "Admin only"
+
+        forbidden_resolved = client.get(f"/api/capability-profiles/{profile_id}/resolved")
+        assert forbidden_resolved.status_code == 403
+        assert forbidden_resolved.json()["detail"] == "Admin only"
+
+        set_user(admin_user)
+        allowed_get = client.get(f"/api/capability-profiles/{profile_id}")
+        assert allowed_get.status_code == 200
+    finally:
+        cleanup()
+
+
+def test_policy_profiles_endpoints_are_admin_only(monkeypatch):
+    client, _agent, admin_user, viewer_user, set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        create = client.post("/api/policy-profiles", json={"name": "pol-admin-gate"})
+        assert create.status_code == 200
+        profile_id = create.json()["id"]
+
+        set_user(viewer_user)
+        forbidden_create = client.post("/api/policy-profiles", json={"name": "pol-viewer-denied"})
+        assert forbidden_create.status_code == 403
+        assert forbidden_create.json()["detail"] == "Admin only"
+
+        forbidden_list = client.get("/api/policy-profiles")
+        assert forbidden_list.status_code == 403
+        assert forbidden_list.json()["detail"] == "Admin only"
+
+        forbidden_get = client.get(f"/api/policy-profiles/{profile_id}")
+        assert forbidden_get.status_code == 403
+        assert forbidden_get.json()["detail"] == "Admin only"
+
+        set_user(admin_user)
+        allowed_get = client.get(f"/api/policy-profiles/{profile_id}")
+        assert allowed_get.status_code == 200
     finally:
         cleanup()
 

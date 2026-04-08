@@ -1,7 +1,7 @@
 """add delegation routing intent fields
 
 Revision ID: 20260407_0001
-Revises: 
+Revises: 20260407_0000
 Create Date: 2026-04-07
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "20260407_0001"
-down_revision = None
+down_revision = "20260407_0000"
 branch_labels = None
 depends_on = None
 
