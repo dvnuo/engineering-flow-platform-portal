@@ -100,7 +100,9 @@ def _normalize_jira_workflow_requested(payload: dict) -> ExternalEventIngressReq
 def _verify_github_signature(raw_body: bytes, signature_header: str | None) -> None:
     secret = (settings.github_webhook_secret or "").strip()
     if not secret:
-        return
+        if settings.allow_insecure_provider_webhooks:
+            return
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="GitHub webhook secret is not configured")
     if not signature_header:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid GitHub webhook signature")
     digest = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
@@ -113,7 +115,9 @@ def _verify_github_signature(raw_body: bytes, signature_header: str | None) -> N
 def _verify_jira_shared_secret(shared_secret_header: str | None) -> None:
     expected = (settings.jira_webhook_shared_secret or "").strip()
     if not expected:
-        return
+        if settings.allow_insecure_provider_webhooks:
+            return
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Jira webhook secret is not configured")
     provided = str(shared_secret_header or "").strip()
     if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Jira webhook secret")

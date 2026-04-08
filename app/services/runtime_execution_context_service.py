@@ -25,7 +25,14 @@ class RuntimeExecutionContextService:
     def _as_string_list(value) -> list[str]:
         if not isinstance(value, list):
             return []
-        return [item for item in value if isinstance(item, str) and item]
+        result: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            normalized = item.strip()
+            if normalized:
+                result.append(normalized)
+        return result
 
     def _build_policy_context(self, db: Session, agent: Agent | None) -> tuple[str | None, dict]:
         policy_profile_id = agent.policy_profile_id if agent else None

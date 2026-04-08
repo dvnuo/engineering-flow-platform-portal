@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     portal_internal_base_url: str = Field(default="", validation_alias="PORTAL_INTERNAL_BASE_URL")
     github_webhook_secret: str = Field(default="", validation_alias="GITHUB_WEBHOOK_SECRET")
     jira_webhook_shared_secret: str = Field(default="", validation_alias="JIRA_WEBHOOK_SHARED_SECRET")
+    allow_insecure_provider_webhooks: bool = Field(default=False, validation_alias="ALLOW_INSECURE_PROVIDER_WEBHOOKS")
     # Preferred runtime-catalog alignment hook for Portal capability validation/routing.
     # If this snapshot is missing/invalid, Portal falls back to deterministic local seed mappings.
     runtime_capability_catalog_snapshot_json: str = Field(
