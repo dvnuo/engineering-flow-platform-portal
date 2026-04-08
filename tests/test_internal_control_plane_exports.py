@@ -56,6 +56,22 @@ def _build_client():
         scope_json='{"projects":["EFP"]}',
         enabled=True,
     )
+    AgentIdentityBindingRepository(db).create(
+        agent_id=agent.id,
+        system_type="github",
+        external_account_id="github-acct-1",
+        username="octocat",
+        scope_json='{"repos":["engineering-flow-platform-portal"]}',
+        enabled=True,
+    )
+    AgentIdentityBindingRepository(db).create(
+        agent_id=agent.id,
+        system_type="jira",
+        external_account_id="jira-acct-2",
+        username="jira.disabled",
+        scope_json='{"projects":["EFP-LEGACY"]}',
+        enabled=False,
+    )
     WorkflowTransitionRuleRepository(db).create(
         system_type="jira",
         project_key="EFP",
@@ -117,6 +133,27 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
         assert bindings[0]["external_account_id"] == "jira-acct-1"
         assert bindings[0]["scope"] == '{"projects":["EFP"]}'
         assert bindings[0]["scope_json"] == '{"projects":["EFP"]}'
+
+        jira_disabled_resp = client.get(
+            "/api/internal/agent-identity-bindings?system_type=jira&enabled=false",
+            headers={"X-Internal-Api-Key": "internal-key"},
+        )
+        assert jira_disabled_resp.status_code == 200
+        jira_disabled = jira_disabled_resp.json()
+        assert len(jira_disabled) == 1
+        assert jira_disabled[0]["system_type"] == "jira"
+        assert jira_disabled[0]["external_account_id"] == "jira-acct-2"
+        assert jira_disabled[0]["enabled"] is False
+
+        enabled_resp = client.get(
+            "/api/internal/agent-identity-bindings?enabled=true",
+            headers={"X-Internal-Api-Key": "internal-key"},
+        )
+        assert enabled_resp.status_code == 200
+        enabled_bindings = enabled_resp.json()
+        assert len(enabled_bindings) == 2
+        assert {item["system_type"] for item in enabled_bindings} == {"jira", "github"}
+        assert {item["external_account_id"] for item in enabled_bindings} == {"jira-acct-1", "github-acct-1"}
     finally:
         deps_module.settings.portal_internal_api_key = original
         cleanup()
@@ -139,4 +176,3 @@ def test_internal_exports_require_internal_api_key():
     finally:
         deps_module.settings.portal_internal_api_key = original
         cleanup()
-

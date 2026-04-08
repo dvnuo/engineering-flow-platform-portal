@@ -78,17 +78,10 @@ def list_internal_agent_identity_bindings(
     db: Session = Depends(get_db),
 ):
     normalized_system = (system_type or "").strip().lower()
-    if normalized_system:
-        bindings = [
-            item
-            for item in AgentIdentityBindingRepository(db).find_all()
-            if (item.system_type or "").strip().lower() == normalized_system
-        ]
-    else:
-        bindings = AgentIdentityBindingRepository(db).find_all()
-
-    if enabled is not None:
-        bindings = [item for item in bindings if bool(item.enabled) is bool(enabled)]
+    bindings = AgentIdentityBindingRepository(db).list_filtered(
+        system_type=normalized_system,
+        enabled=enabled,
+    )
 
     return [
         {

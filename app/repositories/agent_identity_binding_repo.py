@@ -46,6 +46,20 @@ class AgentIdentityBindingRepository:
             ).all()
         )
 
+    def list_filtered(
+        self,
+        system_type: str | None = None,
+        enabled: bool | None = None,
+    ) -> list[AgentIdentityBinding]:
+        normalized_system_type = self._normalize_system_type(system_type)
+        stmt = select(AgentIdentityBinding)
+        if normalized_system_type:
+            stmt = stmt.where(AgentIdentityBinding.system_type == normalized_system_type)
+        if enabled is not None:
+            stmt = stmt.where(AgentIdentityBinding.enabled.is_(enabled))
+        stmt = stmt.order_by(AgentIdentityBinding.created_at.desc())
+        return list(self.db.scalars(stmt).all())
+
     def find_binding(self, system_type: str, external_account_id: str) -> Optional[AgentIdentityBinding]:
         normalized_system_type = self._normalize_system_type(system_type)
         stmt = (
