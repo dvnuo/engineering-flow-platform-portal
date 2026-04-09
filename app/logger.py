@@ -3,10 +3,15 @@
 import logging
 import sys
 
+from app.log_context import get_log_context
 from app.redaction import redact_text, redact_value
 
 # Detailed format with module/function/line info
-DEFAULT_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s.%(funcName)s:%(lineno)d | %(message)s"
+DEFAULT_FORMAT = (
+    "%(asctime)s | %(levelname)-8s | trace=%(trace_id)s span=%(span_id)s parent=%(parent_span_id)s "
+    "dispatch=%(portal_dispatch_id)s task=%(portal_task_id)s agent=%(agent_id)s path=%(path)s | "
+    "%(name)s.%(funcName)s:%(lineno)d | %(message)s"
+)
 
 
 class RedactingFormatter(logging.Formatter):
@@ -36,6 +41,15 @@ class FormatterRedactionWrapper(logging.Formatter):
 
 class RedactingFilter(logging.Filter):
     """Apply lightweight redaction to log records before formatting."""
+    _CONTEXT_FIELDS = (
+        "trace_id",
+        "span_id",
+        "parent_span_id",
+        "portal_dispatch_id",
+        "portal_task_id",
+        "agent_id",
+        "path",
+    )
 
     @staticmethod
     def _redact_args(args):
@@ -46,6 +60,9 @@ class RedactingFilter(logging.Filter):
         return redact_value(args)
 
     def filter(self, record: logging.LogRecord) -> bool:
+        context = get_log_context()
+        for field in self._CONTEXT_FIELDS:
+            setattr(record, field, context.get(field, "-") or "-")
         try:
             if record.args:
                 record.args = self._redact_args(record.args)

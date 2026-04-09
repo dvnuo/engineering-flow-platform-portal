@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from app.log_context import get_log_context
 
 
 class _DB:
@@ -48,7 +49,13 @@ def _setup_client(monkeypatch, logged_in=True):
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: fake_user if logged_in else None)
 
     async def _fake_dispatch(task_id, db, user=None):
-        return SimpleNamespace(dispatched=True, task_status="queued", message="queued", task_id=task_id)
+        return SimpleNamespace(
+            dispatched=True,
+            task_status="queued",
+            message="queued",
+            task_id=task_id,
+            runtime_status_code=200,
+        )
 
     monkeypatch.setattr(web_module.task_dispatcher_service, "dispatch_task", _fake_dispatch)
 
@@ -371,7 +378,46 @@ def test_collect_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncan
     collect_payload = json.loads(created_tasks[0].input_payload_json)
     assert collect_payload["bundle_ref"]["branch"] == canonical_branch
     assert collect_payload["manifest_ref"]["branch"] == posted_branch
-    assert collect_payload["bundle_ref"]["branch"] != posted_branch
+
+
+def test_collect_dispatch_runs_with_trace_context(monkeypatch):
+    client, _created_tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+    import app.web as web_module
+
+    observed = {"trace_id": None}
+
+    async def _capture_dispatch(task_id, db, user=None):
+        _ = (task_id, db, user)
+        observed["trace_id"] = get_log_context().get("trace_id")
+        return SimpleNamespace(
+            dispatched=True,
+            task_status="queued",
+            message="queued",
+            task_id=task_id,
+            runtime_status_code=200,
+        )
+
+    monkeypatch.setattr(web_module.task_dispatcher_service, "dispatch_task", _capture_dispatch)
+
+    response = client.post(
+        "/app/requirement-bundles/collect",
+        data={
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "bundle/checkout-flow/deadbeef",
+            "collect_agent_id": "agent-1",
+            "jira_sources": "JIRA-123",
+            "confluence_sources": "",
+            "github_doc_sources": "",
+            "figma_sources": "",
+        },
+    )
+    assert response.status_code == 200
+    assert observed["trace_id"]
+    assert observed["trace_id"] != "-"
 
 
 def test_design_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncanonical(monkeypatch):

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+import logging
 
 from app.db import get_db
 from app.deps import get_current_user
@@ -11,6 +12,7 @@ from app.services.task_dispatcher import TaskDispatcherService
 
 router = APIRouter(tags=["agent-tasks"])
 task_dispatcher_service = TaskDispatcherService()
+logger = logging.getLogger(__name__)
 
 
 def _can_write(agent, user) -> bool:
@@ -94,7 +96,21 @@ async def dispatch_agent_task(task_id: str, user=Depends(get_current_user), db: 
         if user.role != "admin" and assignee_agent.owner_user_id != user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to dispatch task")
 
+    logger.info(
+        "Manual task dispatch start task_id=%s task_type=%s assignee_agent_id=%s group_id=%s",
+        task.id,
+        task.task_type,
+        task.assignee_agent_id,
+        task.group_id or "-",
+    )
     result = await task_dispatcher_service.dispatch_task(task_id=task_id, db=db, user=user)
+    logger.info(
+        "Manual task dispatch end task_id=%s task_status=%s runtime_status_code=%s message=%s",
+        task.id,
+        result.task_status,
+        result.runtime_status_code,
+        result.message,
+    )
 
     if not result.dispatched:
         if result.task_status == "not_found":

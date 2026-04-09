@@ -1,6 +1,7 @@
 import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
@@ -21,9 +22,11 @@ from app.services.auth_service import parse_session_token
 from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.task_dispatcher import TaskDispatcherService
+from app.log_context import bind_log_context, get_log_context, reset_log_context
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger(__name__)
 
 def escape_data_attr(s):
     """Escape string for safe embedding in HTML data-* attributes using markupsafe."""
@@ -548,6 +551,7 @@ async def _create_and_dispatch_bundle_task(
 
     panel_mode = _is_htmx_request(request)
     db = SessionLocal()
+    dispatch_context_token = None
     try:
         assignee = AgentRepository(db).get_by_id(assignee_agent_id)
         if not assignee:
@@ -569,6 +573,23 @@ async def _create_and_dispatch_bundle_task(
             effective_manifest_ref,
             sources=sources,
         )
+        source_counts = sources or {}
+        logger.info(
+            "action=create_dispatch_bundle_task task_type=%s selected_agent_id=%s bundle_ref=%s/%s@%s manifest_ref=%s/%s@%s jira_count=%s confluence_count=%s github_docs_count=%s figma_count=%s trace_id=%s",
+            task_type,
+            assignee_agent_id,
+            effective_bundle_ref.repo,
+            effective_bundle_ref.path,
+            effective_bundle_ref.branch,
+            effective_manifest_ref.repo,
+            effective_manifest_ref.path,
+            effective_manifest_ref.branch,
+            len(source_counts.get("jira") or []),
+            len(source_counts.get("confluence") or []),
+            len(source_counts.get("github_docs") or []),
+            len(source_counts.get("figma") or []),
+            get_log_context().get("trace_id"),
+        )
         task = AgentTaskRepository(db).create(
             assignee_agent_id=assignee_agent_id,
             source="portal",
@@ -576,8 +597,23 @@ async def _create_and_dispatch_bundle_task(
             input_payload_json=json.dumps(task_payload),
             status="queued",
         )
+        dispatch_context_token = bind_log_context(portal_task_id=task.id, agent_id=assignee_agent_id)
+        logger.info(
+            "Created requirement bundle task task_id=%s task_type=%s selected_agent_id=%s",
+            task.id,
+            task_type,
+            assignee_agent_id,
+        )
+        logger.debug("Requirement bundle dispatch start task_id=%s", task.id)
 
         dispatch_result = await task_dispatcher_service.dispatch_task(task.id, db, user=user)
+        logger.info(
+            "Requirement bundle dispatch end task_id=%s result_task_status=%s runtime_status_code=%s message=%s",
+            task.id,
+            dispatch_result.task_status,
+            dispatch_result.runtime_status_code,
+            dispatch_result.message,
+        )
         return _render_requirement_bundles_view(
             request,
             user,
@@ -606,6 +642,8 @@ async def _create_and_dispatch_bundle_task(
             status_message=str(exc),
         )
     finally:
+        if dispatch_context_token is not None:
+            reset_log_context(dispatch_context_token)
         db.close()
 
 

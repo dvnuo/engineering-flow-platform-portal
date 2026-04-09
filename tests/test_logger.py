@@ -5,6 +5,7 @@ import logging
 import sys
 
 from app.logger import DEFAULT_FORMAT, RedactingFilter, RedactingFormatter, setup_logging
+from app.log_context import bind_log_context, reset_log_context
 
 
 def test_setup_logging():
@@ -197,3 +198,58 @@ def test_redaction_filter_fallback_sanitizes_and_clears_args():
     assert "secret" not in output
     assert "[REDACTED]" in output
     assert "args=" in output
+
+
+def test_logger_injects_trace_fields_from_context():
+    logger = logging.getLogger("tests.trace.context")
+    logger.handlers = []
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter(DEFAULT_FORMAT))
+    handler.addFilter(RedactingFilter())
+    logger.addHandler(handler)
+
+    token = bind_log_context(
+        trace_id="trace-1",
+        span_id="span-1",
+        parent_span_id="parent-1",
+        portal_dispatch_id="dispatch-1",
+        portal_task_id="task-1",
+        agent_id="agent-1",
+        path="/api/test",
+    )
+    try:
+        logger.info("hello")
+    finally:
+        reset_log_context(token)
+
+    output = stream.getvalue()
+    assert "trace=trace-1" in output
+    assert "span=span-1" in output
+    assert "dispatch=dispatch-1" in output
+    assert "task=task-1" in output
+    assert "agent=agent-1" in output
+    assert "path=/api/test" in output
+
+
+def test_logger_defaults_trace_fields_to_dash_when_unbound():
+    logger = logging.getLogger("tests.trace.unbound")
+    logger.handlers = []
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter(DEFAULT_FORMAT))
+    handler.addFilter(RedactingFilter())
+    logger.addHandler(handler)
+
+    logger.info("hello")
+    output = stream.getvalue()
+    assert "trace=-" in output
+    assert "span=-" in output
+    assert "parent=-" in output
+    assert "dispatch=-" in output
