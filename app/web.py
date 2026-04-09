@@ -523,12 +523,22 @@ def requirement_bundle_open(request: Request, repo: str = Query(""), path: str =
         db.close()
 
 
-def _create_bundle_task_payload(task_type: str, bundle_ref: BundleRef, sources: dict | None = None) -> dict:
+def _create_bundle_task_payload(
+    task_type: str,
+    bundle_ref: BundleRef,
+    manifest_ref: BundleRef,
+    sources: dict | None = None,
+) -> dict:
     payload = {
         "bundle_ref": {
             "repo": bundle_ref.repo,
             "path": bundle_ref.path,
             "branch": bundle_ref.branch,
+        },
+        "manifest_ref": {
+            "repo": manifest_ref.repo,
+            "path": manifest_ref.path,
+            "branch": manifest_ref.branch,
         }
     }
     if task_type == "requirement_bundle_collect_task":
@@ -541,6 +551,7 @@ async def _create_and_dispatch_bundle_task(
     *,
     task_type: str,
     assignee_agent_id: str,
+    manifest_ref: BundleRef,
     bundle_ref: BundleRef,
     sources: dict | None = None,
 ):
@@ -556,9 +567,20 @@ async def _create_and_dispatch_bundle_task(
         if not _can_write(assignee, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+        inspect_ref = (
+            manifest_ref
+            if manifest_ref.repo and manifest_ref.path and manifest_ref.branch
+            else bundle_ref
+        )
+        bundle_detail = requirement_bundle_service.inspect_bundle(inspect_ref)
         effective_bundle_ref = bundle_detail.bundle_ref
-        task_payload = _create_bundle_task_payload(task_type, effective_bundle_ref, sources=sources)
+        effective_manifest_ref = bundle_detail.manifest_ref
+        task_payload = _create_bundle_task_payload(
+            task_type,
+            effective_bundle_ref,
+            effective_manifest_ref,
+            sources=sources,
+        )
         task = AgentTaskRepository(db).create(
             assignee_agent_id=assignee_agent_id,
             source="portal",
@@ -639,10 +661,15 @@ async def requirement_bundle_collect(request: Request):
         path=str(form.get("bundle_path") or "").strip(),
         branch=str(form.get("bundle_branch") or "").strip(),
     )
+    manifest_ref = BundleRef(
+        repo=str(form.get("manifest_repo") or form.get("bundle_repo") or "").strip(),
+        path=str(form.get("manifest_path") or form.get("bundle_path") or "").strip(),
+        branch=str(form.get("manifest_branch") or form.get("bundle_branch") or "").strip(),
+    )
     if not assignee_agent_id:
         raise HTTPException(status_code=400, detail="collect_agent_id is required")
     if not _has_supported_collect_sources(sources):
-        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+        bundle_detail = requirement_bundle_service.inspect_bundle(manifest_ref)
         status_message = (
             "Figma-only collection is not supported in MVP"
             if sources.get("figma")
@@ -675,6 +702,7 @@ async def requirement_bundle_collect(request: Request):
         request,
         task_type="requirement_bundle_collect_task",
         assignee_agent_id=assignee_agent_id,
+        manifest_ref=manifest_ref,
         bundle_ref=bundle_ref,
         sources=sources,
     )
@@ -693,9 +721,14 @@ async def requirement_bundle_design_test_cases(request: Request):
         path=str(form.get("bundle_path") or "").strip(),
         branch=str(form.get("bundle_branch") or "").strip(),
     )
+    manifest_ref = BundleRef(
+        repo=str(form.get("manifest_repo") or form.get("bundle_repo") or "").strip(),
+        path=str(form.get("manifest_path") or form.get("bundle_path") or "").strip(),
+        branch=str(form.get("manifest_branch") or form.get("bundle_branch") or "").strip(),
+    )
     if not assignee_agent_id:
         raise HTTPException(status_code=400, detail="design_agent_id is required")
-    bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+    bundle_detail = requirement_bundle_service.inspect_bundle(manifest_ref)
     if not bundle_detail.requirements_exists:
         db = SessionLocal()
         try:
@@ -724,6 +757,7 @@ async def requirement_bundle_design_test_cases(request: Request):
         request,
         task_type="requirement_bundle_design_test_cases_task",
         assignee_agent_id=assignee_agent_id,
+        manifest_ref=manifest_ref,
         bundle_ref=bundle_ref,
     )
 

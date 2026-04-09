@@ -181,6 +181,44 @@ links:
     ]
 
 
+def test_inspect_bundle_returns_manifest_ref_and_canonical_bundle_ref(monkeypatch):
+    service = RequirementBundleGithubService()
+
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+scope:
+  domain: payments
+  summary: Checkout
+storage:
+  repo: octo/engineering-flow-platform-assets
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: bundle/checkout/abcd1234
+links:
+  requirements_file: requirements.yaml
+  test_cases_file: test-cases.yaml
+"""
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+    monkeypatch.setattr(service, "_file_exists", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(service, "_latest_commit_sha_for_path", lambda *_args, **_kwargs: "cafebabe")
+
+    result = service.inspect_bundle(
+        BundleRef(
+            repo="octo/assets",
+            path="/requirement-bundles/payments/checkout/",
+            branch="main",
+        )
+    )
+
+    assert result.manifest_ref.repo == "octo/assets"
+    assert result.manifest_ref.path == "requirement-bundles/payments/checkout"
+    assert result.manifest_ref.branch == "main"
+    assert result.bundle_ref.branch == "bundle/checkout/abcd1234"
+
+
 def test_inspect_bundle_uses_custom_linked_filenames_for_existence_checks(monkeypatch):
     service = RequirementBundleGithubService()
 

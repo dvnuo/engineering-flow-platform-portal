@@ -65,6 +65,7 @@ def _setup_client(monkeypatch, logged_in=True):
         web_module.requirement_bundle_service,
         "inspect_bundle",
         lambda bundle_ref: SimpleNamespace(
+            manifest_ref=bundle_ref,
             bundle_ref=bundle_ref,
             manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
             requirements_file="requirements.yaml",
@@ -137,6 +138,9 @@ def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "bundle/checkout-flow/deadbeef",
             "collect_agent_id": "agent-1",
             "jira_sources": "JIRA-123, JIRA-124",
             "confluence_sources": "https://confluence.local/page-1\nhttps://confluence.local/page-2",
@@ -153,6 +157,9 @@ def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "bundle/checkout-flow/deadbeef",
             "design_agent_id": "agent-1",
         },
     )
@@ -167,6 +174,7 @@ def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
     design_payload = json.loads(created_tasks[1].input_payload_json)
 
     assert collect_payload["bundle_ref"]["repo"] == "octo/engineering-flow-platform-assets"
+    assert collect_payload["manifest_ref"]["repo"] == "octo/engineering-flow-platform-assets"
     assert collect_payload["sources"] == {
         "jira": ["JIRA-123", "JIRA-124"],
         "confluence": ["https://confluence.local/page-1", "https://confluence.local/page-2"],
@@ -174,6 +182,7 @@ def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
         "figma": ["https://figma.com/file/abc", "https://figma.com/file/def"],
     }
     assert design_payload["bundle_ref"]["path"] == "requirement-bundles/payments/checkout-flow"
+    assert design_payload["manifest_ref"]["path"] == "requirement-bundles/payments/checkout-flow"
 
 
 def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
@@ -187,6 +196,11 @@ def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
         web_module.requirement_bundle_service,
         "inspect_bundle",
         lambda _bundle_ref: SimpleNamespace(
+            manifest_ref=SimpleNamespace(
+                repo="octo/engineering-flow-platform-assets",
+                path="requirement-bundles/payments/checkout-flow",
+                branch="main",
+            ),
             bundle_ref=SimpleNamespace(
                 repo="octo/engineering-flow-platform-assets",
                 path="requirement-bundles/payments/checkout-flow",
@@ -210,7 +224,8 @@ def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
         },
     )
     assert open_response.status_code == 200
-    assert f'value="{canonical_branch}"' in open_response.text
+    assert 'name="manifest_branch" value="main"' in open_response.text
+    assert f'name="bundle_branch" value="{canonical_branch}"' in open_response.text
 
     collect_response = client.post(
         "/app/requirement-bundles/collect",
@@ -218,6 +233,9 @@ def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": canonical_branch,
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "main",
             "collect_agent_id": "agent-1",
             "jira_sources": "JIRA-123",
             "confluence_sources": "",
@@ -233,6 +251,9 @@ def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": canonical_branch,
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "main",
             "design_agent_id": "agent-1",
         },
     )
@@ -242,7 +263,9 @@ def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
     design_payload = json.loads(created_tasks[1].input_payload_json)
 
     assert collect_payload["bundle_ref"]["branch"] == canonical_branch
+    assert collect_payload["manifest_ref"]["branch"] == "main"
     assert design_payload["bundle_ref"]["branch"] == canonical_branch
+    assert design_payload["manifest_ref"]["branch"] == "main"
 
 
 def test_collect_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncanonical(monkeypatch):
@@ -257,6 +280,11 @@ def test_collect_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncan
         web_module.requirement_bundle_service,
         "inspect_bundle",
         lambda _bundle_ref: SimpleNamespace(
+            manifest_ref=SimpleNamespace(
+                repo="octo/engineering-flow-platform-assets",
+                path="requirement-bundles/payments/checkout-flow",
+                branch=posted_branch,
+            ),
             bundle_ref=SimpleNamespace(
                 repo="octo/engineering-flow-platform-assets",
                 path="requirement-bundles/payments/checkout-flow",
@@ -277,6 +305,9 @@ def test_collect_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncan
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": posted_branch,
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": posted_branch,
             "collect_agent_id": "agent-1",
             "jira_sources": "JIRA-123",
             "confluence_sources": "",
@@ -288,6 +319,7 @@ def test_collect_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncan
     assert response.status_code == 200
     collect_payload = json.loads(created_tasks[0].input_payload_json)
     assert collect_payload["bundle_ref"]["branch"] == canonical_branch
+    assert collect_payload["manifest_ref"]["branch"] == posted_branch
     assert collect_payload["bundle_ref"]["branch"] != posted_branch
 
 
@@ -303,6 +335,11 @@ def test_design_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncano
         web_module.requirement_bundle_service,
         "inspect_bundle",
         lambda _bundle_ref: SimpleNamespace(
+            manifest_ref=SimpleNamespace(
+                repo="octo/engineering-flow-platform-assets",
+                path="requirement-bundles/payments/checkout-flow",
+                branch=posted_branch,
+            ),
             bundle_ref=SimpleNamespace(
                 repo="octo/engineering-flow-platform-assets",
                 path="requirement-bundles/payments/checkout-flow",
@@ -323,6 +360,9 @@ def test_design_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncano
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": posted_branch,
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": posted_branch,
             "design_agent_id": "agent-1",
         },
     )
@@ -330,6 +370,7 @@ def test_design_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncano
     assert response.status_code == 200
     design_payload = json.loads(created_tasks[0].input_payload_json)
     assert design_payload["bundle_ref"]["branch"] == canonical_branch
+    assert design_payload["manifest_ref"]["branch"] == posted_branch
     assert design_payload["bundle_ref"]["branch"] != posted_branch
 
 
@@ -341,6 +382,7 @@ def test_open_existing_bundle_shows_custom_linked_filenames(monkeypatch):
         web_module.requirement_bundle_service,
         "inspect_bundle",
         lambda bundle_ref: SimpleNamespace(
+            manifest_ref=bundle_ref,
             bundle_ref=bundle_ref,
             manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
             requirements_file="docs/reqs.yaml",
@@ -373,6 +415,7 @@ def test_design_missing_requirements_message_uses_custom_linked_filename(monkeyp
         web_module.requirement_bundle_service,
         "inspect_bundle",
         lambda bundle_ref: SimpleNamespace(
+            manifest_ref=bundle_ref,
             bundle_ref=bundle_ref,
             manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
             requirements_file="docs/reqs.yaml",
@@ -389,6 +432,9 @@ def test_design_missing_requirements_message_uses_custom_linked_filename(monkeyp
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "main",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "main",
             "design_agent_id": "agent-1",
         },
     )
@@ -406,6 +452,9 @@ def test_collect_rejects_empty_sources(monkeypatch):
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "bundle/checkout-flow/deadbeef",
             "collect_agent_id": "agent-1",
             "jira_sources": "",
             "confluence_sources": "",
@@ -428,6 +477,9 @@ def test_collect_rejects_figma_only_sources(monkeypatch):
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "bundle/checkout-flow/deadbeef",
             "collect_agent_id": "agent-1",
             "jira_sources": "",
             "confluence_sources": "",
@@ -451,6 +503,9 @@ def test_design_rejects_missing_requirements_yaml(monkeypatch):
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "bundle/checkout-flow/deadbeef",
             "design_agent_id": "agent-1",
         },
     )
