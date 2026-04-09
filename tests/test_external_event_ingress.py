@@ -256,6 +256,8 @@ def test_ingest_matching_subscription_and_binding_creates_task():
         tasks = AgentTaskRepository(db).list_all()
         assert len(tasks) == 1
         assert tasks[0].assignee_agent_id == agent.id
+        assert tasks[0].owner_user_id == agent.owner_user_id
+        assert tasks[0].created_by_user_id is None
         assert tasks[0].task_type == "github_review_task"
         assert tasks[0].status == "done"
         payload = json.loads(tasks[0].input_payload_json)

@@ -27,6 +27,13 @@ class AgentTaskResponse(BaseModel):
     input_payload_json: Optional[str] = None
     shared_context_ref: Optional[str] = None
     status: str
+    owner_user_id: Optional[int] = None
+    created_by_user_id: Optional[int] = None
+    runtime_request_id: Optional[str] = None
+    summary: Optional[str] = None
+    error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
     result_payload_json: Optional[str] = None
     retry_count: int
     created_at: datetime

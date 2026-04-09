@@ -1,8 +1,5 @@
 import json
-import asyncio
-import threading
 
-from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
@@ -405,6 +402,8 @@ class ExternalEventRouterService:
         task = task_repo.create(
             parent_agent_id=None,
             assignee_agent_id=matched_agent_id,
+            owner_user_id=matched_agent.owner_user_id if matched_agent else None,
+            created_by_user_id=None,
             source=source_type,
             task_type=task_type,
             input_payload_json=input_payload_json,
@@ -453,13 +452,4 @@ class ExternalEventRouterService:
         )
 
     def _dispatch_task_in_background(self, task_id: str) -> None:
-        # Dispatch runs out-of-band so webhook ACK is control-plane only and never waits on runtime completion.
-        def _runner() -> None:
-            db_session = SessionLocal()
-            try:
-                asyncio.run(self.task_dispatcher.dispatch_task(task_id, db_session))
-            finally:
-                db_session.close()
-
-        thread = threading.Thread(target=_runner, daemon=True)
-        thread.start()
+        self.task_dispatcher.dispatch_task_in_background(task_id)

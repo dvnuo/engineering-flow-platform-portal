@@ -4,6 +4,7 @@ import logging
 
 from app.db import get_db
 from app.deps import get_current_user
+from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.schemas.agent_task import AgentTaskCreateRequest, AgentTaskResponse
@@ -17,6 +18,20 @@ logger = logging.getLogger(__name__)
 
 def _can_write(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id
+
+
+def _visible_group_ids_for_user(db: Session, user) -> list[str]:
+    service = AgentGroupService(db)
+    groups = AgentGroupRepository(db).list_all()
+    return [group.id for group in groups if service.can_view_group(group, user)]
+
+
+def _is_task_visible_to_user(task, user, visible_group_ids: list[str]) -> bool:
+    if user.role == "admin":
+        return True
+    if task.owner_user_id == user.id or task.created_by_user_id == user.id:
+        return True
+    return bool(task.group_id and task.group_id in visible_group_ids)
 
 
 @router.post("/api/agent-tasks", response_model=AgentTaskResponse)
@@ -42,7 +57,10 @@ def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent agent not found")
         if user.role != "admin" and parent_agent.owner_user_id != user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    task = AgentTaskRepository(db).create(**payload.model_dump())
+    create_payload = payload.model_dump()
+    create_payload["owner_user_id"] = assignee_agent.owner_user_id
+    create_payload["created_by_user_id"] = user.id
+    task = AgentTaskRepository(db).create(**create_payload)
     return AgentTaskResponse.model_validate(task)
 
 
@@ -64,6 +82,27 @@ def list_agent_tasks(group_id: str | None = None, user=Depends(get_current_user)
     return [AgentTaskResponse.model_validate(task) for task in tasks]
 
 
+@router.get("/api/my/tasks", response_model=list[AgentTaskResponse])
+def list_my_tasks(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    visible_group_ids = _visible_group_ids_for_user(db, user)
+    tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, visible_group_ids=visible_group_ids)
+    return [AgentTaskResponse.model_validate(task) for task in tasks]
+
+
+@router.get("/api/agent-tasks/{task_id}", response_model=AgentTaskResponse)
+def get_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    task = AgentTaskRepository(db).get_by_id(task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    if user.role != "admin":
+        visible_group_ids = _visible_group_ids_for_user(db, user)
+        if not _is_task_visible_to_user(task, user, visible_group_ids):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    return AgentTaskResponse.model_validate(task)
+
+
 @router.get("/api/agents/{agent_id}/tasks", response_model=list[AgentTaskResponse])
 def list_agent_tasks_by_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
@@ -76,7 +115,7 @@ def list_agent_tasks_by_agent(agent_id: str, user=Depends(get_current_user), db:
     return [AgentTaskResponse.model_validate(task) for task in tasks]
 
 
-@router.post("/api/agent-tasks/{task_id}/dispatch")
+@router.post("/api/agent-tasks/{task_id}/dispatch", status_code=status.HTTP_202_ACCEPTED)
 async def dispatch_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     task = AgentTaskRepository(db).get_by_id(task_id)
     if not task:
@@ -96,25 +135,20 @@ async def dispatch_agent_task(task_id: str, user=Depends(get_current_user), db: 
         if user.role != "admin" and assignee_agent.owner_user_id != user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to dispatch task")
 
+    if task.status != "queued":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is not dispatchable")
+
     logger.info(
-        "Manual task dispatch start task_id=%s task_type=%s assignee_agent_id=%s group_id=%s",
+        "Manual task dispatch scheduled task_id=%s task_type=%s assignee_agent_id=%s group_id=%s",
         task.id,
         task.task_type,
         task.assignee_agent_id,
         task.group_id or "-",
     )
-    result = await task_dispatcher_service.dispatch_task(task_id=task_id, db=db, user=user)
-    logger.info(
-        "Manual task dispatch end task_id=%s task_status=%s runtime_status_code=%s message=%s",
-        task.id,
-        result.task_status,
-        result.runtime_status_code,
-        result.message,
-    )
-
-    if not result.dispatched:
-        if result.task_status == "not_found":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result.message)
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
-
-    return result.to_dict()
+    task_dispatcher_service.dispatch_task_in_background(task_id=task_id)
+    return {
+        "accepted": True,
+        "task_id": task.id,
+        "task_status": task.status,
+        "message": "Task scheduled for background dispatch",
+    }

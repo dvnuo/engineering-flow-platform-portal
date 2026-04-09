@@ -195,24 +195,14 @@ def test_dispatch_endpoint_enforces_group_manage_permission(monkeypatch):
         forbidden = client.post(f"/api/agent-tasks/{task.id}/dispatch")
         assert forbidden.status_code == 403
 
-        class _Resp:
-            status_code = 200
-            text = '{"ok": true, "status": "success", "output_payload": {"x": 1}}'
-
-            @staticmethod
-            def json():
-                return {"ok": True, "status": "success", "output_payload": {"x": 1}}
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        async def _fake_post(_url: str, _body: dict):
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        scheduled = []
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "dispatch_task_in_background", lambda task_id: scheduled.append(task_id))
 
         set_user(leader_owner)
         allowed = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert allowed.status_code == 200
+        assert allowed.status_code == 202
+        assert allowed.json()["accepted"] is True
+        assert scheduled == [task.id]
     finally:
         cleanup()
 
@@ -283,6 +273,91 @@ def test_owner_can_create_non_group_task_for_owned_agents():
         )
         assert response.status_code == 200
         assert response.json()["assignee_agent_id"] == specialist_agent.id
+        assert response.json()["owner_user_id"] == leader_owner.id
+        assert response.json()["created_by_user_id"] == leader_owner.id
+    finally:
+        cleanup()
+
+
+def test_get_my_tasks_filters_to_visible_scope():
+    client, db, group, leader_agent, specialist_agent, outsider_agent, _admin_user, leader_owner, participant_user, _outsider_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        owned_task = AgentTask(
+            assignee_agent_id=specialist_agent.id,
+            owner_user_id=leader_owner.id,
+            created_by_user_id=None,
+            source="portal",
+            task_type="owned",
+            status="queued",
+        )
+        created_task = AgentTask(
+            assignee_agent_id=outsider_agent.id,
+            owner_user_id=outsider_agent.owner_user_id,
+            created_by_user_id=participant_user.id,
+            source="portal",
+            task_type="created",
+            status="queued",
+        )
+        group_visible_task = AgentTask(
+            group_id=group.id,
+            parent_agent_id=leader_agent.id,
+            assignee_agent_id=specialist_agent.id,
+            owner_user_id=leader_owner.id,
+            source="portal",
+            task_type="group-visible",
+            status="queued",
+        )
+        outsider_task = AgentTask(
+            assignee_agent_id=outsider_agent.id,
+            owner_user_id=outsider_agent.owner_user_id,
+            source="portal",
+            task_type="outsider",
+            status="queued",
+        )
+        db.add_all([owned_task, created_task, group_visible_task, outsider_task])
+        db.commit()
+
+        set_user(participant_user)
+        response = client.get("/api/my/tasks")
+        assert response.status_code == 200
+        task_types = {item["task_type"] for item in response.json()}
+        assert "created" in task_types
+        assert "group-visible" in task_types
+        assert "outsider" not in task_types
+    finally:
+        cleanup()
+
+
+def test_get_agent_task_detail_visibility_rules():
+    client, db, group, leader_agent, specialist_agent, outsider_agent, _admin_user, _leader_owner, participant_user, outsider_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        visible_task = AgentTask(
+            group_id=group.id,
+            parent_agent_id=leader_agent.id,
+            assignee_agent_id=specialist_agent.id,
+            owner_user_id=specialist_agent.owner_user_id,
+            source="portal",
+            task_type="group-visible",
+            status="queued",
+        )
+        hidden_task = AgentTask(
+            assignee_agent_id=outsider_agent.id,
+            owner_user_id=outsider_user.id,
+            source="portal",
+            task_type="hidden",
+            status="queued",
+        )
+        db.add_all([visible_task, hidden_task])
+        db.commit()
+        db.refresh(visible_task)
+        db.refresh(hidden_task)
+
+        set_user(participant_user)
+        allowed = client.get(f"/api/agent-tasks/{visible_task.id}")
+        assert allowed.status_code == 200
+
+        denied = client.get(f"/api/agent-tasks/{hidden_task.id}")
+        assert denied.status_code == 404
     finally:
         cleanup()
 

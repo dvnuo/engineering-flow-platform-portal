@@ -3,10 +3,13 @@ from datetime import datetime
 from dataclasses import asdict, dataclass
 import logging
 import time
+import asyncio
+import threading
 
 import httpx
 from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
 from app.log_context import (
     bind_log_context,
     generate_span_id,
@@ -72,6 +75,13 @@ class TaskDispatcherService:
             headers.update(build_runtime_trace_headers(metadata))
         async with httpx.AsyncClient(timeout=30.0) as client:
             return await client.post(url, json=body, headers=headers)
+
+    async def _get_runtime_task_status(self, url: str, metadata: dict | None = None) -> httpx.Response:
+        headers = self.proxy_service.build_runtime_internal_headers()
+        if isinstance(metadata, dict):
+            headers.update(build_runtime_trace_headers(metadata))
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            return await client.get(url, headers=headers)
 
     def _build_failure_payload(
         self,
@@ -330,6 +340,117 @@ class TaskDispatcherService:
             self._sync_coordination_run_from_delegation(db, delegation)
 
     @staticmethod
+    def _derive_summary_from_runtime_payload(payload: dict | None) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+        output_payload = payload.get("output_payload")
+        if isinstance(output_payload, dict):
+            for key in ("summary", "message", "result_summary"):
+                value = output_payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        for key in ("message", "summary"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    @staticmethod
+    def _derive_error_message_from_runtime_payload(payload: dict | None) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+        error = payload.get("error")
+        if isinstance(error, dict):
+            for key in ("message", "detail", "error"):
+                value = error.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        for key in ("message", "error_message"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def _normalize_runtime_submit_response(
+        self,
+        response: httpx.Response,
+        trace_context: dict[str, str] | None = None,
+        raw_response_preview: str | None = None,
+    ) -> tuple[str, dict | None, NormalizedRuntimeOutcome | None]:
+        normalized = self._normalize_runtime_status_response(
+            response,
+            trace_context=trace_context,
+            raw_response_preview=raw_response_preview,
+            allow_pending=True,
+        )
+        if normalized[0] == "pending":
+            return normalized
+        return normalized[0], normalized[1], normalized[2]
+
+    def _normalize_runtime_status_response(
+        self,
+        response: httpx.Response,
+        trace_context: dict[str, str] | None = None,
+        raw_response_preview: str | None = None,
+        allow_pending: bool = True,
+    ) -> tuple[str, dict | None, NormalizedRuntimeOutcome | None]:
+        outcome = self._normalize_runtime_response(
+            response,
+            trace_context=trace_context,
+            raw_response_preview=raw_response_preview,
+        )
+        if outcome.terminal_status in {"done", "failed", "stale"}:
+            try:
+                return "terminal", json.loads(outcome.result_payload_json), outcome
+            except Exception:
+                return "terminal", None, outcome
+
+        try:
+            response_json = response.json()
+        except Exception:
+            response_json = None
+        if not isinstance(response_json, dict):
+            return "terminal", None, outcome
+        status_value = str(response_json.get("status") or "").lower()
+        if allow_pending and status_value in {"accepted", "running"} and response.status_code == 202:
+            return "pending", response_json, None
+        return "terminal", response_json, outcome
+
+    async def _poll_runtime_task_until_terminal(
+        self,
+        *,
+        runtime_status_url: str,
+        metadata: dict,
+        trace_context: dict[str, str],
+        timeout_seconds: int = 900,
+        interval_seconds: int = 1,
+    ) -> NormalizedRuntimeOutcome:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            response = await self._get_runtime_task_status(runtime_status_url, metadata)
+            preview = safe_preview(response.text or "", limit=800)
+            phase, _payload, outcome = self._normalize_runtime_status_response(
+                response,
+                trace_context=trace_context,
+                raw_response_preview=preview,
+                allow_pending=True,
+            )
+            if phase == "terminal" and outcome is not None:
+                return outcome
+            await asyncio.sleep(interval_seconds)
+
+        return NormalizedRuntimeOutcome(
+            terminal_status="failed",
+            result_payload_json=self._build_failure_payload(
+                "runtime_poll_timeout",
+                "Runtime status polling timed out",
+                trace_context=trace_context,
+            ),
+            message="Runtime polling timed out",
+            runtime_status_code=None,
+        )
+
+    @staticmethod
     def _normalize_runtime_response(
         response: httpx.Response,
         trace_context: dict[str, str] | None = None,
@@ -401,7 +522,7 @@ class TaskDispatcherService:
 
         normalized_payload_json = json.dumps(response_json)
         normalized_status = str(status_value).lower()
-        supported_statuses = {"success", "error", "blocked"}
+        supported_statuses = {"success", "error", "blocked", "accepted", "running"}
         if normalized_status not in supported_statuses:
             payload = {
                 "ok": False,
@@ -427,6 +548,14 @@ class TaskDispatcherService:
                 terminal_status="stale",
                 result_payload_json=normalized_payload_json,
                 message="Runtime reported task superseded by newer head_sha",
+                runtime_status_code=runtime_status_code,
+            )
+
+        if normalized_status in {"accepted", "running"}:
+            return NormalizedRuntimeOutcome(
+                terminal_status="running",
+                result_payload_json=normalized_payload_json,
+                message="Runtime execution accepted",
                 runtime_status_code=runtime_status_code,
             )
 
@@ -661,13 +790,6 @@ class TaskDispatcherService:
                     sorted(input_payload.keys()),
                     sorted(metadata.keys()),
                 )
-                task.status = "running"
-                task_repo.save(task)
-
-                if delegation:
-                    delegation.status = "running"
-                    delegation_repo.save(delegation)
-
                 try:
                     start = time.monotonic()
                     logger.debug("Dispatch HTTP call start task_id=%s runtime_url=%s", task.id, runtime_url)
@@ -689,12 +811,12 @@ class TaskDispatcherService:
                             runtime_url,
                             response_preview,
                         )
-                    outcome = self._normalize_runtime_response(
+                    phase, submit_payload, submit_outcome = self._normalize_runtime_submit_response(
                         response,
                         trace_context=trace_context,
                         raw_response_preview=response_preview,
                     )
-                    if outcome.is_malformed:
+                    if submit_outcome and submit_outcome.is_malformed:
                         logger.warning(
                             "Runtime returned malformed response task_id=%s runtime_status_code=%s runtime_url=%s raw_response_preview=%s",
                             task.id,
@@ -704,8 +826,59 @@ class TaskDispatcherService:
                         )
                     fresh_task = task_repo.get_by_id(task.id)
                     if not fresh_task:
-                        return AgentTaskDispatchResult(True, task.id, outcome.runtime_status_code, "not_found", "Task disappeared during dispatch", None)
+                        runtime_status_code = submit_outcome.runtime_status_code if submit_outcome else response.status_code
+                        return AgentTaskDispatchResult(True, task.id, runtime_status_code, "not_found", "Task disappeared during dispatch", None)
 
+                    if fresh_task.status == "stale":
+                        return AgentTaskDispatchResult(
+                            True,
+                            fresh_task.id,
+                            submit_outcome.runtime_status_code if submit_outcome else response.status_code,
+                            "stale",
+                            "late_runtime_result_ignored_because_task_is_stale",
+                            fresh_task.result_payload_json,
+                        )
+                    if phase == "pending":
+                        fresh_task.status = "running"
+                        fresh_task.runtime_request_id = submit_payload.get("request_id") if isinstance(submit_payload, dict) else None
+                        if fresh_task.started_at is None:
+                            fresh_task.started_at = datetime.utcnow()
+                        task_repo.save(fresh_task)
+                        if delegation:
+                            delegation.status = "running"
+                            delegation_repo.save(delegation)
+                        status_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}"
+                        outcome = await self._poll_runtime_task_until_terminal(
+                            runtime_status_url=status_url,
+                            metadata=metadata,
+                            trace_context=trace_context,
+                        )
+                    else:
+                        outcome = submit_outcome
+                        fresh_task.status = "running"
+                        fresh_task.runtime_request_id = (submit_payload or {}).get("request_id") if isinstance(submit_payload, dict) else None
+                        if fresh_task.started_at is None:
+                            fresh_task.started_at = datetime.utcnow()
+                        task_repo.save(fresh_task)
+                        if delegation:
+                            delegation.status = "running"
+                            delegation_repo.save(delegation)
+
+                    if not outcome:
+                        outcome = NormalizedRuntimeOutcome(
+                            terminal_status="failed",
+                            result_payload_json=self._build_failure_payload(
+                                "runtime_response_error",
+                                "Runtime response normalization failed",
+                                trace_context=trace_context,
+                            ),
+                            message="Runtime response normalization failed",
+                            runtime_status_code=response.status_code,
+                        )
+
+                    fresh_task = task_repo.get_by_id(task.id)
+                    if not fresh_task:
+                        return AgentTaskDispatchResult(True, task.id, outcome.runtime_status_code, "not_found", "Task disappeared during dispatch", None)
                     if fresh_task.status == "stale":
                         return AgentTaskDispatchResult(
                             True,
@@ -716,16 +889,22 @@ class TaskDispatcherService:
                             fresh_task.result_payload_json,
                         )
 
+                    try:
+                        parsed_outcome_payload = json.loads(outcome.result_payload_json)
+                    except Exception:
+                        parsed_outcome_payload = None
                     fresh_task.status = outcome.terminal_status
                     fresh_task.result_payload_json = outcome.result_payload_json
+                    fresh_task.summary = self._derive_summary_from_runtime_payload(parsed_outcome_payload)
+                    fresh_task.error_message = (
+                        self._derive_error_message_from_runtime_payload(parsed_outcome_payload)
+                        if outcome.terminal_status in {"failed", "stale"}
+                        else None
+                    )
+                    fresh_task.finished_at = datetime.utcnow()
                     task_repo.save(fresh_task)
                     if outcome.terminal_status in {"done", "failed"}:
-                        self._sync_delegation_from_task_result(
-                            db,
-                            fresh_task,
-                            outcome.result_payload_json,
-                            outcome.terminal_status == "done",
-                        )
+                        self._sync_delegation_from_task_result(db, fresh_task, outcome.result_payload_json, outcome.terminal_status == "done")
                     logger.info(
                         "Dispatch normalization outcome task_id=%s runtime_status_code=%s task_status=%s message=%s",
                         fresh_task.id,
@@ -790,3 +969,14 @@ class TaskDispatcherService:
                 reset_log_context(bind_task_token)
         finally:
             reset_log_context(dispatch_context_token)
+
+    def dispatch_task_in_background(self, task_id: str) -> None:
+        def _runner() -> None:
+            db_session = SessionLocal()
+            try:
+                asyncio.run(self.dispatch_task(task_id, db_session))
+            finally:
+                db_session.close()
+
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()

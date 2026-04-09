@@ -1,0 +1,40 @@
+<div id="my-tasks-panel-root" class="space-y-4 text-slate-800 dark:text-slate-100">
+  <div>
+    <h2 class="text-xl font-semibold">My Tasks</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400">Tasks you own, created, or can see through groups.</p>
+  </div>
+
+  <div class="grid grid-cols-2 gap-2 text-xs">
+    <div class="rounded border border-slate-200 dark:border-slate-700 p-2">queued: <strong>{{ summary.queued }}</strong></div>
+    <div class="rounded border border-slate-200 dark:border-slate-700 p-2">running: <strong>{{ summary.running }}</strong></div>
+    <div class="rounded border border-slate-200 dark:border-slate-700 p-2">done: <strong>{{ summary.done }}</strong></div>
+    <div class="rounded border border-slate-200 dark:border-slate-700 p-2">failed: <strong>{{ summary.failed }}</strong></div>
+  </div>
+
+  <div class="space-y-2">
+    {% for task in tasks %}
+    <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 text-xs space-y-1">
+      <div class="flex items-center justify-between gap-2">
+        <div class="font-mono">{{ task.id }}</div>
+        <span class="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">{{ task.status }}</span>
+      </div>
+      <div>type: {{ task.task_type }} · source: {{ task.source }}</div>
+      <div>assignee: {{ task.assignee_agent_id }}</div>
+      <div>created: {{ task.created_at }} · updated: {{ task.updated_at }}</div>
+      {% if task.error_message %}
+      <div class="text-red-600 dark:text-red-300">{{ task.error_message[:180] }}</div>
+      {% elif task.summary %}
+      <div>{{ task.summary[:180] }}</div>
+      {% endif %}
+      <button
+        class="mt-1 rounded-lg border border-blue-300 dark:border-blue-500 px-2 py-1 text-blue-700 dark:text-blue-300"
+        hx-get="/app/tasks/{{ task.id }}/panel"
+        hx-target="#tool-panel-body"
+        hx-swap="innerHTML"
+      >View detail</button>
+    </div>
+    {% else %}
+    <div class="text-sm text-slate-500 dark:text-slate-400">No visible tasks yet.</div>
+    {% endfor %}
+  </div>
+</div>
