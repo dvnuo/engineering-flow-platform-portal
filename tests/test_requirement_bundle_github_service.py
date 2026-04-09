@@ -192,6 +192,70 @@ def test_invalid_manifest_raises_error(monkeypatch):
     assert "missing required field" in str(exc_info.value)
 
 
+def test_inspect_bundle_rejects_blank_manifest_fields(monkeypatch):
+    service = RequirementBundleGithubService()
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+scope:
+  domain: payments
+  summary: Checkout
+storage:
+  repo: octo/engineering-flow-platform-assets
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: "   "
+links:
+  requirements_file: requirements.yaml
+  test_cases_file: test-cases.yaml
+"""
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+
+    with pytest.raises(RequirementBundleGithubServiceError) as exc_info:
+        service.inspect_bundle(
+            BundleRef(
+                repo="octo/engineering-flow-platform-assets",
+                path="requirement-bundles/payments/checkout",
+                branch="main",
+            )
+        )
+
+    assert "bundle.yaml field 'storage.working_branch' must be a non-empty string" in str(exc_info.value)
+
+
+def test_inspect_bundle_rejects_invalid_storage_repo_value(monkeypatch):
+    service = RequirementBundleGithubService()
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+scope:
+  domain: payments
+  summary: Checkout
+storage:
+  repo: not-a-repo
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: bundle/checkout/abcd1234
+links:
+  requirements_file: requirements.yaml
+  test_cases_file: test-cases.yaml
+"""
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+
+    with pytest.raises(RequirementBundleGithubServiceError) as exc_info:
+        service.inspect_bundle(
+            BundleRef(
+                repo="octo/engineering-flow-platform-assets",
+                path="requirement-bundles/payments/checkout",
+                branch="main",
+            )
+        )
+
+    assert "Invalid repo format, expected owner/repo" in str(exc_info.value)
+
+
 def test_inspect_bundle_supports_complex_yaml_manifest(monkeypatch):
     service = RequirementBundleGithubService()
     manifest_text = """bundle_id: RB-checkout

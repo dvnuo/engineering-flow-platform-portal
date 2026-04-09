@@ -188,6 +188,13 @@ class RequirementBundleGithubService:
 
     @staticmethod
     def validate_bundle_manifest(manifest: dict) -> None:
+        def _require_non_empty_string(value, field_path: str) -> str:
+            if not isinstance(value, str) or not value.strip():
+                raise RequirementBundleGithubServiceError(
+                    f"bundle.yaml field '{field_path}' must be a non-empty string"
+                )
+            return value.strip()
+
         required_keys = ["bundle_id", "title", "status", "scope", "storage", "links"]
         for key in required_keys:
             if key not in manifest:
@@ -213,6 +220,22 @@ class RequirementBundleGithubService:
             if required not in links:
                 raise RequirementBundleGithubServiceError(f"bundle.yaml links missing required field: {required}")
 
+        _require_non_empty_string(manifest.get("bundle_id"), "bundle_id")
+        _require_non_empty_string(manifest.get("title"), "title")
+        _require_non_empty_string(manifest.get("status"), "status")
+
+        _require_non_empty_string(scope.get("domain"), "scope.domain")
+        _require_non_empty_string(scope.get("summary"), "scope.summary")
+
+        storage_repo = _require_non_empty_string(storage.get("repo"), "storage.repo")
+        _require_non_empty_string(storage.get("path"), "storage.path")
+        _require_non_empty_string(storage.get("base_branch"), "storage.base_branch")
+        _require_non_empty_string(storage.get("working_branch"), "storage.working_branch")
+        RequirementBundleGithubService.parse_repo_full_name(storage_repo)
+
+        _require_non_empty_string(links.get("requirements_file"), "links.requirements_file")
+        _require_non_empty_string(links.get("test_cases_file"), "links.test_cases_file")
+
     def _canonical_bundle_ref_from_manifest(
         self,
         *,
@@ -221,9 +244,9 @@ class RequirementBundleGithubService:
         manifest: dict,
     ) -> BundleRef:
         storage = manifest.get("storage") or {}
-        repo = storage.get("repo") or input_ref.repo
-        path = storage.get("path") or normalized_input_path
-        branch = storage.get("working_branch") or input_ref.branch
+        repo = str(storage.get("repo") or input_ref.repo).strip()
+        path = str(storage.get("path") or normalized_input_path).strip()
+        branch = str(storage.get("working_branch") or input_ref.branch).strip()
 
         # Reuse existing validation/normalization behavior and surface errors when malformed.
         self.parse_repo_full_name(repo)
