@@ -6,7 +6,7 @@
 {% elif not chatlog %}
   <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
     <div class="font-semibold text-slate-700 dark:text-slate-200">Activity</div>
-    <div class="text-xs text-slate-500 mt-1">No thinking data available</div>
+    <div class="text-xs text-slate-500 mt-1">No activity data available</div>
   </div>
 {% else %}
   {% set llm_debug = chatlog.get('llm_debug', {}) %}

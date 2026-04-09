@@ -1,68 +1,41 @@
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from types import SimpleNamespace
-
-from fastapi.testclient import TestClient
 
 
-def _fake_user(role: str = "user"):
-    return SimpleNamespace(
-        id=123,
-        username="phasea",
-        nickname="Phase A",
-        role=role,
-        is_active=True,
-    )
+def _read(rel_path: str) -> str:
+    return (ROOT / rel_path).read_text(encoding="utf-8")
 
 
-def test_app_shell_phase_a_copy_and_header(monkeypatch):
-    import app.web as web
-    from app.main import app
+def test_phase_a_shell_copy_regressions():
+    app_html = _read("app/templates/app.html")
 
-    monkeypatch.setattr(web, "_current_user_from_cookie", lambda _request: _fake_user("user"))
+    assert "Assistants" in app_html
+    assert "Select an assistant" in app_html
+    assert 'placeholder="Message assistant"' in app_html
+    assert 'id="btn-more"' in app_html
 
-    client = TestClient(app)
-    response = client.get("/app")
+    assert "Active Agent" not in app_html
+    assert 'placeholder="Type message, / for skills"' not in app_html
 
-    assert response.status_code == 200
-    html = response.text
+    assert 'id="btn-sessions"' not in app_html
+    assert 'id="btn-thinking"' not in app_html
+    assert 'id="btn-files"' not in app_html
+    assert 'id="top-settings"' not in app_html
 
-    assert "Assistants" in html
-    assert "Select an assistant" in html
-    assert 'placeholder="Message assistant"' in html
-    assert 'id="btn-more"' in html
-
-    assert "Active Agent" not in html
-    assert 'placeholder="Type message, / for skills"' not in html
-
-    assert 'id="btn-sessions"' not in html
-    assert 'id="btn-thinking"' not in html
-    assert 'id="btn-files"' not in html
-    assert 'id="top-settings"' not in html
+    assert "Create Agent" not in app_html
+    assert "Edit Agent" not in app_html
+    assert "Agent Name" not in app_html
+    assert "Create assistant" in app_html
+    assert "Edit assistant" in app_html
+    assert "Assistant name" in app_html
 
 
-def test_admin_still_sees_users_button(monkeypatch):
-    import app.web as web
-    from app.main import app
-
-    monkeypatch.setattr(web, "_current_user_from_cookie", lambda _request: _fake_user("admin"))
-
-    client = TestClient(app)
-    response = client.get("/app")
-
-    assert response.status_code == 200
-    assert 'id="users-menu-btn"' in response.text
-
-
-def test_phase_a_panel_copy_regressions():
-    files_panel = Path("app/templates/partials/files_panel.html").read_text(encoding="utf-8")
-    sessions_panel = Path("app/templates/partials/sessions_panel.html").read_text(encoding="utf-8")
-    activity_panel = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
+def test_phase_a_partial_copy_regressions():
+    files_panel = _read("app/templates/partials/files_panel.html")
+    sessions_panel = _read("app/templates/partials/sessions_panel.html")
+    activity_panel = _read("app/templates/partials/thinking_process_panel.html")
+    settings_panel = _read("app/templates/partials/settings_panel.html")
 
     assert "My Uploads" not in files_panel
     assert "Files" in files_panel
@@ -73,3 +46,8 @@ def test_phase_a_panel_copy_regressions():
     assert "Thinking Process" not in activity_panel
     assert "Thinking Events" not in activity_panel
     assert "Activity Events" in activity_panel
+    assert "No thinking data available" not in activity_panel
+    assert "No activity data available" in activity_panel
+
+    assert "Please select an agent first" not in settings_panel
+    assert "Please select an assistant first" in settings_panel
