@@ -757,14 +757,14 @@ function ensureEventSocketForSelectedAgent() {
   if (!agentId) return;
   const sessionId = currentSessionIdForSelectedAgent();
 
-  if (state.eventWs && state.eventWs.readyState === WebSocket.OPEN) {
+  if (state.eventWs) {
     const sameAgent = state.eventWsAgentId === agentId;
     const sameSession = (state.eventWsSessionId || "") === (sessionId || "");
-    if (sameAgent && sameSession) return;
+    const readyState = state.eventWs.readyState;
+    if (sameAgent && sameSession && (readyState === WebSocket.OPEN || readyState === WebSocket.CONNECTING)) return;
+    // Replace stale in-flight sockets too, otherwise a previous session's CONNECTING socket can attach to the wrong stream.
     disconnectEventSocket();
   }
-  if (state.eventWs && state.eventWsAgentId !== agentId) disconnectEventSocket();
-  if (state.eventWs?.readyState === WebSocket.CONNECTING) return;
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const sessionQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";

@@ -144,6 +144,26 @@ def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
     return js_text[start + len(start_marker):end].strip()
 
 
+def _extract_js_function(js_text: str, function_name: str) -> str:
+    marker = f"function {function_name}("
+    start = js_text.find(marker)
+    if start < 0:
+        raise AssertionError(f"Unable to find function {function_name} in chat_ui.js")
+    brace_start = js_text.find("{", start)
+    if brace_start < 0:
+        raise AssertionError(f"Unable to parse function {function_name} body start")
+    depth = 0
+    for index in range(brace_start, len(js_text)):
+        char = js_text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return js_text[start:index + 1]
+    raise AssertionError(f"Unable to parse function {function_name} body end")
+
+
 def test_chat_ui_runtime_event_helpers_behavior():
     """Behavior-level coverage for runtime event normalization and completion states."""
     node_bin = shutil.which("node")
@@ -260,6 +280,109 @@ console.log(JSON.stringify(result));
     assert data["completionState"]["lifecycle_type"] == "execution.completed"
     assert data["failedState"]["lifecycle_type"] == "execution.failed"
     assert data["failedResult"]["lifecycle_type"] == "execution.failed"
+
+
+def test_chat_ui_event_socket_replaces_stale_connecting_session():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    ensure_socket_fn = _extract_js_function(js_file, "ensureEventSocketForSelectedAgent")
+
+    script = f"""
+{ensure_socket_fn}
+
+const events = [];
+const CLOSED = 3;
+const CONNECTING = 0;
+const OPEN = 1;
+let currentSession = "new-session";
+let websocketCreated = 0;
+
+const window = {{
+  location: {{
+    protocol: "https:",
+    host: "portal.test",
+  }}
+}};
+
+const state = {{
+  selectedAgentId: "agent-A",
+  eventWs: {{
+    readyState: CONNECTING,
+    close: () => {{
+      events.push("closed:old");
+      state.eventWs.readyState = CLOSED;
+    }},
+  }},
+  eventWsAgentId: "agent-A",
+  eventWsSessionId: "old-session",
+}};
+
+function currentSessionIdForSelectedAgent() {{
+  return currentSession;
+}}
+
+function disconnectEventSocket() {{
+  if (state.eventWs) state.eventWs.close();
+  state.eventWs = null;
+  state.eventWsAgentId = null;
+  state.eventWsSessionId = null;
+}}
+
+class FakeWebSocket {{
+  constructor(url) {{
+    this.url = url;
+    this.readyState = CONNECTING;
+    websocketCreated += 1;
+    events.push("opened:" + url);
+  }}
+}}
+FakeWebSocket.CONNECTING = CONNECTING;
+FakeWebSocket.OPEN = OPEN;
+globalThis.WebSocket = FakeWebSocket;
+
+ensureEventSocketForSelectedAgent();
+const firstSocket = state.eventWs;
+const firstUrl = firstSocket?.url || null;
+const firstSession = state.eventWsSessionId;
+const firstCreated = websocketCreated;
+
+ensureEventSocketForSelectedAgent();
+const secondSocket = state.eventWs;
+const secondUrl = secondSocket?.url || null;
+const secondSession = state.eventWsSessionId;
+const secondCreated = websocketCreated;
+
+console.log(JSON.stringify({{
+  events,
+  firstUrl,
+  firstSession,
+  firstCreated,
+  secondUrl,
+  secondSession,
+  secondCreated,
+  sameSocketOnSecondCall: firstSocket === secondSocket,
+}}));
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert "closed:old" in data["events"]
+    assert data["firstUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=new-session"
+    assert data["firstSession"] == "new-session"
+    assert data["firstCreated"] == 1
+    assert data["secondCreated"] == 1
+    assert data["secondUrl"] == data["firstUrl"]
+    assert data["secondSession"] == "new-session"
+    assert data["sameSocketOnSecondCall"] is True
 
 
 def test_thinking_process_template_prefers_normalized_fields():
