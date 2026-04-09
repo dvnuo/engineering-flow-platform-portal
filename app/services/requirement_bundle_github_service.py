@@ -2,6 +2,7 @@ import base64
 import re
 import secrets
 import httpx
+import yaml
 
 from app.config import get_settings
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm, RequirementBundleInspectResponse
@@ -174,36 +175,16 @@ class RequirementBundleGithubService:
         return base64.b64decode(encoded).decode("utf-8")
 
     @staticmethod
-    def _parse_simple_yaml(yaml_text: str) -> dict:
-        root: dict = {}
-        stack: list[tuple[int, dict]] = [(-1, root)]
-
-        for raw_line in yaml_text.splitlines():
-            line = raw_line.rstrip()
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            indent = len(line) - len(line.lstrip(" "))
-            if ":" not in stripped:
-                raise RequirementBundleGithubServiceError(f"Invalid yaml line: {raw_line}")
-            key, value = stripped.split(":", 1)
-            key = key.strip()
-            value = value.strip()
-
-            while stack and indent <= stack[-1][0]:
-                stack.pop()
-            parent = stack[-1][1]
-
-            if value == "":
-                container: dict = {}
-                parent[key] = container
-                stack.append((indent, container))
-            else:
-                if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-                    value = value[1:-1]
-                parent[key] = value
-
-        return root
+    def _parse_manifest_yaml(yaml_text: str) -> dict:
+        try:
+            parsed = yaml.safe_load(yaml_text)
+        except yaml.YAMLError as exc:
+            raise RequirementBundleGithubServiceError(f"bundle.yaml parse error: {exc}") from exc
+        if parsed is None:
+            raise RequirementBundleGithubServiceError("bundle.yaml is empty")
+        if not isinstance(parsed, dict):
+            raise RequirementBundleGithubServiceError("bundle.yaml must be a YAML object")
+        return parsed
 
     @staticmethod
     def validate_bundle_manifest(manifest: dict) -> None:
@@ -283,7 +264,7 @@ class RequirementBundleGithubService:
         path = self.normalize_bundle_path(bundle_ref.path)
         manifest_payload = self._get_file(bundle_ref.repo, f"{path}/bundle.yaml", bundle_ref.branch)
         manifest_yaml = self._decode_content(manifest_payload)
-        manifest = self._parse_simple_yaml(manifest_yaml)
+        manifest = self._parse_manifest_yaml(manifest_yaml)
         self.validate_bundle_manifest(manifest)
 
         requirements_exists = self._file_exists(bundle_ref.repo, f"{path}/requirements.yaml", bundle_ref.branch)

@@ -91,6 +91,11 @@ def test_requirement_bundles_page_logged_in(monkeypatch):
 
 def test_create_new_bundle_renders_bundle_ref(monkeypatch):
     client, _tasks = _setup_client(monkeypatch, logged_in=True)
+    page = client.get("/app/requirement-bundles")
+    assert page.status_code == 200
+    assert "Collect Agent (optional)" not in page.text
+    assert "Design Agent (optional)" not in page.text
+
     response = client.post(
         "/app/requirement-bundles/create",
         data={
@@ -130,6 +135,10 @@ def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
             "collect_agent_id": "agent-1",
+            "jira_sources": "JIRA-123, JIRA-124",
+            "confluence_sources": "https://confluence.local/page-1\nhttps://confluence.local/page-2",
+            "github_doc_sources": "https://github.com/org/repo/blob/main/README.md",
+            "figma_sources": "https://figma.com/file/abc, https://figma.com/file/def",
         },
     )
     assert collect_response.status_code == 200
@@ -155,5 +164,10 @@ def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
     design_payload = json.loads(created_tasks[1].input_payload_json)
 
     assert collect_payload["bundle_ref"]["repo"] == "octo/engineering-flow-platform-assets"
-    assert collect_payload["sources"] == {"jira": [], "confluence": [], "github_docs": [], "figma": []}
+    assert collect_payload["sources"] == {
+        "jira": ["JIRA-123", "JIRA-124"],
+        "confluence": ["https://confluence.local/page-1", "https://confluence.local/page-2"],
+        "github_docs": ["https://github.com/org/repo/blob/main/README.md"],
+        "figma": ["https://figma.com/file/abc", "https://figma.com/file/def"],
+    }
     assert design_payload["bundle_ref"]["path"] == "requirement-bundles/payments/checkout-flow"

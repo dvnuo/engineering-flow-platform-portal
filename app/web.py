@@ -75,6 +75,19 @@ def _list_writable_agents(db, user) -> list:
     return [agent for agent in agents if _can_write(agent, user)]
 
 
+def _parse_multivalue_text_field(raw: str) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    normalized = (raw or "").replace(",", "\n")
+    for item in normalized.splitlines():
+        cleaned = item.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        values.append(cleaned)
+    return values
+
+
 async def _forward_runtime(
     *,
     user,
@@ -401,8 +414,6 @@ async def requirement_bundle_create(request: Request):
             domain=str(form_data.get("domain") or ""),
             slug=(str(form_data.get("slug") or "").strip() or None),
             base_branch=str(form_data.get("base_branch") or settings.assets_default_base_branch),
-            collect_agent_id=(str(form_data.get("collect_agent_id") or "").strip() or None),
-            design_agent_id=(str(form_data.get("design_agent_id") or "").strip() or None),
         )
         bundle_ref = requirement_bundle_service.create_bundle(create_form)
         bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
@@ -507,7 +518,7 @@ def requirement_bundle_open(request: Request, repo: str = Query(""), path: str =
         db.close()
 
 
-def _create_bundle_task_payload(task_type: str, bundle_ref: BundleRef) -> dict:
+def _create_bundle_task_payload(task_type: str, bundle_ref: BundleRef, sources: dict | None = None) -> dict:
     payload = {
         "bundle_ref": {
             "repo": bundle_ref.repo,
@@ -516,12 +527,7 @@ def _create_bundle_task_payload(task_type: str, bundle_ref: BundleRef) -> dict:
         }
     }
     if task_type == "requirement_bundle_collect_task":
-        payload["sources"] = {
-            "jira": [],
-            "confluence": [],
-            "github_docs": [],
-            "figma": [],
-        }
+        payload["sources"] = sources or {"jira": [], "confluence": [], "github_docs": [], "figma": []}
     return payload
 
 
@@ -531,6 +537,7 @@ async def _create_and_dispatch_bundle_task(
     task_type: str,
     assignee_agent_id: str,
     bundle_ref: BundleRef,
+    sources: dict | None = None,
 ):
     user = _current_user_from_cookie(request)
     if not user:
@@ -544,7 +551,7 @@ async def _create_and_dispatch_bundle_task(
         if not _can_write(assignee, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        task_payload = _create_bundle_task_payload(task_type, bundle_ref)
+        task_payload = _create_bundle_task_payload(task_type, bundle_ref, sources=sources)
         task = AgentTaskRepository(db).create(
             assignee_agent_id=assignee_agent_id,
             source="portal",
@@ -611,6 +618,12 @@ async def _create_and_dispatch_bundle_task(
 async def requirement_bundle_collect(request: Request):
     form = await request.form()
     assignee_agent_id = str(form.get("collect_agent_id") or "").strip()
+    sources = {
+        "jira": _parse_multivalue_text_field(str(form.get("jira_sources") or "")),
+        "confluence": _parse_multivalue_text_field(str(form.get("confluence_sources") or "")),
+        "github_docs": _parse_multivalue_text_field(str(form.get("github_doc_sources") or "")),
+        "figma": _parse_multivalue_text_field(str(form.get("figma_sources") or "")),
+    }
     bundle_ref = BundleRef(
         repo=str(form.get("bundle_repo") or "").strip(),
         path=str(form.get("bundle_path") or "").strip(),
@@ -623,6 +636,7 @@ async def requirement_bundle_collect(request: Request):
         task_type="requirement_bundle_collect_task",
         assignee_agent_id=assignee_agent_id,
         bundle_ref=bundle_ref,
+        sources=sources,
     )
 
 

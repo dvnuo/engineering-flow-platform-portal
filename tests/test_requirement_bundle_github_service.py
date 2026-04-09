@@ -119,3 +119,48 @@ def test_invalid_manifest_raises_error(monkeypatch):
         service.inspect_bundle(BundleRef(repo="octo/assets", path="requirement-bundles/a/b", branch="main"))
 
     assert "missing required field" in str(exc_info.value)
+
+
+def test_inspect_bundle_supports_complex_yaml_manifest(monkeypatch):
+    service = RequirementBundleGithubService()
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout Bundle
+status: draft
+flags:
+  from_portal: true
+scope:
+  domain: payments
+  summary: checkout summary
+  tags:
+    - checkout
+    - payment
+storage:
+  repo: octo/engineering-flow-platform-assets
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: bundle/checkout/abcd1234
+links:
+  requirements_file: requirements.yaml
+  test_cases_file: test-cases.yaml
+metadata:
+  owners:
+    - qa
+    - pm
+"""
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+    monkeypatch.setattr(service, "_file_exists", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(service, "_latest_commit_sha_for_path", lambda *_args, **_kwargs: "a1b2c3d4")
+
+    result = service.inspect_bundle(
+        BundleRef(
+            repo="octo/engineering-flow-platform-assets",
+            path="requirement-bundles/payments/checkout",
+            branch="bundle/checkout/abcd1234",
+        )
+    )
+
+    assert result.manifest["flags"]["from_portal"] is True
+    assert result.manifest["scope"]["tags"] == ["checkout", "payment"]
+    assert result.manifest["metadata"]["owners"] == ["qa", "pm"]

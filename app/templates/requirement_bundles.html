@@ -45,24 +45,6 @@
             <label class="block text-xs text-slate-400 mb-1">Base Branch</label>
             <input name="base_branch" value="{{ bundle_defaults.base_branch }}" required class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2" />
           </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Collect Agent (optional)</label>
-            <select name="collect_agent_id" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2">
-              <option value="">-- Select agent --</option>
-              {% for agent in agents %}
-              <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Design Agent (optional)</label>
-            <select name="design_agent_id" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2">
-              <option value="">-- Select agent --</option>
-              {% for agent in agents %}
-              <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
-              {% endfor %}
-            </select>
-          </div>
           <button type="submit" class="w-full rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 font-semibold">Create</button>
         </form>
       </section>
@@ -116,6 +98,22 @@
             <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
             {% endfor %}
           </select>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Jira Sources</label>
+            <textarea name="jira_sources" rows="2" placeholder="comma or newline separated" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Confluence Sources</label>
+            <textarea name="confluence_sources" rows="2" placeholder="comma or newline separated" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">GitHub Docs Sources</label>
+            <textarea name="github_doc_sources" rows="2" placeholder="comma or newline separated" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Figma Sources</label>
+            <textarea name="figma_sources" rows="2" placeholder="comma or newline separated" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
+          </div>
           <button type="submit" class="w-full rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2">Create + Dispatch</button>
         </form>
 

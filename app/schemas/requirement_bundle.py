@@ -12,8 +12,6 @@ class RequirementBundleCreateForm(BaseModel):
     domain: str
     slug: str | None = None
     base_branch: str
-    collect_agent_id: str | None = None
-    design_agent_id: str | None = None
 
     @field_validator("title", "domain", "base_branch")
     @classmethod
