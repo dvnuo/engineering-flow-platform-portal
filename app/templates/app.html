@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-role="{{ role }}" class="h-screen bg-slate-950 text-slate-100 text-sm">
+<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-role="{{ role }}" class="h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 text-sm">
   <div class="h-full grid grid-cols-[280px_minmax(0,1fr)] gap-3 p-3">
-    <aside class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-0">
+    <aside class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-4 flex flex-col min-h-0">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold">Assistants</h2>
-        <button id="add-agent-btn" class="h-8 w-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Create Assistant">
+        <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Assistants</h2>
+        <button id="add-agent-btn" class="h-8 w-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="Create Assistant">
           <i data-lucide="plus" class="w-5 h-5"></i>
         </button>
       </div>
@@ -23,56 +23,56 @@
       </div>
 
       {% if role == "admin" %}
-      <div class="mt-4 pt-4 border-t border-slate-700 dark:border-slate-800">
-        <button id="users-menu-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 dark:text-slate-300 hover:bg-slate-700 dark:hover:bg-slate-800">
+      <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+        <button id="users-menu-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
           <i data-lucide="users" class="w-5 h-5"></i>
           Users
         </button>
       </div>
       {% endif %}
 
-      <div class="mt-auto pt-4 border-t border-slate-800 flex items-center justify-between">
+      <div class="mt-auto pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
         <div>
-          <div class="font-semibold">{{ nickname }}</div>
-          <div class="text-xs text-slate-400">{{ role }}</div>
+          <div class="font-semibold text-slate-800 dark:text-slate-100">{{ nickname }}</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">{{ role }}</div>
         </div>
         <div class="flex items-center gap-1">
-          <button id="theme-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Toggle theme">
+          <button id="theme-toggle" class="h-9 w-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="Toggle theme">
             <i data-lucide="moon" class="w-5 h-5"></i>
           </button>
-          <button id="logout-btn" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Logout">
+          <button id="logout-btn" class="h-9 w-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="Logout">
             <i data-lucide="log-out" class="w-5 h-5"></i>
           </button>
         </div>
     </aside>
 
-    <main class="rounded-2xl border border-slate-800 bg-slate-900/60 min-h-0 flex flex-col relative">
-      <header class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+    <main class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/60 min-h-0 flex flex-col relative">
+      <header class="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
         <div>
-          <div class="text-xs text-slate-400">Assistant</div>
-          <h1 id="embed-title" class="text-lg font-semibold">Select an assistant</h1>
+          <div class="text-xs text-slate-500 dark:text-slate-400">Assistant</div>
+          <h1 id="embed-title" class="text-lg font-semibold text-slate-800 dark:text-slate-100">Select an assistant</h1>
         </div>
         <div class="flex items-center gap-2">
           <span id="selected-status" class="px-3 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">idle</span>
-          <button id="btn-sessions" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Sessions">
+          <button id="btn-sessions" class="h-9 w-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="Sessions">
             <i data-lucide="clock" class="w-5 h-5"></i>
           </button>
-          <button id="btn-thinking" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Thinking Process">
+          <button id="btn-thinking" class="h-9 w-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="Thinking Process">
             <i data-lucide="brain" class="w-5 h-5"></i>
           </button>
-          <button id="btn-files" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Server Files" data-owner-only="true">
+          <button id="btn-files" class="h-9 w-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="Server Files" data-owner-only="true">
             <i data-lucide="folder" class="w-5 h-5"></i>
           </button>
-          <button id="top-settings" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Settings" data-owner-only="true"><i data-lucide="settings" class="w-5 h-5"></i></button>
-          <button id="detail-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Assistant details">
+          <button id="top-settings" class="h-9 w-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="Settings" data-owner-only="true"><i data-lucide="settings" class="w-5 h-5"></i></button>
+          <button id="detail-toggle" class="h-9 w-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="Assistant details">
             <i data-lucide="panel-left" class="w-5 h-5"></i>
           </button>
         </div>
       </header>
 
-      <section id="center-placeholder" class="flex-1 grid place-items-center text-center text-slate-400">
+      <section id="center-placeholder" class="flex-1 grid place-items-center text-center text-slate-500 dark:text-slate-400">
         <div>
-          <h3 class="text-lg text-slate-200 font-semibold">Start a conversation</h3>
+          <h3 class="text-lg text-slate-800 dark:text-slate-200 font-semibold">Start a conversation</h3>
           <p class="mt-2">Select an assistant and make sure it is running.</p>
         </div>
       </section>
@@ -97,10 +97,10 @@
             <input type="hidden" id="chat-attachments" name="attachments" value="" />
             
             <!-- Quick Actions -->
-            <button type="button" id="quick-new-chat-btn" class="w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="New Chat">
+            <button type="button" id="quick-new-chat-btn" class="w-10 h-10 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="New Chat">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="plus" aria-hidden="true" class="lucide lucide-plus w-5 h-5"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
             </button>
-            <button type="button" id="quick-uploads-btn" class="w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="My Uploads">
+            <button type="button" id="quick-uploads-btn" class="w-10 h-10 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center" title="My Uploads">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="library" aria-hidden="true" class="lucide lucide-library w-5 h-5"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M2 12h20"/><path d="M2 18h20"/><path d="M2 6h20v12h-20Z"/></svg>
             </button>
             

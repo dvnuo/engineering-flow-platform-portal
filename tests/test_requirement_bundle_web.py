@@ -192,6 +192,7 @@ def test_app_page_has_requirement_bundles_sidebar_section(monkeypatch):
     assert response.status_code == 200
     assert 'id="bundle-list"' in response.text
     assert 'id="add-bundle-btn"' in response.text
+    assert "Bundles" in response.text
 
 
 def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
