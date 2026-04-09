@@ -10,10 +10,17 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
+from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
+from app.services.requirement_bundle_github_service import (
+    RequirementBundleGithubService,
+    RequirementBundleGithubServiceError,
+)
 from app.services.auth_service import parse_session_token
 from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+from app.services.task_dispatcher import TaskDispatcherService
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -28,6 +35,8 @@ templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
+task_dispatcher_service = TaskDispatcherService()
+requirement_bundle_service = RequirementBundleGithubService()
 base_uri = settings.base_uri
 
 
@@ -59,6 +68,24 @@ def _can_write(agent, user) -> bool:
 
 def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
+
+
+def _list_writable_agents(db, user) -> list:
+    agents = AgentRepository(db).list_all()
+    return [agent for agent in agents if _can_write(agent, user)]
+
+
+def _parse_multivalue_text_field(raw: str) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    normalized = (raw or "").replace(",", "\n")
+    for item in normalized.splitlines():
+        cleaned = item.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        values.append(cleaned)
+    return values
 
 
 async def _forward_runtime(
@@ -337,6 +364,298 @@ def app_page(request: Request):
             "user_id": user.id,
             "role": user.role,
         },
+    )
+
+
+@router.get("/app/requirement-bundles")
+def requirement_bundles_page(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        agents = _list_writable_agents(db, user)
+        return templates.TemplateResponse(
+            "requirement_bundles.html",
+            {
+                "request": request,
+                "title": "Requirement Bundles",
+                "username": user.username,
+                "nickname": user.nickname or user.username,
+                "bundle_defaults": {
+                    "repo": settings.assets_repo_full_name,
+                    "base_branch": settings.assets_default_base_branch,
+                    "root_dir": settings.assets_bundle_root_dir,
+                },
+                "agents": agents,
+                "bundle_result": None,
+                "bundle_detail": None,
+                "status_type": "",
+                "status_message": "",
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/requirement-bundles/create")
+async def requirement_bundle_create(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        agents = _list_writable_agents(db, user)
+        form_data = await request.form()
+        create_form = RequirementBundleCreateForm(
+            title=str(form_data.get("title") or ""),
+            domain=str(form_data.get("domain") or ""),
+            slug=(str(form_data.get("slug") or "").strip() or None),
+            base_branch=str(form_data.get("base_branch") or settings.assets_default_base_branch),
+        )
+        bundle_ref = requirement_bundle_service.create_bundle(create_form)
+        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+        return templates.TemplateResponse(
+            "requirement_bundles.html",
+            {
+                "request": request,
+                "title": "Requirement Bundles",
+                "username": user.username,
+                "nickname": user.nickname or user.username,
+                "bundle_defaults": {
+                    "repo": settings.assets_repo_full_name,
+                    "base_branch": settings.assets_default_base_branch,
+                    "root_dir": settings.assets_bundle_root_dir,
+                },
+                "agents": agents,
+                "bundle_result": bundle_ref,
+                "bundle_detail": bundle_detail,
+                "status_type": "success",
+                "status_message": "Bundle created successfully.",
+            },
+        )
+    except RequirementBundleGithubServiceError as exc:
+        return templates.TemplateResponse(
+            "requirement_bundles.html",
+            {
+                "request": request,
+                "title": "Requirement Bundles",
+                "username": user.username,
+                "nickname": user.nickname or user.username,
+                "bundle_defaults": {
+                    "repo": settings.assets_repo_full_name,
+                    "base_branch": settings.assets_default_base_branch,
+                    "root_dir": settings.assets_bundle_root_dir,
+                },
+                "agents": _list_writable_agents(db, user),
+                "bundle_result": None,
+                "bundle_detail": None,
+                "status_type": "error",
+                "status_message": str(exc),
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/requirement-bundles/open")
+def requirement_bundle_open(request: Request, repo: str = Query(""), path: str = Query(""), branch: str = Query("")):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    target_repo = (repo or settings.assets_repo_full_name).strip()
+    target_path = (path or "").strip()
+    target_branch = (branch or settings.assets_default_base_branch).strip()
+
+    db = SessionLocal()
+    try:
+        detail = requirement_bundle_service.inspect_bundle(
+            BundleRef(repo=target_repo, path=target_path, branch=target_branch)
+        )
+        return templates.TemplateResponse(
+            "requirement_bundles.html",
+            {
+                "request": request,
+                "title": "Requirement Bundles",
+                "username": user.username,
+                "nickname": user.nickname or user.username,
+                "bundle_defaults": {
+                    "repo": settings.assets_repo_full_name,
+                    "base_branch": settings.assets_default_base_branch,
+                    "root_dir": settings.assets_bundle_root_dir,
+                },
+                "agents": _list_writable_agents(db, user),
+                "bundle_result": None,
+                "bundle_detail": detail,
+                "status_type": "success",
+                "status_message": "Bundle opened successfully.",
+            },
+        )
+    except RequirementBundleGithubServiceError as exc:
+        return templates.TemplateResponse(
+            "requirement_bundles.html",
+            {
+                "request": request,
+                "title": "Requirement Bundles",
+                "username": user.username,
+                "nickname": user.nickname or user.username,
+                "bundle_defaults": {
+                    "repo": settings.assets_repo_full_name,
+                    "base_branch": settings.assets_default_base_branch,
+                    "root_dir": settings.assets_bundle_root_dir,
+                },
+                "agents": _list_writable_agents(db, user),
+                "bundle_result": None,
+                "bundle_detail": None,
+                "status_type": "error",
+                "status_message": str(exc),
+            },
+        )
+    finally:
+        db.close()
+
+
+def _create_bundle_task_payload(task_type: str, bundle_ref: BundleRef, sources: dict | None = None) -> dict:
+    payload = {
+        "bundle_ref": {
+            "repo": bundle_ref.repo,
+            "path": bundle_ref.path,
+            "branch": bundle_ref.branch,
+        }
+    }
+    if task_type == "requirement_bundle_collect_task":
+        payload["sources"] = sources or {"jira": [], "confluence": [], "github_docs": [], "figma": []}
+    return payload
+
+
+async def _create_and_dispatch_bundle_task(
+    request: Request,
+    *,
+    task_type: str,
+    assignee_agent_id: str,
+    bundle_ref: BundleRef,
+    sources: dict | None = None,
+):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        assignee = AgentRepository(db).get_by_id(assignee_agent_id)
+        if not assignee:
+            raise HTTPException(status_code=404, detail="Assignee agent not found")
+        if not _can_write(assignee, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        task_payload = _create_bundle_task_payload(task_type, bundle_ref, sources=sources)
+        task = AgentTaskRepository(db).create(
+            assignee_agent_id=assignee_agent_id,
+            source="portal",
+            task_type=task_type,
+            input_payload_json=json.dumps(task_payload),
+            status="queued",
+        )
+
+        dispatch_result = await task_dispatcher_service.dispatch_task(task.id, db, user=user)
+        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+        return templates.TemplateResponse(
+            "requirement_bundles.html",
+            {
+                "request": request,
+                "title": "Requirement Bundles",
+                "username": user.username,
+                "nickname": user.nickname or user.username,
+                "bundle_defaults": {
+                    "repo": settings.assets_repo_full_name,
+                    "base_branch": settings.assets_default_base_branch,
+                    "root_dir": settings.assets_bundle_root_dir,
+                },
+                "agents": _list_writable_agents(db, user),
+                "bundle_result": None,
+                "bundle_detail": bundle_detail,
+                "status_type": "success" if dispatch_result.dispatched else "error",
+                "status_message": (
+                    f"Created task {task.id}. Dispatch status: {dispatch_result.task_status}."
+                    if dispatch_result.dispatched
+                    else f"Created task {task.id}, but dispatch failed: {dispatch_result.message}"
+                ),
+                "task_result": {
+                    "task_id": task.id,
+                    "dispatch_status": dispatch_result.task_status,
+                    "dispatch_message": dispatch_result.message,
+                },
+            },
+        )
+    except RequirementBundleGithubServiceError as exc:
+        return templates.TemplateResponse(
+            "requirement_bundles.html",
+            {
+                "request": request,
+                "title": "Requirement Bundles",
+                "username": user.username,
+                "nickname": user.nickname or user.username,
+                "bundle_defaults": {
+                    "repo": settings.assets_repo_full_name,
+                    "base_branch": settings.assets_default_base_branch,
+                    "root_dir": settings.assets_bundle_root_dir,
+                },
+                "agents": _list_writable_agents(db, user),
+                "bundle_result": None,
+                "bundle_detail": None,
+                "status_type": "error",
+                "status_message": str(exc),
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/requirement-bundles/collect")
+async def requirement_bundle_collect(request: Request):
+    form = await request.form()
+    assignee_agent_id = str(form.get("collect_agent_id") or "").strip()
+    sources = {
+        "jira": _parse_multivalue_text_field(str(form.get("jira_sources") or "")),
+        "confluence": _parse_multivalue_text_field(str(form.get("confluence_sources") or "")),
+        "github_docs": _parse_multivalue_text_field(str(form.get("github_doc_sources") or "")),
+        "figma": _parse_multivalue_text_field(str(form.get("figma_sources") or "")),
+    }
+    bundle_ref = BundleRef(
+        repo=str(form.get("bundle_repo") or "").strip(),
+        path=str(form.get("bundle_path") or "").strip(),
+        branch=str(form.get("bundle_branch") or "").strip(),
+    )
+    if not assignee_agent_id:
+        raise HTTPException(status_code=400, detail="collect_agent_id is required")
+    return await _create_and_dispatch_bundle_task(
+        request,
+        task_type="requirement_bundle_collect_task",
+        assignee_agent_id=assignee_agent_id,
+        bundle_ref=bundle_ref,
+        sources=sources,
+    )
+
+
+@router.post("/app/requirement-bundles/design-test-cases")
+async def requirement_bundle_design_test_cases(request: Request):
+    form = await request.form()
+    assignee_agent_id = str(form.get("design_agent_id") or "").strip()
+    bundle_ref = BundleRef(
+        repo=str(form.get("bundle_repo") or "").strip(),
+        path=str(form.get("bundle_path") or "").strip(),
+        branch=str(form.get("bundle_branch") or "").strip(),
+    )
+    if not assignee_agent_id:
+        raise HTTPException(status_code=400, detail="design_agent_id is required")
+    return await _create_and_dispatch_bundle_task(
+        request,
+        task_type="requirement_bundle_design_test_cases_task",
+        assignee_agent_id=assignee_agent_id,
+        bundle_ref=bundle_ref,
     )
 
 

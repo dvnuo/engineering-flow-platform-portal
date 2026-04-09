@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     default_agent_memory: str = "512Mi"
     default_agent_mount_path: str = "/root/.efp"
 
+    assets_github_token: str = Field(default="", validation_alias="ASSETS_GITHUB_TOKEN")
+    assets_github_api_base_url: str = Field(default="https://api.github.com", validation_alias="ASSETS_GITHUB_API_BASE_URL")
+    assets_repo_full_name: str = Field(
+        default="dvnuo/engineering-flow-platform-assets",
+        validation_alias="ASSETS_REPO_FULL_NAME",
+    )
+    assets_default_base_branch: str = Field(default="main", validation_alias="ASSETS_DEFAULT_BASE_BRANCH")
+    assets_bundle_root_dir: str = Field(default="requirement-bundles", validation_alias="ASSETS_BUNDLE_ROOT_DIR")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
