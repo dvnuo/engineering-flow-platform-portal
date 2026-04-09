@@ -148,7 +148,7 @@ def test_create_bundle_htmx_returns_panel_fragment(monkeypatch):
     assert "Back to App" not in response.text
 
 
-def test_open_existing_bundle_shows_manifest(monkeypatch):
+def test_open_existing_bundle_shows_summary_and_github_link(monkeypatch):
     client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
     response = client.get(
         "/app/requirement-bundles/open",
@@ -161,6 +161,9 @@ def test_open_existing_bundle_shows_manifest(monkeypatch):
     assert response.status_code == 200
     assert "Bundle Detail" in response.text
     assert "RB-checkout-flow" in response.text
+    assert "Open in GitHub" in response.text
+    assert "Advanced: Open by repo/path/branch" not in response.text
+    assert "bundle.yaml" not in response.text
 
 
 def test_open_existing_bundle_htmx_returns_panel_fragment(monkeypatch):
@@ -177,6 +180,9 @@ def test_open_existing_bundle_htmx_returns_panel_fragment(monkeypatch):
     assert response.status_code == 200
     assert 'id="requirement-bundles-panel-root"' in response.text
     assert "Bundle Detail" in response.text
+    assert "Open in GitHub" in response.text
+    assert "Advanced: Open by repo/path/branch" not in response.text
+    assert "bundle.yaml" not in response.text
     assert "Back to App" not in response.text
 
 
