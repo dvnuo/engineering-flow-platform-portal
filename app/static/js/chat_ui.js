@@ -29,8 +29,6 @@ const dom = {
   detailBackdrop: document.getElementById("detail-backdrop"),
   detailToggle: document.getElementById("detail-toggle"),
   detailClose: document.getElementById("detail-close"),
-  btnMore: document.getElementById("btn-more"),
-  headerMoreMenu: document.getElementById("header-more-menu"),
   toolPanel: document.getElementById("tool-panel"),
   toolPanelTitle: document.getElementById("tool-panel-title"),
   toolPanelBody: document.getElementById("tool-panel-body"),
@@ -38,7 +36,9 @@ const dom = {
   closeToolPanel: document.getElementById("close-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
+  topSettings: document.getElementById("top-settings"),
   uploadInput: document.getElementById("upload-input"),
+  topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
@@ -79,7 +79,7 @@ if (dom.chatInput) {
       e.preventDefault();
       
       if (!state.selectedAgentId) {
-        showToast('Please select an assistant first');
+        showToast('Please select an agent first');
         return;
       }
       
@@ -441,13 +441,13 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row flex flex-col items-end"><div class="message-meta flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="message-time text-xs text-slate-500">${now}</span></div><article class="message-bubble max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = state.selectedAgentName || "Assistant";
-  return `<div class="message-row flex flex-col items-start"><div class="message-meta flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${escapeHtml(pendingAgentName)}</span><span class="message-time text-xs text-slate-500">${now}</span></div><article class="message-bubble max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
+  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${escapeHtml(pendingAgentName)}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -571,7 +571,7 @@ function getThinkingEventDisplay(event) {
 // Open Thinking Process panel - using backend rendering
 async function openThinkingProcessPanel() {
   if (!state.selectedAgentId) {
-    showToast('Please select an assistant first');
+    showToast('Please select an agent first');
     return;
   }
   
@@ -584,12 +584,12 @@ async function openThinkingProcessPanel() {
   }
   
   if (!currentSessionId) {
-    setToolPanel("Activity", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
+    setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
     return;
   }
   
   // Use htmx to load backend-rendered panel
-  setToolPanel("Activity", '<div class="text-xs text-slate-400">Loading...</div>');
+  setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading...</div>');
   
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
@@ -597,7 +597,7 @@ async function openThinkingProcessPanel() {
       swap: "innerHTML"
     });
   } catch (err) {
-    setToolPanel("Activity", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
+    setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
   }
 }
 
@@ -633,7 +633,7 @@ function renderThinkingProcess(article, events) {
 
   host.innerHTML = `
     <button type="button" data-thinking-toggle="1" class="${btnClass}">
-      <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Activity (${count} steps)</span>
+      <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
       <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
     </button>
     <div data-thinking-timeline="1" class="mt-2 ${expanded ? "" : "hidden"}">
@@ -867,7 +867,7 @@ async function agentApi(path, options = {}) {
 
 function defaultWelcomeMessage() {
   const welcomeAgentName = state.selectedAgentName || "Assistant";
-  return `<article data-welcome="1" class="message-row message-bubble max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="message-meta text-xs uppercase tracking-wide text-slate-400 mb-2">${escapeHtml(welcomeAgentName)}</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>`;
+  return `<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">${escapeHtml(welcomeAgentName)}</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>`;
 }
 
 function clearMessageListToWelcome() {
@@ -900,12 +900,6 @@ function syncHiddenSessionInputFromState() {
   // Re-query the element each time since OOB swap replaces the DOM element
   const hiddenInput = document.getElementById("chat-session-id");
   if (hiddenInput) hiddenInput.value = currentSessionIdForSelectedAgent();
-}
-
-function updateChatInputPlaceholder(agentName) {
-  if (!dom.chatInput) return;
-  const label = String(agentName || "").trim();
-  dom.chatInput.placeholder = label ? `Message ${label}` : "Message assistant";
 }
 
 function updateSelectedAgentSession(sessionId) {
@@ -969,7 +963,7 @@ function renderAgentList() {
     dom.mineList.append(section);
   };
 
-  renderSection("Yours", mine);
+  renderSection("My Space", mine);
   renderSection("Shared", shared);
   if (publicAgents.length) renderSection("Public", publicAgents);
 }
@@ -1220,8 +1214,7 @@ async function syncSelectedAgentState() {
   const agent = state.mineAgents.find((item) => item.id === state.selectedAgentId);
 
   if (!agent) {
-    dom.embedTitle.textContent = "Select an assistant";
-    updateChatInputPlaceholder("");
+    dom.embedTitle.textContent = "Select an agent";
     dom.selectedStatus.textContent = "idle";
     dom.centerPlaceholder.classList.remove("hidden");
     dom.agentChatApp.classList.add("hidden");
@@ -1230,7 +1223,6 @@ async function syncSelectedAgentState() {
 
   const status = state.agentStatus.get(agent.id)?.status || agent.status;
   dom.embedTitle.textContent = agent.name;
-  updateChatInputPlaceholder(agent.name);
   dom.selectedStatus.textContent = status;
   if (dom.selectedStatus) {
     dom.selectedStatus.className = "px-3 py-1 rounded-full text-xs border";
@@ -1886,7 +1878,7 @@ function closeToolPanel() {
 async function openSessionsPanel() {
   if (!state.selectedAgentId) return;
 
-  setToolPanel("Chat history", '<div class="text-xs text-slate-400">Loading sessions…</div>');
+  setToolPanel("Sessions", '<div class="text-xs text-slate-400">Loading sessions…</div>');
 
   await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
     target: "#tool-panel-body",
@@ -1919,11 +1911,11 @@ function renderChatHistory(messages, metadata = {}) {
 
     // Create message container
     const container = document.createElement("div");
-    container.className = isUser ? "message-row flex flex-col items-end" : "message-row flex flex-col items-start";
+    container.className = isUser ? "flex flex-col items-end" : "flex flex-col items-start";
 
     // Role label and timestamp
     const header = document.createElement("div");
-    header.className = "message-meta flex items-center gap-2 mb-1";
+    header.className = "flex items-center gap-2 mb-1";
 
     const roleLabel = document.createElement("span");
     roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
@@ -1936,7 +1928,7 @@ function renderChatHistory(messages, metadata = {}) {
 
     if (timeStr) {
       const timeLabel = document.createElement("span");
-      timeLabel.className = "message-time text-xs text-slate-500";
+      timeLabel.className = "text-xs text-slate-500";
       timeLabel.textContent = timeStr;
       header.appendChild(timeLabel);
     }
@@ -1946,7 +1938,7 @@ function renderChatHistory(messages, metadata = {}) {
     // Message bubble
     const article = document.createElement("article");
     if (isUser) {
-      article.className = "message-bubble max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
+      article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
       article.dataset.localUser = "1";
       // Set message ID if available
       if (message.id) {
@@ -1979,7 +1971,7 @@ function renderChatHistory(messages, metadata = {}) {
         article.appendChild(attachmentDiv);
       }
     } else {
-      article.className = "message-bubble max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
+      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
       const content = document.createElement("div");
       content.className = "md-render prose prose-invert max-w-none text-sm";
       content.dataset.md = message.content || "";
@@ -2350,7 +2342,7 @@ async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Files", '<div class="text-xs text-slate-400">Loading files…</div>');
+  setToolPanel("My Uploads", '<div class="text-xs text-slate-400">Loading files…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
@@ -2358,7 +2350,7 @@ async function openMyUploads() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Files", `Failed: ${safe(error.message)}`);
+    setToolPanel("My Uploads", `Failed: ${safe(error.message)}`);
   }
 }
 
@@ -2470,7 +2462,7 @@ async function startNewChatForSelectedAgent() {
   clearMessageListToWelcome();
   setChatStatus("New chat started");
 
-  if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "Chat history") {
+  if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "Sessions") {
     await openSessionsPanel();
   }
 }
@@ -2918,7 +2910,7 @@ function bindEvents() {
       // Render agent details to tool panel
       const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || publicAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
-        dom.toolPanelTitle.textContent = "About assistant";
+        dom.toolPanelTitle.textContent = "Agent Details";
         dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
         dom.agentMeta = document.getElementById("agent-meta");
         dom.agentActions = document.getElementById("agent-actions");
@@ -2995,52 +2987,6 @@ function bindEvents() {
     if (!dom.chatInput?.contains(target) && !dom.chatSuggest?.contains(target)) hideSuggest();
   });
 
-  const closeMoreMenu = () => {
-    dom.headerMoreMenu?.classList.add("hidden");
-    dom.btnMore?.setAttribute("aria-expanded", "false");
-  };
-
-  const toggleMoreMenu = () => {
-    if (!dom.headerMoreMenu || !dom.btnMore) return;
-    const open = dom.headerMoreMenu.classList.contains("hidden");
-    dom.headerMoreMenu.classList.toggle("hidden", !open);
-    dom.btnMore.setAttribute("aria-expanded", open ? "true" : "false");
-  };
-
-  dom.btnMore?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    toggleMoreMenu();
-  });
-
-  dom.headerMoreMenu?.addEventListener("click", async (event) => {
-    const actionBtn = event.target.closest("[data-more-action]");
-    if (!actionBtn) return;
-    event.preventDefault();
-    closeMoreMenu();
-
-    if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
-      return;
-    }
-
-    const action = actionBtn.dataset.moreAction;
-    if (action === "history") await openSessionsPanel();
-    if (action === "activity") await openThinkingProcessPanel();
-    if (action === "files") await openMyUploads();
-    if (action === "settings") await openSettings();
-  });
-
-  document.addEventListener("click", (event) => {
-    if (!dom.headerMoreMenu || dom.headerMoreMenu.classList.contains("hidden")) return;
-    const target = event.target;
-    if (!dom.headerMoreMenu.contains(target) && !dom.btnMore?.contains(target)) closeMoreMenu();
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeMoreMenu();
-  });
-
   dom.uploadInput?.addEventListener("change", (e) => {
     if (e.target.files?.length) {
       addPendingFilesAndUpload(e.target.files);
@@ -3048,6 +2994,8 @@ function bindEvents() {
     }
   });
 
+  dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
+  dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");
@@ -3311,7 +3259,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Quick action buttons
   document.getElementById('quick-uploads-btn')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast('Please select an agent first');
       return;
     }
     openMyUploads();
@@ -3323,8 +3271,32 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Server Files button in header
+  document.getElementById('btn-files')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openServerFiles();
+  });
 
+  // Sessions button in header
+  document.getElementById('btn-sessions')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openSessionsPanel();
+  });
 
+  // Thinking Process button in header
+  document.getElementById('btn-thinking')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an agent first');
+      return;
+    }
+    openThinkingProcessPanel();
+  });
 
   await refreshAll();
   renderMarkdown(document);
