@@ -22,6 +22,13 @@
         <div id="bundle-list" class="space-y-2 overflow-auto min-h-[120px] max-h-56"></div>
       </div>
 
+      <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+        <button id="tasks-menu-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <i data-lucide="list-checks" class="w-5 h-5"></i>
+          Tasks
+        </button>
+      </div>
+
       {% if role == "admin" %}
       <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
         <button id="users-menu-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">

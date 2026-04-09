@@ -416,6 +416,8 @@ class AgentDelegationService:
             group_id=normalized.group_id,
             parent_agent_id=normalized.parent_agent_id or normalized.leader_agent_id,
             assignee_agent_id=normalized.assignee_agent_id,
+            owner_user_id=assignee_agent.owner_user_id,
+            created_by_user_id=getattr(user, "id", None),
             shared_context_ref=effective_scoped_context_ref,
             input_payload_json=json.dumps(task_input_payload),
             status="queued",

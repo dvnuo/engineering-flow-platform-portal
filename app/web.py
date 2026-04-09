@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
@@ -435,6 +436,57 @@ def _render_requirement_bundles_view(request: Request, user, db, *, panel_mode: 
     return templates.TemplateResponse(template_name, context)
 
 
+def _visible_group_ids_for_user(db, user) -> list[str]:
+    group_service = AgentGroupService(db)
+    groups = AgentGroupRepository(db).list_all()
+    return [group.id for group in groups if group_service.can_view_group(group, user)]
+
+
+@router.get("/app/tasks/panel")
+def my_tasks_panel(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        group_ids = _visible_group_ids_for_user(db, user)
+        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, visible_group_ids=group_ids)
+        summary = {"queued": 0, "running": 0, "done": 0, "failed": 0}
+        for task in tasks:
+            if task.status in summary:
+                summary[task.status] += 1
+        return templates.TemplateResponse(
+            "partials/my_tasks_panel.html",
+            {"request": request, "tasks": tasks, "summary": summary},
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/tasks/{task_id}/panel")
+def task_detail_panel(request: Request, task_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        task = AgentTaskRepository(db).get_by_id(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if user.role != "admin":
+            group_ids = _visible_group_ids_for_user(db, user)
+            is_visible = task.owner_user_id == user.id or task.created_by_user_id == user.id or (
+                task.group_id and task.group_id in group_ids
+            )
+            if not is_visible:
+                raise HTTPException(status_code=404, detail="Task not found")
+        return templates.TemplateResponse("partials/task_detail_panel.html", {"request": request, "task": task})
+    finally:
+        db.close()
+
+
 @router.post("/app/requirement-bundles/create")
 async def requirement_bundle_create(request: Request):
     user = _current_user_from_cookie(request)
@@ -593,6 +645,8 @@ async def _create_and_dispatch_bundle_task(
         )
         task = AgentTaskRepository(db).create(
             assignee_agent_id=assignee_agent_id,
+            owner_user_id=assignee.owner_user_id,
+            created_by_user_id=user.id,
             source="portal",
             task_type=task_type,
             input_payload_json=json.dumps(task_payload),
@@ -605,32 +659,20 @@ async def _create_and_dispatch_bundle_task(
             task_type,
             assignee_agent_id,
         )
-        logger.debug("Requirement bundle dispatch start task_id=%s", task.id)
-
-        dispatch_result = await task_dispatcher_service.dispatch_task(task.id, db, user=user)
-        logger.info(
-            "Requirement bundle dispatch end task_id=%s result_task_status=%s runtime_status_code=%s message=%s",
-            task.id,
-            dispatch_result.task_status,
-            dispatch_result.runtime_status_code,
-            dispatch_result.message,
-        )
+        logger.debug("Requirement bundle background dispatch scheduled task_id=%s", task.id)
+        task_dispatcher_service.dispatch_task_in_background(task.id)
         return _render_requirement_bundles_view(
             request,
             user,
             db,
             panel_mode=panel_mode,
             bundle_detail=bundle_detail,
-            status_type="success" if dispatch_result.dispatched else "error",
-            status_message=(
-                f"Created task {task.id}. Dispatch status: {dispatch_result.task_status}."
-                if dispatch_result.dispatched
-                else f"Created task {task.id}, but dispatch failed: {dispatch_result.message}"
-            ),
+            status_type="success",
+            status_message=f"Created task {task.id} and scheduled background dispatch. Open My Tasks to follow progress.",
             task_result={
                 "task_id": task.id,
-                "dispatch_status": dispatch_result.task_status,
-                "dispatch_message": dispatch_result.message,
+                "dispatch_status": "scheduled",
+                "dispatch_message": "Task scheduled for background dispatch",
             },
         )
     except RequirementBundleGithubServiceError as exc:

@@ -32,6 +32,19 @@ class AgentTaskRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+
+    def list_visible_to_user(self, *, user_id: int, visible_group_ids: list[str] | None = None) -> list[AgentTask]:
+        filters = [AgentTask.owner_user_id == user_id, AgentTask.created_by_user_id == user_id]
+        group_ids = [group_id for group_id in (visible_group_ids or []) if group_id]
+        if group_ids:
+            filters.append(AgentTask.group_id.in_(group_ids))
+        stmt = (
+            select(AgentTask)
+            .where(or_(*filters))
+            .order_by(AgentTask.updated_at.desc(), AgentTask.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
     def list_by_group_id(self, group_id: str) -> list[AgentTask]:
         stmt = (
             select(AgentTask)

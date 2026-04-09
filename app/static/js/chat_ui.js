@@ -42,6 +42,7 @@ const dom = {
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
+  tasksMenuBtn: document.getElementById("tasks-menu-btn"),
   bundleList: document.getElementById("bundle-list"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
   createBundleModal: document.getElementById("create-bundle-modal"),
@@ -3182,6 +3183,18 @@ function bindEvents() {
       });
     } catch (error) {
       setToolPanel("Users", `Failed: ${safe(error.message)}`);
+    }
+  });
+
+  dom.tasksMenuBtn?.addEventListener("click", async () => {
+    setToolPanel("My Tasks", '<div class="text-xs text-slate-400">Loading tasks…</div>');
+    try {
+      await htmx.ajax("GET", "/app/tasks/panel", {
+        target: "#tool-panel-body",
+        swap: "innerHTML",
+      });
+    } catch (error) {
+      setToolPanel("My Tasks", `Failed: ${safe(error.message)}`);
     }
   });
 

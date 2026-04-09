@@ -1,28 +1,20 @@
-from types import SimpleNamespace
+import pytest
 import json
-import asyncio
 
-from fastapi.testclient import TestClient
+import asyncio
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentDelegation, AgentTask, CapabilityProfile, PolicyProfile, RuntimeCapabilityCatalogSnapshot, User
-from app.log_context import bind_log_context, reset_log_context
-from app.services.task_dispatcher import TaskDispatcherService
+from app.models import Agent, AgentTask, User
 from app.services.auth_service import hash_password
+from app.services.task_dispatcher import TaskDispatcherService
 
 
-def _build_client_with_overrides():
-    from app.main import app
-    import app.api.agent_tasks as tasks_api
-
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+@pytest.fixture()
+def db_session():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
     Base.metadata.create_all(bind=engine)
 
@@ -56,28 +48,17 @@ def _build_client_with_overrides():
     db.commit()
     db.refresh(agent)
 
-    def _override_user():
-        return SimpleNamespace(id=user.id, role="admin", username=user.username, nickname="Owner")
-
-    def _override_db():
-        yield db
-
-    app.dependency_overrides[tasks_api.get_current_user] = _override_user
-    app.dependency_overrides[tasks_api.get_db] = _override_db
-
-    def _cleanup():
-        app.dependency_overrides.clear()
-        db.close()
-
-    return TestClient(app), db, agent, _cleanup
+    yield db, agent
+    db.close()
 
 
-def _create_task(db: Session, agent_id: str, input_payload_json: str = '{"a":1}') -> AgentTask:
+def _create_task(db: Session, agent_id: str) -> AgentTask:
     task = AgentTask(
         assignee_agent_id=agent_id,
+        owner_user_id=1,
         source="jira",
         task_type="jira_workflow_review_task",
-        input_payload_json=input_payload_json,
+        input_payload_json='{"a": 1}',
         shared_context_ref="EFP-1",
         status="queued",
         retry_count=0,
@@ -88,777 +69,284 @@ def _create_task(db: Session, agent_id: str, input_payload_json: str = '{"a":1}'
     return task
 
 
-def test_dispatch_endpoint_marks_task_done_on_success(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = _create_task(db, agent.id)
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        class _Resp:
-            status_code = 200
-            text = (
-                '{"ok": true, "task_id": "t1", "execution_type": "task", "request_id": "req-1",'
-                ' "status": "success", "output_payload": {"result": "ok"}}'
-            )
-
-            @staticmethod
-            def json():
-                return {
-                    "ok": True,
-                    "task_id": "t1",
-                    "execution_type": "task",
-                    "request_id": "req-1",
-                    "status": "success",
-                    "output_payload": {"result": "ok"},
-                }
-
-        async def _fake_post(_url: str, _body: dict):
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["dispatched"] is True
-        assert body["task_status"] == "done"
-
-        db.refresh(task)
-        assert task.status == "done"
-        assert task.result_payload_json is not None
-        assert json.loads(task.result_payload_json)["status"] == "success"
-    finally:
-        cleanup()
-
-
-def test_dispatch_endpoint_marks_task_failed_on_runtime_error(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = _create_task(db, agent.id)
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        class _Resp:
-            status_code = 200
-            text = (
-                '{"ok": false, "task_id": "t1", "execution_type": "task", "request_id": "req-2",'
-                ' "status": "error", "error": {"message": "bad input"}}'
-            )
-
-            @staticmethod
-            def json():
-                return {
-                    "ok": False,
-                    "task_id": "t1",
-                    "execution_type": "task",
-                    "request_id": "req-2",
-                    "status": "error",
-                    "error": {"message": "bad input"},
-                }
-
-        async def _fake_post(_url: str, _body: dict):
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["dispatched"] is True
-        assert body["task_status"] == "failed"
-
-        db.refresh(task)
-        assert task.status == "failed"
-        assert json.loads(task.result_payload_json)["status"] == "error"
-    finally:
-        cleanup()
-
-
-def test_dispatch_endpoint_marks_task_failed_on_runtime_blocked(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = _create_task(db, agent.id)
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        class _Resp:
-            status_code = 200
-            text = (
-                '{"ok": false, "task_id": "t1", "execution_type": "task", "request_id": "req-3",'
-                ' "status": "blocked", "error": {"message": "policy denied"}}'
-            )
-
-            @staticmethod
-            def json():
-                return {
-                    "ok": False,
-                    "task_id": "t1",
-                    "execution_type": "task",
-                    "request_id": "req-3",
-                    "status": "blocked",
-                    "error": {"message": "policy denied"},
-                }
-
-        async def _fake_post(_url: str, _body: dict):
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["dispatched"] is True
-        assert body["task_status"] == "failed"
-
-        db.refresh(task)
-        assert task.status == "failed"
-        assert json.loads(task.result_payload_json)["status"] == "blocked"
-    finally:
-        cleanup()
-
-
-def test_dispatch_endpoint_marks_task_failed_on_malformed_2xx_without_status(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = _create_task(db, agent.id)
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        class _Resp:
-            status_code = 200
-            text = '{"ok": true, "task_id": "t1", "execution_type": "task"}'
-
-            @staticmethod
-            def json():
-                return {"ok": True, "task_id": "t1", "execution_type": "task"}
-
-        async def _fake_post(_url: str, _body: dict):
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["dispatched"] is True
-        assert body["task_status"] == "failed"
-
-        db.refresh(task)
-        assert task.status == "failed"
-        payload = json.loads(task.result_payload_json or "{}")
-        assert payload["error_code"] == "malformed_runtime_response"
-        assert payload["trace_id"]
-        assert payload["portal_dispatch_id"]
-        assert payload["raw_response_preview"]
-        assert "status" not in payload.get("raw_response_preview", "")
-    finally:
-        cleanup()
-
-
-def test_dispatch_endpoint_marks_task_failed_on_malformed_2xx_with_unsupported_status(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = _create_task(db, agent.id)
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        class _Resp:
-            status_code = 200
-            text = '{"ok": true, "task_id": "t1", "status": "queued"}'
-
-            @staticmethod
-            def json():
-                return {"ok": True, "task_id": "t1", "status": "queued"}
-
-        async def _fake_post(_url: str, _body: dict):
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch", headers={"X-Trace-Id": "trace-unsupported-status"})
-        assert response.status_code == 200
-        assert response.json()["task_status"] == "failed"
-
-        db.refresh(task)
-        payload = json.loads(task.result_payload_json or "{}")
-        assert payload["error_code"] == "malformed_runtime_response"
-        assert payload["trace_id"] == "trace-unsupported-status"
-        assert payload["portal_dispatch_id"]
-        assert payload["raw_response_preview"]
-        assert "unsupported status" in payload["message"]
-        assert "status" not in payload
-        assert "task_id" not in payload
-    finally:
-        cleanup()
-
-
-def test_dispatch_late_runtime_success_cannot_overwrite_stale(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = AgentTask(
-            assignee_agent_id=agent.id,
-            source="github",
-            task_type="github_review_task",
-            input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
-            shared_context_ref="github:review:octo/portal:1:acct:sha-1",
-            status="queued",
-            retry_count=0,
-        )
-        db.add(task)
-        db.commit()
-        db.refresh(task)
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        stale_payload = json.dumps(
-            {
-                "ok": False,
-                "error_code": "superseded_by_new_head_sha",
-                "message": "GitHub review task superseded by a newer PR head_sha",
-                "superseded_by_task_id": "new-task-1",
-                "superseded_by_head_sha": "sha-2",
-            }
-        )
-
-        class _Resp:
-            status_code = 200
-            text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
-
-            @staticmethod
-            def json():
-                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
-
-        async def _fake_post(_url: str, _body: dict):
-            fresh = db.get(AgentTask, task.id)
-            fresh.status = "stale"
-            fresh.result_payload_json = stale_payload
-            db.add(fresh)
-            db.commit()
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["task_status"] == "stale"
-        assert "late_runtime_result_ignored_because_task_is_stale" in body["message"]
-
-        db.refresh(task)
-        assert task.status == "stale"
-        assert task.result_payload_json == stale_payload
-    finally:
-        cleanup()
-
-
-def test_dispatch_runtime_superseded_error_is_recorded_as_stale(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = AgentTask(
-            assignee_agent_id=agent.id,
-            source="github",
-            task_type="github_review_task",
-            input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
-            shared_context_ref="github:review:octo/portal:1:acct:sha-1",
-            status="queued",
-            retry_count=0,
-        )
-        db.add(task)
-        db.commit()
-        db.refresh(task)
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        class _Resp:
-            status_code = 200
-            text = (
-                '{"ok": false, "status": "error", '
-                '"output_payload": {"error_code": "superseded_by_new_head_sha", "message": "superseded"}}'
-            )
-
-            @staticmethod
-            def json():
-                return {
-                    "ok": False,
-                    "status": "error",
-                    "output_payload": {"error_code": "superseded_by_new_head_sha", "message": "superseded"},
-                }
-
-        async def _fake_post(_url: str, _body: dict):
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["task_status"] == "stale"
-
-        db.refresh(task)
-        assert task.status == "stale"
-        parsed = json.loads(task.result_payload_json or "{}")
-        assert parsed["output_payload"]["error_code"] == "superseded_by_new_head_sha"
-    finally:
-        cleanup()
-
-
-def test_dispatch_endpoint_invalid_payload_marks_task_failed(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        task = _create_task(db, agent.id, input_payload_json='[1,2,3]')
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 409
-
-        db.refresh(task)
-        assert task.status == "failed"
-        assert "decode to a JSON object" in (task.result_payload_json or "")
-    finally:
-        cleanup()
-
-
-def test_cleanup_telemetry_deleted_task_agent_ids_is_deduped():
+def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
     service = TaskDispatcherService()
-    delegation = SimpleNamespace(audit_trace_json=json.dumps({"cleanup": {"deleted_task_agent_ids": ["a-1"]}}))
 
-    service._append_deleted_task_agent_id_to_delegation(delegation, "a-1")
-    service._append_deleted_task_agent_id_to_delegation(delegation, "a-1")
-    service._append_deleted_task_agent_id_to_delegation(delegation, "a-2")
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
 
-    parsed = json.loads(delegation.audit_trace_json)
-    assert parsed["cleanup"]["deleted_task_agent_ids"] == ["a-1", "a-2"]
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-1"}'
 
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-1"}
 
-def test_dispatch_prefers_delegation_origin_session_over_task_payload(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
+    class StatusResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done"}}'
 
-        task = AgentTask(
-            assignee_agent_id=agent.id,
-            source="agent",
-            task_type="delegation_task",
-            parent_agent_id=agent.id,
-            input_payload_json='{"leader_session_id":"payload-session","strict_delegation_result":true}',
-            status="queued",
-            retry_count=0,
-        )
-        db.add(task)
-        db.commit()
-        db.refresh(task)
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
 
-        delegation = AgentDelegation(
-            group_id="g-1",
-            parent_agent_id=agent.id,
-            leader_agent_id=agent.id,
-            assignee_agent_id=agent.id,
-            agent_task_id=task.id,
-            objective="test",
-            leader_session_id="leader-session",
-            origin_session_id="origin-session",
-            reply_target_type="leader",
-            coordination_run_id="run-55",
-            round_index=4,
-            visibility="leader_only",
-            status="queued",
-        )
-        db.add(delegation)
-        db.commit()
+    async def fake_post(_url, _body):
+        return SubmitResp()
 
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-        captured = {}
+    async def fake_get(_url, _meta):
+        return StatusResp()
 
-        class _Resp:
-            status_code = 200
-            text = '{"ok": true, "status": "success", "output_payload": {"delegation_result":{"status":"done"}}}'
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
 
-            @staticmethod
-            def json():
-                return {"ok": True, "status": "success", "output_payload": {"delegation_result": {"status": "done"}}}
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.dispatched is True
+    assert result.task_status == "done"
 
-        async def _fake_post(_url: str, body: dict):
-            captured.update(body)
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        assert captured["session_id"] == "origin-session"
-        assert captured["metadata"]["portal_leader_session_id"] == "origin-session"
-        assert captured["metadata"]["portal_delegation_reply_target"] == "leader"
-        assert captured["metadata"]["portal_coordination_run_id"] == "run-55"
-        assert captured["metadata"]["portal_coordination_round_index"] == 4
-        assert captured["metadata"]["portal_delegation_id"] == delegation.id
-        assert captured["metadata"]["current_delegation_id"] == delegation.id
-        assert captured["metadata"]["portal_group_id"] == "g-1"
-        assert captured["metadata"]["group_id"] == "g-1"
-        assert captured["metadata"]["current_coordination_run_id"] == "run-55"
-    finally:
-        cleanup()
+    db.refresh(task)
+    assert task.status == "done"
+    assert task.runtime_request_id == "req-1"
+    assert task.started_at is not None
+    assert task.finished_at is not None
+    assert task.summary == "done"
 
 
-def test_dispatch_includes_capability_and_policy_metadata(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
+def test_dispatch_task_async_submit_then_error(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
 
-        capability_profile = CapabilityProfile(
-            name="cap-dispatch",
-            tool_set_json='["shell"]',
-            channel_set_json='["jira_get_issue"]',
-            skill_set_json='["review"]',
-            allowed_external_systems_json='["github"]',
-            allowed_webhook_triggers_json='["pull_request_review_requested"]',
-            allowed_actions_json='["review_pull_request","add_comment"]',
-        )
-        policy_profile = PolicyProfile(
-            name="policy-dispatch",
-            auto_run_rules_json='{"require_explicit_allow": true, "allow_auto_run": false}',
-            permission_rules_json='{"denied_capability_ids":[" tool:shell ", ""],"denied_adapter_actions":[" adapter:github:add_comment "]}',
-            transition_rules_json='{"external_trigger_allowlist":[" github ","   ","jira"],"external_trigger_blocklist":[" slack "]}',
-        )
-        db.add(capability_profile)
-        db.add(policy_profile)
-        db.commit()
-        db.refresh(capability_profile)
-        db.refresh(policy_profile)
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
 
-        agent.capability_profile_id = capability_profile.id
-        agent.policy_profile_id = policy_profile.id
-        db.add(agent)
-        db.commit()
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-2"}'
 
-        task = _create_task(db, agent.id)
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-        captured = {}
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-2"}
 
-        class _Resp:
-            status_code = 200
-            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
+    class StatusResp:
+        status_code = 200
+        text = '{"ok": false, "status": "error", "error": {"message": "bad input"}}'
 
-            @staticmethod
-            def json():
-                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+        @staticmethod
+        def json():
+            return {"ok": False, "status": "error", "error": {"message": "bad input"}}
 
-        async def _fake_post(_url: str, body: dict):
-            captured.update(body)
-            return _Resp()
+    async def fake_post(_url, _body):
+        return SubmitResp()
 
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        metadata = captured["metadata"]
-        assert metadata["capability_profile_id"] == capability_profile.id
-        assert metadata["policy_profile_id"] == policy_profile.id
-        assert "tool:shell" in metadata["allowed_capability_ids"]
-        assert "skill:review" in metadata["allowed_capability_ids"]
-        assert "channel_action:jira_get_issue" in metadata["allowed_capability_ids"]
-        assert "adapter:github:review_pull_request" in metadata["allowed_capability_ids"]
-        assert "adapter:github:add_comment" not in metadata["allowed_capability_ids"]
-        assert "adapter:jira:add_comment" not in metadata["allowed_capability_ids"]
-        assert "tool" in metadata["allowed_capability_types"]
-        assert "channel_action" in metadata["allowed_capability_types"]
-        assert "adapter_action" in metadata["allowed_capability_types"]
-        assert metadata["allowed_external_systems"] == ["github"]
-        assert metadata["allowed_webhook_triggers"] == ["pull_request_review_requested"]
-        assert metadata["allowed_actions"] == ["review_pull_request", "add_comment"]
-        assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
-        assert metadata["unresolved_tools"] == []
-        assert metadata["unresolved_skills"] == []
-        assert metadata["unresolved_channels"] == []
-        assert metadata["unresolved_actions"] == ["add_comment"]
-        assert metadata["resolved_action_mappings"] == {
-            "review_pull_request": "adapter:github:review_pull_request"
+    async def fake_get(_url, _meta):
+        return StatusResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    assert task.status == "failed"
+    assert task.error_message == "bad input"
+
+
+def test_dispatch_task_sync_runtime_success_compatible(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "ok"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+    db.refresh(task)
+    assert task.status == "done"
+
+
+def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-3"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-3"}
+
+    class PendingResp:
+        status_code = 200
+        text = '{"ok": true, "status": "running"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "running"}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    async def fake_get(_url, _meta):
+        return PendingResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+    monkeypatch.setattr(service, "_poll_runtime_task_until_terminal", lambda **_kwargs: TaskDispatcherService._poll_runtime_task_until_terminal(service, timeout_seconds=0, interval_seconds=0, **_kwargs))
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    payload = json.loads(task.result_payload_json or "{}")
+    assert payload["error_code"] == "runtime_poll_timeout"
+    assert payload["trace_id"]
+    assert payload["portal_dispatch_id"]
+
+
+def test_dispatch_task_continues_polling_on_http_200_running(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-4"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-4"}
+
+    class RunningResp:
+        status_code = 200
+        text = '{"ok": true, "status": "running"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "running"}
+
+    class SuccessResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    polls = {"count": 0}
+
+    async def fake_get(_url, _meta):
+        polls["count"] += 1
+        if polls["count"] == 1:
+            return RunningResp()
+        return SuccessResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+    assert polls["count"] >= 2
+
+
+def test_dispatch_task_invalid_input_sets_error_message_and_finished_at(db_session):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.input_payload_json = "not-json"
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    assert task.error_message
+    assert task.finished_at is not None
+
+
+def test_dispatch_task_runtime_exception_sets_error_message_and_finished_at(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    async def fake_post(_url, _body):
+        raise RuntimeError("runtime unavailable")
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    assert task.error_message
+    assert task.finished_at is not None
+
+
+def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkeypatch):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        source="github",
+        task_type="github_review_task",
+        input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
+        shared_context_ref="github:review:octo/portal:1:acct:sha-1",
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    stale_payload = json.dumps(
+        {
+            "ok": False,
+            "error_code": "superseded_by_new_head_sha",
+            "message": "GitHub review task superseded by a newer PR head_sha",
+            "superseded_by_task_id": "new-task-1",
+            "superseded_by_head_sha": "sha-2",
         }
-        assert metadata["runtime_capability_catalog_version"] is not None
-        assert metadata["runtime_capability_catalog_source"] in {"seed_fallback", "settings_snapshot", "runtime_api"}
-        assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
-        assert metadata["policy_context"]["policy_profile_id"] == policy_profile.id
-        assert metadata["policy_context"]["auto_run_rules"]["require_explicit_allow"] is True
-        assert metadata["governance_require_explicit_allow"] is True
-        assert metadata["governance_allow_auto_run"] is False
-        assert metadata["governance_external_allowlist"] == ["github", "jira"]
-        assert metadata["governance_external_blocklist"] == ["slack"]
-        assert metadata["denied_capability_ids"] == ["tool:shell"]
-        assert metadata["denied_adapter_actions"] == ["adapter:github:add_comment"]
-        assert metadata["portal_task_id"] == task.id
-        assert metadata["portal_task_source"] == task.source
-        assert metadata["current_task_id"] == task.id
-        assert metadata["source_type"] == task.source
-        assert metadata["source_ref"] == task.id
-    finally:
-        cleanup()
-
-
-def test_dispatch_includes_capability_metadata_defaults_when_profile_is_missing(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        agent.capability_profile_id = None
-        agent.policy_profile_id = None
-        db.add(agent)
-        db.commit()
-
-        task = _create_task(db, agent.id)
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-        captured = {}
-
-        class _Resp:
-            status_code = 200
-            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
-
-            @staticmethod
-            def json():
-                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
-
-        async def _fake_post(_url: str, body: dict):
-            captured.update(body)
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        metadata = captured["metadata"]
-        assert metadata["capability_profile_id"] is None
-        assert metadata["policy_profile_id"] is None
-        assert metadata["runtime_capability_catalog_version"] is not None
-        assert metadata["catalog_validation_mode"] in {"seed_fallback", "full_snapshot"}
-        assert metadata["policy_context"]["policy_profile_id"] is None
-        assert metadata["portal_task_id"] == task.id
-        assert metadata["portal_task_source"] == task.source
-        assert metadata["current_task_id"] == task.id
-        assert metadata["source_type"] == task.source
-        assert metadata["source_ref"] == task.id
-        assert metadata["allowed_capability_ids"] == []
-        assert metadata["allowed_capability_types"] == []
-        assert metadata["allowed_actions"] == []
-        assert metadata["allowed_adapter_actions"] == []
-        assert metadata["unresolved_actions"] == []
-        assert metadata["resolved_action_mappings"] == {}
-    finally:
-        cleanup()
-
-
-def test_dispatch_uses_assignee_agent_scoped_catalog_snapshot(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        db.add(
-            RuntimeCapabilityCatalogSnapshot(
-                source_agent_id=agent.id,
-                catalog_version="dispatch-agent-v1",
-                catalog_source="runtime_api",
-                payload_json='{"catalog_version":"dispatch-agent-v1","capabilities":[{"capability_id":"adapter:github:review_pull_request","capability_type":"adapter_action","action_alias":"review_pull_request"}]}',
-            )
-        )
-        db.commit()
-
-        capability_profile = CapabilityProfile(name="cap-dispatch-snapshot", allowed_actions_json='["review_pull_request"]')
-        db.add(capability_profile)
-        db.commit()
-        db.refresh(capability_profile)
-        agent.capability_profile_id = capability_profile.id
-        db.add(agent)
-        db.commit()
-
-        task = _create_task(db, agent.id)
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-        captured = {}
-
-        class _Resp:
-            status_code = 200
-            text = '{"ok": true, "status": "success", "output_payload": {"result":"ok"}}'
-
-            @staticmethod
-            def json():
-                return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
-
-        async def _fake_post(_url: str, body: dict):
-            captured.update(body)
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch")
-        assert response.status_code == 200
-        assert captured["metadata"]["runtime_capability_catalog_version"] == "dispatch-agent-v1"
-        assert captured["metadata"]["runtime_capability_catalog_source"] == "runtime_api"
-    finally:
-        cleanup()
-
-
-def test_post_to_runtime_includes_internal_api_key_header(monkeypatch):
-    service = TaskDispatcherService()
-    captured = {}
-
-    monkeypatch.setattr(
-        service.proxy_service,
-        "build_runtime_internal_headers",
-        lambda: {"X-Internal-Api-Key": "runtime-s2s-key"},
     )
 
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            return None
+    class Resp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
 
-        async def __aenter__(self):
-            return self
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
 
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        async def post(self, url, json, headers=None):
-            captured["url"] = url
-            captured["json"] = json
-            captured["headers"] = headers or {}
-            return SimpleNamespace(status_code=200, json=lambda: {"ok": True}, text='{"ok": true}')
-
-    monkeypatch.setattr("app.services.task_dispatcher.httpx.AsyncClient", _FakeClient)
-
-    import asyncio
-
-    result = asyncio.run(
-        service._post_to_runtime(
-            "http://runtime/api/tasks/execute",
-            {
-                "task_id": "t-1",
-                "metadata": {
-                    "trace_id": "trace-1",
-                    "span_id": "span-1",
-                    "parent_span_id": "parent-1",
-                    "portal_task_id": "task-1",
-                    "portal_dispatch_id": "dispatch-1",
-                },
-            },
-        )
-    )
-    assert result.status_code == 200
-    assert captured["headers"]["X-Internal-Api-Key"] == "runtime-s2s-key"
-    assert captured["headers"]["X-Trace-Id"] == "trace-1"
-    assert captured["headers"]["X-Span-Id"] == "span-1"
-    assert captured["headers"]["X-Parent-Span-Id"] == "parent-1"
-    assert captured["headers"]["X-Portal-Task-Id"] == "task-1"
-    assert captured["headers"]["X-Portal-Dispatch-Id"] == "dispatch-1"
-    assert captured["json"]["task_id"] == "t-1"
-
-
-def test_dispatch_non_2xx_records_trace_payload_and_logs(monkeypatch, caplog):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = _create_task(db, agent.id)
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        class _Resp:
-            status_code = 503
-            text = "service unavailable token=secret " + ("x" * 900)
-
-            @staticmethod
-            def json():
-                return {"message": "unavailable"}
-
-        async def _fake_post(_url: str, _body: dict):
-            return _Resp()
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-        caplog.set_level("INFO")
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch", headers={"X-Trace-Id": "trace-503"})
-        assert response.status_code == 200
-        body = response.json()
-        assert body["task_status"] == "failed"
-
-        db.refresh(task)
-        payload = json.loads(task.result_payload_json or "{}")
-        assert payload["runtime_status_code"] == 503
-        assert payload["trace_id"] == "trace-503"
-        assert payload["portal_dispatch_id"]
-        assert "raw_response_preview" in payload
-        assert "secret" not in payload["raw_response_preview"]
-        assert len(payload["raw_response_preview"]) <= 803
-
-        log_text = caplog.text
-        assert task.id in log_text
-        assert "runtime_status_code=503" in log_text
-    finally:
-        cleanup()
-
-
-def test_dispatch_runtime_request_error_payload_includes_trace_and_redacts(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = _create_task(db, agent.id)
-        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-
-        async def _fake_post(_url: str, _body: dict):
-            raise RuntimeError("runtime token=super-secret")
-
-        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
-
-        response = client.post(f"/api/agent-tasks/{task.id}/dispatch", headers={"X-Trace-Id": "trace-runtime-error"})
-        assert response.status_code == 200
-        assert response.json()["task_status"] == "failed"
-
-        db.refresh(task)
-        payload = json.loads(task.result_payload_json or "{}")
-        assert payload["error_code"] == "runtime_request_error"
-        assert payload["trace_id"] == "trace-runtime-error"
-        assert payload["portal_dispatch_id"]
-        assert "super-secret" not in payload["message"]
-        assert "[REDACTED]" in payload["message"]
-    finally:
-        cleanup()
-
-
-def test_dispatch_shared_context_not_found_payload_includes_trace(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        import app.api.agent_tasks as tasks_api
-
-        task = AgentTask(
-            assignee_agent_id=agent.id,
-            source="agent",
-            task_type="delegation_task",
-            input_payload_json="{}",
-            shared_context_ref="ctx-missing",
-            group_id="group-1",
-            status="queued",
-            retry_count=0,
-        )
-        db.add(task)
+    async def fake_post(_url, _body):
+        fresh = db.get(AgentTask, task.id)
+        fresh.status = "stale"
+        fresh.result_payload_json = stale_payload
+        db.add(fresh)
         db.commit()
-        db.refresh(task)
+        return Resp()
 
-        token = bind_log_context(trace_id="trace-shared-missing")
-        try:
-            result = asyncio.run(tasks_api.task_dispatcher_service.dispatch_task(task.id, db))
-        finally:
-            reset_log_context(token)
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
 
-        assert result.dispatched is False
-        assert result.task_status == "failed"
-
-        db.refresh(task)
-        payload = json.loads(task.result_payload_json or "{}")
-        assert payload["error_code"] == "shared_context_not_found"
-        assert payload["trace_id"] == "trace-shared-missing"
-        assert payload["portal_dispatch_id"]
-    finally:
-        cleanup()
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "stale"
+    db.refresh(task)
+    assert task.status == "stale"

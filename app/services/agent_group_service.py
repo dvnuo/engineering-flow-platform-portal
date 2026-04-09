@@ -393,6 +393,8 @@ class AgentGroupService:
             group_id=group_id,
             parent_agent_id=payload.parent_agent_id,
             assignee_agent_id=payload.assignee_agent_id,
+            owner_user_id=assignee_agent.owner_user_id,
+            created_by_user_id=getattr(user, "id", None),
             source=payload.source,
             task_type=payload.task_type,
             input_payload_json=payload.input_payload_json,

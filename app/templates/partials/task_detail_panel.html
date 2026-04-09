@@ -1,0 +1,34 @@
+<div id="task-detail-panel-root" class="space-y-4 text-slate-800 dark:text-slate-100">
+  <div class="flex items-center justify-between">
+    <h2 class="text-xl font-semibold">Task Detail</h2>
+    <button class="rounded-lg border border-slate-300 dark:border-slate-600 px-2 py-1 text-xs" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Refresh</button>
+  </div>
+
+  <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 text-xs space-y-1">
+    <div><strong>task_id:</strong> {{ task.id }}</div>
+    <div><strong>task_type:</strong> {{ task.task_type }}</div>
+    <div><strong>source:</strong> {{ task.source }}</div>
+    <div><strong>status:</strong> {{ task.status }}</div>
+    <div><strong>assignee_agent_id:</strong> {{ task.assignee_agent_id }}</div>
+    <div><strong>group_id:</strong> {{ task.group_id or '-' }}</div>
+    <div><strong>owner_user_id:</strong> {{ task.owner_user_id or '-' }}</div>
+    <div><strong>created_by_user_id:</strong> {{ task.created_by_user_id or '-' }}</div>
+    <div><strong>runtime_request_id:</strong> {{ task.runtime_request_id or '-' }}</div>
+    <div><strong>created_at:</strong> {{ task.created_at }}</div>
+    <div><strong>started_at:</strong> {{ task.started_at or '-' }}</div>
+    <div><strong>finished_at:</strong> {{ task.finished_at or '-' }}</div>
+    <div><strong>summary:</strong> {{ task.summary or '-' }}</div>
+    <div><strong>error_message:</strong> {{ task.error_message or '-' }}</div>
+  </div>
+
+  <div>
+    <h3 class="font-semibold text-sm mb-1">input_payload_json</h3>
+    <pre class="text-xs rounded-lg border border-slate-200 dark:border-slate-700 p-3 overflow-auto whitespace-pre-wrap">{{ task.input_payload_json or '{}' }}</pre>
+  </div>
+  <div>
+    <h3 class="font-semibold text-sm mb-1">result_payload_json</h3>
+    <pre class="text-xs rounded-lg border border-slate-200 dark:border-slate-700 p-3 overflow-auto whitespace-pre-wrap">{{ task.result_payload_json or '{}' }}</pre>
+  </div>
+
+  <button class="rounded-lg border border-slate-300 dark:border-slate-600 px-2 py-1 text-xs" hx-get="/app/tasks/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Back to My Tasks</button>
+</div>
