@@ -93,6 +93,9 @@
           <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
           <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
           <input type="hidden" name="bundle_branch" value="{{ bundle_detail.bundle_ref.branch }}" />
+          <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
+          <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
+          <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
           <select name="collect_agent_id" required class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2">
             <option value="">-- Select collect agent --</option>
             {% for agent in agents %}
@@ -127,6 +130,9 @@
           <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
           <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
           <input type="hidden" name="bundle_branch" value="{{ bundle_detail.bundle_ref.branch }}" />
+          <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
+          <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
+          <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
           <select name="design_agent_id" required class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2">
             <option value="">-- Select design agent --</option>
             {% for agent in agents %}

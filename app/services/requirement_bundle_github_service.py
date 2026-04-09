@@ -303,6 +303,7 @@ class RequirementBundleGithubService:
 
     def inspect_bundle(self, bundle_ref: BundleRef) -> RequirementBundleInspectResponse:
         input_path = self.normalize_bundle_path(bundle_ref.path)
+        manifest_ref = BundleRef(repo=bundle_ref.repo, path=input_path, branch=bundle_ref.branch)
         manifest_payload = self._get_file(bundle_ref.repo, f"{input_path}/bundle.yaml", bundle_ref.branch)
         manifest_yaml = self._decode_content(manifest_payload)
         manifest = self._parse_manifest_yaml(manifest_yaml)
@@ -333,6 +334,7 @@ class RequirementBundleGithubService:
         )
 
         return RequirementBundleInspectResponse(
+            manifest_ref=manifest_ref,
             bundle_ref=canonical_bundle_ref,
             manifest=manifest,
             requirements_file=requirements_file,

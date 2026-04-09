@@ -23,6 +23,7 @@ class RequirementBundleCreateForm(BaseModel):
 
 
 class RequirementBundleInspectResponse(BaseModel):
+    manifest_ref: BundleRef
     bundle_ref: BundleRef
     manifest: dict
     requirements_file: str
