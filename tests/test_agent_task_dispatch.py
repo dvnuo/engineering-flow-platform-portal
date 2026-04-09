@@ -264,6 +264,44 @@ def test_dispatch_endpoint_marks_task_failed_on_malformed_2xx_without_status(mon
         cleanup()
 
 
+def test_dispatch_endpoint_marks_task_failed_on_malformed_2xx_with_unsupported_status(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+        class _Resp:
+            status_code = 200
+            text = '{"ok": true, "task_id": "t1", "status": "queued"}'
+
+            @staticmethod
+            def json():
+                return {"ok": True, "task_id": "t1", "status": "queued"}
+
+        async def _fake_post(_url: str, _body: dict):
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch", headers={"X-Trace-Id": "trace-unsupported-status"})
+        assert response.status_code == 200
+        assert response.json()["task_status"] == "failed"
+
+        db.refresh(task)
+        payload = json.loads(task.result_payload_json or "{}")
+        assert payload["error_code"] == "malformed_runtime_response"
+        assert payload["trace_id"] == "trace-unsupported-status"
+        assert payload["portal_dispatch_id"]
+        assert payload["raw_response_preview"]
+        assert "unsupported status" in payload["message"]
+        assert "status" not in payload
+        assert "task_id" not in payload
+    finally:
+        cleanup()
+
+
 def test_dispatch_late_runtime_success_cannot_overwrite_stale(monkeypatch):
     client, db, agent, cleanup = _build_client_with_overrides()
     try:

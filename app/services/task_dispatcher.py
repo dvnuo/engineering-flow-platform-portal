@@ -401,6 +401,25 @@ class TaskDispatcherService:
 
         normalized_payload_json = json.dumps(response_json)
         normalized_status = str(status_value).lower()
+        supported_statuses = {"success", "error", "blocked"}
+        if normalized_status not in supported_statuses:
+            payload = {
+                "ok": False,
+                "error_code": "malformed_runtime_response",
+                "message": f"Runtime returned malformed 2xx response: unsupported status '{status_value}'",
+                "runtime_status_code": runtime_status_code,
+                "trace_id": trace_context.get("trace_id"),
+                "portal_dispatch_id": trace_context.get("portal_dispatch_id"),
+                "raw_response_preview": raw_response_preview or safe_preview(response_text, limit=800),
+            }
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=json.dumps(payload),
+                message="Runtime returned malformed response",
+                runtime_status_code=runtime_status_code,
+                is_malformed=True,
+            )
+
         ok_value = response_json.get("ok")
         output_payload = response_json.get("output_payload")
         if isinstance(output_payload, dict) and output_payload.get("error_code") == "superseded_by_new_head_sha":
@@ -430,9 +449,8 @@ class TaskDispatcherService:
         return NormalizedRuntimeOutcome(
             terminal_status="failed",
             result_payload_json=normalized_payload_json,
-            message="Runtime returned malformed response",
+            message="Runtime execution reported failure",
             runtime_status_code=runtime_status_code,
-            is_malformed=True,
         )
 
     async def dispatch_task(self, task_id: str, db: Session, user=None) -> AgentTaskDispatchResult:
