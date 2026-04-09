@@ -88,6 +88,11 @@ def _parse_multivalue_text_field(raw: str) -> list[str]:
     return values
 
 
+def _has_supported_collect_sources(sources: dict) -> bool:
+    supported_source_keys = ("jira", "confluence", "github_docs")
+    return any(sources.get(source_key) for source_key in supported_source_keys)
+
+
 async def _forward_runtime(
     *,
     user,
@@ -616,6 +621,10 @@ async def _create_and_dispatch_bundle_task(
 
 @router.post("/app/requirement-bundles/collect")
 async def requirement_bundle_collect(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
     form = await request.form()
     assignee_agent_id = str(form.get("collect_agent_id") or "").strip()
     sources = {
@@ -631,6 +640,36 @@ async def requirement_bundle_collect(request: Request):
     )
     if not assignee_agent_id:
         raise HTTPException(status_code=400, detail="collect_agent_id is required")
+    if not _has_supported_collect_sources(sources):
+        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+        status_message = (
+            "Figma-only collection is not supported in MVP"
+            if sources.get("figma")
+            else "At least one Jira, Confluence, or GitHub Docs source is required."
+        )
+        db = SessionLocal()
+        try:
+            return templates.TemplateResponse(
+                "requirement_bundles.html",
+                {
+                    "request": request,
+                    "title": "Requirement Bundles",
+                    "username": user.username,
+                    "nickname": user.nickname or user.username,
+                    "bundle_defaults": {
+                        "repo": settings.assets_repo_full_name,
+                        "base_branch": settings.assets_default_base_branch,
+                        "root_dir": settings.assets_bundle_root_dir,
+                    },
+                    "agents": _list_writable_agents(db, user),
+                    "bundle_result": None,
+                    "bundle_detail": bundle_detail,
+                    "status_type": "error",
+                    "status_message": status_message,
+                },
+            )
+        finally:
+            db.close()
     return await _create_and_dispatch_bundle_task(
         request,
         task_type="requirement_bundle_collect_task",
@@ -642,6 +681,10 @@ async def requirement_bundle_collect(request: Request):
 
 @router.post("/app/requirement-bundles/design-test-cases")
 async def requirement_bundle_design_test_cases(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
     form = await request.form()
     assignee_agent_id = str(form.get("design_agent_id") or "").strip()
     bundle_ref = BundleRef(
@@ -651,6 +694,31 @@ async def requirement_bundle_design_test_cases(request: Request):
     )
     if not assignee_agent_id:
         raise HTTPException(status_code=400, detail="design_agent_id is required")
+    bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+    if not bundle_detail.requirements_exists:
+        db = SessionLocal()
+        try:
+            return templates.TemplateResponse(
+                "requirement_bundles.html",
+                {
+                    "request": request,
+                    "title": "Requirement Bundles",
+                    "username": user.username,
+                    "nickname": user.nickname or user.username,
+                    "bundle_defaults": {
+                        "repo": settings.assets_repo_full_name,
+                        "base_branch": settings.assets_default_base_branch,
+                        "root_dir": settings.assets_bundle_root_dir,
+                    },
+                    "agents": _list_writable_agents(db, user),
+                    "bundle_result": None,
+                    "bundle_detail": bundle_detail,
+                    "status_type": "error",
+                    "status_message": "requirements.yaml is missing; collect requirements first",
+                },
+            )
+        finally:
+            db.close()
     return await _create_and_dispatch_bundle_task(
         request,
         task_type="requirement_bundle_design_test_cases_task",

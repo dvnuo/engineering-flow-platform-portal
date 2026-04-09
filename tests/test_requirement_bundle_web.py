@@ -40,6 +40,7 @@ def _setup_client(monkeypatch, logged_in=True):
     fake_user = SimpleNamespace(id=11, username="portal", nickname="Portal", role="user")
     fake_agent = SimpleNamespace(id="agent-1", name="Agent One", owner_user_id=11, visibility="private")
     created_tasks = []
+    bundle_state = {"requirements_exists": True}
 
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "AgentRepository", lambda db: _FakeAgentRepo(db, [fake_agent]))
@@ -66,31 +67,31 @@ def _setup_client(monkeypatch, logged_in=True):
         lambda bundle_ref: SimpleNamespace(
             bundle_ref=bundle_ref,
             manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
-            requirements_exists=True,
+            requirements_exists=bundle_state["requirements_exists"],
             test_cases_exists=True,
             last_commit_sha="abc123",
         ),
     )
 
-    return TestClient(app), created_tasks
+    return TestClient(app), created_tasks, bundle_state
 
 
 def test_requirement_bundles_requires_login(monkeypatch):
-    client, _tasks = _setup_client(monkeypatch, logged_in=False)
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=False)
     response = client.get("/app/requirement-bundles", follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["location"] == "/login"
 
 
 def test_requirement_bundles_page_logged_in(monkeypatch):
-    client, _tasks = _setup_client(monkeypatch, logged_in=True)
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
     response = client.get("/app/requirement-bundles")
     assert response.status_code == 200
     assert "Requirement Bundles" in response.text
 
 
 def test_create_new_bundle_renders_bundle_ref(monkeypatch):
-    client, _tasks = _setup_client(monkeypatch, logged_in=True)
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
     page = client.get("/app/requirement-bundles")
     assert page.status_code == 200
     assert "Collect Agent (optional)" not in page.text
@@ -111,7 +112,7 @@ def test_create_new_bundle_renders_bundle_ref(monkeypatch):
 
 
 def test_open_existing_bundle_shows_manifest(monkeypatch):
-    client, _tasks = _setup_client(monkeypatch, logged_in=True)
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
     response = client.get(
         "/app/requirement-bundles/open",
         params={
@@ -126,7 +127,7 @@ def test_open_existing_bundle_shows_manifest(monkeypatch):
 
 
 def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
-    client, created_tasks = _setup_client(monkeypatch, logged_in=True)
+    client, created_tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
 
     collect_response = client.post(
         "/app/requirement-bundles/collect",
@@ -171,3 +172,103 @@ def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
         "figma": ["https://figma.com/file/abc", "https://figma.com/file/def"],
     }
     assert design_payload["bundle_ref"]["path"] == "requirement-bundles/payments/checkout-flow"
+
+
+def test_collect_rejects_empty_sources(monkeypatch):
+    client, created_tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+
+    response = client.post(
+        "/app/requirement-bundles/collect",
+        data={
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "collect_agent_id": "agent-1",
+            "jira_sources": "",
+            "confluence_sources": "",
+            "github_doc_sources": "",
+            "figma_sources": "",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "At least one Jira, Confluence, or GitHub Docs source is required." in response.text
+    assert len(created_tasks) == 0
+
+
+def test_collect_rejects_figma_only_sources(monkeypatch):
+    client, created_tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+
+    response = client.post(
+        "/app/requirement-bundles/collect",
+        data={
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "collect_agent_id": "agent-1",
+            "jira_sources": "",
+            "confluence_sources": "",
+            "github_doc_sources": "",
+            "figma_sources": "https://www.figma.com/file/abc123",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Figma-only collection is not supported in MVP" in response.text
+    assert len(created_tasks) == 0
+
+
+def test_design_rejects_missing_requirements_yaml(monkeypatch):
+    client, created_tasks, bundle_state = _setup_client(monkeypatch, logged_in=True)
+    bundle_state["requirements_exists"] = False
+
+    response = client.post(
+        "/app/requirement-bundles/design-test-cases",
+        data={
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "design_agent_id": "agent-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "requirements.yaml is missing; collect requirements first" in response.text
+    assert len(created_tasks) == 0
+
+
+def test_requirement_bundle_page_has_source_format_guidance(monkeypatch):
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+    response = client.get(
+        "/app/requirement-bundles/open",
+        params={
+            "repo": "octo/engineering-flow-platform-assets",
+            "path": "requirement-bundles/payments/checkout-flow",
+            "branch": "bundle/checkout-flow/deadbeef",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Jira Sources (issue keys or browse URLs)" in response.text
+    assert "Confluence Sources (page IDs or page URLs)" in response.text
+    assert "GitHub Docs Sources (repo-relative paths or blob URLs)" in response.text
+    assert "Figma Sources (ignored in MVP)" in response.text
+    assert "stored only; not processed in MVP" in response.text
+
+
+def test_design_button_disabled_when_requirements_missing(monkeypatch):
+    client, _tasks, bundle_state = _setup_client(monkeypatch, logged_in=True)
+    bundle_state["requirements_exists"] = False
+
+    response = client.get(
+        "/app/requirement-bundles/open",
+        params={
+            "repo": "octo/engineering-flow-platform-assets",
+            "path": "requirement-bundles/payments/checkout-flow",
+            "branch": "bundle/checkout-flow/deadbeef",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "requirements.yaml not found — run Collect Requirements first" in response.text
+    assert "disabled" in response.text
