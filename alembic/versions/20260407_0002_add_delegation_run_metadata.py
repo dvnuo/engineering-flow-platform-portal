@@ -21,7 +21,11 @@ def upgrade() -> None:
     op.create_index("ix_agent_delegations_coordination_run_id", "agent_delegations", ["coordination_run_id"])
 
     op.execute("UPDATE agent_delegations SET round_index = 1 WHERE round_index IS NULL")
-    op.alter_column("agent_delegations", "round_index", existing_type=sa.Integer(), nullable=False)
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("agent_delegations") as batch_op:
+            batch_op.alter_column("round_index", existing_type=sa.Integer(), nullable=False)
+    else:
+        op.alter_column("agent_delegations", "round_index", existing_type=sa.Integer(), nullable=False)
 
 
 def downgrade() -> None:

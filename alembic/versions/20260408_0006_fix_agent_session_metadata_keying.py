@@ -16,12 +16,20 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_index("ix_agent_session_metadata_session_id", table_name="agent_session_metadata")
-    op.create_unique_constraint(
-        "uq_agent_session_metadata_agent_session",
-        "agent_session_metadata",
-        ["agent_id", "session_id"],
-    )
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("agent_session_metadata") as batch_op:
+            batch_op.drop_index("ix_agent_session_metadata_session_id")
+            batch_op.create_unique_constraint(
+                "uq_agent_session_metadata_agent_session",
+                ["agent_id", "session_id"],
+            )
+    else:
+        op.drop_index("ix_agent_session_metadata_session_id", table_name="agent_session_metadata")
+        op.create_unique_constraint(
+            "uq_agent_session_metadata_agent_session",
+            "agent_session_metadata",
+            ["agent_id", "session_id"],
+        )
     op.create_index(
         "ix_agent_session_metadata_agent_updated_at",
         "agent_session_metadata",
@@ -31,15 +39,19 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_agent_session_metadata_agent_updated_at", table_name="agent_session_metadata")
-    op.drop_constraint(
-        "uq_agent_session_metadata_agent_session",
-        "agent_session_metadata",
-        type_="unique",
-    )
-    op.create_index(
-        "ix_agent_session_metadata_session_id",
-        "agent_session_metadata",
-        ["session_id"],
-        unique=True,
-    )
-
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("agent_session_metadata") as batch_op:
+            batch_op.drop_constraint("uq_agent_session_metadata_agent_session", type_="unique")
+            batch_op.create_index("ix_agent_session_metadata_session_id", ["session_id"], unique=True)
+    else:
+        op.drop_constraint(
+            "uq_agent_session_metadata_agent_session",
+            "agent_session_metadata",
+            type_="unique",
+        )
+        op.create_index(
+            "ix_agent_session_metadata_session_id",
+            "agent_session_metadata",
+            ["session_id"],
+            unique=True,
+        )
