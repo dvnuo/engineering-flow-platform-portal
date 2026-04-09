@@ -3,9 +3,15 @@ import re
 import secrets
 import httpx
 import yaml
+from typing import Any
 
 from app.config import get_settings
-from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm, RequirementBundleInspectResponse
+from app.schemas.requirement_bundle import (
+    BundleRef,
+    RequirementBundleCreateForm,
+    RequirementBundleInspectResponse,
+    RequirementBundleListItem,
+)
 
 
 class RequirementBundleGithubServiceError(Exception):
@@ -54,7 +60,7 @@ class RequirementBundleGithubService:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-    def _request(self, method: str, path: str, *, json_body: dict | None = None) -> dict:
+    def _request(self, method: str, path: str, *, json_body: dict | None = None) -> dict | list[Any]:
         url = f"{self.api_base_url}{path}"
         response = httpx.request(method=method, url=url, headers=self._headers(), json=json_body, timeout=30.0)
         if response.status_code >= 400:
@@ -110,6 +116,91 @@ class RequirementBundleGithubService:
             sha = (payload[0].get("sha") or "").strip()
             return sha or None
         return None
+
+    def _list_matching_branches(self, repo_full_name: str) -> list[str]:
+        owner, repo = self.parse_repo_full_name(repo_full_name)
+        payload = self._request("GET", f"/repos/{owner}/{repo}/git/matching-refs/heads/bundle/")
+        if not isinstance(payload, list):
+            return []
+        branches: list[str] = []
+        prefix = "refs/heads/"
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            ref = str(item.get("ref") or "").strip()
+            if not ref.startswith(prefix):
+                continue
+            branch = ref[len(prefix):]
+            if branch:
+                branches.append(branch)
+        return branches
+
+    def _get_recursive_tree(self, repo_full_name: str, branch: str) -> list[dict]:
+        owner, repo = self.parse_repo_full_name(repo_full_name)
+        payload = self._request("GET", f"/repos/{owner}/{repo}/git/trees/{branch}?recursive=1")
+        if not isinstance(payload, dict):
+            return []
+        tree = payload.get("tree")
+        if not isinstance(tree, list):
+            return []
+        return [entry for entry in tree if isinstance(entry, dict)]
+
+    def _find_bundle_manifest_paths(self, tree: list[dict]) -> list[str]:
+        root_prefix = f"{self.bundle_root_dir}/"
+        manifest_paths: list[str] = []
+        for entry in tree:
+            if entry.get("type") != "blob":
+                continue
+            path = str(entry.get("path") or "").strip()
+            if not path.startswith(root_prefix):
+                continue
+            if not path.endswith("/bundle.yaml"):
+                continue
+            manifest_paths.append(path)
+        return manifest_paths
+
+    @staticmethod
+    def _build_list_item_from_detail(detail: RequirementBundleInspectResponse) -> RequirementBundleListItem:
+        manifest = detail.manifest or {}
+        scope = manifest.get("scope") if isinstance(manifest.get("scope"), dict) else {}
+        return RequirementBundleListItem(
+            bundle_id=str(manifest.get("bundle_id") or "").strip(),
+            title=str(manifest.get("title") or "").strip(),
+            domain=str(scope.get("domain") or "").strip(),
+            status=str(manifest.get("status") or "").strip(),
+            bundle_ref=detail.bundle_ref,
+            manifest_ref=detail.manifest_ref,
+            requirements_exists=detail.requirements_exists,
+            test_cases_exists=detail.test_cases_exists,
+            last_commit_sha=detail.last_commit_sha,
+        )
+
+    def list_bundles(self) -> list[RequirementBundleListItem]:
+        branches = self._list_matching_branches(self.default_repo)
+        seen: set[tuple[str, str, str]] = set()
+        items: list[RequirementBundleListItem] = []
+
+        for branch in branches:
+            try:
+                tree = self._get_recursive_tree(self.default_repo, branch)
+            except RequirementBundleGithubServiceError:
+                continue
+
+            manifest_paths = self._find_bundle_manifest_paths(tree)
+            for manifest_path in manifest_paths:
+                bundle_path = manifest_path[: -len("/bundle.yaml")]
+                bundle_ref = BundleRef(repo=self.default_repo, path=bundle_path, branch=branch)
+                try:
+                    detail = self.inspect_bundle(bundle_ref)
+                except RequirementBundleGithubServiceError:
+                    continue
+                key = (detail.bundle_ref.repo, detail.bundle_ref.path, detail.bundle_ref.branch)
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append(self._build_list_item_from_detail(detail))
+
+        return sorted(items, key=lambda item: (item.domain, item.title, item.bundle_ref.path))
 
     @staticmethod
     def _render_bundle_yaml(

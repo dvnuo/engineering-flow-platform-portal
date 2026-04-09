@@ -2,7 +2,7 @@ import base64
 
 import pytest
 
-from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
+from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm, RequirementBundleInspectResponse
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
@@ -393,3 +393,111 @@ metadata:
     assert result.manifest["flags"]["from_portal"] is True
     assert result.manifest["scope"]["tags"] == ["checkout", "payment"]
     assert result.manifest["metadata"]["owners"] == ["qa", "pm"]
+
+
+def test_list_bundles_discovers_bundle_branches_and_returns_items(monkeypatch):
+    service = RequirementBundleGithubService()
+    monkeypatch.setattr(service, "default_repo", "octo/assets")
+    monkeypatch.setattr(service, "bundle_root_dir", "requirement-bundles")
+
+    def _fake_request(method: str, path: str, *, json_body=None):
+        assert method == "GET"
+        if "matching-refs/heads/bundle/" in path:
+            return [
+                {"ref": "refs/heads/bundle/payments/aaa111"},
+                {"ref": "refs/heads/bundle/checkout/bbb222"},
+            ]
+        if "trees/bundle/payments/aaa111?recursive=1" in path:
+            return {
+                "tree": [
+                    {"path": "requirement-bundles/payments/alpha/bundle.yaml", "type": "blob"},
+                    {"path": "docs/readme.md", "type": "blob"},
+                ]
+            }
+        if "trees/bundle/checkout/bbb222?recursive=1" in path:
+            return {
+                "tree": [
+                    {"path": "requirement-bundles/checkout/beta/bundle.yaml", "type": "blob"},
+                    {"path": "requirement-bundles/checkout/beta/requirements.yaml", "type": "blob"},
+                ]
+            }
+        raise AssertionError(f"Unexpected request path: {path}")
+
+    monkeypatch.setattr(service, "_request", _fake_request)
+
+    def _fake_inspect(bundle_ref: BundleRef):
+        title = "Alpha" if bundle_ref.path.endswith("/alpha") else "Beta"
+        domain = "payments" if title == "Alpha" else "checkout"
+        return RequirementBundleInspectResponse(
+            manifest_ref=bundle_ref,
+            bundle_ref=bundle_ref,
+            manifest={
+                "bundle_id": f"RB-{title.lower()}",
+                "title": title,
+                "status": "draft",
+                "scope": {"domain": domain},
+            },
+            requirements_file="requirements.yaml",
+            test_cases_file="test-cases.yaml",
+            requirements_exists=True,
+            test_cases_exists=False,
+            last_commit_sha="abc123",
+        )
+
+    monkeypatch.setattr(service, "inspect_bundle", _fake_inspect)
+
+    results = service.list_bundles()
+
+    assert len(results) == 2
+    assert [item.title for item in results] == ["Beta", "Alpha"]
+    assert results[0].bundle_ref.path == "requirement-bundles/checkout/beta"
+    assert results[1].bundle_ref.path == "requirement-bundles/payments/alpha"
+    assert results[0].bundle_id == "RB-beta"
+
+
+def test_list_bundles_skips_invalid_branch_or_manifest(monkeypatch):
+    service = RequirementBundleGithubService()
+    monkeypatch.setattr(service, "default_repo", "octo/assets")
+    monkeypatch.setattr(service, "bundle_root_dir", "requirement-bundles")
+
+    def _fake_request(method: str, path: str, *, json_body=None):
+        assert method == "GET"
+        if "matching-refs/heads/bundle/" in path:
+            return [
+                {"ref": "refs/heads/bundle/good/aaa111"},
+                {"ref": "refs/heads/bundle/bad/bbb222"},
+            ]
+        if "trees/bundle/good/aaa111?recursive=1" in path:
+            return {
+                "tree": [{"path": "requirement-bundles/payments/good/bundle.yaml", "type": "blob"}]
+            }
+        if "trees/bundle/bad/bbb222?recursive=1" in path:
+            raise RequirementBundleGithubServiceError("tree fetch failed")
+        raise AssertionError(f"Unexpected path: {path}")
+
+    monkeypatch.setattr(service, "_request", _fake_request)
+
+    def _fake_inspect(bundle_ref: BundleRef):
+        return RequirementBundleInspectResponse(
+            manifest_ref=bundle_ref,
+            bundle_ref=bundle_ref,
+            manifest={
+                "bundle_id": "RB-good",
+                "title": "Good Bundle",
+                "status": "draft",
+                "scope": {"domain": "payments"},
+            },
+            requirements_file="requirements.yaml",
+            test_cases_file="test-cases.yaml",
+            requirements_exists=True,
+            test_cases_exists=True,
+            last_commit_sha="abc",
+        )
+
+    monkeypatch.setattr(service, "inspect_bundle", _fake_inspect)
+
+    results = service.list_bundles()
+
+    assert len(results) == 1
+    assert results[0].bundle_id == "RB-good"
+    assert results[0].bundle_ref.branch == "bundle/good/aaa111"

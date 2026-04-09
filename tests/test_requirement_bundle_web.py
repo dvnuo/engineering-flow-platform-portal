@@ -173,11 +173,12 @@ def test_open_existing_bundle_htmx_returns_panel_fragment(monkeypatch):
     assert "Back to App" not in response.text
 
 
-def test_app_page_has_requirement_bundles_button_launcher(monkeypatch):
+def test_app_page_has_requirement_bundles_sidebar_section(monkeypatch):
     client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
     response = client.get("/app")
     assert response.status_code == 200
-    assert 'id="requirement-bundles-btn"' in response.text
+    assert 'id="bundle-list"' in response.text
+    assert 'id="add-bundle-btn"' in response.text
 
 
 def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):

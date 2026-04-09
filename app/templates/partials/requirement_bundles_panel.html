@@ -1,7 +1,7 @@
 <div id="requirement-bundles-panel-root" class="space-y-6 text-slate-800 dark:text-slate-100">
   <div>
     <h1 class="text-2xl font-semibold">Requirement Bundles</h1>
-    <p class="text-sm text-slate-600 dark:text-slate-400">Create or open RequirementBundle from GitHub assets repository.</p>
+    <p class="text-sm text-slate-600 dark:text-slate-400">Open a bundle from the left sidebar. Use manual open only when needed.</p>
   </div>
 
   {% if status_message %}
@@ -10,57 +10,8 @@
   </div>
   {% endif %}
 
-  {% if bundle_result %}
-  <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-    <h2 class="font-semibold mb-2">Created Bundle Ref</h2>
-    <div class="text-sm text-slate-700 dark:text-slate-300">repo: {{ bundle_result.repo }}</div>
-    <div class="text-sm text-slate-700 dark:text-slate-300">path: {{ bundle_result.path }}</div>
-    <div class="text-sm text-slate-700 dark:text-slate-300">branch: {{ bundle_result.branch }}</div>
-  </div>
-  {% endif %}
-
-  <div class="grid gap-6 lg:grid-cols-2">
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-      <h2 class="text-lg font-semibold mb-4">Create New Bundle</h2>
-      <form method="post" action="/app/requirement-bundles/create" hx-post="/app/requirement-bundles/create" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="space-y-3">
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Title</label>
-          <input name="title" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Domain</label>
-          <input name="domain" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Slug (optional)</label>
-          <input name="slug" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Base Branch</label>
-          <input name="base_branch" value="{{ bundle_defaults.base_branch }}" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-        </div>
-        <button type="submit" class="w-full rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 font-semibold text-white">Create</button>
-      </form>
-    </section>
-
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-      <h2 class="text-lg font-semibold mb-4">Open Existing Bundle</h2>
-      <form method="get" action="/app/requirement-bundles/open" hx-get="/app/requirement-bundles/open" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="space-y-3">
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Repo</label>
-          <input name="repo" value="{{ bundle_defaults.repo }}" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Path</label>
-          <input name="path" placeholder="{{ bundle_defaults.root_dir }}/domain/slug" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Branch</label>
-          <input name="branch" value="{{ bundle_defaults.base_branch }}" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-        </div>
-        <button type="submit" class="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 font-semibold text-white">Open</button>
-      </form>
-    </section>
+  <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-4 text-sm text-slate-700 dark:text-slate-300">
+    <p>Create bundles from the sidebar <strong>Bundles</strong> section using the + button.</p>
   </div>
 
   {% if bundle_detail %}
@@ -148,5 +99,32 @@
     </div>
     {% endif %}
   </section>
+  {% else %}
+  <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+    <h2 class="text-lg font-semibold mb-2">No bundle selected</h2>
+    <p class="text-sm text-slate-600 dark:text-slate-400">
+      Choose a bundle from the left sidebar. If needed, use the manual open form below.
+    </p>
+  </section>
   {% endif %}
+
+  <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+    <h2 class="text-base font-semibold mb-1">Advanced: Open by repo/path/branch</h2>
+    <p class="text-xs text-slate-600 dark:text-slate-400 mb-3">Fallback for bundles that are not discoverable yet.</p>
+    <form method="get" action="/app/requirement-bundles/open" hx-get="/app/requirement-bundles/open" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="space-y-3">
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Repo</label>
+        <input name="repo" value="{{ bundle_defaults.repo }}" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Path</label>
+        <input name="path" placeholder="{{ bundle_defaults.root_dir }}/domain/slug" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Branch</label>
+        <input name="branch" value="{{ bundle_defaults.base_branch }}" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
+      </div>
+      <button type="submit" class="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 font-semibold text-white">Open</button>
+    </form>
+  </section>
 </div>

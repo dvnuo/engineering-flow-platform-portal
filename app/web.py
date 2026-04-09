@@ -368,6 +368,7 @@ def app_page(request: Request):
             "nickname": user.nickname or user.username,
             "user_id": user.id,
             "role": user.role,
+            "bundle_base_branch": settings.assets_default_base_branch,
         },
     )
 

@@ -24,6 +24,7 @@ from app.api.agents import router as agents_router
 from app.api.internal_agents import router as internal_agents_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
+from app.api.requirement_bundles import router as requirement_bundles_router
 from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.repositories.user_repo import UserRepository
@@ -79,6 +80,7 @@ app.include_router(agent_identity_bindings_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)
 app.include_router(copilot_router)
+app.include_router(requirement_bundles_router)
 app.include_router(runtime_router)
 app.include_router(external_event_subscriptions_router)
 app.include_router(agent_tasks_router)
