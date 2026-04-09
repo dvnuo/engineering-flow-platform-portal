@@ -186,6 +186,7 @@ const state = {
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
   eventWs: null,
   eventWsAgentId: null,
+  eventWsSessionId: null,
   inflightThinking: null,
   pendingThinkingEvents: null,  // Events from HTMX response (skill mode)
   pendingFiles: [],
@@ -460,6 +461,7 @@ function disconnectEventSocket() {
   }
   state.eventWs = null;
   state.eventWsAgentId = null;
+  state.eventWsSessionId = null;
 }
 
 function isTrackableThinkingEvent(type) {
@@ -677,6 +679,8 @@ function handleAgentEventMessage(raw) {
 
   const entry = normalizeRuntimeEvent(payload);
   if (!entry) return;
+  const currentSessionId = currentSessionIdForSelectedAgent();
+  if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
 
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
@@ -751,21 +755,30 @@ function handleAgentEventMessage(raw) {
 function ensureEventSocketForSelectedAgent() {
   const agentId = state.selectedAgentId;
   if (!agentId) return;
+  const sessionId = currentSessionIdForSelectedAgent();
 
-  if (state.eventWs && state.eventWsAgentId === agentId && state.eventWs.readyState === WebSocket.OPEN) return;
-  if (state.eventWs && state.eventWsAgentId !== agentId) disconnectEventSocket();
-  if (state.eventWs?.readyState === WebSocket.CONNECTING) return;
+  if (state.eventWs) {
+    const sameAgent = state.eventWsAgentId === agentId;
+    const sameSession = (state.eventWsSessionId || "") === (sessionId || "");
+    const readyState = state.eventWs.readyState;
+    if (sameAgent && sameSession && (readyState === WebSocket.OPEN || readyState === WebSocket.CONNECTING)) return;
+    // Replace stale in-flight sockets too, otherwise a previous session's CONNECTING socket can attach to the wrong stream.
+    disconnectEventSocket();
+  }
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${protocol}//${window.location.host}/a/${agentId}/api/events`);
+  const sessionQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  const ws = new WebSocket(`${protocol}//${window.location.host}/a/${agentId}/api/events${sessionQuery}`);
   state.eventWs = ws;
   state.eventWsAgentId = agentId;
+  state.eventWsSessionId = sessionId || "";
 
   ws.onmessage = (event) => handleAgentEventMessage(event.data);
   ws.onclose = () => {
     if (state.eventWs === ws) {
       state.eventWs = null;
       state.eventWsAgentId = null;
+      state.eventWsSessionId = null;
     }
   };
   ws.onerror = () => {};
@@ -901,6 +914,7 @@ function updateSelectedAgentSession(sessionId) {
     setLastSessionId(state.selectedAgentId, null);
   }
   syncHiddenSessionInputFromState();
+  ensureEventSocketForSelectedAgent();
 }
 
 // Helper to update owner-only button visibility

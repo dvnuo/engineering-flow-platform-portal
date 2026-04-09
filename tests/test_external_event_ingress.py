@@ -1,4 +1,5 @@
 import json
+import time
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -96,6 +97,21 @@ def _build_client_with_overrides():
 
     def _override_db():
         yield db
+
+    def _dispatch_immediately(task_id: str):
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+
+        coroutine = ingress_api.service.task_dispatcher.dispatch_task(task_id, db)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coroutine)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(lambda: asyncio.run(coroutine)).result()
+
+    ingress_api.service._dispatch_task_in_background = _dispatch_immediately
+    provider_api.service._dispatch_task_in_background = _dispatch_immediately
 
     app.dependency_overrides[ingress_api.get_db] = _override_db
     app.dependency_overrides[shared_get_db] = _override_db
@@ -1064,7 +1080,7 @@ def test_github_review_event_requires_owner_repo_pull_number():
         cleanup()
 
 
-def test_github_review_event_dispatch_failed_returns_dispatch_failed(monkeypatch):
+def test_github_review_event_dispatch_failure_still_accepts_and_schedules(monkeypatch):
     client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         import app.api.external_event_ingress as ingress_api
@@ -1082,17 +1098,12 @@ def test_github_review_event_dispatch_failed_returns_dispatch_failed(monkeypatch
             enabled=True,
         )
 
-        async def _failed_dispatch(*args, **kwargs):
-            return AgentTaskDispatchResult(
-                dispatched=True,
-                task_id="task-1",
-                runtime_status_code=500,
-                task_status="failed",
-                message="Runtime execution reported failure",
-                result_payload_json='{"ok": false}',
-            )
-
-        monkeypatch.setattr(ingress_api.service.task_dispatcher, "dispatch_task", _failed_dispatch)
+        scheduled_task_ids = []
+        monkeypatch.setattr(
+            ingress_api.service,
+            "_dispatch_task_in_background",
+            lambda task_id: scheduled_task_ids.append(task_id),
+        )
 
         response = client.post(
             "/api/external-events/ingest",
@@ -1105,9 +1116,10 @@ def test_github_review_event_dispatch_failed_returns_dispatch_failed(monkeypatch
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["accepted"] is False
-        assert body["routing_reason"] == "dispatch_failed"
+        assert body["accepted"] is True
+        assert body["routing_reason"] == "matched_enabled_binding"
         assert body["created_task_id"] is not None
+        assert scheduled_task_ids == [body["created_task_id"]]
     finally:
         cleanup()
 
@@ -1300,7 +1312,7 @@ def test_github_review_event_rejected_when_repo_not_allowed():
         cleanup()
 
 
-def test_jira_ingress_returns_dispatch_failed_when_dispatch_fails(monkeypatch):
+def test_jira_ingress_accepts_and_schedules_background_dispatch(monkeypatch):
     client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         import app.api.external_event_ingress as ingress_api
@@ -1321,17 +1333,12 @@ def test_jira_ingress_returns_dispatch_failed_when_dispatch_fails(monkeypatch):
             config_json='{"strict": true}',
         )
 
-        async def _failed_dispatch(*args, **kwargs):
-            return AgentTaskDispatchResult(
-                dispatched=True,
-                task_id="task-1",
-                runtime_status_code=500,
-                task_status="failed",
-                message="Runtime returned non-2xx status",
-                result_payload_json='{"ok": false}',
-            )
-
-        monkeypatch.setattr(ingress_api.service.task_dispatcher, "dispatch_task", _failed_dispatch)
+        scheduled_task_ids = []
+        monkeypatch.setattr(
+            ingress_api.service,
+            "_dispatch_task_in_background",
+            lambda task_id: scheduled_task_ids.append(task_id),
+        )
 
         response = client.post(
             "/api/external-events/ingest",
@@ -1346,9 +1353,105 @@ def test_jira_ingress_returns_dispatch_failed_when_dispatch_fails(monkeypatch):
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["accepted"] is False
-        assert body["routing_reason"] == "dispatch_failed"
+        assert body["accepted"] is True
+        assert body["routing_reason"] == "matched_workflow_rule"
         assert body["created_task_id"] is not None
+        assert scheduled_task_ids == [body["created_task_id"]]
+    finally:
+        cleanup()
+
+
+def test_failed_task_status_is_not_used_for_dedupe_candidate():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-failed-dedupe",
+            enabled=True,
+        )
+        payload = {
+            "source_type": "github",
+            "event_type": "pull_request_review_requested",
+            "external_account_id": "acct-failed-dedupe",
+            "payload_json": '{"owner":"octo","repo":"portal","pull_number":56,"head_sha":"sha-1"}',
+        }
+        first = client.post("/api/external-events/ingest", json=payload)
+        assert first.status_code == 200
+        first_task_id = first.json()["created_task_id"]
+        first_task = AgentTaskRepository(db).get_by_id(first_task_id)
+        first_task.status = "failed"
+        first_task.result_payload_json = '{"ok":false,"error_code":"runtime_request_error"}'
+        AgentTaskRepository(db).save(first_task)
+
+        second = client.post("/api/external-events/ingest", json=payload)
+        assert second.status_code == 200
+        assert second.json()["accepted"] is True
+        assert second.json()["deduped"] is False
+        assert second.json()["created_task_id"] != first_task_id
+    finally:
+        cleanup()
+
+
+def test_ingress_accepts_without_waiting_for_runtime_completion(monkeypatch):
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.external_event_ingress as ingress_api
+        from app.services.external_event_router import ExternalEventRouterService
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-non-blocking",
+            enabled=True,
+        )
+
+        async def _slow_dispatch(*_args, **_kwargs):
+            await asyncio.sleep(0.25)
+            return AgentTaskDispatchResult(
+                dispatched=True,
+                task_id="task-slow",
+                runtime_status_code=200,
+                task_status="done",
+                message="ok",
+                result_payload_json='{"ok":true}',
+            )
+
+        import asyncio
+
+        monkeypatch.setattr(ingress_api.service.task_dispatcher, "dispatch_task", _slow_dispatch)
+        monkeypatch.setattr(
+            ingress_api.service,
+            "_dispatch_task_in_background",
+            lambda task_id: ExternalEventRouterService._dispatch_task_in_background(ingress_api.service, task_id),
+        )
+
+        start = time.perf_counter()
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-non-blocking",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":88,"head_sha":"sha-1"}',
+            },
+        )
+        elapsed = time.perf_counter() - start
+        assert response.status_code == 200
+        assert response.json()["accepted"] is True
+        assert elapsed < 0.2
     finally:
         cleanup()
 

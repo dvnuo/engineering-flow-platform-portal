@@ -1,12 +1,18 @@
 from fastapi.testclient import TestClient
+import pytest
+from starlette.websockets import WebSocketDisconnect
 from uuid import uuid4
 
 from app.main import app
-from app.db import SessionLocal
+from app.db import Base, SessionLocal, engine
 from app.models.agent import Agent
 from app.models.user import User
 from app.services.auth_service import issue_session_token
 import app.api.proxy as proxy_module
+
+
+def _ensure_tables():
+    Base.metadata.create_all(bind=engine)
 
 
 class _FakeUpstream:
@@ -43,6 +49,7 @@ class _FakeConnect:
 
 
 def _create_running_agent(owner_user_id: int):
+    _ensure_tables()
     db = SessionLocal()
     try:
         agent = Agent(
@@ -67,6 +74,7 @@ def _create_running_agent(owner_user_id: int):
 
 
 def _create_active_user():
+    _ensure_tables()
     db = SessionLocal()
     try:
         user = User(username=f"ws-user-{uuid4().hex[:8]}", nickname=None, password_hash="x", role="user", is_active=True)
@@ -92,17 +100,17 @@ def test_ws_proxy_events_passthrough_old_and_normalized_payloads(monkeypatch):
     fake_connect = _FakeConnect(upstream)
     monkeypatch.setattr(proxy_module.websockets, "connect", fake_connect)
 
-    with TestClient(app) as client:
-        user_id = _create_active_user()
-        agent_id = _create_running_agent(user_id)
-        token = issue_session_token(user_id)
+    client = TestClient(app)
+    user_id = _create_active_user()
+    agent_id = _create_running_agent(user_id)
+    token = issue_session_token(user_id)
 
-        with client.websocket_connect(
-            f"/a/{agent_id}/api/events",
-            cookies={"portal_session": token},
-        ) as ws:
-            assert ws.receive_text() == '{"type":"connected","message":"Connected to EFP event bus"}'
-            assert ws.receive_text() == '{"event_type":"tool_result","state":"running","session_id":"s1","request_id":"r1","agent_id":"a1","summary":"Tool completed","detail_payload":{"tool":"search"},"created_at":"2026-04-04T00:00:00Z"}'
+    with client.websocket_connect(
+        f"/a/{agent_id}/api/events",
+        cookies={"portal_session": token},
+    ) as ws:
+        assert ws.receive_text() == '{"type":"connected","message":"Connected to EFP event bus"}'
+        assert ws.receive_text() == '{"event_type":"tool_result","state":"running","session_id":"s1","request_id":"r1","agent_id":"a1","summary":"Tool completed","detail_payload":{"tool":"search"},"created_at":"2026-04-04T00:00:00Z"}'
 
     assert fake_connect.url == "ws://runtime.local:8000/api/events"
 
@@ -118,12 +126,57 @@ def test_ws_proxy_events_query_token_auth_and_no_token_forward(monkeypatch):
     fake_connect = _FakeConnect(upstream)
     monkeypatch.setattr(proxy_module.websockets, "connect", fake_connect)
 
-    with TestClient(app) as client:
-        user_id = _create_active_user()
-        agent_id = _create_running_agent(user_id)
-        token = issue_session_token(user_id)
+    client = TestClient(app)
+    user_id = _create_active_user()
+    agent_id = _create_running_agent(user_id)
+    token = issue_session_token(user_id)
 
-        with client.websocket_connect(f"/a/{agent_id}/api/events?token={token}&Token=extra&TOKEN=extra2&stream=runtime") as ws:
-            assert ws.receive_text() == '{"type":"iteration_start","data":{"iteration":1}}'
+    with client.websocket_connect(f"/a/{agent_id}/api/events?token={token}&Token=extra&TOKEN=extra2&stream=runtime") as ws:
+        assert ws.receive_text() == '{"type":"iteration_start","data":{"iteration":1}}'
 
     assert fake_connect.url == "ws://runtime.local:8000/api/events?stream=runtime"
+
+
+def test_ws_proxy_events_forwards_session_id_and_strips_tokens(monkeypatch):
+    monkeypatch.setattr(
+        proxy_module.proxy_service,
+        "build_agent_base_url",
+        lambda _agent: "http://runtime.local:8000",
+    )
+
+    upstream = _FakeUpstream(['{"type":"iteration_start","data":{"iteration":1}}'])
+    fake_connect = _FakeConnect(upstream)
+    monkeypatch.setattr(proxy_module.websockets, "connect", fake_connect)
+
+    client = TestClient(app)
+    user_id = _create_active_user()
+    agent_id = _create_running_agent(user_id)
+    token = issue_session_token(user_id)
+
+    with client.websocket_connect(
+        f"/a/{agent_id}/api/events?token={token}&session_id=sess-42&Token=extra"
+    ) as ws:
+        assert ws.receive_text() == '{"type":"iteration_start","data":{"iteration":1}}'
+
+    assert fake_connect.url == "ws://runtime.local:8000/api/events?session_id=sess-42"
+
+
+def test_ws_proxy_runtime_base_url_resolution_failure_closes_cleanly(monkeypatch):
+    monkeypatch.setattr(
+        proxy_module.proxy_service,
+        "build_agent_base_url",
+        lambda _agent: (_ for _ in ()).throw(ValueError("no runtime url")),
+    )
+
+    client = TestClient(app)
+    user_id = _create_active_user()
+    agent_id = _create_running_agent(user_id)
+    token = issue_session_token(user_id)
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect(
+            f"/a/{agent_id}/api/events",
+            cookies={"portal_session": token},
+        ) as ws:
+            ws.receive_text()
+    assert exc_info.value.code == 1011

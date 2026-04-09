@@ -59,6 +59,7 @@ class AgentTaskRepository:
                     AgentTask.task_type == task_type,
                     AgentTask.shared_context_ref == dedupe_hint,
                     AgentTask.input_payload_json == input_payload_json,
+                    AgentTask.status.in_(["queued", "running", "done", "blocked"]),
                     AgentTask.created_at >= cutoff,
                 )
             )
