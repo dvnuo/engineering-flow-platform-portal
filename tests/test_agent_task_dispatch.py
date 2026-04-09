@@ -192,7 +192,7 @@ def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):
             return {"ok": True, "status": "accepted", "request_id": "req-3"}
 
     class PendingResp:
-        status_code = 202
+        status_code = 200
         text = '{"ok": true, "status": "running"}'
 
         @staticmethod
@@ -216,6 +216,88 @@ def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):
     assert payload["error_code"] == "runtime_poll_timeout"
     assert payload["trace_id"]
     assert payload["portal_dispatch_id"]
+
+
+def test_dispatch_task_continues_polling_on_http_200_running(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-4"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-4"}
+
+    class RunningResp:
+        status_code = 200
+        text = '{"ok": true, "status": "running"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "running"}
+
+    class SuccessResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    polls = {"count": 0}
+
+    async def fake_get(_url, _meta):
+        polls["count"] += 1
+        if polls["count"] == 1:
+            return RunningResp()
+        return SuccessResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+    assert polls["count"] >= 2
+
+
+def test_dispatch_task_invalid_input_sets_error_message_and_finished_at(db_session):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.input_payload_json = "not-json"
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    assert task.error_message
+    assert task.finished_at is not None
+
+
+def test_dispatch_task_runtime_exception_sets_error_message_and_finished_at(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    async def fake_post(_url, _body):
+        raise RuntimeError("runtime unavailable")
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    assert task.error_message
+    assert task.finished_at is not None
 
 
 def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkeypatch):

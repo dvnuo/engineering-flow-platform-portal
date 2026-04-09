@@ -371,6 +371,21 @@ class TaskDispatcherService:
                 return value.strip()
         return None
 
+    def _mark_task_failed(
+        self,
+        *,
+        task,
+        task_repo: AgentTaskRepository,
+        result_payload_json: str,
+        error_message: str,
+    ):
+        task.status = "failed"
+        task.result_payload_json = result_payload_json
+        task.error_message = error_message
+        task.summary = None
+        task.finished_at = datetime.utcnow()
+        return task_repo.save(task)
+
     def _normalize_runtime_submit_response(
         self,
         response: httpx.Response,
@@ -412,7 +427,7 @@ class TaskDispatcherService:
         if not isinstance(response_json, dict):
             return "terminal", None, outcome
         status_value = str(response_json.get("status") or "").lower()
-        if allow_pending and status_value in {"accepted", "running"} and response.status_code == 202:
+        if allow_pending and 200 <= response.status_code < 300 and status_value in {"accepted", "running"}:
             return "pending", response_json, None
         return "terminal", response_json, outcome
 
@@ -619,35 +634,47 @@ class TaskDispatcherService:
                     return AgentTaskDispatchResult(False, task.id, None, task.status, "Task is not dispatchable", task.result_payload_json)
 
                 if not task.assignee_agent_id:
-                    task.status = "failed"
-                    task.result_payload_json = self._build_failure_payload(
+                    failure_payload = self._build_failure_payload(
                         "missing_assignee",
                         "Task has no assignee_agent_id",
                         trace_context=trace_context,
                     )
-                    task_repo.save(task)
+                    task = self._mark_task_failed(
+                        task=task,
+                        task_repo=task_repo,
+                        result_payload_json=failure_payload,
+                        error_message="Task has no assignee_agent_id",
+                    )
                     return AgentTaskDispatchResult(False, task.id, None, task.status, "Task has no assignee_agent_id", task.result_payload_json)
 
                 agent = agent_repo.get_by_id(task.assignee_agent_id)
                 if not agent:
-                    task.status = "failed"
-                    task.result_payload_json = self._build_failure_payload(
+                    failure_payload = self._build_failure_payload(
                         "assignee_not_found",
                         "Assignee agent not found",
                         trace_context=trace_context,
                     )
-                    task_repo.save(task)
+                    task = self._mark_task_failed(
+                        task=task,
+                        task_repo=task_repo,
+                        result_payload_json=failure_payload,
+                        error_message="Assignee agent not found",
+                    )
                     return AgentTaskDispatchResult(False, task.id, None, task.status, "Assignee agent not found", task.result_payload_json)
 
                 input_payload, payload_error = self._parse_input_payload(task.input_payload_json)
                 if payload_error:
-                    task.status = "failed"
-                    task.result_payload_json = self._build_failure_payload(
+                    failure_payload = self._build_failure_payload(
                         "invalid_input_payload",
                         payload_error,
                         trace_context=trace_context,
                     )
-                    task_repo.save(task)
+                    task = self._mark_task_failed(
+                        task=task,
+                        task_repo=task_repo,
+                        result_payload_json=failure_payload,
+                        error_message=payload_error,
+                    )
                     return AgentTaskDispatchResult(False, task.id, None, task.status, payload_error, task.result_payload_json)
 
                 delegation = None
@@ -718,13 +745,17 @@ class TaskDispatcherService:
                     if task.shared_context_ref:
                         snapshot = context_repo.get_by_group_and_ref(task.group_id or "", task.shared_context_ref) if task.group_id else None
                         if not snapshot:
-                            task.status = "failed"
-                            task.result_payload_json = self._build_shared_context_not_found_payload(
+                            failure_payload = self._build_shared_context_not_found_payload(
                                 task.group_id,
                                 task.shared_context_ref,
                                 trace_context=trace_context,
                             )
-                            task_repo.save(task)
+                            task = self._mark_task_failed(
+                                task=task,
+                                task_repo=task_repo,
+                                result_payload_json=failure_payload,
+                                error_message="Shared context snapshot not found",
+                            )
                             if delegation:
                                 delegation.status = "failed"
                                 delegation_repo.save(delegation)
@@ -734,13 +765,17 @@ class TaskDispatcherService:
                         except json.JSONDecodeError:
                             parsed_payload = None
                         if not isinstance(parsed_payload, dict):
-                            task.status = "failed"
-                            task.result_payload_json = self._build_failure_payload(
+                            failure_payload = self._build_failure_payload(
                                 "invalid_shared_context_payload",
                                 "Persisted shared context payload must be a JSON object",
                                 trace_context=trace_context,
                             )
-                            task_repo.save(task)
+                            task = self._mark_task_failed(
+                                task=task,
+                                task_repo=task_repo,
+                                result_payload_json=failure_payload,
+                                error_message="Persisted shared context payload must be a JSON object",
+                            )
                             if delegation:
                                 delegation.status = "failed"
                                 delegation_repo.save(delegation)
@@ -764,17 +799,22 @@ class TaskDispatcherService:
                 try:
                     runtime_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + "/api/tasks/execute"
                 except Exception as exc:
-                    task.status = "failed"
-                    task.result_payload_json = self._build_failure_payload(
+                    error_message = sanitize_exception_message(exc)
+                    failure_payload = self._build_failure_payload(
                         "runtime_url_error",
-                        sanitize_exception_message(exc),
+                        error_message,
                         trace_context=trace_context,
                     )
-                    task_repo.save(task)
+                    task = self._mark_task_failed(
+                        task=task,
+                        task_repo=task_repo,
+                        result_payload_json=failure_payload,
+                        error_message=f"Runtime URL resolution failed: {error_message}",
+                    )
                     if delegation:
                         delegation.status = "failed"
                         delegation_repo.save(delegation)
-                    return AgentTaskDispatchResult(False, task.id, None, task.status, f"Runtime URL resolution failed: {sanitize_exception_message(exc)}", task.result_payload_json)
+                    return AgentTaskDispatchResult(False, task.id, None, task.status, f"Runtime URL resolution failed: {error_message}", task.result_payload_json)
 
                 logger.debug(
                     "Prepared runtime dispatch body runtime_url=%s task_id=%s task_type=%s agent_id=%s service_name=%s namespace=%s source=%s shared_context_ref=%s has_session_id=%s input_payload_keys=%s metadata_keys=%s",
@@ -949,20 +989,25 @@ class TaskDispatcherService:
                             "late_runtime_result_ignored_because_task_is_stale",
                             fresh_task.result_payload_json,
                         )
-                    fresh_task.status = "failed"
-                    fresh_task.result_payload_json = self._build_failure_payload(
+                    error_message = sanitize_exception_message(exc)
+                    failure_payload = self._build_failure_payload(
                         "runtime_request_error",
-                        sanitize_exception_message(exc),
+                        error_message,
                         trace_context=trace_context,
                     )
-                    task_repo.save(fresh_task)
+                    fresh_task = self._mark_task_failed(
+                        task=fresh_task,
+                        task_repo=task_repo,
+                        result_payload_json=failure_payload,
+                        error_message=f"Runtime dispatch request failed: {error_message}",
+                    )
                     self._sync_delegation_from_task_result(db, fresh_task, fresh_task.result_payload_json, False)
                     return AgentTaskDispatchResult(
                         True,
                         fresh_task.id,
                         None,
                         fresh_task.status,
-                        f"Runtime dispatch request failed: {sanitize_exception_message(exc)}",
+                        f"Runtime dispatch request failed: {error_message}",
                         fresh_task.result_payload_json,
                     )
             finally:
