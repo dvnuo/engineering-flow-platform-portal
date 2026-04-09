@@ -79,7 +79,7 @@ if (dom.chatInput) {
       e.preventDefault();
       
       if (!state.selectedAgentId) {
-        showToast('Please select an agent first');
+        showToast('Please select an assistant first');
         return;
       }
       
@@ -571,7 +571,7 @@ function getThinkingEventDisplay(event) {
 // Open Thinking Process panel - using backend rendering
 async function openThinkingProcessPanel() {
   if (!state.selectedAgentId) {
-    showToast('Please select an agent first');
+    showToast('Please select an assistant first');
     return;
   }
   
@@ -2918,7 +2918,7 @@ function bindEvents() {
       // Render agent details to tool panel
       const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || publicAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
-        dom.toolPanelTitle.textContent = "Agent Details";
+        dom.toolPanelTitle.textContent = "About assistant";
         dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
         dom.agentMeta = document.getElementById("agent-meta");
         dom.agentActions = document.getElementById("agent-actions");
@@ -3020,7 +3020,7 @@ function bindEvents() {
     closeMoreMenu();
 
     if (!state.selectedAgentId) {
-      showToast('Please select an agent first');
+      showToast('Please select an assistant first');
       return;
     }
 
@@ -3311,7 +3311,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Quick action buttons
   document.getElementById('quick-uploads-btn')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
-      showToast('Please select an agent first');
+      showToast('Please select an assistant first');
       return;
     }
     openMyUploads();

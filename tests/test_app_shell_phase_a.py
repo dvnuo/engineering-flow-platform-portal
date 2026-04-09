@@ -57,3 +57,19 @@ def test_admin_still_sees_users_button(monkeypatch):
 
     assert response.status_code == 200
     assert 'id="users-menu-btn"' in response.text
+
+
+def test_phase_a_panel_copy_regressions():
+    files_panel = Path("app/templates/partials/files_panel.html").read_text(encoding="utf-8")
+    sessions_panel = Path("app/templates/partials/sessions_panel.html").read_text(encoding="utf-8")
+    activity_panel = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
+
+    assert "My Uploads" not in files_panel
+    assert "Files" in files_panel
+
+    assert "Recent Sessions" not in sessions_panel
+    assert "Chat history" in sessions_panel
+
+    assert "Thinking Process" not in activity_panel
+    assert "Thinking Events" not in activity_panel
+    assert "Activity Events" in activity_panel
