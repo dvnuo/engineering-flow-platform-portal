@@ -39,6 +39,8 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
+For local Python development, migrations are still a manual prerequisite (`alembic upgrade head`) before starting `uvicorn`.
+
 Access `http://localhost:8000/login`
 
 **Admin account** (first startup - requires env vars):
@@ -214,6 +216,8 @@ file: <binary>
 
 ### Kubernetes
 
+For the git-clone deployment pattern used in this repo, mount runtime code and migration assets from the same cloned revision (`/app/app`, `/app/alembic`, and `/app/alembic.ini`) so Alembic revisions always match application code.
+
 ```yaml
 # See k8s/portal-deployment-nfs.yaml for full example
 apiVersion: apps/v1
@@ -243,6 +247,8 @@ spec:
 ```
 
 ### Docker
+
+Container startup runs `alembic upgrade head` automatically before launching Uvicorn.
 
 ```bash
 docker run -d \

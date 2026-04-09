@@ -104,6 +104,12 @@ spec:
             - name: efp-portal-data
               mountPath: /app/app
               subPath: efp-portal-code/app
+            - name: efp-portal-data
+              mountPath: /app/alembic
+              subPath: efp-portal-code/alembic
+            - name: efp-portal-data
+              mountPath: /app/alembic.ini
+              subPath: efp-portal-code/alembic.ini
           resources:
             limits:
               memory: 1024Mi
