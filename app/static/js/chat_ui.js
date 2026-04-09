@@ -42,7 +42,12 @@ const dom = {
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
-  requirementBundlesBtn: document.getElementById("requirement-bundles-btn"),
+  bundleList: document.getElementById("bundle-list"),
+  addBundleBtn: document.getElementById("add-bundle-btn"),
+  createBundleModal: document.getElementById("create-bundle-modal"),
+  createBundleForm: document.getElementById("create-bundle-form"),
+  createBundleMsg: document.getElementById("create-bundle-msg"),
+  closeCreateBundleModal: document.getElementById("close-create-bundle-modal"),
   addAgentBtn: document.getElementById("add-agent-btn"),
   editForm: document.getElementById("edit-form"),
 };
@@ -197,6 +202,8 @@ const state = {
   // Backup for restore on error
   pendingFilesBackup: [],
   messageBackup: "",
+  requirementBundles: [],
+  selectedBundleKey: null,
 };
 
 const md = window.markdownit({
@@ -865,6 +872,19 @@ async function api(path, options = {}) {
   if (!response.ok) throw new Error(await response.text());
   const contentType = response.headers.get("content-type") || "";
   return contentType.includes("application/json") ? response.json() : response.text();
+}
+
+async function handleErrorResponse(resp) {
+  const contentType = resp.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const err = await resp.json();
+    const detail = err.detail;
+    if (Array.isArray(detail)) {
+      return detail.map(e => e.msg || JSON.stringify(e)).join(", ");
+    }
+    return detail || "Unknown error";
+  }
+  return await resp.text() || "Unknown error";
 }
 
 async function agentApi(path, options = {}) {
@@ -1898,10 +1918,82 @@ async function openSessionsPanel() {
   });
 }
 
-async function openRequirementBundlesPanel() {
+function bundleKeyFromRef(ref) {
+  if (!ref) return null;
+  return `${ref.repo || ""}|${ref.path || ""}|${ref.branch || ""}`;
+}
+
+function bundleKey(item) {
+  return bundleKeyFromRef(item?.bundle_ref);
+}
+
+function renderRequirementBundleList(errorMessage = "") {
+  if (!dom.bundleList) return;
+  if (errorMessage) {
+    dom.bundleList.innerHTML = `<div class="text-xs rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 px-3 py-2">${safe(errorMessage)}</div>`;
+    return;
+  }
+
+  if (!state.requirementBundles.length) {
+    dom.bundleList.innerHTML = '<div class="text-xs text-slate-500 px-1">No bundles found</div>';
+    return;
+  }
+
+  dom.bundleList.innerHTML = "";
+  state.requirementBundles.forEach((item) => {
+    const key = bundleKey(item);
+    const activeClass = state.selectedBundleKey === key
+      ? "border-blue-500 bg-blue-500/10"
+      : "border-slate-700 bg-slate-800/40";
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
+    row.innerHTML = `
+      <div class="font-medium text-slate-100">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
+      <div class="text-xs text-slate-400 mt-1">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
+    `;
+    row.addEventListener("click", async () => {
+      state.selectedBundleKey = key;
+      renderRequirementBundleList();
+      await openRequirementBundlePanel(item.bundle_ref);
+    });
+    dom.bundleList.append(row);
+  });
+}
+
+async function refreshRequirementBundles() {
+  if (!dom.bundleList) return;
+  dom.bundleList.innerHTML = '<div class="text-xs text-slate-400 px-1">Loading bundles…</div>';
+  try {
+    const bundles = await api("/api/requirement-bundles");
+    state.requirementBundles = Array.isArray(bundles) ? bundles : [];
+    if (
+      state.selectedBundleKey &&
+      !state.requirementBundles.some((item) => bundleKey(item) === state.selectedBundleKey)
+    ) {
+      state.selectedBundleKey = null;
+    }
+    renderRequirementBundleList();
+  } catch (error) {
+    renderRequirementBundleList(`Failed to load bundles: ${error.message}`);
+  }
+}
+
+async function openRequirementBundlePanel(bundleRef = null) {
   setToolPanel("Requirement Bundles", '<div class="text-xs text-slate-400">Loading requirement bundles…</div>');
   try {
-    await htmx.ajax("GET", "/app/requirement-bundles/panel", {
+    let path = "/app/requirement-bundles/panel";
+    if (bundleRef) {
+      const params = new URLSearchParams({
+        repo: bundleRef.repo,
+        path: bundleRef.path,
+        branch: bundleRef.branch,
+      });
+      path = `/app/requirement-bundles/open?${params.toString()}`;
+      state.selectedBundleKey = bundleKeyFromRef(bundleRef);
+      renderRequirementBundleList();
+    }
+    await htmx.ajax("GET", path, {
       target: "#tool-panel-body",
       swap: "innerHTML",
     });
@@ -3093,7 +3185,19 @@ function bindEvents() {
     }
   });
 
-  dom.requirementBundlesBtn?.addEventListener("click", openRequirementBundlesPanel);
+  dom.addBundleBtn?.addEventListener("click", () => {
+    dom.createBundleModal?.classList.remove("hidden");
+    dom.createBundleModal?.setAttribute("aria-hidden", "false");
+    if (dom.createBundleMsg) {
+      dom.createBundleMsg.textContent = "";
+      dom.createBundleMsg.className = "muted tiny";
+    }
+  });
+
+  dom.closeCreateBundleModal?.addEventListener("click", () => {
+    dom.createBundleModal?.classList.add("hidden");
+    dom.createBundleModal?.setAttribute("aria-hidden", "true");
+  });
 
   dom.addAgentBtn?.addEventListener("click", () => {
     document.getElementById("create-modal")?.classList.remove("hidden");
@@ -3104,19 +3208,6 @@ function bindEvents() {
     document.getElementById("create-modal")?.classList.add("hidden");
     document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
   });
-
-  async function handleErrorResponse(resp) {
-    const contentType = resp.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const err = await resp.json();
-      const detail = err.detail;
-      if (Array.isArray(detail)) {
-        return detail.map(e => e.msg || JSON.stringify(e)).join(", ");
-      }
-      return detail || "Unknown error";
-    }
-    return await resp.text() || "Unknown error";
-  }
 
   document.getElementById("create-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -3174,6 +3265,52 @@ function bindEvents() {
     } catch (err) {
       msgEl.textContent = err.message;
       msgEl.className = "text-red-400 tiny";
+    }
+  });
+
+  dom.createBundleForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    const payload = {
+      title: String(formData.get("title") || ""),
+      domain: String(formData.get("domain") || ""),
+      slug: String(formData.get("slug") || "").trim() || null,
+      base_branch: String(formData.get("base_branch") || ""),
+    };
+
+    try {
+      if (dom.createBundleMsg) {
+        dom.createBundleMsg.textContent = "Creating...";
+        dom.createBundleMsg.className = "muted tiny";
+      }
+      const resp = await fetch("/api/requirement-bundles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) {
+        throw new Error(await handleErrorResponse(resp));
+      }
+      const detail = await resp.json();
+      if (dom.createBundleMsg) {
+        dom.createBundleMsg.textContent = "Bundle created!";
+        dom.createBundleMsg.className = "text-green-400 tiny";
+      }
+
+      form.reset();
+      form.querySelector('[name="base_branch"]').value = payload.base_branch;
+      dom.createBundleModal?.classList.add("hidden");
+      dom.createBundleModal?.setAttribute("aria-hidden", "true");
+      await refreshRequirementBundles();
+      state.selectedBundleKey = bundleKeyFromRef(detail.bundle_ref);
+      renderRequirementBundleList();
+      await openRequirementBundlePanel(detail.bundle_ref);
+    } catch (err) {
+      if (dom.createBundleMsg) {
+        dom.createBundleMsg.textContent = err.message;
+        dom.createBundleMsg.className = "text-red-400 tiny";
+      }
     }
   });
 
@@ -3329,6 +3466,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   await refreshAll();
+  await refreshRequirementBundles();
   renderMarkdown(document);
   renderIcons();
 });
