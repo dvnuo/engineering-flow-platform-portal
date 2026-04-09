@@ -100,6 +100,15 @@ def test_requirement_bundles_page_logged_in(monkeypatch):
     assert "Requirement Bundles" in response.text
 
 
+def test_requirement_bundles_panel_route_returns_fragment(monkeypatch):
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+    response = client.get("/app/requirement-bundles/panel")
+    assert response.status_code == 200
+    assert "Requirement Bundles" in response.text
+    assert 'id="requirement-bundles-panel-root"' in response.text
+    assert "Back to App" not in response.text
+
+
 def test_create_new_bundle_renders_bundle_ref(monkeypatch):
     client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
     page = client.get("/app/requirement-bundles")
@@ -121,6 +130,24 @@ def test_create_new_bundle_renders_bundle_ref(monkeypatch):
     assert "requirement-bundles/payments/checkout-flow" in response.text
 
 
+def test_create_bundle_htmx_returns_panel_fragment(monkeypatch):
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+    response = client.post(
+        "/app/requirement-bundles/create",
+        data={
+            "title": "Checkout Flow",
+            "domain": "payments",
+            "slug": "",
+            "base_branch": "main",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert "Bundle created successfully" in response.text
+    assert 'id="requirement-bundles-panel-root"' in response.text
+    assert "Back to App" not in response.text
+
+
 def test_open_existing_bundle_shows_manifest(monkeypatch):
     client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
     response = client.get(
@@ -134,6 +161,30 @@ def test_open_existing_bundle_shows_manifest(monkeypatch):
     assert response.status_code == 200
     assert "Bundle Detail" in response.text
     assert "RB-checkout-flow" in response.text
+
+
+def test_open_existing_bundle_htmx_returns_panel_fragment(monkeypatch):
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+    response = client.get(
+        "/app/requirement-bundles/open",
+        params={
+            "repo": "octo/engineering-flow-platform-assets",
+            "path": "requirement-bundles/payments/checkout-flow",
+            "branch": "bundle/checkout-flow/deadbeef",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert 'id="requirement-bundles-panel-root"' in response.text
+    assert "Bundle Detail" in response.text
+    assert "Back to App" not in response.text
+
+
+def test_app_page_has_requirement_bundles_button_launcher(monkeypatch):
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+    response = client.get("/app")
+    assert response.status_code == 200
+    assert 'id="requirement-bundles-btn"' in response.text
 
 
 def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):

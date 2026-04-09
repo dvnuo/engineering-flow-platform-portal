@@ -383,28 +383,55 @@ def requirement_bundles_page(request: Request):
 
     db = SessionLocal()
     try:
-        agents = _list_writable_agents(db, user)
-        return templates.TemplateResponse(
-            "requirement_bundles.html",
-            {
-                "request": request,
-                "title": "Requirement Bundles",
-                "username": user.username,
-                "nickname": user.nickname or user.username,
-                "bundle_defaults": {
-                    "repo": settings.assets_repo_full_name,
-                    "base_branch": settings.assets_default_base_branch,
-                    "root_dir": settings.assets_bundle_root_dir,
-                },
-                "agents": agents,
-                "bundle_result": None,
-                "bundle_detail": None,
-                "status_type": "",
-                "status_message": "",
-            },
-        )
+        return _render_requirement_bundles_view(request, user, db)
     finally:
         db.close()
+
+
+@router.get("/app/requirement-bundles/panel")
+def requirement_bundles_panel(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        return _render_requirement_bundles_view(request, user, db, panel_mode=True)
+    finally:
+        db.close()
+
+
+def _is_htmx_request(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
+    context = {
+        "request": request,
+        "title": "Requirement Bundles",
+        "username": user.username,
+        "nickname": user.nickname or user.username,
+        "bundle_defaults": {
+            "repo": settings.assets_repo_full_name,
+            "base_branch": settings.assets_default_base_branch,
+            "root_dir": settings.assets_bundle_root_dir,
+        },
+        "agents": _list_writable_agents(db, user),
+        "bundle_result": None,
+        "bundle_detail": None,
+        "status_type": "",
+        "status_message": "",
+        "task_result": None,
+    }
+    context.update(kwargs)
+    return context
+
+
+def _render_requirement_bundles_view(request: Request, user, db, *, panel_mode: bool = False, **kwargs):
+    context = _requirement_bundles_context(request, user, db, **kwargs)
+    context["requirement_bundles_target"] = "#tool-panel-body" if panel_mode else "#requirement-bundles-page-content"
+    template_name = "partials/requirement_bundles_panel.html" if panel_mode else "requirement_bundles.html"
+    return templates.TemplateResponse(template_name, context)
 
 
 @router.post("/app/requirement-bundles/create")
@@ -413,9 +440,9 @@ async def requirement_bundle_create(request: Request):
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
+    panel_mode = _is_htmx_request(request)
     db = SessionLocal()
     try:
-        agents = _list_writable_agents(db, user)
         form_data = await request.form()
         create_form = RequirementBundleCreateForm(
             title=str(form_data.get("title") or ""),
@@ -425,44 +452,24 @@ async def requirement_bundle_create(request: Request):
         )
         bundle_ref = requirement_bundle_service.create_bundle(create_form)
         bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
-        return templates.TemplateResponse(
-            "requirement_bundles.html",
-            {
-                "request": request,
-                "title": "Requirement Bundles",
-                "username": user.username,
-                "nickname": user.nickname or user.username,
-                "bundle_defaults": {
-                    "repo": settings.assets_repo_full_name,
-                    "base_branch": settings.assets_default_base_branch,
-                    "root_dir": settings.assets_bundle_root_dir,
-                },
-                "agents": agents,
-                "bundle_result": bundle_ref,
-                "bundle_detail": bundle_detail,
-                "status_type": "success",
-                "status_message": "Bundle created successfully.",
-            },
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            bundle_result=bundle_ref,
+            bundle_detail=bundle_detail,
+            status_type="success",
+            status_message="Bundle created successfully.",
         )
     except RequirementBundleGithubServiceError as exc:
-        return templates.TemplateResponse(
-            "requirement_bundles.html",
-            {
-                "request": request,
-                "title": "Requirement Bundles",
-                "username": user.username,
-                "nickname": user.nickname or user.username,
-                "bundle_defaults": {
-                    "repo": settings.assets_repo_full_name,
-                    "base_branch": settings.assets_default_base_branch,
-                    "root_dir": settings.assets_bundle_root_dir,
-                },
-                "agents": _list_writable_agents(db, user),
-                "bundle_result": None,
-                "bundle_detail": None,
-                "status_type": "error",
-                "status_message": str(exc),
-            },
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            status_type="error",
+            status_message=str(exc),
         )
     finally:
         db.close()
@@ -477,50 +484,30 @@ def requirement_bundle_open(request: Request, repo: str = Query(""), path: str =
     target_repo = (repo or settings.assets_repo_full_name).strip()
     target_path = (path or "").strip()
     target_branch = (branch or settings.assets_default_base_branch).strip()
+    panel_mode = _is_htmx_request(request)
 
     db = SessionLocal()
     try:
         detail = requirement_bundle_service.inspect_bundle(
             BundleRef(repo=target_repo, path=target_path, branch=target_branch)
         )
-        return templates.TemplateResponse(
-            "requirement_bundles.html",
-            {
-                "request": request,
-                "title": "Requirement Bundles",
-                "username": user.username,
-                "nickname": user.nickname or user.username,
-                "bundle_defaults": {
-                    "repo": settings.assets_repo_full_name,
-                    "base_branch": settings.assets_default_base_branch,
-                    "root_dir": settings.assets_bundle_root_dir,
-                },
-                "agents": _list_writable_agents(db, user),
-                "bundle_result": None,
-                "bundle_detail": detail,
-                "status_type": "success",
-                "status_message": "Bundle opened successfully.",
-            },
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            bundle_detail=detail,
+            status_type="success",
+            status_message="Bundle opened successfully.",
         )
     except RequirementBundleGithubServiceError as exc:
-        return templates.TemplateResponse(
-            "requirement_bundles.html",
-            {
-                "request": request,
-                "title": "Requirement Bundles",
-                "username": user.username,
-                "nickname": user.nickname or user.username,
-                "bundle_defaults": {
-                    "repo": settings.assets_repo_full_name,
-                    "base_branch": settings.assets_default_base_branch,
-                    "root_dir": settings.assets_bundle_root_dir,
-                },
-                "agents": _list_writable_agents(db, user),
-                "bundle_result": None,
-                "bundle_detail": None,
-                "status_type": "error",
-                "status_message": str(exc),
-            },
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            status_type="error",
+            status_message=str(exc),
         )
     finally:
         db.close()
@@ -562,6 +549,7 @@ async def _create_and_dispatch_bundle_task(
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
+    panel_mode = _is_htmx_request(request)
     db = SessionLocal()
     dispatch_context_token = None
     try:
@@ -626,53 +614,32 @@ async def _create_and_dispatch_bundle_task(
             dispatch_result.runtime_status_code,
             dispatch_result.message,
         )
-        return templates.TemplateResponse(
-            "requirement_bundles.html",
-            {
-                "request": request,
-                "title": "Requirement Bundles",
-                "username": user.username,
-                "nickname": user.nickname or user.username,
-                "bundle_defaults": {
-                    "repo": settings.assets_repo_full_name,
-                    "base_branch": settings.assets_default_base_branch,
-                    "root_dir": settings.assets_bundle_root_dir,
-                },
-                "agents": _list_writable_agents(db, user),
-                "bundle_result": None,
-                "bundle_detail": bundle_detail,
-                "status_type": "success" if dispatch_result.dispatched else "error",
-                "status_message": (
-                    f"Created task {task.id}. Dispatch status: {dispatch_result.task_status}."
-                    if dispatch_result.dispatched
-                    else f"Created task {task.id}, but dispatch failed: {dispatch_result.message}"
-                ),
-                "task_result": {
-                    "task_id": task.id,
-                    "dispatch_status": dispatch_result.task_status,
-                    "dispatch_message": dispatch_result.message,
-                },
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            bundle_detail=bundle_detail,
+            status_type="success" if dispatch_result.dispatched else "error",
+            status_message=(
+                f"Created task {task.id}. Dispatch status: {dispatch_result.task_status}."
+                if dispatch_result.dispatched
+                else f"Created task {task.id}, but dispatch failed: {dispatch_result.message}"
+            ),
+            task_result={
+                "task_id": task.id,
+                "dispatch_status": dispatch_result.task_status,
+                "dispatch_message": dispatch_result.message,
             },
         )
     except RequirementBundleGithubServiceError as exc:
-        return templates.TemplateResponse(
-            "requirement_bundles.html",
-            {
-                "request": request,
-                "title": "Requirement Bundles",
-                "username": user.username,
-                "nickname": user.nickname or user.username,
-                "bundle_defaults": {
-                    "repo": settings.assets_repo_full_name,
-                    "base_branch": settings.assets_default_base_branch,
-                    "root_dir": settings.assets_bundle_root_dir,
-                },
-                "agents": _list_writable_agents(db, user),
-                "bundle_result": None,
-                "bundle_detail": None,
-                "status_type": "error",
-                "status_message": str(exc),
-            },
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            status_type="error",
+            status_message=str(exc),
         )
     finally:
         if dispatch_context_token is not None:
@@ -713,26 +680,17 @@ async def requirement_bundle_collect(request: Request):
             if sources.get("figma")
             else "At least one Jira, Confluence, or GitHub Docs source is required."
         )
+        panel_mode = _is_htmx_request(request)
         db = SessionLocal()
         try:
-            return templates.TemplateResponse(
-                "requirement_bundles.html",
-                {
-                    "request": request,
-                    "title": "Requirement Bundles",
-                    "username": user.username,
-                    "nickname": user.nickname or user.username,
-                    "bundle_defaults": {
-                        "repo": settings.assets_repo_full_name,
-                        "base_branch": settings.assets_default_base_branch,
-                        "root_dir": settings.assets_bundle_root_dir,
-                    },
-                    "agents": _list_writable_agents(db, user),
-                    "bundle_result": None,
-                    "bundle_detail": bundle_detail,
-                    "status_type": "error",
-                    "status_message": status_message,
-                },
+            return _render_requirement_bundles_view(
+                request,
+                user,
+                db,
+                panel_mode=panel_mode,
+                bundle_detail=bundle_detail,
+                status_type="error",
+                status_message=status_message,
             )
         finally:
             db.close()
@@ -768,26 +726,17 @@ async def requirement_bundle_design_test_cases(request: Request):
         raise HTTPException(status_code=400, detail="design_agent_id is required")
     bundle_detail = requirement_bundle_service.inspect_bundle(manifest_ref)
     if not bundle_detail.requirements_exists:
+        panel_mode = _is_htmx_request(request)
         db = SessionLocal()
         try:
-            return templates.TemplateResponse(
-                "requirement_bundles.html",
-                {
-                    "request": request,
-                    "title": "Requirement Bundles",
-                    "username": user.username,
-                    "nickname": user.nickname or user.username,
-                    "bundle_defaults": {
-                        "repo": settings.assets_repo_full_name,
-                        "base_branch": settings.assets_default_base_branch,
-                        "root_dir": settings.assets_bundle_root_dir,
-                    },
-                    "agents": _list_writable_agents(db, user),
-                    "bundle_result": None,
-                    "bundle_detail": bundle_detail,
-                    "status_type": "error",
-                    "status_message": f"{bundle_detail.requirements_file} is missing; collect requirements first",
-                },
+            return _render_requirement_bundles_view(
+                request,
+                user,
+                db,
+                panel_mode=panel_mode,
+                bundle_detail=bundle_detail,
+                status_type="error",
+                status_message=f"{bundle_detail.requirements_file} is missing; collect requirements first",
             )
         finally:
             db.close()

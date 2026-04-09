@@ -42,6 +42,7 @@ const dom = {
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
+  requirementBundlesBtn: document.getElementById("requirement-bundles-btn"),
   addAgentBtn: document.getElementById("add-agent-btn"),
   editForm: document.getElementById("edit-form"),
 };
@@ -1897,6 +1898,18 @@ async function openSessionsPanel() {
   });
 }
 
+async function openRequirementBundlesPanel() {
+  setToolPanel("Requirement Bundles", '<div class="text-xs text-slate-400">Loading requirement bundles…</div>');
+  try {
+    await htmx.ajax("GET", "/app/requirement-bundles/panel", {
+      target: "#tool-panel-body",
+      swap: "innerHTML",
+    });
+  } catch (error) {
+    setToolPanel("Requirement Bundles", `Failed: ${safe(error.message)}`);
+  }
+}
+
 function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
 
@@ -3079,6 +3092,8 @@ function bindEvents() {
       setToolPanel("Users", `Failed: ${safe(error.message)}`);
     }
   });
+
+  dom.requirementBundlesBtn?.addEventListener("click", openRequirementBundlesPanel);
 
   dom.addAgentBtn?.addEventListener("click", () => {
     document.getElementById("create-modal")?.classList.remove("hidden");
