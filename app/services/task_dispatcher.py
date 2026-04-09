@@ -45,6 +45,7 @@ class NormalizedRuntimeOutcome:
     result_payload_json: str
     message: str
     runtime_status_code: int | None
+    is_malformed: bool = False
 
 
 class TaskDispatcherService:
@@ -72,16 +73,42 @@ class TaskDispatcherService:
         async with httpx.AsyncClient(timeout=30.0) as client:
             return await client.post(url, json=body, headers=headers)
 
-    def _build_failure_payload(self, error_code: str, message: str, status_code: int | None = None) -> str:
-        return json.dumps({"ok": False, "error_code": error_code, "message": message, "runtime_status_code": status_code})
+    def _build_failure_payload(
+        self,
+        error_code: str,
+        message: str,
+        status_code: int | None = None,
+        trace_context: dict[str, str] | None = None,
+        raw_response_preview: str | None = None,
+    ) -> str:
+        trace_context = trace_context or {}
+        payload = {
+            "ok": False,
+            "error_code": error_code,
+            "message": message,
+            "runtime_status_code": status_code,
+            "trace_id": trace_context.get("trace_id"),
+            "portal_dispatch_id": trace_context.get("portal_dispatch_id"),
+        }
+        if raw_response_preview:
+            payload["raw_response_preview"] = raw_response_preview
+        return json.dumps(payload)
 
-    def _build_shared_context_not_found_payload(self, group_id: str | None, context_ref: str) -> str:
+    def _build_shared_context_not_found_payload(
+        self,
+        group_id: str | None,
+        context_ref: str,
+        trace_context: dict[str, str] | None = None,
+    ) -> str:
+        trace_context = trace_context or {}
         return json.dumps({
             "ok": False,
             "error_code": "shared_context_not_found",
             "message": "Shared context snapshot not found for delegation task",
             "group_id": group_id,
             "shared_context_ref": context_ref,
+            "trace_id": trace_context.get("trace_id"),
+            "portal_dispatch_id": trace_context.get("portal_dispatch_id"),
         })
 
     @staticmethod
@@ -350,18 +377,29 @@ class TaskDispatcherService:
                 result_payload_json=json.dumps(payload),
                 message="Runtime returned malformed response",
                 runtime_status_code=runtime_status_code,
+                is_malformed=True,
+            )
+
+        status_value = response_json.get("status")
+        if not isinstance(status_value, str) or not status_value.strip():
+            payload = {
+                "ok": False,
+                "error_code": "malformed_runtime_response",
+                "message": "Runtime returned malformed 2xx response: missing status",
+                "runtime_status_code": runtime_status_code,
+                "trace_id": trace_context.get("trace_id"),
+                "portal_dispatch_id": trace_context.get("portal_dispatch_id"),
+                "raw_response_preview": raw_response_preview or safe_preview(response_text, limit=800),
+            }
+            return NormalizedRuntimeOutcome(
+                terminal_status="failed",
+                result_payload_json=json.dumps(payload),
+                message="Runtime returned malformed response",
+                runtime_status_code=runtime_status_code,
+                is_malformed=True,
             )
 
         normalized_payload_json = json.dumps(response_json)
-        status_value = response_json.get("status")
-        if status_value is None:
-            return NormalizedRuntimeOutcome(
-                terminal_status="failed",
-                result_payload_json=normalized_payload_json,
-                message="Runtime returned malformed response",
-                runtime_status_code=runtime_status_code,
-            )
-
         normalized_status = str(status_value).lower()
         ok_value = response_json.get("ok")
         output_payload = response_json.get("output_payload")
@@ -394,6 +432,7 @@ class TaskDispatcherService:
             result_payload_json=normalized_payload_json,
             message="Runtime returned malformed response",
             runtime_status_code=runtime_status_code,
+            is_malformed=True,
         )
 
     async def dispatch_task(self, task_id: str, db: Session, user=None) -> AgentTaskDispatchResult:
@@ -421,6 +460,11 @@ class TaskDispatcherService:
             task = task_repo.get_by_id(task_id)
             if not task:
                 return AgentTaskDispatchResult(False, task_id, None, "not_found", "Task not found", None)
+            trace_context = {
+                "trace_id": trace_id,
+                "portal_dispatch_id": portal_dispatch_id,
+                "portal_task_id": task.id,
+            }
 
             bind_task_token = bind_log_context(portal_task_id=task.id, agent_id=task.assignee_agent_id or "-")
             try:
@@ -429,21 +473,33 @@ class TaskDispatcherService:
 
                 if not task.assignee_agent_id:
                     task.status = "failed"
-                    task.result_payload_json = self._build_failure_payload("missing_assignee", "Task has no assignee_agent_id")
+                    task.result_payload_json = self._build_failure_payload(
+                        "missing_assignee",
+                        "Task has no assignee_agent_id",
+                        trace_context=trace_context,
+                    )
                     task_repo.save(task)
                     return AgentTaskDispatchResult(False, task.id, None, task.status, "Task has no assignee_agent_id", task.result_payload_json)
 
                 agent = agent_repo.get_by_id(task.assignee_agent_id)
                 if not agent:
                     task.status = "failed"
-                    task.result_payload_json = self._build_failure_payload("assignee_not_found", "Assignee agent not found")
+                    task.result_payload_json = self._build_failure_payload(
+                        "assignee_not_found",
+                        "Assignee agent not found",
+                        trace_context=trace_context,
+                    )
                     task_repo.save(task)
                     return AgentTaskDispatchResult(False, task.id, None, task.status, "Assignee agent not found", task.result_payload_json)
 
                 input_payload, payload_error = self._parse_input_payload(task.input_payload_json)
                 if payload_error:
                     task.status = "failed"
-                    task.result_payload_json = self._build_failure_payload("invalid_input_payload", payload_error)
+                    task.result_payload_json = self._build_failure_payload(
+                        "invalid_input_payload",
+                        payload_error,
+                        trace_context=trace_context,
+                    )
                     task_repo.save(task)
                     return AgentTaskDispatchResult(False, task.id, None, task.status, payload_error, task.result_payload_json)
 
@@ -516,7 +572,11 @@ class TaskDispatcherService:
                         snapshot = context_repo.get_by_group_and_ref(task.group_id or "", task.shared_context_ref) if task.group_id else None
                         if not snapshot:
                             task.status = "failed"
-                            task.result_payload_json = self._build_shared_context_not_found_payload(task.group_id, task.shared_context_ref)
+                            task.result_payload_json = self._build_shared_context_not_found_payload(
+                                task.group_id,
+                                task.shared_context_ref,
+                                trace_context=trace_context,
+                            )
                             task_repo.save(task)
                             if delegation:
                                 delegation.status = "failed"
@@ -528,7 +588,11 @@ class TaskDispatcherService:
                             parsed_payload = None
                         if not isinstance(parsed_payload, dict):
                             task.status = "failed"
-                            task.result_payload_json = self._build_failure_payload("invalid_shared_context_payload", "Persisted shared context payload must be a JSON object")
+                            task.result_payload_json = self._build_failure_payload(
+                                "invalid_shared_context_payload",
+                                "Persisted shared context payload must be a JSON object",
+                                trace_context=trace_context,
+                            )
                             task_repo.save(task)
                             if delegation:
                                 delegation.status = "failed"
@@ -554,7 +618,11 @@ class TaskDispatcherService:
                     runtime_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + "/api/tasks/execute"
                 except Exception as exc:
                     task.status = "failed"
-                    task.result_payload_json = self._build_failure_payload("runtime_url_error", sanitize_exception_message(exc))
+                    task.result_payload_json = self._build_failure_payload(
+                        "runtime_url_error",
+                        sanitize_exception_message(exc),
+                        trace_context=trace_context,
+                    )
                     task_repo.save(task)
                     if delegation:
                         delegation.status = "failed"
@@ -605,13 +673,10 @@ class TaskDispatcherService:
                         )
                     outcome = self._normalize_runtime_response(
                         response,
-                        trace_context={
-                            "trace_id": trace_id,
-                            "portal_dispatch_id": portal_dispatch_id,
-                        },
+                        trace_context=trace_context,
                         raw_response_preview=response_preview,
                     )
-                    if outcome.message == "Runtime returned malformed response":
+                    if outcome.is_malformed:
                         logger.warning(
                             "Runtime returned malformed response task_id=%s runtime_status_code=%s runtime_url=%s raw_response_preview=%s",
                             task.id,
@@ -691,6 +756,7 @@ class TaskDispatcherService:
                     fresh_task.result_payload_json = self._build_failure_payload(
                         "runtime_request_error",
                         sanitize_exception_message(exc),
+                        trace_context=trace_context,
                     )
                     task_repo.save(fresh_task)
                     self._sync_delegation_from_task_result(db, fresh_task, fresh_task.result_payload_json, False)

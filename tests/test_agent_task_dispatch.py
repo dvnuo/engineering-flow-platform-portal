@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import json
+import asyncio
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -8,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, AgentDelegation, AgentTask, CapabilityProfile, PolicyProfile, RuntimeCapabilityCatalogSnapshot, User
+from app.log_context import bind_log_context, reset_log_context
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.auth_service import hash_password
 
@@ -252,7 +254,12 @@ def test_dispatch_endpoint_marks_task_failed_on_malformed_2xx_without_status(mon
 
         db.refresh(task)
         assert task.status == "failed"
-        assert json.loads(task.result_payload_json)["ok"] is True
+        payload = json.loads(task.result_payload_json or "{}")
+        assert payload["error_code"] == "malformed_runtime_response"
+        assert payload["trace_id"]
+        assert payload["portal_dispatch_id"]
+        assert payload["raw_response_preview"]
+        assert "status" not in payload.get("raw_response_preview", "")
     finally:
         cleanup()
 
@@ -750,5 +757,70 @@ def test_dispatch_non_2xx_records_trace_payload_and_logs(monkeypatch, caplog):
         log_text = caplog.text
         assert task.id in log_text
         assert "runtime_status_code=503" in log_text
+    finally:
+        cleanup()
+
+
+def test_dispatch_runtime_request_error_payload_includes_trace_and_redacts(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+        async def _fake_post(_url: str, _body: dict):
+            raise RuntimeError("runtime token=super-secret")
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch", headers={"X-Trace-Id": "trace-runtime-error"})
+        assert response.status_code == 200
+        assert response.json()["task_status"] == "failed"
+
+        db.refresh(task)
+        payload = json.loads(task.result_payload_json or "{}")
+        assert payload["error_code"] == "runtime_request_error"
+        assert payload["trace_id"] == "trace-runtime-error"
+        assert payload["portal_dispatch_id"]
+        assert "super-secret" not in payload["message"]
+        assert "[REDACTED]" in payload["message"]
+    finally:
+        cleanup()
+
+
+def test_dispatch_shared_context_not_found_payload_includes_trace(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = AgentTask(
+            assignee_agent_id=agent.id,
+            source="agent",
+            task_type="delegation_task",
+            input_payload_json="{}",
+            shared_context_ref="ctx-missing",
+            group_id="group-1",
+            status="queued",
+            retry_count=0,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        token = bind_log_context(trace_id="trace-shared-missing")
+        try:
+            result = asyncio.run(tasks_api.task_dispatcher_service.dispatch_task(task.id, db))
+        finally:
+            reset_log_context(token)
+
+        assert result.dispatched is False
+        assert result.task_status == "failed"
+
+        db.refresh(task)
+        payload = json.loads(task.result_payload_json or "{}")
+        assert payload["error_code"] == "shared_context_not_found"
+        assert payload["trace_id"] == "trace-shared-missing"
+        assert payload["portal_dispatch_id"]
     finally:
         cleanup()
