@@ -213,6 +213,24 @@ class RequirementBundleGithubService:
             if required not in links:
                 raise RequirementBundleGithubServiceError(f"bundle.yaml links missing required field: {required}")
 
+    def _canonical_bundle_ref_from_manifest(
+        self,
+        *,
+        input_ref: BundleRef,
+        normalized_input_path: str,
+        manifest: dict,
+    ) -> BundleRef:
+        storage = manifest.get("storage") or {}
+        repo = storage.get("repo") or input_ref.repo
+        path = storage.get("path") or normalized_input_path
+        branch = storage.get("working_branch") or input_ref.branch
+
+        # Reuse existing validation/normalization behavior and surface errors when malformed.
+        self.parse_repo_full_name(repo)
+        normalized_path = self.normalize_bundle_path(path)
+
+        return BundleRef(repo=repo, path=normalized_path, branch=branch)
+
     def create_bundle(self, form: RequirementBundleCreateForm) -> BundleRef:
         slug = self.normalize_slug(form.slug if form.slug else form.title)
         domain = self.normalize_slug(form.domain)
@@ -261,18 +279,35 @@ class RequirementBundleGithubService:
         return BundleRef(repo=self.default_repo, path=bundle_path, branch=working_branch)
 
     def inspect_bundle(self, bundle_ref: BundleRef) -> RequirementBundleInspectResponse:
-        path = self.normalize_bundle_path(bundle_ref.path)
-        manifest_payload = self._get_file(bundle_ref.repo, f"{path}/bundle.yaml", bundle_ref.branch)
+        input_path = self.normalize_bundle_path(bundle_ref.path)
+        manifest_payload = self._get_file(bundle_ref.repo, f"{input_path}/bundle.yaml", bundle_ref.branch)
         manifest_yaml = self._decode_content(manifest_payload)
         manifest = self._parse_manifest_yaml(manifest_yaml)
         self.validate_bundle_manifest(manifest)
+        canonical_bundle_ref = self._canonical_bundle_ref_from_manifest(
+            input_ref=bundle_ref,
+            normalized_input_path=input_path,
+            manifest=manifest,
+        )
 
-        requirements_exists = self._file_exists(bundle_ref.repo, f"{path}/requirements.yaml", bundle_ref.branch)
-        test_cases_exists = self._file_exists(bundle_ref.repo, f"{path}/test-cases.yaml", bundle_ref.branch)
-        last_commit_sha = self._latest_commit_sha_for_path(bundle_ref.repo, path, bundle_ref.branch)
+        requirements_exists = self._file_exists(
+            canonical_bundle_ref.repo,
+            f"{canonical_bundle_ref.path}/requirements.yaml",
+            canonical_bundle_ref.branch,
+        )
+        test_cases_exists = self._file_exists(
+            canonical_bundle_ref.repo,
+            f"{canonical_bundle_ref.path}/test-cases.yaml",
+            canonical_bundle_ref.branch,
+        )
+        last_commit_sha = self._latest_commit_sha_for_path(
+            canonical_bundle_ref.repo,
+            canonical_bundle_ref.path,
+            canonical_bundle_ref.branch,
+        )
 
         return RequirementBundleInspectResponse(
-            bundle_ref=BundleRef(repo=bundle_ref.repo, path=path, branch=bundle_ref.branch),
+            bundle_ref=canonical_bundle_ref,
             manifest=manifest,
             requirements_exists=requirements_exists,
             test_cases_exists=test_cases_exists,

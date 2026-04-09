@@ -108,6 +108,77 @@ links:
     assert result.last_commit_sha == "cafebabe"
 
 
+def test_inspect_existing_bundle_uses_manifest_storage_as_canonical_ref(monkeypatch):
+    service = RequirementBundleGithubService()
+
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+
+scope:
+  domain: payments
+  summary: Checkout
+
+storage:
+  repo: octo/engineering-flow-platform-assets
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: bundle/checkout/abcd1234
+
+links:
+  requirements_file: requirements.yaml
+  test_cases_file: test-cases.yaml
+"""
+
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+    file_exists_calls: list[tuple[str, str, str]] = []
+    latest_commit_calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+
+    def _fake_file_exists(repo_full_name: str, file_path: str, branch: str) -> bool:
+        file_exists_calls.append((repo_full_name, file_path, branch))
+        return file_path.endswith("requirements.yaml")
+
+    def _fake_latest_commit_sha(repo_full_name: str, file_path: str, branch: str) -> str:
+        latest_commit_calls.append((repo_full_name, file_path, branch))
+        return "cafebabe"
+
+    monkeypatch.setattr(service, "_file_exists", _fake_file_exists)
+    monkeypatch.setattr(service, "_latest_commit_sha_for_path", _fake_latest_commit_sha)
+
+    result = service.inspect_bundle(
+        BundleRef(
+            repo="octo/assets",
+            path="requirement-bundles/payments/checkout",
+            branch="main",
+        )
+    )
+
+    assert result.bundle_ref.repo == "octo/engineering-flow-platform-assets"
+    assert result.bundle_ref.path == "requirement-bundles/payments/checkout"
+    assert result.bundle_ref.branch == "bundle/checkout/abcd1234"
+    assert file_exists_calls == [
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout/requirements.yaml",
+            "bundle/checkout/abcd1234",
+        ),
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout/test-cases.yaml",
+            "bundle/checkout/abcd1234",
+        ),
+    ]
+    assert latest_commit_calls == [
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout",
+            "bundle/checkout/abcd1234",
+        )
+    ]
+
+
 def test_invalid_manifest_raises_error(monkeypatch):
     service = RequirementBundleGithubService()
     invalid_manifest_text = "bundle_id: RB-1\ntitle: Missing Scope\n"

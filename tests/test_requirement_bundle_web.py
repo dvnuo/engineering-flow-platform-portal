@@ -174,6 +174,73 @@ def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
     assert design_payload["bundle_ref"]["path"] == "requirement-bundles/payments/checkout-flow"
 
 
+def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
+    client, created_tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+
+    import app.web as web_module
+
+    canonical_branch = "bundle/checkout/abcd1234"
+
+    monkeypatch.setattr(
+        web_module.requirement_bundle_service,
+        "inspect_bundle",
+        lambda _bundle_ref: SimpleNamespace(
+            bundle_ref=SimpleNamespace(
+                repo="octo/engineering-flow-platform-assets",
+                path="requirement-bundles/payments/checkout-flow",
+                branch=canonical_branch,
+            ),
+            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
+            requirements_exists=True,
+            test_cases_exists=True,
+            last_commit_sha="abc123",
+        ),
+    )
+
+    open_response = client.get(
+        "/app/requirement-bundles/open",
+        params={
+            "repo": "octo/engineering-flow-platform-assets",
+            "path": "requirement-bundles/payments/checkout-flow",
+            "branch": "main",
+        },
+    )
+    assert open_response.status_code == 200
+    assert f'value="{canonical_branch}"' in open_response.text
+
+    collect_response = client.post(
+        "/app/requirement-bundles/collect",
+        data={
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": canonical_branch,
+            "collect_agent_id": "agent-1",
+            "jira_sources": "JIRA-123",
+            "confluence_sources": "",
+            "github_doc_sources": "",
+            "figma_sources": "",
+        },
+    )
+    assert collect_response.status_code == 200
+
+    design_response = client.post(
+        "/app/requirement-bundles/design-test-cases",
+        data={
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": canonical_branch,
+            "design_agent_id": "agent-1",
+        },
+    )
+    assert design_response.status_code == 200
+
+    collect_payload = json.loads(created_tasks[0].input_payload_json)
+    design_payload = json.loads(created_tasks[1].input_payload_json)
+
+    assert collect_payload["bundle_ref"]["branch"] == canonical_branch
+    assert design_payload["bundle_ref"]["branch"] == canonical_branch
+
+
 def test_collect_rejects_empty_sources(monkeypatch):
     client, created_tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
 
