@@ -1,7 +1,7 @@
 <div id="requirement-bundles-panel-root" class="space-y-6 text-slate-800 dark:text-slate-100">
   <div>
     <h1 class="text-2xl font-semibold">Requirement Bundles</h1>
-    <p class="text-sm text-slate-600 dark:text-slate-400">Open a bundle from the left sidebar. Use manual open only when needed.</p>
+    <p class="text-sm text-slate-600 dark:text-slate-400">Open a bundle from the left sidebar to view details and run actions.</p>
   </div>
 
   {% if status_message %}
@@ -15,21 +15,31 @@
   </div>
 
   {% if bundle_detail %}
+  {% set manifest = bundle_detail.manifest or {} %}
+  {% set bundle_path = bundle_detail.bundle_ref.path or '' %}
+  {% set path_parts = bundle_path.split('/') if bundle_path else [] %}
+  {% set fallback_title = path_parts[-1] if path_parts else 'Bundle' %}
+  {% set bundle_title = manifest.title or manifest.bundle_id or fallback_title or 'Bundle' %}
+  {% set bundle_id = manifest.bundle_id or fallback_title or 'unknown' %}
+  {% set bundle_status = manifest.status or 'unknown' %}
+  {% set bundle_domain = manifest.scope.domain if manifest.scope and manifest.scope.domain else 'unknown' %}
+  {% set github_url = 'https://github.com/' ~ bundle_detail.bundle_ref.repo ~ '/tree/' ~ bundle_detail.bundle_ref.branch ~ '/' ~ bundle_detail.bundle_ref.path %}
   <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 space-y-4">
-    <h2 class="text-lg font-semibold">Bundle Detail</h2>
-    <div class="grid sm:grid-cols-2 gap-2 text-sm text-slate-700 dark:text-slate-300">
-      <div>repo: <span>{{ bundle_detail.bundle_ref.repo }}</span></div>
-      <div>path: <span>{{ bundle_detail.bundle_ref.path }}</span></div>
-      <div>branch: <span>{{ bundle_detail.bundle_ref.branch }}</span></div>
-      <div>effective branch: <span>{{ bundle_detail.bundle_ref.branch }}</span></div>
-      <div>last commit: <span>{{ bundle_detail.last_commit_sha or 'N/A' }}</span></div>
-      <div>{{ bundle_detail.requirements_file }}: <span>{{ 'yes' if bundle_detail.requirements_exists else 'no' }}</span></div>
-      <div>{{ bundle_detail.test_cases_file }}: <span>{{ 'yes' if bundle_detail.test_cases_exists else 'no' }}</span></div>
+    <div class="flex items-start justify-between gap-3">
+      <h2 class="text-lg font-semibold">Bundle Detail</h2>
+      <a href="{{ github_url }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-lg border border-blue-300 dark:border-blue-500 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-500/20">
+        Open in GitHub
+      </a>
     </div>
-
-    <div>
-      <h3 class="font-medium mb-2">bundle.yaml</h3>
-      <pre class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 overflow-auto text-xs text-slate-800 dark:text-slate-200">{{ bundle_detail.manifest | tojson(indent=2) }}</pre>
+    <div class="grid sm:grid-cols-2 gap-2 text-sm text-slate-700 dark:text-slate-300">
+      <div>title: <span>{{ bundle_title }}</span></div>
+      <div>bundle_id: <span>{{ bundle_id }}</span></div>
+      <div>status: <span>{{ bundle_status }}</span></div>
+      <div>domain: <span>{{ bundle_domain }}</span></div>
+      <div>repo: <span>{{ bundle_detail.bundle_ref.repo }}</span></div>
+      <div>branch: <span>{{ bundle_detail.bundle_ref.branch }}</span></div>
+      <div>{{ bundle_detail.requirements_file }}: <span>{{ 'exists' if bundle_detail.requirements_exists else 'missing' }}</span></div>
+      <div>{{ bundle_detail.test_cases_file }}: <span>{{ 'exists' if bundle_detail.test_cases_exists else 'missing' }}</span></div>
     </div>
 
     <div class="grid lg:grid-cols-2 gap-3">
@@ -103,28 +113,8 @@
   <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
     <h2 class="text-lg font-semibold mb-2">No bundle selected</h2>
     <p class="text-sm text-slate-600 dark:text-slate-400">
-      Choose a bundle from the left sidebar. If needed, use the manual open form below.
+      Choose a bundle from the left sidebar to view details and run actions.
     </p>
   </section>
   {% endif %}
-
-  <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-    <h2 class="text-base font-semibold mb-1">Advanced: Open by repo/path/branch</h2>
-    <p class="text-xs text-slate-600 dark:text-slate-400 mb-3">Fallback for bundles that are not discoverable yet.</p>
-    <form method="get" action="/app/requirement-bundles/open" hx-get="/app/requirement-bundles/open" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="space-y-3">
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Repo</label>
-        <input name="repo" value="{{ bundle_defaults.repo }}" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-      </div>
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Path</label>
-        <input name="path" placeholder="{{ bundle_defaults.root_dir }}/domain/slug" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-      </div>
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Branch</label>
-        <input name="branch" value="{{ bundle_defaults.base_branch }}" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100" />
-      </div>
-      <button type="submit" class="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 font-semibold text-white">Open</button>
-    </form>
-  </section>
 </div>

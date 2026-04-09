@@ -1930,12 +1930,12 @@ function bundleKey(item) {
 function renderRequirementBundleList(errorMessage = "") {
   if (!dom.bundleList) return;
   if (errorMessage) {
-    dom.bundleList.innerHTML = `<div class="text-xs rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 px-3 py-2">${safe(errorMessage)}</div>`;
+    dom.bundleList.innerHTML = `<div class="text-xs rounded-lg border border-rose-300 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 px-3 py-2">${safe(errorMessage)}</div>`;
     return;
   }
 
   if (!state.requirementBundles.length) {
-    dom.bundleList.innerHTML = '<div class="text-xs text-slate-500 px-1">No bundles found</div>';
+    dom.bundleList.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 px-1">No bundles found</div>';
     return;
   }
 
@@ -1943,14 +1943,14 @@ function renderRequirementBundleList(errorMessage = "") {
   state.requirementBundles.forEach((item) => {
     const key = bundleKey(item);
     const activeClass = state.selectedBundleKey === key
-      ? "border-blue-500 bg-blue-500/10"
-      : "border-slate-700 bg-slate-800/40";
+      ? "border-blue-300 dark:border-blue-500 bg-blue-50 dark:bg-blue-500/10"
+      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/60";
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
+    row.className = `w-full rounded-xl border px-3 py-2 text-left transition-colors duration-150 ${activeClass}`;
     row.innerHTML = `
-      <div class="font-medium text-slate-100">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
-      <div class="text-xs text-slate-400 mt-1">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
+      <div class="font-medium text-slate-800 dark:text-slate-100">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
     `;
     row.addEventListener("click", async () => {
       state.selectedBundleKey = key;
@@ -1963,7 +1963,7 @@ function renderRequirementBundleList(errorMessage = "") {
 
 async function refreshRequirementBundles() {
   if (!dom.bundleList) return;
-  dom.bundleList.innerHTML = '<div class="text-xs text-slate-400 px-1">Loading bundles…</div>';
+  dom.bundleList.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 px-1">Loading bundles…</div>';
   try {
     const bundles = await api("/api/requirement-bundles");
     state.requirementBundles = Array.isArray(bundles) ? bundles : [];
