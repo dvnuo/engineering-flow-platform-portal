@@ -99,20 +99,24 @@
             {% endfor %}
           </select>
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Jira Sources</label>
-            <textarea name="jira_sources" rows="2" placeholder="comma or newline separated" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
+            <label class="block text-xs text-slate-400 mb-1">Jira Sources (issue keys or browse URLs)</label>
+            <p class="text-xs text-slate-500 mb-1">Enter comma or newline separated Jira issue keys or browse links.</p>
+            <textarea name="jira_sources" rows="2" placeholder="PAY-101&#10;https://jira.example.com/browse/PAY-101" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
           </div>
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Confluence Sources</label>
-            <textarea name="confluence_sources" rows="2" placeholder="comma or newline separated" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
+            <label class="block text-xs text-slate-400 mb-1">Confluence Sources (page IDs or page URLs)</label>
+            <p class="text-xs text-slate-500 mb-1">Enter comma or newline separated page IDs or page links.</p>
+            <textarea name="confluence_sources" rows="2" placeholder="987654&#10;https://wiki.example.com/spaces/ABC/pages/987654/..." class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
           </div>
           <div>
-            <label class="block text-xs text-slate-400 mb-1">GitHub Docs Sources</label>
-            <textarea name="github_doc_sources" rows="2" placeholder="comma or newline separated" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
+            <label class="block text-xs text-slate-400 mb-1">GitHub Docs Sources (repo-relative paths or blob URLs)</label>
+            <p class="text-xs text-slate-500 mb-1">Enter comma or newline separated repo paths or GitHub blob links.</p>
+            <textarea name="github_doc_sources" rows="2" placeholder="docs/spec.md&#10;https://github.com/org/repo/blob/main/docs/spec.md" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
           </div>
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Figma Sources</label>
-            <textarea name="figma_sources" rows="2" placeholder="comma or newline separated" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
+            <label class="block text-xs text-slate-400 mb-1">Figma Sources (ignored in MVP)</label>
+            <p class="text-xs text-slate-500 mb-1">Figma URLs are stored only; not processed in MVP.</p>
+            <textarea name="figma_sources" rows="2" placeholder="https://www.figma.com/file/abc123/... (stored only; not processed in MVP)" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"></textarea>
           </div>
           <button type="submit" class="w-full rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2">Create + Dispatch</button>
         </form>
@@ -128,7 +132,10 @@
             <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
             {% endfor %}
           </select>
-          <button type="submit" class="w-full rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 px-3 py-2">Create + Dispatch</button>
+          {% if not bundle_detail.requirements_exists %}
+          <p class="text-xs text-amber-300">requirements.yaml not found — run Collect Requirements first</p>
+          {% endif %}
+          <button type="submit" {% if not bundle_detail.requirements_exists %}disabled{% endif %} class="w-full rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50">Create + Dispatch</button>
         </form>
       </div>
 
