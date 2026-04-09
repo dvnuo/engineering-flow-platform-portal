@@ -4,8 +4,8 @@
   <div class="h-full grid grid-cols-[280px_minmax(0,1fr)] gap-3 p-3">
     <aside class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-0">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold">Agents</h2>
-        <button id="add-agent-btn" class="h-8 w-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Add Agent">
+        <h2 class="text-lg font-semibold">Assistants</h2>
+        <button id="add-agent-btn" class="h-8 w-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Create Assistant">
           <i data-lucide="plus" class="w-5 h-5"></i>
         </button>
       </div>
@@ -39,8 +39,8 @@
     <main class="rounded-2xl border border-slate-800 bg-slate-900/60 min-h-0 flex flex-col relative">
       <header class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
         <div>
-          <div class="text-xs text-slate-400">Active Agent</div>
-          <h1 id="embed-title" class="text-lg font-semibold">Select an agent</h1>
+          <div class="text-xs text-slate-400">Assistant</div>
+          <h1 id="embed-title" class="text-lg font-semibold">Select an assistant</h1>
         </div>
         <div class="flex items-center gap-2">
           <span id="selected-status" class="px-3 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">idle</span>
@@ -54,7 +54,7 @@
             <i data-lucide="folder" class="w-5 h-5"></i>
           </button>
           <button id="top-settings" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Settings" data-owner-only="true"><i data-lucide="settings" class="w-5 h-5"></i></button>
-          <button id="detail-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Agent Details">
+          <button id="detail-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Assistant details">
             <i data-lucide="panel-left" class="w-5 h-5"></i>
           </button>
         </div>
@@ -62,12 +62,12 @@
 
       <section id="center-placeholder" class="flex-1 grid place-items-center text-center text-slate-400">
         <div>
-          <h3 class="text-lg text-slate-200 font-semibold">Start an agent conversation</h3>
-          <p class="mt-2">Select an agent and ensure it is running.</p>
+          <h3 class="text-lg text-slate-200 font-semibold">Start a conversation</h3>
+          <p class="mt-2">Select an assistant and make sure it is running.</p>
         </div>
       </section>
 
-      <section id="agent-chat-app" class="hidden flex-1 min-h-0 flex flex-col" aria-label="Agent chat workspace">
+      <section id="agent-chat-app" class="hidden flex-1 min-h-0 flex flex-col" aria-label="Assistant chat workspace">
         <div id="message-list" class="flex-1 min-h-0 overflow-y-auto px-5 py-5 space-y-5">
           <article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
             <p class="text-xs uppercase tracking-wide text-slate-400 mb-2">{{ agent_name }}</p>
@@ -98,7 +98,7 @@
               <div id="input-preview-area" class="hidden grid gap-2 p-2 mb-2 rounded-lg bg-slate-100 dark:bg-slate-700/50"></div>
               <textarea id="chat-input" name="message" rows="1" required
                         class="w-full resize-none rounded-xl border px-3 py-2 outline-none placeholder:"
-                        placeholder="Type message, / for skills"></textarea>
+                        placeholder="Message an assistant"></textarea>
               <div id="chat-suggest" class="hidden absolute bottom-full mb-2 w-full rounded-xl border p-2 space-y-1 max-h-56 overflow-auto shadow-lg"></div>
             </div>
             
@@ -117,7 +117,7 @@
     <div class="rounded-lg border border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-4 py-2 text-sm shadow-lg"></div>
   </div>
   
-  <!-- Unified Panel (Agent Details, Sessions, Skills, Files, etc.) -->
+  <!-- Unified Panel (Assistant details, Sessions, Skills, Files, etc.) -->
   <aside id="tool-panel" class="fixed right-3 top-3 bottom-3 w-[480px] min-w-[300px] max-w-[calc(100vw-24px)] z-40 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl translate-x-[120%] transition-transform duration-200 flex flex-col">
     <div id="tool-panel-resize" class="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-500/50 rounded-l-2xl"></div>
     <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
@@ -131,13 +131,13 @@
 <div id="create-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
     <div class="modal-head">
-      <h3>Create Agent</h3>
+      <h3>Create Assistant</h3>
       <button id="close-create-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="create-form" class="stack">
       <div>
-        <label>Agent Name</label>
+        <label>Assistant Name</label>
         <input name="name" placeholder="MyAgent" value="MyAgent" required />
       </div>
       <div>
@@ -148,7 +148,7 @@
         <label>Branch</label>
         <input name="branch" placeholder="master" value="master" />
       </div>
-      <button type="submit">Create Agent</button>
+      <button type="submit">Create Assistant</button>
       <p id="create-msg" class="muted tiny"></p>
     </form>
   </div>
@@ -157,14 +157,14 @@
 <div id="edit-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
     <div class="modal-head">
-      <h3>Edit Agent</h3>
+      <h3>Edit Assistant</h3>
       <button id="close-edit-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="edit-form" class="stack">
       <input type="hidden" name="id" />
       <div>
-        <label>Agent Name</label>
+        <label>Assistant Name</label>
         <input name="name" placeholder="MyAgent" required />
       </div>
       <div>

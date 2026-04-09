@@ -1230,6 +1230,38 @@ html[data-theme="dark"] .prose td {
 html[data-theme="dark"] #system-prompt-editor-modal .modal-card {
   background: #1e293b;
 }
+
+.message-row .message-timestamp,
+.message-row .edit-msg-btn {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.message-row:hover .message-timestamp,
+.message-row:focus-within .message-timestamp,
+.message-row:hover .edit-msg-btn,
+.message-row:focus-within .edit-msg-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.message-row:focus-visible {
+  outline: 2px solid rgb(59 130 246 / 0.45);
+  outline-offset: 4px;
+}
+
+@media (hover: none) {
+  .message-row .message-timestamp,
+  .message-row .edit-msg-btn {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+
 /* Message edit button */
 .edit-msg-btn {
   font-size: 0.75rem;
