@@ -39,8 +39,20 @@ def test_chat_ui_assets_include_phase_a_hooks():
     assert "Message " in js_source
     assert "message-timestamp" in js_source
     assert "updateChatInputPlaceholder" in js_source
+    assert "Please select an assistant first" in js_source
+    assert "No assistants" in js_source
+    assert "Assistant created!" in js_source
+    assert "Assistant ID" in js_source
+    assert "Read-only for shared assistant." in js_source
+
+    assert "Please select an agent first" not in js_source
+    assert "No agents" not in js_source
+    assert "Agent created!" not in js_source
+    assert "Read-only for shared agent." not in js_source
+    assert "tabIndex = 0" in js_source or 'setAttribute("aria-label", "User message actions")' in js_source
 
     assert ".message-row .message-timestamp" in css_source
     assert ".message-row:hover .message-timestamp" in css_source
     assert ".message-row:focus-within .edit-msg-btn" in css_source
     assert "@media (hover: none)" in css_source
+    assert ".message-row:focus" in css_source or ".message-row:focus-visible" in css_source
