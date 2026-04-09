@@ -715,7 +715,7 @@ async def requirement_bundle_design_test_cases(request: Request):
                     "bundle_result": None,
                     "bundle_detail": bundle_detail,
                     "status_type": "error",
-                    "status_message": "requirements.yaml is missing; collect requirements first",
+                    "status_message": f"{bundle_detail.requirements_file} is missing; collect requirements first",
                 },
             )
         finally:

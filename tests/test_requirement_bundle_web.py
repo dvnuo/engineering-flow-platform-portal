@@ -67,6 +67,8 @@ def _setup_client(monkeypatch, logged_in=True):
         lambda bundle_ref: SimpleNamespace(
             bundle_ref=bundle_ref,
             manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
+            requirements_file="requirements.yaml",
+            test_cases_file="test-cases.yaml",
             requirements_exists=bundle_state["requirements_exists"],
             test_cases_exists=True,
             last_commit_sha="abc123",
@@ -191,6 +193,8 @@ def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
                 branch=canonical_branch,
             ),
             manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
+            requirements_file="requirements.yaml",
+            test_cases_file="test-cases.yaml",
             requirements_exists=True,
             test_cases_exists=True,
             last_commit_sha="abc123",
@@ -259,6 +263,8 @@ def test_collect_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncan
                 branch=canonical_branch,
             ),
             manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
+            requirements_file="requirements.yaml",
+            test_cases_file="test-cases.yaml",
             requirements_exists=True,
             test_cases_exists=True,
             last_commit_sha="abc123",
@@ -303,6 +309,8 @@ def test_design_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncano
                 branch=canonical_branch,
             ),
             manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
+            requirements_file="requirements.yaml",
+            test_cases_file="test-cases.yaml",
             requirements_exists=True,
             test_cases_exists=True,
             last_commit_sha="abc123",
@@ -323,6 +331,70 @@ def test_design_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncano
     design_payload = json.loads(created_tasks[0].input_payload_json)
     assert design_payload["bundle_ref"]["branch"] == canonical_branch
     assert design_payload["bundle_ref"]["branch"] != posted_branch
+
+
+def test_open_existing_bundle_shows_custom_linked_filenames(monkeypatch):
+    client, _tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+    import app.web as web_module
+
+    monkeypatch.setattr(
+        web_module.requirement_bundle_service,
+        "inspect_bundle",
+        lambda bundle_ref: SimpleNamespace(
+            bundle_ref=bundle_ref,
+            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
+            requirements_file="docs/reqs.yaml",
+            test_cases_file="outputs/tc.yaml",
+            requirements_exists=True,
+            test_cases_exists=False,
+            last_commit_sha="abc123",
+        ),
+    )
+
+    response = client.get(
+        "/app/requirement-bundles/open",
+        params={
+            "repo": "octo/engineering-flow-platform-assets",
+            "path": "requirement-bundles/payments/checkout-flow",
+            "branch": "bundle/checkout-flow/deadbeef",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "docs/reqs.yaml" in response.text
+    assert "outputs/tc.yaml" in response.text
+
+
+def test_design_missing_requirements_message_uses_custom_linked_filename(monkeypatch):
+    client, _created_tasks, _bundle_state = _setup_client(monkeypatch, logged_in=True)
+    import app.web as web_module
+
+    monkeypatch.setattr(
+        web_module.requirement_bundle_service,
+        "inspect_bundle",
+        lambda bundle_ref: SimpleNamespace(
+            bundle_ref=bundle_ref,
+            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
+            requirements_file="docs/reqs.yaml",
+            test_cases_file="outputs/tc.yaml",
+            requirements_exists=False,
+            test_cases_exists=True,
+            last_commit_sha="abc123",
+        ),
+    )
+
+    response = client.post(
+        "/app/requirement-bundles/design-test-cases",
+        data={
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": "main",
+            "design_agent_id": "agent-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "docs/reqs.yaml is missing; collect requirements first" in response.text
 
 
 def test_collect_rejects_empty_sources(monkeypatch):

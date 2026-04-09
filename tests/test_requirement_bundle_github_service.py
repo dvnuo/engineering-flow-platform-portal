@@ -103,6 +103,8 @@ links:
 
     assert result.bundle_ref.repo == "octo/engineering-flow-platform-assets"
     assert result.manifest["bundle_id"] == "RB-checkout"
+    assert result.requirements_file == "requirements.yaml"
+    assert result.test_cases_file == "test-cases.yaml"
     assert result.requirements_exists is True
     assert result.test_cases_exists is False
     assert result.last_commit_sha == "cafebabe"
@@ -176,6 +178,60 @@ links:
             "requirement-bundles/payments/checkout",
             "bundle/checkout/abcd1234",
         )
+    ]
+
+
+def test_inspect_bundle_uses_custom_linked_filenames_for_existence_checks(monkeypatch):
+    service = RequirementBundleGithubService()
+
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+scope:
+  domain: payments
+  summary: Checkout
+storage:
+  repo: octo/engineering-flow-platform-assets
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: bundle/checkout/abcd1234
+links:
+  requirements_file: docs/reqs.yaml
+  test_cases_file: outputs/tc.yaml
+"""
+
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+    file_exists_calls: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+
+    def _fake_file_exists(repo_full_name: str, file_path: str, branch: str) -> bool:
+        file_exists_calls.append((repo_full_name, file_path, branch))
+        return file_path.endswith("reqs.yaml")
+
+    monkeypatch.setattr(service, "_file_exists", _fake_file_exists)
+    monkeypatch.setattr(service, "_latest_commit_sha_for_path", lambda *_args, **_kwargs: "cafebabe")
+
+    result = service.inspect_bundle(
+        BundleRef(
+            repo="octo/engineering-flow-platform-assets",
+            path="requirement-bundles/payments/checkout",
+            branch="bundle/checkout/abcd1234",
+        )
+    )
+
+    assert result.requirements_file == "docs/reqs.yaml"
+    assert result.test_cases_file == "outputs/tc.yaml"
+    assert file_exists_calls == [
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout/docs/reqs.yaml",
+            "bundle/checkout/abcd1234",
+        ),
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout/outputs/tc.yaml",
+            "bundle/checkout/abcd1234",
+        ),
     ]
 
 

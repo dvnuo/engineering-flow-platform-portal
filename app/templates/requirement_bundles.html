@@ -78,8 +78,8 @@
         <div>branch: <span class="text-slate-300">{{ bundle_detail.bundle_ref.branch }}</span></div>
         <div>effective branch: <span class="text-slate-300">{{ bundle_detail.bundle_ref.branch }}</span></div>
         <div>last commit: <span class="text-slate-300">{{ bundle_detail.last_commit_sha or 'N/A' }}</span></div>
-        <div>requirements.yaml: <span class="text-slate-300">{{ 'yes' if bundle_detail.requirements_exists else 'no' }}</span></div>
-        <div>test-cases.yaml: <span class="text-slate-300">{{ 'yes' if bundle_detail.test_cases_exists else 'no' }}</span></div>
+        <div>{{ bundle_detail.requirements_file }}: <span class="text-slate-300">{{ 'yes' if bundle_detail.requirements_exists else 'no' }}</span></div>
+        <div>{{ bundle_detail.test_cases_file }}: <span class="text-slate-300">{{ 'yes' if bundle_detail.test_cases_exists else 'no' }}</span></div>
       </div>
 
       <div>
@@ -134,7 +134,7 @@
             {% endfor %}
           </select>
           {% if not bundle_detail.requirements_exists %}
-          <p class="text-xs text-amber-300">requirements.yaml not found — run Collect Requirements first</p>
+          <p class="text-xs text-amber-300">{{ bundle_detail.requirements_file }} not found — run Collect Requirements first</p>
           {% endif %}
           <button type="submit" {% if not bundle_detail.requirements_exists %}disabled{% endif %} class="w-full rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50">Create + Dispatch</button>
         </form>

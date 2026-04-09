@@ -312,15 +312,18 @@ class RequirementBundleGithubService:
             normalized_input_path=input_path,
             manifest=manifest,
         )
+        links = manifest.get("links") or {}
+        requirements_file = str(links.get("requirements_file") or "").strip().strip("/")
+        test_cases_file = str(links.get("test_cases_file") or "").strip().strip("/")
 
         requirements_exists = self._file_exists(
             canonical_bundle_ref.repo,
-            f"{canonical_bundle_ref.path}/requirements.yaml",
+            f"{canonical_bundle_ref.path}/{requirements_file}",
             canonical_bundle_ref.branch,
         )
         test_cases_exists = self._file_exists(
             canonical_bundle_ref.repo,
-            f"{canonical_bundle_ref.path}/test-cases.yaml",
+            f"{canonical_bundle_ref.path}/{test_cases_file}",
             canonical_bundle_ref.branch,
         )
         last_commit_sha = self._latest_commit_sha_for_path(
@@ -332,6 +335,8 @@ class RequirementBundleGithubService:
         return RequirementBundleInspectResponse(
             bundle_ref=canonical_bundle_ref,
             manifest=manifest,
+            requirements_file=requirements_file,
+            test_cases_file=test_cases_file,
             requirements_exists=requirements_exists,
             test_cases_exists=test_cases_exists,
             last_commit_sha=last_commit_sha,
