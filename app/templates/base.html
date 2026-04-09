@@ -37,7 +37,9 @@
       (function () {
         const key = "portal-theme";
         const saved = localStorage.getItem(key);
-        document.documentElement.setAttribute("data-theme", saved || "light");
+        const normalized = saved === "dark" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", normalized);
+        document.documentElement.classList.toggle("dark", normalized === "dark");
       })();
     </script>
   </head>
