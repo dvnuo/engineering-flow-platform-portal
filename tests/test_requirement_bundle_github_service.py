@@ -103,9 +103,136 @@ links:
 
     assert result.bundle_ref.repo == "octo/engineering-flow-platform-assets"
     assert result.manifest["bundle_id"] == "RB-checkout"
+    assert result.requirements_file == "requirements.yaml"
+    assert result.test_cases_file == "test-cases.yaml"
     assert result.requirements_exists is True
     assert result.test_cases_exists is False
     assert result.last_commit_sha == "cafebabe"
+
+
+def test_inspect_existing_bundle_uses_manifest_storage_as_canonical_ref(monkeypatch):
+    service = RequirementBundleGithubService()
+
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+
+scope:
+  domain: payments
+  summary: Checkout
+
+storage:
+  repo: octo/engineering-flow-platform-assets
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: bundle/checkout/abcd1234
+
+links:
+  requirements_file: requirements.yaml
+  test_cases_file: test-cases.yaml
+"""
+
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+    file_exists_calls: list[tuple[str, str, str]] = []
+    latest_commit_calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+
+    def _fake_file_exists(repo_full_name: str, file_path: str, branch: str) -> bool:
+        file_exists_calls.append((repo_full_name, file_path, branch))
+        return file_path.endswith("requirements.yaml")
+
+    def _fake_latest_commit_sha(repo_full_name: str, file_path: str, branch: str) -> str:
+        latest_commit_calls.append((repo_full_name, file_path, branch))
+        return "cafebabe"
+
+    monkeypatch.setattr(service, "_file_exists", _fake_file_exists)
+    monkeypatch.setattr(service, "_latest_commit_sha_for_path", _fake_latest_commit_sha)
+
+    result = service.inspect_bundle(
+        BundleRef(
+            repo="octo/assets",
+            path="requirement-bundles/payments/checkout",
+            branch="main",
+        )
+    )
+
+    assert result.bundle_ref.repo == "octo/engineering-flow-platform-assets"
+    assert result.bundle_ref.path == "requirement-bundles/payments/checkout"
+    assert result.bundle_ref.branch == "bundle/checkout/abcd1234"
+    assert file_exists_calls == [
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout/requirements.yaml",
+            "bundle/checkout/abcd1234",
+        ),
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout/test-cases.yaml",
+            "bundle/checkout/abcd1234",
+        ),
+    ]
+    assert latest_commit_calls == [
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout",
+            "bundle/checkout/abcd1234",
+        )
+    ]
+
+
+def test_inspect_bundle_uses_custom_linked_filenames_for_existence_checks(monkeypatch):
+    service = RequirementBundleGithubService()
+
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+scope:
+  domain: payments
+  summary: Checkout
+storage:
+  repo: octo/engineering-flow-platform-assets
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: bundle/checkout/abcd1234
+links:
+  requirements_file: docs/reqs.yaml
+  test_cases_file: outputs/tc.yaml
+"""
+
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+    file_exists_calls: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+
+    def _fake_file_exists(repo_full_name: str, file_path: str, branch: str) -> bool:
+        file_exists_calls.append((repo_full_name, file_path, branch))
+        return file_path.endswith("reqs.yaml")
+
+    monkeypatch.setattr(service, "_file_exists", _fake_file_exists)
+    monkeypatch.setattr(service, "_latest_commit_sha_for_path", lambda *_args, **_kwargs: "cafebabe")
+
+    result = service.inspect_bundle(
+        BundleRef(
+            repo="octo/engineering-flow-platform-assets",
+            path="requirement-bundles/payments/checkout",
+            branch="bundle/checkout/abcd1234",
+        )
+    )
+
+    assert result.requirements_file == "docs/reqs.yaml"
+    assert result.test_cases_file == "outputs/tc.yaml"
+    assert file_exists_calls == [
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout/docs/reqs.yaml",
+            "bundle/checkout/abcd1234",
+        ),
+        (
+            "octo/engineering-flow-platform-assets",
+            "requirement-bundles/payments/checkout/outputs/tc.yaml",
+            "bundle/checkout/abcd1234",
+        ),
+    ]
 
 
 def test_invalid_manifest_raises_error(monkeypatch):
@@ -119,6 +246,70 @@ def test_invalid_manifest_raises_error(monkeypatch):
         service.inspect_bundle(BundleRef(repo="octo/assets", path="requirement-bundles/a/b", branch="main"))
 
     assert "missing required field" in str(exc_info.value)
+
+
+def test_inspect_bundle_rejects_blank_manifest_fields(monkeypatch):
+    service = RequirementBundleGithubService()
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+scope:
+  domain: payments
+  summary: Checkout
+storage:
+  repo: octo/engineering-flow-platform-assets
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: "   "
+links:
+  requirements_file: requirements.yaml
+  test_cases_file: test-cases.yaml
+"""
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+
+    with pytest.raises(RequirementBundleGithubServiceError) as exc_info:
+        service.inspect_bundle(
+            BundleRef(
+                repo="octo/engineering-flow-platform-assets",
+                path="requirement-bundles/payments/checkout",
+                branch="main",
+            )
+        )
+
+    assert "bundle.yaml field 'storage.working_branch' must be a non-empty string" in str(exc_info.value)
+
+
+def test_inspect_bundle_rejects_invalid_storage_repo_value(monkeypatch):
+    service = RequirementBundleGithubService()
+    manifest_text = """bundle_id: RB-checkout
+title: Checkout
+status: draft
+scope:
+  domain: payments
+  summary: Checkout
+storage:
+  repo: not-a-repo
+  path: requirement-bundles/payments/checkout
+  base_branch: main
+  working_branch: bundle/checkout/abcd1234
+links:
+  requirements_file: requirements.yaml
+  test_cases_file: test-cases.yaml
+"""
+    manifest_payload = {"content": base64.b64encode(manifest_text.encode("utf-8")).decode("utf-8")}
+    monkeypatch.setattr(service, "_get_file", lambda _repo, _path, _branch: manifest_payload)
+
+    with pytest.raises(RequirementBundleGithubServiceError) as exc_info:
+        service.inspect_bundle(
+            BundleRef(
+                repo="octo/engineering-flow-platform-assets",
+                path="requirement-bundles/payments/checkout",
+                branch="main",
+            )
+        )
+
+    assert "Invalid repo format, expected owner/repo" in str(exc_info.value)
 
 
 def test_inspect_bundle_supports_complex_yaml_manifest(monkeypatch):

@@ -556,7 +556,9 @@ async def _create_and_dispatch_bundle_task(
         if not _can_write(assignee, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        task_payload = _create_bundle_task_payload(task_type, bundle_ref, sources=sources)
+        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+        effective_bundle_ref = bundle_detail.bundle_ref
+        task_payload = _create_bundle_task_payload(task_type, effective_bundle_ref, sources=sources)
         task = AgentTaskRepository(db).create(
             assignee_agent_id=assignee_agent_id,
             source="portal",
@@ -566,7 +568,6 @@ async def _create_and_dispatch_bundle_task(
         )
 
         dispatch_result = await task_dispatcher_service.dispatch_task(task.id, db, user=user)
-        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
         return templates.TemplateResponse(
             "requirement_bundles.html",
             {
@@ -714,7 +715,7 @@ async def requirement_bundle_design_test_cases(request: Request):
                     "bundle_result": None,
                     "bundle_detail": bundle_detail,
                     "status_type": "error",
-                    "status_message": "requirements.yaml is missing; collect requirements first",
+                    "status_message": f"{bundle_detail.requirements_file} is missing; collect requirements first",
                 },
             )
         finally:

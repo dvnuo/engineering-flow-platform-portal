@@ -25,6 +25,8 @@ class RequirementBundleCreateForm(BaseModel):
 class RequirementBundleInspectResponse(BaseModel):
     bundle_ref: BundleRef
     manifest: dict
+    requirements_file: str
+    test_cases_file: str
     requirements_exists: bool
     test_cases_exists: bool
     last_commit_sha: str | None = None
