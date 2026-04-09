@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 
-def test_app_page_uses_assistant_wording(monkeypatch):
+def test_app_page_contains_new_portal_shell(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -16,43 +16,44 @@ def test_app_page_uses_assistant_wording(monkeypatch):
 
     assert response.status_code == 200
     html = response.text
-    assert "Assistants" in html
-    assert "Create Assistant" in html
-    assert "Select an assistant" in html
+    assert "portal-shell" in html
+    assert "portal-rail" in html
+    assert "portal-agent-pane" in html
+    assert "sessions-drawer" in html
+    assert "sessions-drawer-body" in html
+    assert "header-new-chat-btn" in html
+    assert "bundles-menu-btn" in html
+    assert "home-open-bundles-btn" in html
     assert "Message an assistant" in html
-    assert "Active Agent" not in html
-    assert "Type message, / for skills" not in html
 
 
-def test_chat_response_partial_has_message_row_and_timestamp_hook():
+def test_chat_response_partial_contract():
     partial = Path("app/templates/partials/chat_response.html").read_text(encoding="utf-8")
-
     assert "message-row" in partial
+    assert "message-surface-assistant" in partial
     assert "message-timestamp" in partial
+    assert "message-markdown" in partial
 
 
-def test_chat_ui_assets_include_phase_a_hooks():
+def test_frontend_assets_include_drawer_hooks_and_tokens():
     js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
 
-    assert "Message an assistant" in js_source
-    assert "Message " in js_source
-    assert "message-timestamp" in js_source
-    assert "updateChatInputPlaceholder" in js_source
-    assert "Please select an assistant first" in js_source
-    assert "No assistants" in js_source
-    assert "Assistant created!" in js_source
-    assert "Assistant ID" in js_source
-    assert "Read-only for shared assistant." in js_source
+    assert "openSessionsDrawer" in js_source
+    assert "closeSessionsDrawer" in js_source
+    assert "toggleSessionsDrawer" in js_source
+    assert "headerNewChatBtn" in js_source
+    assert "bundlesMenuBtn" in js_source
+    assert "composerAttachBtn" in js_source
+    assert "homeOpenBundlesBtn" in js_source
+    assert "homeOpenTasksBtn" in js_source
+    assert "publicAgents.find(" not in js_source
 
-    assert "Please select an agent first" not in js_source
-    assert "No agents" not in js_source
-    assert "Agent created!" not in js_source
-    assert "Read-only for shared agent." not in js_source
-    assert "tabIndex = 0" in js_source or 'setAttribute("aria-label", "User message actions")' in js_source
-
-    assert ".message-row .message-timestamp" in css_source
-    assert ".message-row:hover .message-timestamp" in css_source
-    assert ".message-row:focus-within .edit-msg-btn" in css_source
-    assert "@media (hover: none)" in css_source
-    assert ".message-row:focus" in css_source or ".message-row:focus-visible" in css_source
+    assert "--portal-app-bg" in css_source
+    assert ".portal-shell" in css_source
+    assert ".portal-sessions-drawer" in css_source
+    assert ".message-surface-user" in css_source
+    assert ".message-surface-assistant" in css_source
+    assert ".assistant-loading-dots" in css_source
+    assert "@keyframes portal-message-in" in css_source
+    assert "@keyframes portal-dot-pulse" in css_source

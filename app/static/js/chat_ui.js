@@ -25,10 +25,7 @@ const dom = {
   chatStatus: document.getElementById("chat-status"),
   sendChatBtn: document.getElementById("send-chat-btn"),
   uploadInput: document.getElementById("upload-input"),
-  detailPanel: document.getElementById("detail-panel"),
-  detailBackdrop: document.getElementById("detail-backdrop"),
   detailToggle: document.getElementById("detail-toggle"),
-  detailClose: document.getElementById("detail-close"),
   toolPanel: document.getElementById("tool-panel"),
   toolPanelTitle: document.getElementById("tool-panel-title"),
   toolPanelBody: document.getElementById("tool-panel-body"),
@@ -37,14 +34,25 @@ const dom = {
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
   topSettings: document.getElementById("top-settings"),
-  uploadInput: document.getElementById("upload-input"),
-  topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
+  bundlesMenuBtn: document.getElementById("bundles-menu-btn"),
   bundleList: document.getElementById("bundle-list"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
+  headerNewChatBtn: document.getElementById("header-new-chat-btn"),
+  composerAttachBtn: document.getElementById("composer-attach-btn"),
+  sessionsDrawer: document.getElementById("sessions-drawer"),
+  sessionsDrawerBody: document.getElementById("sessions-drawer-body"),
+  sessionsDrawerBackdrop: document.getElementById("sessions-drawer-backdrop"),
+  closeSessionsDrawer: document.getElementById("close-sessions-drawer"),
+  homeTitle: document.getElementById("home-title"),
+  homeSubtitle: document.getElementById("home-subtitle"),
+  homeAgentSummary: document.getElementById("home-agent-summary"),
+  homeStartChatBtn: document.getElementById("home-start-chat-btn"),
+  homeOpenBundlesBtn: document.getElementById("home-open-bundles-btn"),
+  homeOpenTasksBtn: document.getElementById("home-open-tasks-btn"),
   createBundleModal: document.getElementById("create-bundle-modal"),
   createBundleForm: document.getElementById("create-bundle-form"),
   createBundleMsg: document.getElementById("create-bundle-msg"),
@@ -441,28 +449,26 @@ function updateChatInputPlaceholder() {
 
 function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-  let attachmentHtml = '';
+  let attachmentHtml = "";
   if (attachments.length > 0) {
-    attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
+    attachmentHtml = `<div class="message-attachments">${attachments.map(a => {
       const safeName = (a.name || '').replace(/[<>"'&]/g, '');
       const safeUrl = escapeHtmlAttr(a.previewUrl || a.url || '');
       const safeNameAttr = escapeHtmlAttr(safeName);
       if (a.type === 'image') {
-        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
-      } else {
-        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
+        return `<img src="${safeUrl}" class="message-attachment-thumb" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
       }
+      return `<div class="message-attachment-file" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="message-timestamp text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">You</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = state.selectedAgentName || "Assistant";
-  return `<div class="message-row flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
+  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -854,9 +860,8 @@ function renderIcons() {
 }
 
 function setDetailOpen(open) {
-  // Close tool panel when opening detail panel (mutual exclusivity)
   if (open) {
-    closeToolPanel();
+    closeSessionsDrawer();
   }
   state.detailOpen = open;
   // Use unified tool-panel for agent details
@@ -895,7 +900,7 @@ async function agentApi(path, options = {}) {
 
 function defaultWelcomeMessage() {
   const welcomeAgentName = state.selectedAgentName || "Assistant";
-  return `<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">${escapeHtml(welcomeAgentName)}</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>`;
+  return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
 }
 
 function clearMessageListToWelcome() {
@@ -960,7 +965,7 @@ function renderAgentList() {
 
   dom.mineList.innerHTML = "";
   if (!state.mineAgents.length) {
-    dom.mineList.innerHTML = '<div class="text-slate-500 text-sm">No assistants</div>';
+    dom.mineList.innerHTML = '<div class="portal-empty-note">No assistants</div>';
     return;
   }
 
@@ -970,22 +975,29 @@ function renderAgentList() {
 
   const renderSection = (title, agents) => {
     if (!agents.length) return;
-    const section = document.createElement("div");
-    section.className = "space-y-2";
-    section.innerHTML = `<div class="text-xs uppercase tracking-wide text-slate-400 mt-2">${safe(title)}</div>`;
+    const section = document.createElement("section");
+    section.className = "portal-agent-section";
+    section.innerHTML = `<div class="portal-eyebrow">${safe(title)}</div>`;
 
     agents.forEach((agent) => {
-      const status = state.agentStatus.get(agent.id)?.status || agent.status;
-      const activeClass = state.selectedAgentId === agent.id
-        ? "border-blue-500 bg-blue-500/10"
-        : "border-slate-700 bg-slate-800/40";
-      const badge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-500">shared</span>';
-
-      const button = document.createElement("button");
-      button.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
-      button.innerHTML = `<div class="flex items-center justify-between"><span class="font-medium">${safe(agent.name)}${badge}</span><span class="h-2.5 w-2.5 rounded-full ${status === "running" ? "bg-emerald-400" : "bg-slate-500"}"></span></div>`;
-      button.addEventListener("click", () => selectAgentById(agent.id));
-      section.append(button);
+      const status = (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+      const isActive = state.selectedAgentId === agent.id;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `portal-agent-row${isActive ? " is-active" : ""}`;
+      const sharedBadge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="portal-agent-shared">shared</span>';
+      row.innerHTML = `
+        <div class="portal-agent-row-head">
+          <span class="portal-agent-name">${safe(agent.name)}</span>
+          ${sharedBadge}
+        </div>
+        <div class="portal-agent-row-foot">
+          <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
+          <span class="portal-agent-status-text">${safe(status)}</span>
+        </div>
+      `;
+      row.addEventListener("click", () => selectAgentById(agent.id));
+      section.append(row);
     });
 
     dom.mineList.append(section);
@@ -993,7 +1005,7 @@ function renderAgentList() {
 
   renderSection("My Space", mine);
   renderSection("Shared", shared);
-  if (publicAgents.length) renderSection("Public", publicAgents);
+  renderSection("Public", publicAgents);
 }
 
 function renderAgentMeta(agent) {
@@ -1214,16 +1226,15 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
-  // Get agent name from state or lookup
   const allAgents = state.mineAgents || [];
   const selectedAgent = allAgents.find(a => a.id === agentId);
   state.selectedAgentName = selectedAgent?.name || null;
   updateChatInputPlaceholder();
-  
-  // Update owner-only button visibility
+  closeSessionsDrawer();
+
   updateOwnerOnlyButtons(agentId);
 
-  window.selectedAgentId = agentId;  // Expose for inline scripts
+  window.selectedAgentId = agentId;
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.cachedMentionFiles = [];
@@ -1245,6 +1256,10 @@ async function syncSelectedAgentState() {
   if (!agent) {
     dom.embedTitle.textContent = "Select an assistant";
     dom.selectedStatus.textContent = "idle";
+    dom.chatStatus && (dom.chatStatus.textContent = "Ready");
+    dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
+    dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
+    dom.homeAgentSummary && (dom.homeAgentSummary.textContent = "No assistant selected.");
     dom.centerPlaceholder.classList.remove("hidden");
     dom.agentChatApp.classList.add("hidden");
     state.selectedAgentName = null;
@@ -1252,16 +1267,18 @@ async function syncSelectedAgentState() {
     return;
   }
 
-  const status = state.agentStatus.get(agent.id)?.status || agent.status;
+  const status = (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
   state.selectedAgentName = agent.name || null;
   updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
   dom.selectedStatus.textContent = status;
-  if (dom.selectedStatus) {
-    dom.selectedStatus.className = "px-3 py-1 rounded-full text-xs border";
-    if (status === "running") dom.selectedStatus.classList.add("border-emerald-200", "dark:border-emerald-500", "bg-emerald-50", "dark:bg-emerald-900/40", "text-emerald-700", "dark:text-emerald-400");
-    else if (status === "failed") dom.selectedStatus.classList.add("border-rose-200", "dark:border-rose-500", "bg-rose-50", "dark:bg-rose-900/40", "text-rose-700", "dark:text-rose-400");
-    else dom.selectedStatus.classList.add("border-slate-200", "dark:border-slate-600", "bg-slate-100", "dark:bg-slate-800", "text-slate-600", "dark:text-slate-400");
+  dom.selectedStatus.className = `toolbar-status-badge status-${status}`;
+  dom.chatStatus && (dom.chatStatus.textContent = "Ready");
+  dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
+  dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
+  if (dom.homeAgentSummary) {
+    if (status !== "running") dom.homeAgentSummary.textContent = `${agent.name} is ${status}. Start it to open chat.`;
+    else dom.homeAgentSummary.textContent = `${agent.name} is running. Open a session or start a new chat.`;
   }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
@@ -1274,18 +1291,17 @@ async function syncSelectedAgentState() {
   dom.centerPlaceholder.classList.toggle("hidden", running);
   dom.agentChatApp.classList.toggle("hidden", !running);
 
-  // Auto-load last session if available (localStorage or remote)
+  if (dom.toolPanelTitle?.textContent === "Sessions") closeToolPanel();
+
   if (running) {
     const lastSessionId = getLastSessionId(agent.id);
     if (lastSessionId) {
       try {
         await loadSession(lastSessionId);
       } catch (e) {
-        // Session not found locally, try remote
         await loadLastSessionFromRemote(agent.id);
       }
     } else {
-      // No local session, fetch from remote
       await loadLastSessionFromRemote(agent.id);
     }
   }
@@ -1890,15 +1906,13 @@ async function maybeShowSuggest() {
 // ===== toolbar actions =====
 function setToolPanel(title, contentHtml) {
   if (!dom.toolPanel) return;
+  closeSessionsDrawer();
   dom.toolPanelTitle.textContent = title;
-  // Use textContent for error messages to prevent XSS, innerHTML for HTML content
   if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
     dom.toolPanelBody.textContent = contentHtml.replace('Failed: ', '');
   } else {
     dom.toolPanelBody.innerHTML = contentHtml;
   }
-  // Hide detail panel, show tool panel
-  setDetailOpen(false);
   dom.toolPanel.style.transform = "translateX(0)";
   dom.toolBackdrop?.classList.remove("hidden");
 }
@@ -1908,15 +1922,39 @@ function closeToolPanel() {
   dom.toolBackdrop?.classList.add("hidden");
 }
 
-async function openSessionsPanel() {
-  if (!state.selectedAgentId) return;
-
-  setToolPanel("Sessions", '<div class="text-xs text-slate-400">Loading sessions…</div>');
-
+async function openSessionsDrawer() {
+  if (!state.selectedAgentId) {
+    showToast("Please select an assistant first");
+    return;
+  }
+  closeToolPanel();
+  dom.sessionsDrawer?.classList.add("is-open");
+  dom.sessionsDrawerBackdrop?.classList.remove("hidden");
+  dom.sessionsDrawerBackdrop?.classList.add("is-open");
+  if (!dom.sessionsDrawerBody) return;
+  dom.sessionsDrawerBody.innerHTML = '<div class="text-xs text-slate-500">Loading sessions…</div>';
   await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
-    target: "#tool-panel-body",
+    target: "#sessions-drawer-body",
     swap: "innerHTML",
   });
+}
+
+function closeSessionsDrawer() {
+  dom.sessionsDrawer?.classList.remove("is-open");
+  dom.sessionsDrawerBackdrop?.classList.remove("is-open");
+  dom.sessionsDrawerBackdrop?.classList.add("hidden");
+}
+
+async function toggleSessionsDrawer() {
+  if (dom.sessionsDrawer?.classList.contains("is-open")) {
+    closeSessionsDrawer();
+    return;
+  }
+  await openSessionsDrawer();
+}
+
+async function openSessionsPanel() {
+  await openSessionsDrawer();
 }
 
 function bundleKeyFromRef(ref) {
@@ -2014,89 +2052,67 @@ function renderChatHistory(messages, metadata = {}) {
   dom.messageList.innerHTML = "";
   messages.forEach((message) => {
     if (message.role !== "user" && message.role !== "assistant") return;
-
     const isUser = message.role === "user";
-
-    // Format timestamp
     let timeStr = "";
     if (message.timestamp) {
       try {
-        const ts = new Date(message.timestamp);
-        timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        timeStr = new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       } catch (e) {}
     }
 
-    // Create message container
     const container = document.createElement("div");
-    container.className = isUser ? "message-row flex flex-col items-end" : "message-row flex flex-col items-start";
+    container.className = `message-row ${isUser ? "message-row-user" : "message-row-assistant"}`;
 
-    // Role label and timestamp
     const header = document.createElement("div");
-    header.className = "flex items-center gap-2 mb-1";
-
+    header.className = `message-meta${isUser ? " message-meta-user" : ""}`;
     const roleLabel = document.createElement("span");
-    roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
-    const fallbackUserName = "User";
-    const fallbackAgentName = state.selectedAgentName || "Assistant";
-    const roleDisplayName = message.author_name || (isUser ? fallbackUserName : fallbackAgentName);
-    roleLabel.textContent = roleDisplayName;
-
+    roleLabel.className = "message-author";
+    roleLabel.textContent = message.author_name || (isUser ? "You" : (state.selectedAgentName || "Assistant"));
     header.appendChild(roleLabel);
-
     if (timeStr) {
       const timeLabel = document.createElement("span");
-      timeLabel.className = "message-timestamp text-xs text-slate-500";
+      timeLabel.className = "message-timestamp";
       timeLabel.textContent = timeStr;
       header.appendChild(timeLabel);
     }
-
     container.appendChild(header);
 
-    // Message bubble
     const article = document.createElement("article");
+    article.className = `message-surface ${isUser ? "message-surface-user" : "message-surface-assistant assistant-message"}`;
+
     if (isUser) {
-      article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
       article.dataset.localUser = "1";
-      // Set message ID if available
-      if (message.id) {
-        article.dataset.messageId = message.id;
-      }
+      if (message.id) article.dataset.messageId = message.id;
       const content = document.createElement("div");
-      content.className = "whitespace-pre-wrap text-sm";
+      content.className = "message-body whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
       article.appendChild(content);
 
-      // Render attachments from message.attachments (new format)
       const msgAttachments = message.attachments || [];
       if (msgAttachments.length > 0) {
         const attachmentDiv = document.createElement("div");
-        attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
+        attachmentDiv.className = "message-attachments";
         attachmentDiv.dataset.attachments = JSON.stringify(msgAttachments);
         article.dataset.attachments = JSON.stringify(msgAttachments);
         msgAttachments.forEach(fileId => {
           const img = document.createElement("img");
           img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
-          img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
+          img.className = "message-attachment-thumb";
           img.alt = fileId;
           img.dataset.fileId = fileId;
-          // Show placeholder on error
-          img.onerror = () => {
-            img.style.display = 'none';
-          };
+          img.onerror = () => { img.style.display = "none"; };
           attachmentDiv.appendChild(img);
         });
         article.appendChild(attachmentDiv);
       }
     } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
       const content = document.createElement("div");
-      content.className = "md-render prose prose-invert max-w-none text-sm";
+      content.className = "message-markdown md-render max-w-none text-sm";
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
 
     container.appendChild(article);
-    
     dom.messageList.appendChild(container);
   });
 
@@ -2773,62 +2789,39 @@ function closeEditMessageModal() {
 
 // Add edit buttons to user messages
 function addEditButtonsToMessages() {
-  // Find all user message articles with data-local-user="1"
-  // Note: data-message-id may not exist for optimistically-rendered messages
   const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-  
+
   messages.forEach(article => {
-    // Only show edit button if message has a real backend ID (not local/temporary ID)
     const messageId = article.getAttribute('data-message-id');
     if (!messageId || messageId.startsWith('local-')) return;
-    
-    // Check if edit button already exists (in article or container)
-    const parentContainer = article.parentElement;
-    const existingInArticle = article.querySelector('.edit-msg-btn');
-    const existingInContainer = parentContainer?.querySelector?.('.edit-msg-btn');
-    if (existingInArticle || existingInContainer) return;
-    
-    // Get message ID (may be from data-message-id or generated)
+
+    const container = article.closest('.message-row');
+    if (!container || container.querySelector('.edit-msg-btn')) return;
+
     const editBtn = document.createElement("button");
-    editBtn.className = "edit-msg-btn text-slate-500 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 mt-1 p-1.5 rounded-md border-0 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors";
+    editBtn.className = "edit-msg-btn";
     editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
     editBtn.title = "Edit message";
     editBtn.setAttribute("aria-label", "Edit message");
     editBtn.onclick = () => {
-      const contentEl = article.querySelector('.whitespace-pre-wrap');
+      const contentEl = article.querySelector('.message-body, .whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
-      
-      // Get attachments from the article
       const attachments = [];
-      
-      // Method 1: Try to get from article dataset
+
       if (article.dataset.attachments) {
-        try {
-          const storedAttachments = JSON.parse(article.dataset.attachments);
-          attachments.push(...storedAttachments);
-        } catch (e) {}
+        try { attachments.push(...JSON.parse(article.dataset.attachments)); } catch (e) {}
       }
-      
-      // Method 2: Try to get from attachment history based on position
+
       if (attachments.length === 0) {
-        // Find all user messages in the message list
         const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
         const articleIndex = allUserArticles.indexOf(article);
-        // console.log(' Looking for article index...');
-        // console.log(' All user articles count:', allUserArticles.length);
-        // console.log(' Article index:', articleIndex);
-        // console.log(' History:', attachmentHistory);
         if (articleIndex >= 0 && articleIndex < state.attachmentHistory.length) {
-          // console.log(' Found in history:', state.attachmentHistory[articleIndex]);
           attachments.push(...state.attachmentHistory[articleIndex]);
-        } else {
-          // console.log(' NOT found in history - index out of range');
         }
       }
-      
-      // Method 3: Try to get from blob URL mapping
+
       if (attachments.length === 0) {
-        const images = article.querySelectorAll('.flex.flex-wrap.gap-2 img');
+        const images = article.querySelectorAll('img');
         images.forEach(img => {
           if (img.src && img.src.startsWith('blob:')) {
             const fileId = getFileIdFromBlobUrl(img.src);
@@ -2836,22 +2829,13 @@ function addEditButtonsToMessages() {
           }
         });
       }
-      
-      // console.log(' Extracted attachments:', attachments);
-      
+
       openEditMessageModal(messageId, content, attachments);
     };
-    
-    // Move button outside article (below the message)
-    const container = article.parentElement;
-    if (container && container.classList.contains('flex')) {
-      container.appendChild(editBtn);
-      container.classList.add('items-end');
-      container.tabIndex = 0;
-      container.setAttribute("aria-label", "User message actions");
-    } else {
-      article.appendChild(editBtn);
-    }
+
+    container.appendChild(editBtn);
+    container.tabIndex = 0;
+    container.setAttribute("aria-label", "User message actions");
   });
 }
 
@@ -3028,7 +3012,7 @@ function bindEvents() {
     } else {
       setDetailOpen(true);
       // Render agent details to tool panel
-      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || publicAgents.find(a => a.id === state.selectedAgentId);
+      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
         dom.toolPanelTitle.textContent = "Assistant details";
         dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
@@ -3039,8 +3023,6 @@ function bindEvents() {
       }
     }
   });
-  dom.detailClose?.addEventListener("click", () => setDetailOpen(false));
-  dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
   dom.toolBackdrop?.addEventListener("click", closeToolPanel);
 
@@ -3114,7 +3096,23 @@ function bindEvents() {
     }
   });
 
-  dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
+  dom.composerAttachBtn?.addEventListener("click", () => dom.uploadInput?.click());
+  dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
+  dom.bundlesMenuBtn?.addEventListener("click", () => openRequirementBundlePanel());
+  dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
+  dom.homeOpenBundlesBtn?.addEventListener("click", () => openRequirementBundlePanel());
+  dom.homeOpenTasksBtn?.addEventListener("click", async () => {
+    setToolPanel("My Tasks", '<div class="text-xs text-slate-400">Loading tasks…</div>');
+    try {
+      await htmx.ajax("GET", "/app/tasks/panel", { target: "#tool-panel-body", swap: "innerHTML" });
+    } catch (error) {
+      setToolPanel("My Tasks", `Failed: ${safe(error.message)}`);
+    }
+  });
+  document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
+  dom.closeSessionsDrawer?.addEventListener("click", () => closeSessionsDrawer());
+  dom.sessionsDrawerBackdrop?.addEventListener("click", () => closeSessionsDrawer());
+
   dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
@@ -3169,6 +3167,23 @@ function bindEvents() {
       const group = removeBtn.dataset.group || "jira";
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(group);
+    }
+  });
+
+  dom.sessionsDrawerBody?.addEventListener("click", async (event) => {
+    const newChatBtn = event.target.closest("#sessions-new-chat-btn");
+    if (newChatBtn) {
+      event.preventDefault();
+      closeSessionsDrawer();
+      await startNewChatForSelectedAgent();
+      return;
+    }
+
+    const sessionBtn = event.target.closest("[data-session-id]");
+    if (sessionBtn) {
+      event.preventDefault();
+      await loadSession(sessionBtn.dataset.sessionId || "");
+      closeSessionsDrawer();
     }
   });
 
@@ -3445,12 +3460,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     openMyUploads();
   });
 
-  document.getElementById('quick-new-chat-btn')?.addEventListener('click', () => {
-    if (state.selectedAgentId) {
-      startNewChatForSelectedAgent();
-    }
-  });
-
   // Server Files button in header
   document.getElementById('btn-files')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
@@ -3458,15 +3467,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openServerFiles();
-  });
-
-  // Sessions button in header
-  document.getElementById('btn-sessions')?.addEventListener('click', () => {
-    if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
-      return;
-    }
-    openSessionsPanel();
   });
 
   // Thinking Process button in header
