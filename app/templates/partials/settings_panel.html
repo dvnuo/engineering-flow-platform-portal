@@ -432,8 +432,8 @@
       
       try {
         if (!state.selectedAgentId) {
-          if (typeof showToast === 'function') showToast('Please select an agent first');
-          else alert('Please select an agent first');
+          if (typeof showToast === 'function') showToast('Please select an assistant first');
+          else alert('Please select an assistant first');
           return;
         }
         // Capture agentId to avoid drift during polling
