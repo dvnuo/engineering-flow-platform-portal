@@ -26,6 +26,7 @@ from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
 from app.config import get_settings
 from app.db import SessionLocal, engine
+from app.log_context import bind_log_context, generate_span_id, generate_trace_id, reset_log_context
 from app.repositories.user_repo import UserRepository
 from app.logger import setup_logging
 from app.services.auth_service import hash_password
@@ -34,6 +35,25 @@ from app.web import router as web_router
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.debug)
+
+
+@app.middleware("http")
+async def bind_request_log_context(request, call_next):
+    trace_id = (request.headers.get("X-Trace-Id") or request.headers.get("X-Request-Id") or "").strip()
+    if not trace_id:
+        trace_id = generate_trace_id()
+    token = bind_log_context(
+        trace_id=trace_id,
+        span_id=generate_span_id(),
+        parent_span_id="-",
+        path=request.url.path,
+    )
+    try:
+        response = await call_next(request)
+    finally:
+        reset_log_context(token)
+    response.headers["X-Trace-Id"] = trace_id
+    return response
 
 
 @app.on_event("startup")

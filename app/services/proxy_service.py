@@ -2,10 +2,14 @@ from collections.abc import Iterable
 import subprocess
 import httpx
 from typing import Optional
+import logging
 
 # Import K8s client for service lookup
 from kubernetes import client
 from app.config import get_settings
+from app.redaction import sanitize_exception_message
+
+logger = logging.getLogger(__name__)
 
 
 def sanitize_header_value(value: object, max_length: int = 255) -> str:
@@ -67,6 +71,23 @@ def build_runtime_internal_headers() -> dict[str, str]:
     if not runtime_internal_api_key:
         raise ValueError("RUNTIME_INTERNAL_API_KEY is not configured")
     return {"X-Internal-Api-Key": runtime_internal_api_key}
+
+
+def build_runtime_trace_headers(trace_context: dict[str, str] | None) -> dict[str, str]:
+    trace_context = trace_context or {}
+    mapping = {
+        "trace_id": "X-Trace-Id",
+        "span_id": "X-Span-Id",
+        "parent_span_id": "X-Parent-Span-Id",
+        "portal_task_id": "X-Portal-Task-Id",
+        "portal_dispatch_id": "X-Portal-Dispatch-Id",
+    }
+    headers: dict[str, str] = {}
+    for source_key, header_name in mapping.items():
+        sanitized_value = sanitize_header_value(trace_context.get(source_key))
+        if sanitized_value:
+            headers[header_name] = sanitized_value
+    return headers
 
 
 
@@ -143,17 +164,51 @@ class ProxyService:
                     # Find the NodePort
                     for port in svc.spec.ports:
                         if port.node_port:
-                            return f"http://{self.node_ip}:{port.node_port}"
+                            base_url = f"http://{self.node_ip}:{port.node_port}"
+                            logger.debug(
+                                "Resolved runtime base URL via NodePort agent_id=%s service_name=%s namespace=%s service_type=%s base_url=%s",
+                                getattr(agent, "id", "-"),
+                                getattr(agent, "service_name", "-"),
+                                getattr(agent, "namespace", "-"),
+                                svc.spec.type,
+                                base_url,
+                            )
+                            return base_url
                 # For ClusterIP, try internal DNS
                 elif svc.spec.type == "ClusterIP":
-                    return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+                    base_url = f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+                    logger.debug(
+                        "Resolved runtime base URL via ClusterIP agent_id=%s service_name=%s namespace=%s service_type=%s base_url=%s",
+                        getattr(agent, "id", "-"),
+                        getattr(agent, "service_name", "-"),
+                        getattr(agent, "namespace", "-"),
+                        svc.spec.type,
+                        base_url,
+                    )
+                    return base_url
             except ValueError:
                 # Re-raise ValueError so caller can handle it with actionable message
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "Failed reading k8s service for base URL resolution agent_id=%s service_name=%s namespace=%s exception_class=%s message=%s",
+                    getattr(agent, "id", "-"),
+                    getattr(agent, "service_name", "-"),
+                    getattr(agent, "namespace", "-"),
+                    exc.__class__.__name__,
+                    sanitize_exception_message(exc),
+                )
         # Fallback to internal DNS
-        return f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+        fallback_url = f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
+        logger.debug(
+            "Resolved runtime base URL via fallback DNS agent_id=%s service_name=%s namespace=%s service_type=%s base_url=%s",
+            getattr(agent, "id", "-"),
+            getattr(agent, "service_name", "-"),
+            getattr(agent, "namespace", "-"),
+            "fallback",
+            fallback_url,
+        )
+        return fallback_url
 
     async def forward(
         self,

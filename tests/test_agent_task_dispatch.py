@@ -686,7 +686,69 @@ def test_post_to_runtime_includes_internal_api_key_header(monkeypatch):
 
     import asyncio
 
-    result = asyncio.run(service._post_to_runtime("http://runtime/api/tasks/execute", {"task_id": "t-1"}))
+    result = asyncio.run(
+        service._post_to_runtime(
+            "http://runtime/api/tasks/execute",
+            {
+                "task_id": "t-1",
+                "metadata": {
+                    "trace_id": "trace-1",
+                    "span_id": "span-1",
+                    "parent_span_id": "parent-1",
+                    "portal_task_id": "task-1",
+                    "portal_dispatch_id": "dispatch-1",
+                },
+            },
+        )
+    )
     assert result.status_code == 200
     assert captured["headers"]["X-Internal-Api-Key"] == "runtime-s2s-key"
+    assert captured["headers"]["X-Trace-Id"] == "trace-1"
+    assert captured["headers"]["X-Span-Id"] == "span-1"
+    assert captured["headers"]["X-Parent-Span-Id"] == "parent-1"
+    assert captured["headers"]["X-Portal-Task-Id"] == "task-1"
+    assert captured["headers"]["X-Portal-Dispatch-Id"] == "dispatch-1"
     assert captured["json"]["task_id"] == "t-1"
+
+
+def test_dispatch_non_2xx_records_trace_payload_and_logs(monkeypatch, caplog):
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.agent_tasks as tasks_api
+
+        task = _create_task(db, agent.id)
+        monkeypatch.setattr(tasks_api.task_dispatcher_service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+        class _Resp:
+            status_code = 503
+            text = "service unavailable token=secret " + ("x" * 900)
+
+            @staticmethod
+            def json():
+                return {"message": "unavailable"}
+
+        async def _fake_post(_url: str, _body: dict):
+            return _Resp()
+
+        monkeypatch.setattr(tasks_api.task_dispatcher_service, "_post_to_runtime", _fake_post)
+        caplog.set_level("INFO")
+
+        response = client.post(f"/api/agent-tasks/{task.id}/dispatch", headers={"X-Trace-Id": "trace-503"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["task_status"] == "failed"
+
+        db.refresh(task)
+        payload = json.loads(task.result_payload_json or "{}")
+        assert payload["runtime_status_code"] == 503
+        assert payload["trace_id"] == "trace-503"
+        assert payload["portal_dispatch_id"]
+        assert "raw_response_preview" in payload
+        assert "secret" not in payload["raw_response_preview"]
+        assert len(payload["raw_response_preview"]) <= 803
+
+        log_text = caplog.text
+        assert task.id in log_text
+        assert "runtime_status_code=503" in log_text
+    finally:
+        cleanup()

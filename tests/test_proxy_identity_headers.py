@@ -2,6 +2,7 @@ from types import SimpleNamespace
 import json
 
 from fastapi.testclient import TestClient
+from app.services.proxy_service import build_runtime_internal_headers, build_runtime_trace_headers
 
 
 def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
@@ -723,3 +724,35 @@ def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypa
     assert calls["forward_count"] == 0
     assert calls["stream_request"]["url"] == "http://runtime.local:8000/api/chat/stream"
     assert calls["stream_request"]["params"] == [("stream", "runtime")]
+
+
+def test_build_runtime_internal_headers_default_contract(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.proxy_service.get_settings",
+        lambda: SimpleNamespace(runtime_internal_api_key="runtime-key"),
+    )
+    headers = build_runtime_internal_headers()
+    assert headers == {"X-Internal-Api-Key": "runtime-key"}
+
+
+def test_build_runtime_trace_headers_only_includes_non_empty_sanitized_values():
+    headers = build_runtime_trace_headers(
+        {
+            "trace_id": "trace-1",
+            "span_id": "span-1",
+            "parent_span_id": "parent-1",
+            "portal_task_id": "task-1",
+            "portal_dispatch_id": "dispatch-1\r\nbad",
+            "ignored": "x",
+        }
+    )
+    assert headers["X-Trace-Id"] == "trace-1"
+    assert headers["X-Span-Id"] == "span-1"
+    assert headers["X-Parent-Span-Id"] == "parent-1"
+    assert headers["X-Portal-Task-Id"] == "task-1"
+    assert headers["X-Portal-Dispatch-Id"] == "dispatch-1bad"
+    assert "ignored" not in headers
+
+
+def test_build_runtime_trace_headers_skips_empty_values():
+    assert build_runtime_trace_headers({"trace_id": "", "portal_task_id": "  "}) == {}
