@@ -424,6 +424,12 @@ function canWriteAgent(agent) {
   return state.currentUserRole === "admin" || Number(agent.owner_user_id) === state.currentUserId;
 }
 
+function updateChatInputPlaceholder() {
+  if (!dom.chatInput) return;
+  const assistantName = String(state.selectedAgentName || "").trim();
+  dom.chatInput.placeholder = assistantName ? `Message ${assistantName}` : "Message an assistant";
+}
+
 function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -441,13 +447,13 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="message-timestamp text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = state.selectedAgentName || "Assistant";
-  return `<div class="flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${escapeHtml(pendingAgentName)}</span><span class="text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
+  return `<div class="message-row flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
 }
 
 function removePendingAssistantPlaceholder() {
@@ -1189,7 +1195,8 @@ async function selectAgentById(agentId) {
   // Get agent name from state or lookup
   const allAgents = state.mineAgents || [];
   const selectedAgent = allAgents.find(a => a.id === agentId);
-  state.selectedAgentName = escapeHtml(selectedAgent?.name) || null;
+  state.selectedAgentName = selectedAgent?.name || null;
+  updateChatInputPlaceholder();
   
   // Update owner-only button visibility
   updateOwnerOnlyButtons(agentId);
@@ -1214,14 +1221,18 @@ async function syncSelectedAgentState() {
   const agent = state.mineAgents.find((item) => item.id === state.selectedAgentId);
 
   if (!agent) {
-    dom.embedTitle.textContent = "Select an agent";
+    dom.embedTitle.textContent = "Select an assistant";
     dom.selectedStatus.textContent = "idle";
     dom.centerPlaceholder.classList.remove("hidden");
     dom.agentChatApp.classList.add("hidden");
+    state.selectedAgentName = null;
+    updateChatInputPlaceholder();
     return;
   }
 
   const status = state.agentStatus.get(agent.id)?.status || agent.status;
+  state.selectedAgentName = agent.name || null;
+  updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
   dom.selectedStatus.textContent = status;
   if (dom.selectedStatus) {
@@ -1593,7 +1604,7 @@ function handleChatAfterSwap(target) {
   const assistantContainers = messageList.querySelectorAll('.assistant-header:not([data-timestamp-added])');
   assistantContainers.forEach(header => {
     const timeSpan = document.createElement("span");
-    timeSpan.className = "text-xs text-slate-500";
+    timeSpan.className = "message-timestamp text-xs text-slate-500";
     timeSpan.textContent = now;
     header.appendChild(timeSpan);
     header.setAttribute("data-timestamp-added", "true");
@@ -1911,7 +1922,7 @@ function renderChatHistory(messages, metadata = {}) {
 
     // Create message container
     const container = document.createElement("div");
-    container.className = isUser ? "flex flex-col items-end" : "flex flex-col items-start";
+    container.className = isUser ? "message-row flex flex-col items-end" : "message-row flex flex-col items-start";
 
     // Role label and timestamp
     const header = document.createElement("div");
@@ -1928,7 +1939,7 @@ function renderChatHistory(messages, metadata = {}) {
 
     if (timeStr) {
       const timeLabel = document.createElement("span");
-      timeLabel.className = "text-xs text-slate-500";
+      timeLabel.className = "message-timestamp text-xs text-slate-500";
       timeLabel.textContent = timeStr;
       header.appendChild(timeLabel);
     }
@@ -2676,6 +2687,7 @@ function addEditButtonsToMessages() {
     editBtn.className = "edit-msg-btn text-slate-500 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 mt-1 p-1.5 rounded-md border-0 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors";
     editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
     editBtn.title = "Edit message";
+    editBtn.setAttribute("aria-label", "Edit message");
     editBtn.onclick = () => {
       const contentEl = article.querySelector('.whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
@@ -2910,7 +2922,7 @@ function bindEvents() {
       // Render agent details to tool panel
       const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || publicAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
-        dom.toolPanelTitle.textContent = "Agent Details";
+        dom.toolPanelTitle.textContent = "Assistant details";
         dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
         dom.agentMeta = document.getElementById("agent-meta");
         dom.agentActions = document.getElementById("agent-actions");
@@ -3185,6 +3197,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   bindEvents();
   initializeRenderLifecycle();
+  updateChatInputPlaceholder();
 
   // Event delegation for remove buttons (replace inline onclick)
   const previewArea = document.getElementById('input-preview-area');
