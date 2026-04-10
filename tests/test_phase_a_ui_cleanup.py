@@ -84,6 +84,8 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "data-path=\"/\"" not in js_source
     assert "querySelectorAll('.breadcrumb-link')" not in js_source
     assert 'link.dataset.path' not in js_source
+    assert "e.target.closest('.name-cell')" in js_source
+    assert "e.stopPropagation();" in js_source
     assert "console.log(" not in js_source
     assert "portal-breadcrumb-link" in js_source
     assert 'root.dataset.actionsBound = "1"' in js_source
