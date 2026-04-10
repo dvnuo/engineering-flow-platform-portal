@@ -177,6 +177,7 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
     background var(--portal-transition),
     transform var(--portal-transition),
     box-shadow var(--portal-transition);
+  cursor: pointer;
 }
 
 .composer-pill-btn:hover {
@@ -211,12 +212,37 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
     background var(--portal-transition),
     transform var(--portal-transition),
     box-shadow var(--portal-transition);
+  cursor: pointer;
 }
 
 .composer-send-btn:hover,
 #send-chat-btn:hover {
   background: var(--portal-cta-hover);
   transform: translateY(-1px);
+}
+
+.composer-pill-btn:disabled,
+.composer-pill-btn[aria-disabled="true"],
+.composer-send-btn:disabled,
+.composer-send-btn[aria-disabled="true"],
+#send-chat-btn:disabled,
+#send-chat-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.composer-pill-btn:disabled:hover,
+.composer-pill-btn[aria-disabled="true"]:hover,
+.composer-send-btn:disabled:hover,
+.composer-send-btn[aria-disabled="true"]:hover,
+#send-chat-btn:disabled:hover,
+#send-chat-btn[aria-disabled="true"]:hover {
+  transform: none !important;
+  background: inherit;
+  border-color: var(--portal-border);
+  box-shadow: none !important;
 }
 
 @media (max-width: 768px) {
