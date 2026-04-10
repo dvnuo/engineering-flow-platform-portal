@@ -133,7 +133,8 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 
 .portal-conversation { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .portal-conversation-main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding: 24px; overflow-y: auto; flex: 1; max-width: 920px; width: 100%; margin: 0 auto; }
+.portal-message-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding: 24px; max-width: 920px; width: 100%; margin: 0 auto; min-height: 100%; }
 .portal-composer-wrap { padding: 0 24px 20px; display: flex; justify-content: center; }
 .portal-composer { display: flex; align-items: flex-end; gap: 10px; max-width: 960px; width: 100%; padding: 10px 12px; border-radius: 20px; border: 1px solid var(--portal-border); background: var(--portal-surface); box-shadow: 0 1px 2px rgba(15,23,42,.03); }
 .portal-composer-input-wrap { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }

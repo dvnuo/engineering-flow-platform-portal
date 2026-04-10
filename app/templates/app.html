@@ -123,15 +123,17 @@
         </aside>
 
         <div class="portal-conversation-main">
-          <div id="message-list" class="portal-message-list">
-            <div class="message-row message-row-assistant" data-welcome="1">
-              <div class="message-meta">
-                <span class="message-author">Assistant</span>
-                <span class="message-timestamp">Ready</span>
+          <div id="message-scroll" class="portal-message-scroll">
+            <div id="message-list" class="portal-message-list">
+              <div class="message-row message-row-assistant" data-welcome="1">
+                <div class="message-meta">
+                  <span class="message-author">Assistant</span>
+                  <span class="message-timestamp">Ready</span>
+                </div>
+                <article class="message-surface message-surface-assistant assistant-message">
+                  <div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div>
+                </article>
               </div>
-              <article class="message-surface message-surface-assistant assistant-message">
-                <div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div>
-              </article>
             </div>
           </div>
 

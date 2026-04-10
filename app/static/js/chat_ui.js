@@ -18,6 +18,7 @@ const dom = {
   centerPlaceholder: document.getElementById("center-placeholder"),
   agentChatApp: document.getElementById("agent-chat-app"),
   messageList: document.getElementById("message-list"),
+  messageScroll: document.getElementById("message-scroll"),
   chatInput: document.getElementById("chat-input"),
   chatSuggest: document.getElementById("chat-suggest"),
   chatAgentId: document.getElementById("chat-agent-id"),
@@ -883,7 +884,8 @@ function setChatStatus(text, isError = false) {
 }
 
 function scrollToBottom() {
-  if (dom.messageList) dom.messageList.scrollTop = dom.messageList.scrollHeight;
+  const scrollContainer = dom.messageScroll || dom.messageList;
+  if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
 }
 
 function renderMarkdown(scope = document) {
