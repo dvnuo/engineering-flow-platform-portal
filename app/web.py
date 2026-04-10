@@ -24,6 +24,7 @@ from app.services.auth_service import parse_session_token
 from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.task_dispatcher import TaskDispatcherService
+from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 
 router = APIRouter(tags=["web"])
