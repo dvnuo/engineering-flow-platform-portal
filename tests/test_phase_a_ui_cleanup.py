@@ -77,11 +77,11 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "setModalFeedback" in js_source
     assert "data-server-path" in js_source
     assert 'portal-link-inline portal-breadcrumb-link' in js_source
-    assert 'data-server-path="/"' in js_source
+    assert "data-server-path=\"/\"" in js_source
     assert 'portal-breadcrumb-sep' in js_source
     assert 'onclick="loadServerFiles(' not in js_source
     assert 'class="breadcrumb-link"' not in js_source
-    assert 'data-path="/"' not in js_source
+    assert "data-path=\"/\"" not in js_source
     assert "querySelectorAll('.breadcrumb-link')" not in js_source
     assert 'link.dataset.path' not in js_source
     assert "console.log(" not in js_source

@@ -2174,7 +2174,7 @@ async function loadServerFiles(path) {
     const data = await agentApi(`/api/files?path=${encodeURIComponent(path)}`);
     const items = data.items || [];
 
-    // Build breadcrumb with data attributes for event delegation
+    // Build breadcrumb using the shared portal breadcrumb contract ([data-server-path] delegated in bindEvents)
     const parts = path.split('/').filter(Boolean);
     let breadcrumbParts = [
       '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">/</a>'
