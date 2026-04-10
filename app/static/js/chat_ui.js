@@ -468,9 +468,18 @@ function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
 
 function setButtonDisabled(button, disabled, disabledTitle = "") {
   if (!button) return;
+  if (!button.dataset.defaultTitle) {
+    button.dataset.defaultTitle = button.getAttribute("title") || "";
+  }
   button.disabled = !!disabled;
   button.setAttribute("aria-disabled", disabled ? "true" : "false");
-  if (disabled && disabledTitle) button.title = disabledTitle;
+  if (disabled) {
+    if (disabledTitle) button.setAttribute("title", disabledTitle);
+  } else {
+    const original = button.dataset.defaultTitle || "";
+    if (original) button.setAttribute("title", original);
+    else button.removeAttribute("title");
+  }
 }
 
 function updateChatInputPlaceholder() {
@@ -673,12 +682,12 @@ async function openThinkingProcessPanel() {
   }
   
   if (!currentSessionId) {
-    setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
+    setToolPanel("Thinking Process", '<div class="portal-inline-state">No session selected. Start a conversation first.</div>');
     return;
   }
   
   // Use htmx to load backend-rendered panel
-  setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading...</div>');
+  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>');
   
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
@@ -686,7 +695,7 @@ async function openThinkingProcessPanel() {
       swap: "innerHTML"
     });
   } catch (err) {
-    setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
+    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`);
   }
 }
 
@@ -1267,7 +1276,7 @@ function renderAgentActions(agent, status) {
 
   if (!writable) {
     const note = document.createElement("div");
-    note.className = "text-xs text-slate-400";
+    note.className = "portal-detail-note";
     note.textContent = "Read-only for shared assistant.";
     container.append(note);
   }
@@ -1721,7 +1730,7 @@ function showSuggest(items, onPick) {
   }
 
   dom.chatSuggest.innerHTML = items.map((item, index) => (
-    `<button type="button" data-i="${index}" class="w-full text-left rounded-lg px-2 py-1 hover:bg-slate-700"><div class="font-medium">${safe(item.label || item.title || "")}</div><div class="text-xs text-slate-400">${safe(item.desc || "")}</div></button>`
+    `<button type="button" data-i="${index}" class="portal-suggest-item"><div class="portal-suggest-title">${safe(item.label || item.title || "")}</div><div class="portal-suggest-desc">${safe(item.desc || "")}</div></button>`
   )).join("");
   dom.chatSuggest.classList.remove("hidden");
   state.selectedSuggestionIndex = 0;
@@ -1730,7 +1739,7 @@ function showSuggest(items, onPick) {
   buttons.forEach((button) => {
     button.addEventListener("click", () => onPick(items[Number(button.dataset.i)]));
   });
-  buttons[0]?.classList.add("bg-slate-700");
+  buttons[0]?.classList.add("is-active");
 }
 
 function moveSuggestionSelection(direction) {
@@ -1738,10 +1747,10 @@ function moveSuggestionSelection(direction) {
   const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
   if (!buttons.length) return;
 
-  buttons.forEach((b) => b.classList.remove("bg-slate-700"));
+  buttons.forEach((b) => b.classList.remove("is-active"));
   state.selectedSuggestionIndex = (state.selectedSuggestionIndex + direction + buttons.length) % buttons.length;
   const selected = buttons[state.selectedSuggestionIndex];
-  selected.classList.add("bg-slate-700");
+  selected.classList.add("is-active");
   selected.scrollIntoView({ block: "nearest" });
 }
 
@@ -1938,14 +1947,14 @@ async function openSessionsDrawer() {
   dom.sessionsDrawerBackdrop?.classList.remove("hidden");
   dom.sessionsDrawerBackdrop?.classList.add("is-open");
   if (!dom.sessionsDrawerBody) return;
-  dom.sessionsDrawerBody.innerHTML = '<div class="text-xs text-slate-500">Loading sessions…</div>';
+  dom.sessionsDrawerBody.innerHTML = '<div class="portal-inline-state">Loading sessions…</div>';
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
       target: "#sessions-drawer-body",
       swap: "innerHTML",
     });
   } catch (error) {
-    dom.sessionsDrawerBody.innerHTML = '<div class="portal-inline-error">Failed to load sessions.</div>';
+    dom.sessionsDrawerBody.innerHTML = '<div class="portal-inline-state is-error">Failed to load sessions.</div>';
     setChatStatus("Failed to load sessions", true);
   }
 }
@@ -1980,27 +1989,25 @@ function bundleKey(item) {
 function renderRequirementBundleList(errorMessage = "") {
   if (!dom.bundleList) return;
   if (errorMessage) {
-    dom.bundleList.innerHTML = `<div class="text-xs rounded-lg border border-rose-300 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 px-3 py-2">${safe(errorMessage)}</div>`;
+    dom.bundleList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
     return;
   }
 
   if (!state.requirementBundles.length) {
-    dom.bundleList.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 px-1">No bundles found</div>';
+    dom.bundleList.innerHTML = '<div class="portal-bundle-list-state">No bundles found</div>';
     return;
   }
 
   dom.bundleList.innerHTML = "";
   state.requirementBundles.forEach((item) => {
     const key = bundleKey(item);
-    const activeClass = state.selectedBundleKey === key
-      ? "border-blue-300 dark:border-blue-500 bg-blue-50 dark:bg-blue-500/10"
-      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/60";
+    const activeClass = state.selectedBundleKey === key ? " is-active" : "";
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `w-full rounded-xl border px-3 py-2 text-left transition-colors duration-150 ${activeClass}`;
+    row.className = `portal-bundle-row${activeClass}`;
     row.innerHTML = `
-      <div class="font-medium text-slate-800 dark:text-slate-100">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
-      <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
+      <div class="portal-bundle-title">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
+      <div class="portal-bundle-meta">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
     `;
     row.addEventListener("click", async () => {
       state.selectedBundleKey = key;
@@ -2013,7 +2020,7 @@ function renderRequirementBundleList(errorMessage = "") {
 
 async function refreshRequirementBundles() {
   if (!dom.bundleList) return;
-  dom.bundleList.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 px-1">Loading bundles…</div>';
+  dom.bundleList.innerHTML = '<div class="portal-bundle-list-state">Loading bundles…</div>';
   try {
     const bundles = await api("/api/requirement-bundles");
     state.requirementBundles = Array.isArray(bundles) ? bundles : [];
@@ -2030,7 +2037,7 @@ async function refreshRequirementBundles() {
 }
 
 async function openRequirementBundlePanel(bundleRef = null) {
-  setToolPanel("Requirement Bundles", '<div class="text-xs text-slate-400">Loading requirement bundles…</div>');
+  setToolPanel("Requirement Bundles", '<div class="portal-inline-state">Loading requirement bundles…</div>');
   try {
     let path = "/app/requirement-bundles/panel";
     if (bundleRef) {
@@ -3687,8 +3694,8 @@ function renderSystemPromptSection(agent) {
   
   var section = document.createElement('div');
   section.id = 'system-prompt-section';
-  section.className = 'mt-4 pt-4 border-t border-slate-200 dark:border-slate-700';
-  section.innerHTML = '<div class="flex items-center justify-between mb-3"><div class="text-xs text-slate-500 uppercase tracking-wide">System Prompt</div></div><div id="system-prompt-items" class="space-y-2"></div><div id="system-prompt-loading" class="text-xs text-slate-400 py-2">Loading...</div><div id="system-prompt-error" class="text-xs text-red-500 py-2 hidden"></div>';
+  section.className = 'portal-panel-section';
+  section.innerHTML = '<div class="portal-panel-header"><div class="portal-detail-label">System Prompt</div></div><div id="system-prompt-items" class="portal-panel-stack"></div><div id="system-prompt-loading" class="portal-inline-state">Loading...</div><div id="system-prompt-error" class="portal-inline-state is-error hidden"></div>';
   
   container.appendChild(section);
   
@@ -3788,30 +3795,29 @@ function editSystemPromptSection(agentId, section) {
 
 function showSystemPromptEditor(agentId, section, content, enabled) {
   var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY' };
-  
+
   var modal = document.getElementById('system-prompt-editor-modal');
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'system-prompt-editor-modal';
     modal.className = 'modal hidden';
+    modal.dataset.keyHandlerAttached = '0';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-labelledby', 'sp-editor-title');
-    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card" style="width: min(600px, 90vw); max-height: 80vh;"><div class="flex items-center justify-between mb-4"><h3 id="sp-editor-title" class="text-lg font-semibold"></h3><button type="button" id="sp-editor-close" class="text-slate-400 hover:text-slate-600" aria-label="Close"><svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div><div class="mb-4"><label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sp-editor-enabled" class="rounded border-slate-300"><span>Enabled</span></label></div><textarea id="sp-editor-content" class="w-full h-64 p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-mono resize-none" placeholder="Enter content..."></textarea><div class="flex justify-end gap-2 mt-4"><button type="button" id="sp-editor-cancel" class="px-4 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button><button type="button" id="sp-editor-save" class="px-4 py-2 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600">Save</button></div></div></div>';
+    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><label class="portal-checkbox-row"><input type="checkbox" id="sp-editor-enabled"><span>Enable custom prompt for this section</span></label><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
     document.body.appendChild(modal);
-    
-    // Close on Escape key
+
     modal._keyHandler = function(e) {
       if (e.key === 'Escape') {
         closeSystemPromptEditor();
       }
     };
-    
+
     document.getElementById('sp-editor-close').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-backdrop').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-cancel').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-save').addEventListener('click', function() {
-      // Read current values from modal dataset
       var currentAgentId = modal.dataset.agentId;
       var currentSection = modal.dataset.section;
       if (currentAgentId && currentSection) {
@@ -3819,23 +3825,22 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
       }
     });
   }
-  
-  // Add/remove Escape key listener
-  document.addEventListener('keydown', modal._keyHandler);
-  
+
+  if (modal.dataset.keyHandlerAttached !== '1') {
+    document.addEventListener('keydown', modal._keyHandler);
+    modal.dataset.keyHandlerAttached = '1';
+  }
+
   document.getElementById('sp-editor-title').textContent = labels[section] + ' Configuration';
   document.getElementById('sp-editor-enabled').checked = enabled;
   document.getElementById('sp-editor-content').value = content;
   modal.dataset.section = section;
   modal.dataset.agentId = agentId;
-  
+
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
-  
-  // Store previously focused element for restoration on close
+
   modal._previousActiveElement = document.activeElement;
-  
-  // Move focus into the modal
   var focusTarget = document.getElementById('sp-editor-content') || document.getElementById('sp-editor-enabled');
   if (focusTarget && typeof focusTarget.focus === 'function') {
     focusTarget.focus();
@@ -3845,15 +3850,13 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
 function closeSystemPromptEditor() {
   var modal = document.getElementById('system-prompt-editor-modal');
   if (!modal) return;
-  
+
   modal.classList.add('hidden');
   modal.setAttribute('aria-hidden', 'true');
-  // Remove Escape key listener
-  if (modal._keyHandler) {
+  if (modal._keyHandler && modal.dataset.keyHandlerAttached === '1') {
     document.removeEventListener('keydown', modal._keyHandler);
-    modal._keyHandler = null;
+    modal.dataset.keyHandlerAttached = '0';
   }
-  // Restore focus to previously focused element
   if (modal._previousActiveElement) {
     modal._previousActiveElement.focus();
     modal._previousActiveElement = null;

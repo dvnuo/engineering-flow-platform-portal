@@ -1,17 +1,19 @@
-<div id="requirement-bundles-panel-root" class="space-y-6 text-slate-800 dark:text-slate-100">
-  <div>
-    <h1 class="text-2xl font-semibold">Requirement Bundles</h1>
-    <p class="text-sm text-slate-600 dark:text-slate-400">Open a bundle from the left sidebar to view details and run actions.</p>
+<div id="requirement-bundles-panel-root" class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <div>
+      <h1 class="portal-panel-title">Requirement Bundles</h1>
+      <p class="portal-panel-subtitle">Open a bundle from the left sidebar to view details and run actions.</p>
+    </div>
   </div>
 
   {% if status_message %}
-  <div class="rounded-lg border px-4 py-3 {% if status_type == 'error' %}border-red-300 bg-red-50 text-red-700 dark:border-red-500/70 dark:bg-red-900/30 dark:text-red-200{% else %}border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/30 dark:text-emerald-200{% endif %}">
+  <div class="portal-inline-state {% if status_type == 'error' %}is-error{% endif %}">
     {{ status_message }}
   </div>
   {% endif %}
 
-  <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-4 text-sm text-slate-700 dark:text-slate-300">
-    <p>Create bundles from the sidebar <strong>Bundles</strong> section using the + button.</p>
+  <div class="portal-panel-section">
+    <p class="portal-panel-note">Create bundles from the sidebar <strong>Bundles</strong> section using the + button.</p>
   </div>
 
   {% if bundle_detail %}
@@ -24,14 +26,12 @@
   {% set bundle_status = manifest.status or 'unknown' %}
   {% set bundle_domain = manifest.scope.domain if manifest.scope and manifest.scope.domain else 'unknown' %}
   {% set github_url = 'https://github.com/' ~ bundle_detail.bundle_ref.repo ~ '/tree/' ~ bundle_detail.bundle_ref.branch ~ '/' ~ bundle_detail.bundle_ref.path %}
-  <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 space-y-4">
-    <div class="flex items-start justify-between gap-3">
-      <h2 class="text-lg font-semibold">Bundle Detail</h2>
-      <a href="{{ github_url }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-lg border border-blue-300 dark:border-blue-500 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-500/20">
-        Open in GitHub
-      </a>
+  <section class="portal-panel-section">
+    <div class="portal-panel-header">
+      <h2 class="portal-panel-title">Bundle Detail</h2>
+      <a href="{{ github_url }}" target="_blank" rel="noopener noreferrer" class="portal-btn is-secondary">Open in GitHub</a>
     </div>
-    <div class="grid sm:grid-cols-2 gap-2 text-sm text-slate-700 dark:text-slate-300">
+    <div class="portal-panel-grid cols-2">
       <div>title: <span>{{ bundle_title }}</span></div>
       <div>bundle_id: <span>{{ bundle_id }}</span></div>
       <div>status: <span>{{ bundle_status }}</span></div>
@@ -42,80 +42,80 @@
       <div>{{ bundle_detail.test_cases_file }}: <span>{{ 'exists' if bundle_detail.test_cases_exists else 'missing' }}</span></div>
     </div>
 
-    <div class="grid lg:grid-cols-2 gap-3">
-      <form method="post" action="/app/requirement-bundles/collect" hx-post="/app/requirement-bundles/collect" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 space-y-2">
-        <h3 class="font-medium">Collect Requirements</h3>
+    <div class="portal-panel-grid cols-2">
+      <form method="post" action="/app/requirement-bundles/collect" hx-post="/app/requirement-bundles/collect" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
+        <h3 class="portal-detail-label">Collect Requirements</h3>
         <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
         <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
         <input type="hidden" name="bundle_branch" value="{{ bundle_detail.bundle_ref.branch }}" />
         <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
         <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
         <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
-        <select name="collect_agent_id" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100">
+        <label class="portal-form-label">Collect Agent</label>
+        <select name="collect_agent_id" required class="portal-form-select">
           <option value="">-- Select collect agent --</option>
           {% for agent in agents %}
           <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
           {% endfor %}
         </select>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Jira Sources (issue keys or browse URLs)</label>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Enter comma or newline separated Jira issue keys or browse links.</p>
-          <textarea name="jira_sources" rows="2" placeholder="PAY-101&#10;https://jira.example.com/browse/PAY-101" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100"></textarea>
+          <label class="portal-form-label">Jira Sources (issue keys or browse URLs)</label>
+          <p class="portal-panel-note">Enter comma or newline separated Jira issue keys or browse links.</p>
+          <textarea name="jira_sources" rows="2" placeholder="PAY-101&#10;https://jira.example.com/browse/PAY-101" class="portal-form-textarea"></textarea>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Confluence Sources (page IDs or page URLs)</label>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Enter comma or newline separated page IDs or page links.</p>
-          <textarea name="confluence_sources" rows="2" placeholder="987654&#10;https://wiki.example.com/spaces/ABC/pages/987654/..." class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100"></textarea>
+          <label class="portal-form-label">Confluence Sources (page IDs or page URLs)</label>
+          <p class="portal-panel-note">Enter comma or newline separated page IDs or page links.</p>
+          <textarea name="confluence_sources" rows="2" placeholder="987654&#10;https://wiki.example.com/spaces/ABC/pages/987654/..." class="portal-form-textarea"></textarea>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">GitHub Docs Sources (repo-relative paths or blob URLs)</label>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Enter comma or newline separated repo paths or GitHub blob links.</p>
-          <textarea name="github_doc_sources" rows="2" placeholder="docs/spec.md&#10;https://github.com/org/repo/blob/main/docs/spec.md" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100"></textarea>
+          <label class="portal-form-label">GitHub Docs Sources (repo-relative paths or blob URLs)</label>
+          <p class="portal-panel-note">Enter comma or newline separated repo paths or GitHub blob links.</p>
+          <textarea name="github_doc_sources" rows="2" placeholder="docs/spec.md&#10;https://github.com/org/repo/blob/main/docs/spec.md" class="portal-form-textarea"></textarea>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Figma Sources (ignored in MVP)</label>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Figma URLs are stored only; not processed in MVP.</p>
-          <textarea name="figma_sources" rows="2" placeholder="https://www.figma.com/file/abc123/... (stored only; not processed in MVP)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100"></textarea>
+          <label class="portal-form-label">Figma Sources (ignored in MVP)</label>
+          <p class="portal-panel-note">Figma URLs are stored only; not processed in MVP.</p>
+          <textarea name="figma_sources" rows="2" placeholder="https://www.figma.com/file/abc123/... (stored only; not processed in MVP)" class="portal-form-textarea"></textarea>
         </div>
-        <button type="submit" class="w-full rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-white">Create + Dispatch</button>
+        <button type="submit" class="portal-btn is-primary">Create + Dispatch</button>
       </form>
 
-      <form method="post" action="/app/requirement-bundles/design-test-cases" hx-post="/app/requirement-bundles/design-test-cases" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 space-y-2">
-        <h3 class="font-medium">Design Test Cases</h3>
+      <form method="post" action="/app/requirement-bundles/design-test-cases" hx-post="/app/requirement-bundles/design-test-cases" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
+        <h3 class="portal-detail-label">Design Test Cases</h3>
         <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
         <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
         <input type="hidden" name="bundle_branch" value="{{ bundle_detail.bundle_ref.branch }}" />
         <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
         <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
         <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
-        <select name="design_agent_id" required class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100">
+        <label class="portal-form-label">Design Agent</label>
+        <select name="design_agent_id" required class="portal-form-select">
           <option value="">-- Select design agent --</option>
           {% for agent in agents %}
           <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
           {% endfor %}
         </select>
         {% if not bundle_detail.requirements_exists %}
-        <p class="text-xs text-amber-700 dark:text-amber-300">{{ bundle_detail.requirements_file }} not found — run Collect Requirements first</p>
+        <p class="portal-inline-state is-error">{{ bundle_detail.requirements_file }} not found — run Collect Requirements first</p>
         {% endif %}
-        <button type="submit" {% if not bundle_detail.requirements_exists %}disabled{% endif %} class="w-full rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50">Create + Dispatch</button>
+        <button type="submit" {% if not bundle_detail.requirements_exists %}disabled{% endif %} class="portal-btn is-primary">Create + Dispatch</button>
       </form>
     </div>
 
     {% if task_result %}
-    <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 text-sm text-slate-700 dark:text-slate-300">
+    <div class="portal-panel-section">
       <div>task id: {{ task_result.task_id }}</div>
       <div>dispatch status: {{ task_result.dispatch_status }}</div>
       <div>dispatch message: {{ task_result.dispatch_message }}</div>
-      <button class="mt-2 rounded-lg border border-blue-300 dark:border-blue-500 px-2 py-1 text-blue-700 dark:text-blue-300" hx-get="/app/tasks/{{ task_result.task_id }}/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Open Task Detail</button>
+      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task_result.task_id }}/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Open Task Detail</button>
     </div>
     {% endif %}
   </section>
   {% else %}
-  <section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-    <h2 class="text-lg font-semibold mb-2">No bundle selected</h2>
-    <p class="text-sm text-slate-600 dark:text-slate-400">
-      Choose a bundle from the left sidebar to view details and run actions.
-    </p>
+  <section class="portal-panel-empty">
+    <h2 class="portal-panel-title">No bundle selected</h2>
+    <p class="portal-panel-note">Choose a bundle from the left sidebar to view details and run actions.</p>
   </section>
   {% endif %}
 </div>

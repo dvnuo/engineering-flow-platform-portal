@@ -1,10 +1,10 @@
-<div id="task-detail-panel-root" class="space-y-4 text-slate-800 dark:text-slate-100">
-  <div class="flex items-center justify-between">
-    <h2 class="text-xl font-semibold">Task Detail</h2>
-    <button class="rounded-lg border border-slate-300 dark:border-slate-600 px-2 py-1 text-xs" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Refresh</button>
+<div id="task-detail-panel-root" class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <h2 class="portal-panel-title">Task Detail</h2>
+    <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Refresh</button>
   </div>
 
-  <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 text-xs space-y-1">
+  <div class="portal-panel-section">
     <div><strong>task_id:</strong> {{ task.id }}</div>
     <div><strong>task_type:</strong> {{ task.task_type }}</div>
     <div><strong>source:</strong> {{ task.source }}</div>
@@ -21,14 +21,14 @@
     <div><strong>error_message:</strong> {{ task.error_message or '-' }}</div>
   </div>
 
-  <div>
-    <h3 class="font-semibold text-sm mb-1">input_payload_json</h3>
-    <pre class="text-xs rounded-lg border border-slate-200 dark:border-slate-700 p-3 overflow-auto whitespace-pre-wrap">{{ task.input_payload_json or '{}' }}</pre>
+  <div class="portal-panel-section">
+    <h3 class="portal-detail-label">input_payload_json</h3>
+    <pre class="portal-panel-pre">{{ task.input_payload_json or '{}' }}</pre>
   </div>
-  <div>
-    <h3 class="font-semibold text-sm mb-1">result_payload_json</h3>
-    <pre class="text-xs rounded-lg border border-slate-200 dark:border-slate-700 p-3 overflow-auto whitespace-pre-wrap">{{ task.result_payload_json or '{}' }}</pre>
+  <div class="portal-panel-section">
+    <h3 class="portal-detail-label">result_payload_json</h3>
+    <pre class="portal-panel-pre">{{ task.result_payload_json or '{}' }}</pre>
   </div>
 
-  <button class="rounded-lg border border-slate-300 dark:border-slate-600 px-2 py-1 text-xs" hx-get="/app/tasks/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Back to My Tasks</button>
+  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Back to My Tasks</button>
 </div>
