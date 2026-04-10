@@ -2088,6 +2088,41 @@ function syncMainHeader() {
   }
 }
 
+function showAssistantDefaultMainView() {
+  const agent = getSelectedAgent();
+  const status = getSelectedAgentStatus();
+  if (agent && status === "running") {
+    setMainView("chat");
+  } else {
+    setMainView("home");
+  }
+  syncMainHeader();
+}
+
+function showBundlesDefaultMainView() {
+  renderWorkspaceDetailPlaceholder("Select a bundle from the left sidebar.");
+  syncMainHeader();
+}
+
+function showTasksDefaultMainView() {
+  renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.");
+  syncMainHeader();
+}
+
+function syncDefaultMainViewForSection(section) {
+  if (section === "assistants") {
+    showAssistantDefaultMainView();
+    return;
+  }
+  if (section === "bundles") {
+    showBundlesDefaultMainView();
+    return;
+  }
+  if (section === "tasks") {
+    showTasksDefaultMainView();
+  }
+}
+
 function bundleKeyFromRef(ref) {
   if (!ref) return null;
   return `${ref.repo || ""}|${ref.path || ""}|${ref.branch || ""}`;
@@ -2098,6 +2133,8 @@ function bundleKey(item) {
 }
 
 async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
+  const previousSection = state.activeNavSection;
+  const sidebarWasCollapsed = state.secondaryPaneCollapsed;
   const validSections = new Set(["assistants", "bundles", "tasks"]);
   if (!validSections.has(section)) return;
 
@@ -2120,12 +2157,22 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   renderSecondaryPaneHeader();
   syncMainHeader();
 
-  if (state.secondaryPaneCollapsed) return;
-  if (state.activeNavSection === "bundles") {
+  if (!state.secondaryPaneCollapsed && state.activeNavSection === "bundles") {
     if (!state.requirementBundles.length) await refreshRequirementBundles();
   }
-  if (state.activeNavSection === "tasks") {
+  if (!state.secondaryPaneCollapsed && state.activeNavSection === "tasks") {
     if (!state.myTasks.length) await refreshMyTasks();
+  }
+
+  if (state.secondaryPaneCollapsed) return;
+
+  if (section !== previousSection) {
+    syncDefaultMainViewForSection(section);
+    return;
+  }
+
+  if (sidebarWasCollapsed && !state.secondaryPaneCollapsed) {
+    return;
   }
 }
 
