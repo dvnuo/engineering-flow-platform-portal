@@ -1,7 +1,7 @@
 <div id="task-detail-panel-root" class="portal-panel-stack">
   <div class="portal-panel-header">
     <h2 class="portal-panel-title">Task Detail</h2>
-    <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Refresh</button>
+    <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Refresh</button>
   </div>
 
   <div class="portal-panel-section">
@@ -30,5 +30,9 @@
     <pre class="portal-panel-pre">{{ task.result_payload_json or '{}' }}</pre>
   </div>
 
-  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Back to My Tasks</button>
+  {% if content_target == "#workspace-detail-content" %}
+  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1">Back to My Tasks</button>
+  {% else %}
+  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Back to My Tasks</button>
+  {% endif %}
 </div>

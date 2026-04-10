@@ -405,6 +405,14 @@ def requirement_bundles_panel(request: Request):
         db.close()
 
 
+
+
+def _content_target_from_request(request: Request, default: str = "#tool-panel-body") -> str:
+    hx_target = (request.headers.get("HX-Target") or "").strip()
+    if hx_target:
+        return hx_target if hx_target.startswith("#") else f"#{hx_target}"
+    return default
+
 def _is_htmx_request(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
@@ -433,7 +441,10 @@ def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
 
 def _render_requirement_bundles_view(request: Request, user, db, *, panel_mode: bool = False, **kwargs):
     context = _requirement_bundles_context(request, user, db, **kwargs)
-    context["requirement_bundles_target"] = "#tool-panel-body" if panel_mode else "#requirement-bundles-page-content"
+    context["content_target"] = _content_target_from_request(
+        request,
+        default="#tool-panel-body" if panel_mode else "#requirement-bundles-page-content",
+    )
     template_name = "partials/requirement_bundles_panel.html" if panel_mode else "requirement_bundles.html"
     return templates.TemplateResponse(template_name, context)
 
@@ -460,7 +471,7 @@ def my_tasks_panel(request: Request):
                 summary[task.status] += 1
         return templates.TemplateResponse(
             "partials/my_tasks_panel.html",
-            {"request": request, "tasks": tasks, "summary": summary},
+            {"request": request, "tasks": tasks, "summary": summary, "content_target": _content_target_from_request(request)},
         )
     finally:
         db.close()
@@ -484,7 +495,10 @@ def task_detail_panel(request: Request, task_id: str):
             )
             if not is_visible:
                 raise HTTPException(status_code=404, detail="Task not found")
-        return templates.TemplateResponse("partials/task_detail_panel.html", {"request": request, "task": task})
+        return templates.TemplateResponse(
+            "partials/task_detail_panel.html",
+            {"request": request, "task": task, "content_target": _content_target_from_request(request)},
+        )
     finally:
         db.close()
 
