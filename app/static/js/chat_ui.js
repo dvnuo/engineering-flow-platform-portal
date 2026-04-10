@@ -2174,7 +2174,7 @@ async function loadServerFiles(path) {
     const data = await agentApi(`/api/files?path=${encodeURIComponent(path)}`);
     const items = data.items || [];
 
-    // Build breadcrumb with data attributes for event delegation
+    // Build breadcrumb using the shared portal breadcrumb contract ([data-server-path] delegated in bindEvents)
     const parts = path.split('/').filter(Boolean);
     let breadcrumbParts = [
       '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">/</a>'
@@ -2237,12 +2237,14 @@ async function loadServerFiles(path) {
       // File row click handler (navigate on click)
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
-          // Skip if clicking checkbox
-          if (e.target.type === 'checkbox') {
-            updateDownloadButton(panel);
+          // Skip if clicking checkbox or name cell (name cell has dedicated handler)
+          if (e.target.type === 'checkbox' || e.target.closest('.name-cell')) {
+            if (e.target.type === 'checkbox') {
+              updateDownloadButton(panel);
+            }
             return;
           }
-          
+
           const filePath = row.dataset.path;
           const isDir = row.dataset.isDir === 'true';
 
@@ -2255,9 +2257,15 @@ async function loadServerFiles(path) {
       // Name cell click handler - navigate for dirs, preview for files
       panel.querySelectorAll('.name-cell').forEach(cell => {
         cell.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
           // Skip if clicking checkbox
-          if (e.target.type === 'checkbox') return;
-          
+          if (e.target.type === 'checkbox') {
+            updateDownloadButton(panel);
+            return;
+          }
+
           const filePath = cell.dataset.path;
           const isDir = cell.dataset.isDir === 'true';
           
