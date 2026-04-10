@@ -185,9 +185,9 @@
 
 <div id="create-bundle-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
+    <div class="portal-modal-titlebar">
       <h3>Create Bundle</h3>
-      <button id="close-create-bundle-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+      <button id="close-create-bundle-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="create-bundle-form" class="stack">
@@ -208,16 +208,16 @@
         <input name="base_branch" placeholder="main" value="{{ bundle_base_branch or 'main' }}" required />
       </div>
       <button type="submit">Create Bundle</button>
-      <p id="create-bundle-msg" class="muted tiny"></p>
+      <p id="create-bundle-msg" class="portal-modal-feedback"></p>
     </form>
   </div>
 </div>
 
 <div id="create-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
+    <div class="portal-modal-titlebar">
       <h3>Create Assistant</h3>
-      <button id="close-create-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+      <button id="close-create-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="create-form" class="stack">
@@ -234,16 +234,16 @@
         <input name="branch" placeholder="master" value="master" />
       </div>
       <button type="submit">Create Assistant</button>
-      <p id="create-msg" class="muted tiny"></p>
+      <p id="create-msg" class="portal-modal-feedback"></p>
     </form>
   </div>
 </div>
 
 <div id="edit-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
+    <div class="portal-modal-titlebar">
       <h3>Edit Assistant</h3>
-      <button id="close-edit-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+      <button id="close-edit-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="edit-form" class="stack">
@@ -261,25 +261,25 @@
         <input name="branch" placeholder="master" />
       </div>
       <button type="submit">Save Changes</button>
-      <p id="edit-msg" class="muted tiny"></p>
+      <p id="edit-msg" class="portal-modal-feedback"></p>
     </form>
   </div>
 </div>
 
 <div id="message-edit-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="message-edit-title" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
+    <div class="portal-modal-titlebar">
       <h3>Edit Message</h3>
-      <button id="close-message-edit-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+      <button id="close-message-edit-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
     <form id="message-edit-form" class="stack">
       <input type="hidden" id="edit-message-id" />
       <input type="hidden" id="edit-attachments" />
       <div>
         <label for="edit-message-content">Message Content</label>
-        <textarea id="edit-message-content" class="w-full resize-none rounded-xl border px-3 py-2 outline-none placeholder: bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200" rows="5" placeholder="Enter new message content..."></textarea>
+        <textarea id="edit-message-content" class="portal-form-textarea" rows="5" placeholder="Enter new message content..."></textarea>
       </div>
-      <p class="text-xs text-slate-400">Note: All subsequent messages will be deleted after editing.</p>
+      <p class="portal-modal-copy">Note: All subsequent messages will be deleted after editing.</p>
       <button type="submit" class="primary">Save & Resend</button>
     </form>
   </div>
@@ -287,17 +287,17 @@
 
 <div id="paste-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
+    <div class="portal-modal-titlebar">
       <h3>Paste Configuration</h3>
-      <button id="close-paste-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+      <button id="close-paste-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
     <div class="stack">
-      <p class="text-sm text-slate-400">Paste your configuration JSON below:</p>
-      <textarea id="paste-config-text" class="w-full h-48 px-3 py-2 rounded-lg border border-slate-600 bg-slate-800 text-slate-200 font-mono text-xs resize-none" placeholder='{"llm": {...}, "jira": {...}}'></textarea>
-      <div id="paste-success-msg" class="hidden text-sm text-green-400 bg-green-900/30 rounded-lg px-3 py-2">Configuration applied successfully!</div>
-      <div class="flex gap-2">
-        <button id="cancel-paste-btn" type="button" class="flex-1 rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700">Cancel</button>
-        <button id="confirm-paste-btn" type="button" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500">Apply</button>
+      <p class="portal-modal-copy">Paste your configuration JSON below:</p>
+      <textarea id="paste-config-text" class="portal-form-textarea portal-form-textarea-mono" placeholder='{"llm": {...}, "jira": {...}}'></textarea>
+      <div id="paste-success-msg" class="portal-inline-state hidden">Configuration applied successfully!</div>
+      <div class="portal-modal-actions portal-modal-actions-stretch">
+        <button id="cancel-paste-btn" type="button" class="portal-btn is-secondary">Cancel</button>
+        <button id="confirm-paste-btn" type="button" class="portal-btn is-primary">Apply</button>
       </div>
     </div>
   </div>

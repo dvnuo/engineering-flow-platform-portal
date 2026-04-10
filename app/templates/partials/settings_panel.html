@@ -4,12 +4,12 @@
 
     <!-- Proxy Section -->
     <section class="portal-panel-section">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Proxy</h6>
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Proxy</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <label class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </label>
@@ -33,8 +33,8 @@
     <!-- LLM Model Section -->
     <section class="portal-panel-section">
       <div class="flex items-center gap-2">
-        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">LLM Model</h6>
+        <div class="w-1 h-4 portal-accent-bg rounded-full"></div>
+        <h6 class="text-sm font-semibold portal-note-800 portal-note-200">LLM Model</h6>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
@@ -63,22 +63,22 @@
       
       <!-- Copilot Auth Status -->
       <div id="copilot_auth_status" class="portal-form-input">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-700 dark:text-slate-300">Status:</span>
-          <span id="copilot_status_text" class="text-xs text-slate-500">Not authorized</span>
+        <div class="portal-settings-section-head">
+          <span class="portal-inline-note">Status:</span>
+          <span id="copilot_status_text" class="portal-inline-note">Not authorized</span>
         </div>
         <div id="copilot_instructions" class="hidden space-y-2">
-          <p class="text-xs text-slate-500">Step 1: Click the link below to authorize</p>
-          <a id="copilot_verify_link" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-500 hover:underline break-all"></a>
-          <p class="text-xs text-slate-500 mt-2">Step 2: Copy this code</p>
+          <p class="portal-inline-note">Step 1: Click the link below to authorize</p>
+          <a id="copilot_verify_link" href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline"></a>
+          <p class="text-xs portal-note-500 mt-2">Step 2: Copy this code</p>
           <div class="flex items-center gap-2">
-            <span id="copilot_user_code" class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200"></span>
+            <span id="copilot_user_code" class="portal-detail-code"></span>
             <button type="button" id="copilot_copy_btn" class="portal-btn is-secondary">Copy</button>
           </div>
-          <p class="text-xs text-slate-500 mt-2">Step 3: Click to complete authorization</p>
+          <p class="text-xs portal-note-500 mt-2">Step 3: Click to complete authorization</p>
           <a id="copilot_device_link" href="#" target="_blank" rel="noopener noreferrer" class="hidden text-xs text-blue-500 hover:underline break-all">Complete Authorization →</a>
           <div class="flex items-center gap-2 mt-2">
-            <span id="copilot_timer" class="text-xs text-slate-500"></span>
+            <span id="copilot_timer" class="portal-inline-note"></span>
           </div>
         </div>
       </div>
@@ -86,12 +86,12 @@
 
     <!-- Jira Section -->
     <section class="portal-panel-section" data-instance-group="jira">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Jira</h6>
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Jira</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <label class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </label>
@@ -99,10 +99,10 @@
       <input type="hidden" name="jira_instance_count" value="{{ jira_instances|length }}" data-instance-count="jira" />
       <div class="space-y-2" data-instance-container="jira">
         {% for inst in jira_instances %}
-          <div class="rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-2" data-instance-item="jira">
-            <div class="flex justify-between items-center">
-              <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Instance {{ loop.index }}</span>
-              <button type="button" class="text-xs text-red-600 dark:text-red-400 hover:underline" data-action="remove-instance" data-group="jira">Remove</button>
+          <div class="portal-settings-instance-card" data-instance-item="jira">
+            <div class="portal-settings-instance-head">
+              <span class="portal-settings-instance-title">Instance {{ loop.index }}</span>
+              <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="jira">Remove</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" />
@@ -124,12 +124,12 @@
 
     <!-- Confluence Section -->
     <section class="portal-panel-section" data-instance-group="confluence">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Confluence</h6>
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Confluence</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <label class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </label>
@@ -137,10 +137,10 @@
       <input type="hidden" name="confluence_instance_count" value="{{ confluence_instances|length }}" data-instance-count="confluence" />
       <div class="space-y-2" data-instance-container="confluence">
         {% for inst in confluence_instances %}
-          <div class="rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-2" data-instance-item="confluence">
-            <div class="flex justify-between items-center">
-              <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Instance {{ loop.index }}</span>
-              <button type="button" class="text-xs text-red-600 dark:text-red-400 hover:underline" data-action="remove-instance" data-group="confluence">Remove</button>
+          <div class="portal-settings-instance-card" data-instance-item="confluence">
+            <div class="portal-settings-instance-head">
+              <span class="portal-settings-instance-title">Instance {{ loop.index }}</span>
+              <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="confluence">Remove</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
               <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" />
@@ -162,12 +162,12 @@
 
     <!-- GitHub Section -->
     <section class="portal-panel-section">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">GitHub</h6>
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>GitHub</h6>
         </div>
-        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </div>
@@ -187,8 +187,8 @@
     <!-- Git Section -->
     <section class="portal-panel-section">
       <div class="flex items-center gap-2">
-        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Git</h6>
+        <div class="w-1 h-4 portal-accent-bg rounded-full"></div>
+        <h6 class="text-sm font-semibold portal-note-800 portal-note-200">Git</h6>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
@@ -204,20 +204,20 @@
 
     <!-- SSH Section -->
     <section class="portal-panel-section">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">SSH</h6>
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>SSH</h6>
         </div>
-        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="ssh_enabled" {% if ssh.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </div>
       </div>
       <div id="ssh-existing-key" class="hidden portal-inline-state">
-        <p class="text-xs text-blue-700 dark:text-blue-300 mb-2">✅ Existing SSH key found:</p>
+        <p class="portal-inline-note">✅ Existing SSH key found:</p>
         <textarea id="ssh-existing-public-key" readonly class="portal-form-textarea" rows="2"></textarea>
-        <p class="text-xs text-blue-600 dark:text-blue-400 mt-2">This key is already configured. Use regenerate to create a new one.</p>
+        <p class="portal-inline-note">This key is already configured. Use regenerate to create a new one.</p>
       </div>
       <label class="portal-form-label">
         <span class="portal-form-label">Private Key Path</span>
@@ -227,24 +227,24 @@
         Generate RSA Key
       </button>
       <div id="ssh-key-result" class="hidden portal-inline-state">
-        <p class="text-xs font-semibold text-green-700 dark:text-green-300 mb-2">🔐 Public Key (add to GitHub/GitLab):</p>
+        <p class="portal-inline-success">🔐 Public Key (add to GitHub/GitLab):</p>
         <textarea id="ssh-public-key" readonly class="portal-form-textarea" rows="3"></textarea>
         <div class="portal-inline-state is-error">
-          <p class="text-xs text-yellow-700 dark:text-yellow-300 font-semibold">⚠️ Important: Add the above public key to your GitHub/GitLab account:</p>
-          <p class="text-xs text-yellow-600 dark:text-yellow-400 mt-1">GitHub: Settings → SSH and GPG keys → New SSH key</p>
+          <p class="portal-inline-error">⚠️ Important: Add the above public key to your GitHub/GitLab account:</p>
+          <p class="portal-inline-error">GitHub: Settings → SSH and GPG keys → New SSH key</p>
         </div>
-        <p class="text-xs text-green-600 dark:text-green-400 mt-2" id="ssh-key-message"></p>
+        <p class="portal-inline-success" id="ssh-key-message"></p>
       </div>
     </section>
 
     <!-- Debug Section -->
     <section class="portal-panel-section">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Debug</h6>
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Debug</h6>
         </div>
-        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </div>
@@ -470,7 +470,7 @@
         userCode.textContent = data.user_code;
         timer.textContent = data.expires_in + 's';
         statusText.textContent = 'Waiting for authorization...';
-        statusText.className = 'text-xs text-amber-500';
+        statusText.className = 'portal-inline-note';
 
         // Start countdown timer
         let currentTimer = data.expires_in || 600;
@@ -481,7 +481,7 @@
           if (currentTimer <= 0) {
             clearInterval(copilotTimerInterval);
             statusText.textContent = 'Authorization timed out. Please try again.';
-            statusText.className = 'text-xs text-red-500';
+            statusText.className = 'portal-inline-error';
           }
         }, 1000);
 
@@ -503,7 +503,7 @@
               clearInterval(copilotAuthInterval);
               clearInterval(copilotTimerInterval);
               statusText.textContent = 'Authorized successfully!';
-              statusText.className = 'text-xs text-green-500';
+              statusText.className = 'portal-inline-success';
               instructions.classList.add('hidden');
               
               // Store token in API key field
@@ -515,7 +515,7 @@
               clearInterval(copilotAuthInterval);
               clearInterval(copilotTimerInterval);
               statusText.textContent = checkData.message || 'Authorization failed';
-              statusText.className = 'text-xs text-red-500';
+              statusText.className = 'portal-inline-error';
             }
           } catch (e) {
             console.error('Polling error:', e);
@@ -576,7 +576,7 @@
         toggle.tabIndex = 0;
         toggle.setAttribute('aria-label', 'Toggle password visibility');
         toggle.setAttribute('aria-pressed', 'false');
-        toggle.className = 'absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 focus:outline-none';
+        toggle.className = 'portal-password-toggle';
         toggle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
         toggle.addEventListener('click', function() {
           if (input.type === 'password') {

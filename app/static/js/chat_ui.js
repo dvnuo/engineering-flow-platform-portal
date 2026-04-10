@@ -2166,7 +2166,7 @@ async function loadSession(sessionId) {
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Server Files", `<div class="text-xs text-red-500">You do not have permission to access this assistant's files.</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`);
     return;
   }
   const workspacePath = '/root/.efp/workspace';
@@ -2174,7 +2174,7 @@ async function openServerFiles() {
 }
 
 async function loadServerFiles(path) {
-  setToolPanel("Server Files", '<div class="text-xs text-slate-400">Loading files…</div>');
+  setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>');
 
   try {
     const data = await agentApi(`/api/files?path=${encodeURIComponent(path)}`);
@@ -2195,11 +2195,11 @@ async function loadServerFiles(path) {
       const icon = item.is_dir ? '📁' : '📄';
       const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       return (
-        `<div class="file-row group flex items-center gap-3 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox flex-shrink-0 w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
-          `<div class="flex-1 flex items-center gap-2 cursor-pointer name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-            `<span class="text-lg">${icon}</span>` +
-            `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+        `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+          `<div class="portal-file-name-cell name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+            `<span class="portal-file-icon">${icon}</span>` +
+            `<span class="portal-file-name">${escapeHtml(item.name)}</span>` +
           `</div>` +
         `</div>`
       );
@@ -2207,19 +2207,18 @@ async function loadServerFiles(path) {
 
     // Set panel content with toolbar
     setToolPanel("Server Files",
-      `<div class="space-y-3" id="server-files-panel">` +
-        // Toolbar
-        `<div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">` +
-          `<div class="text-xs text-slate-500 dark:text-slate-400 flex-1">${breadcrumb}</div>` +
-          `<button class="sf-upload-btn px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded">Upload ZIP</button>` +
-          `<button class="sf-download-btn px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded" disabled>Download</button>` +
+      `<div id="server-files-panel" class="portal-file-browser">` +
+        `<div class="portal-file-toolbar">` +
+          `<div class="portal-file-breadcrumb">${breadcrumb}</div>` +
+          `<div class="portal-file-toolbar-actions">` +
+            `<button class="portal-btn is-secondary sf-upload-btn">Upload ZIP</button>` +
+            `<button class="portal-btn is-secondary sf-download-btn" disabled>Download</button>` +
+          `</div>` +
         `</div>` +
-        // Select all
-        `<div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">` +
-          `<input type="checkbox" id="sf-select-all" class="w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600"> <label for="sf-select-all">Select all</label>` +
+        `<div class="portal-file-select-row">` +
+          `<input type="checkbox" id="sf-select-all"> <label for="sf-select-all">Select all</label>` +
         `</div>` +
-        // File list
-        `<div class="space-y-1">${rows || "Empty directory"}</div>` +
+        `<div class="portal-panel-stack">${rows || '<div class="portal-inline-state">Empty directory</div>'}</div>` +
       `</div>`
     );
 
@@ -2301,7 +2300,7 @@ async function loadServerFiles(path) {
       updateDownloadButton(panel);
     }
   } catch (error) {
-    setToolPanel("Server Files", `Failed: ${error.message}`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`);
   }
 }
 
@@ -2353,7 +2352,7 @@ async function uploadZipToServer(targetPath) {
     const file = e.target.files[0];
     if (!file) return;
 
-    setToolPanel("Server Files", `<div class="text-xs text-slate-400">Uploading ${escapeHtml(file.name)}…</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`);
 
     try {
       const formData = new FormData();
@@ -2367,20 +2366,20 @@ async function uploadZipToServer(targetPath) {
 
       if (!resp.ok) {
         const errText = await resp.text();
-        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(errText)}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errText)}</div>`);
         return;
       }
 
       const data = await resp.json();
       if (data.success) {
         const safeCount = Number.isFinite(Number(data.count)) ? Number(data.count) : 0;
-        setToolPanel("Server Files", `<div class="text-xs text-green-500">Uploaded ${safeCount} files</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-success">Uploaded ${safeCount} files</div>`);
         loadServerFiles(targetPath);
       } else {
-        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(data.error)}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`);
       }
     } catch (err) {
-      setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(err.message)}</div>`);
+      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`);
     }
   };
   input.click();
@@ -2419,20 +2418,18 @@ async function previewServerFile(filePath, currentDir) {
         const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
 
         if (isImage) {
-          // Show image directly
           setToolPanel("File: " + filePath.split('/').pop(),
-            `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
-            `<div class="text-center"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
+            `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+            `<div class="portal-preview-image-wrap"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
           );
         } else {
           setToolPanel("File: " + filePath.split('/').pop(),
-            `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
-            `<div class="text-slate-500 dark:text-slate-400">Binary file (${size} bytes)</div>` +
-            `<div class="text-xs text-slate-400 mt-2">Type: ${ext.toUpperCase()}</div>`
+            `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+            `<div class="portal-file-binary-meta"><div>Binary file (${size} bytes)</div><div>Type: ${ext.toUpperCase()}</div></div>`
           );
         }
       } else {
-        setToolPanel("File Preview", `<div class="text-rose-500">Error: ${safe(resp.error)}</div>`);
+        setToolPanel("File Preview", `<div class="portal-inline-state is-error">Error: ${safe(resp.error)}</div>`);
       }
       return;
     }
@@ -2440,11 +2437,11 @@ async function previewServerFile(filePath, currentDir) {
     const content = resp.content || "(empty file)";
     const language = resp.language || 'text';
     setToolPanel("File: " + filePath.split('/').pop(),
-      `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
-      `<pre class="whitespace-pre-wrap text-xs bg-slate-100 dark:bg-slate-900 p-2 rounded overflow-auto max-h-96">${escapeHtml(content)}</pre>`
+      `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+      `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`
     );
   } catch (error) {
-    setToolPanel("File Preview", `<div class="text-rose-500">Failed: ${safe(error.message)}</div>`);
+    setToolPanel("File Preview", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`);
   }
 }
 
@@ -2452,7 +2449,7 @@ async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Skills", '<div class="text-xs text-slate-400">Loading skills…</div>');
+  setToolPanel("Skills", '<div class="portal-inline-state">Loading skills…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
@@ -2476,7 +2473,7 @@ async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Usage", '<div class="text-xs text-slate-400">Loading usage…</div>');
+  setToolPanel("Usage", '<div class="portal-inline-state">Loading usage…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
@@ -2493,7 +2490,7 @@ async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("My Uploads", '<div class="text-xs text-slate-400">Loading files…</div>');
+  setToolPanel("My Uploads", '<div class="portal-inline-state">Loading files…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
@@ -2528,24 +2525,24 @@ function addInstanceRow(group) {
   if (!container) return;
 
   const div = document.createElement("div");
-  div.className = "rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-2";
+  div.className = "portal-settings-instance-card";
   div.dataset.instanceItem = group;
 
   // Build fields HTML matching server-rendered format
   const projectHtml = group === "jira"
-    ? `<input type="text" data-field="project" value="" placeholder="Project" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`
-    : `<input type="text" data-field="space" value="" placeholder="Space Key" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`;
+    ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
+    : `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`;
 
-  const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /><input type="password" data-field="password" value="" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`;
+  const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" />`;
 
   div.innerHTML = `
-    <div class="flex justify-between items-center">
-      <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Instance</span>
-      <button type="button" class="text-xs text-red-600 dark:text-red-400 hover:underline" data-action="remove-instance" data-group="${group}">Remove</button>
+    <div class="portal-settings-instance-head">
+      <span class="portal-settings-instance-title">Instance</span>
+      <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button>
     </div>
-    <div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /><input type="text" data-field="url" value="" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /></div>
-    <div class="grid grid-cols-2 gap-2">${usernamePasswordHtml}</div>
-    <div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />${projectHtml}</div>
+    <div class="portal-panel-grid cols-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" /></div>
+    <div class="portal-panel-grid cols-2">${usernamePasswordHtml}</div>
+    <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API Token" class="portal-form-input" />${projectHtml}</div>
   `;
   container.append(div);
   normalizeInstanceInputs(group);
@@ -2567,12 +2564,12 @@ async function openSettings() {
   if (!state.selectedAgentId) return;
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Settings", `<div class="text-xs text-red-500">You do not have permission to modify this assistant's settings.</div>`);
+    setToolPanel("Settings", `<div class="portal-inline-state is-error">You do not have permission to modify this assistant's settings.</div>`);
     return;
   }
 
 
-  setToolPanel("Settings", '<div class="text-xs text-slate-400">Loading settings…</div>');
+  setToolPanel("Settings", '<div class="portal-inline-state">Loading settings…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/settings/panel`, {
@@ -2585,7 +2582,13 @@ async function openSettings() {
   }
 }
 
-async function clearChat() {
+async function setModalFeedback(el, kind, text) {
+  if (!el) return;
+  el.textContent = text || "";
+  el.className = `portal-modal-feedback${kind ? ` is-${kind}` : ""}`;
+}
+
+function clearChat() {
   try {
     const sessionId = (document.getElementById("chat-session-id")?.value || "").trim();
     if (sessionId) {
@@ -2896,7 +2899,7 @@ function bindEvents() {
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
-    msgEl.className = "muted tiny";
+    setModalFeedback(msgEl, "", msgEl.textContent);
 
     try {
       await api(`/api/agents/${id}`, {
@@ -2904,7 +2907,7 @@ function bindEvents() {
         body: JSON.stringify(updates),
       });
       msgEl.textContent = "Saved!";
-      msgEl.className = "text-green-400 tiny";
+      setModalFeedback(msgEl, "success", msgEl.textContent);
       setTimeout(() => {
         document.getElementById("edit-modal").classList.add("hidden");
         document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
@@ -2912,7 +2915,7 @@ function bindEvents() {
       }, 800);
     } catch (err) {
       msgEl.textContent = err.message || "Error saving";
-      msgEl.className = "text-red-400 tiny";
+      setModalFeedback(msgEl, "error", msgEl.textContent);
     }
   });
 
@@ -3116,7 +3119,7 @@ function bindEvents() {
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.homeOpenBundlesBtn?.addEventListener("click", () => openRequirementBundlePanel());
   dom.homeOpenTasksBtn?.addEventListener("click", async () => {
-    setToolPanel("My Tasks", '<div class="text-xs text-slate-400">Loading tasks…</div>');
+    setToolPanel("My Tasks", '<div class="portal-inline-state">Loading tasks…</div>');
     try {
       await htmx.ajax("GET", "/app/tasks/panel", { target: "#tool-panel-body", swap: "innerHTML" });
     } catch (error) {
@@ -3190,7 +3193,7 @@ function bindEvents() {
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", async () => {
-    setToolPanel("Users", '<div class="text-xs text-slate-400">Loading users…</div>');
+    setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>');
     try {
       await htmx.ajax("GET", "/app/users/panel", {
         target: "#tool-panel-body",
@@ -3202,7 +3205,7 @@ function bindEvents() {
   });
 
   dom.tasksMenuBtn?.addEventListener("click", async () => {
-    setToolPanel("My Tasks", '<div class="text-xs text-slate-400">Loading tasks…</div>');
+    setToolPanel("My Tasks", '<div class="portal-inline-state">Loading tasks…</div>');
     try {
       await htmx.ajax("GET", "/app/tasks/panel", {
         target: "#tool-panel-body",
@@ -3218,7 +3221,7 @@ function bindEvents() {
     dom.createBundleModal?.setAttribute("aria-hidden", "false");
     if (dom.createBundleMsg) {
       dom.createBundleMsg.textContent = "";
-      dom.createBundleMsg.className = "muted tiny";
+      setModalFeedback(dom.createBundleMsg, "", dom.createBundleMsg.textContent);
     }
   });
 
@@ -3272,7 +3275,7 @@ function bindEvents() {
       };
 
       msgEl.textContent = "Creating...";
-      msgEl.className = "muted tiny";
+      setModalFeedback(msgEl, "", msgEl.textContent);
       const resp = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3283,7 +3286,7 @@ function bindEvents() {
       }
       const agent = await resp.json();
       msgEl.textContent = "Assistant created!";
-      msgEl.className = "text-green-400 tiny";
+      setModalFeedback(msgEl, "success", msgEl.textContent);
       form.reset();
       setTimeout(() => {
         document.getElementById("create-modal")?.classList.add("hidden");
@@ -3292,7 +3295,7 @@ function bindEvents() {
       }, 1000);
     } catch (err) {
       msgEl.textContent = err.message;
-      msgEl.className = "text-red-400 tiny";
+      setModalFeedback(msgEl, "error", msgEl.textContent);
     }
   });
 
@@ -3310,7 +3313,7 @@ function bindEvents() {
     try {
       if (dom.createBundleMsg) {
         dom.createBundleMsg.textContent = "Creating...";
-        dom.createBundleMsg.className = "muted tiny";
+        setModalFeedback(dom.createBundleMsg, "", dom.createBundleMsg.textContent);
       }
       const resp = await fetch("/api/requirement-bundles", {
         method: "POST",
@@ -3323,7 +3326,7 @@ function bindEvents() {
       const detail = await resp.json();
       if (dom.createBundleMsg) {
         dom.createBundleMsg.textContent = "Bundle created!";
-        dom.createBundleMsg.className = "text-green-400 tiny";
+        setModalFeedback(dom.createBundleMsg, "success", dom.createBundleMsg.textContent);
       }
 
       form.reset();
@@ -3337,7 +3340,7 @@ function bindEvents() {
     } catch (err) {
       if (dom.createBundleMsg) {
         dom.createBundleMsg.textContent = err.message;
-        dom.createBundleMsg.className = "text-red-400 tiny";
+        setModalFeedback(dom.createBundleMsg, "error", dom.createBundleMsg.textContent);
       }
     }
   });
@@ -3735,10 +3738,10 @@ function loadSystemPromptConfig(agentId) {
       var name = sections[i];
       var enabled = config[name] && config[name].enabled !== undefined ? config[name].enabled : true;
       var disabledAttr = canWrite ? '' : ' disabled';
-      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="text-blue-500 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Edit ' + labels[name] + '"' + disabledAttr + '><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>' : '';
+      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + labels[name] + '"' + disabledAttr + '>Edit</button>' : '';
       var item = document.createElement('div');
-      item.className = 'flex items-center justify-between py-1';
-      item.innerHTML = '<div class="flex items-center gap-2"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="rounded border-slate-300 dark:border-slate-600 text-blue-500 focus:ring-blue-500"' + disabledAttr + '><label for="sp-' + name + '-enabled" class="text-xs font-medium text-slate-700 dark:text-slate-300">' + labels[name] + '</label></div>' + editButton;
+      item.className = 'portal-system-prompt-item';
+      item.innerHTML = '<label class="portal-checkbox-row"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span>' + labels[name] + '</span></label>' + editButton;
       items.appendChild(item);
     }
     

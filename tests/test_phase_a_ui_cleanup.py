@@ -12,6 +12,15 @@ def test_app_template_contains_new_portal_shell():
     assert "bundles-menu-btn" in html
     assert "home-open-bundles-btn" in html
     assert "Message an assistant" in html
+    assert "portal-modal-feedback" in html
+    assert "portal-modal-copy" in html
+    assert "portal-form-textarea-mono" in html
+    assert "portal-modal-actions-stretch" in html
+    assert "muted tiny" not in html
+    assert "text-slate-400" not in html
+    assert "bg-slate-800" not in html
+    assert "bg-purple-600" not in html
+    assert "hover:bg-purple-500" not in html
 
 
 def test_chat_response_partial_contract():
@@ -54,6 +63,23 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "button.dataset.defaultTitle" in js_source
     assert "portal-inline-state" in js_source
     assert "portal-bundle-row" in js_source
+    assert "portal-file-browser" in js_source
+    assert "portal-file-row" in js_source
+    assert "portal-file-preview-header" in js_source
+    assert "portal-settings-instance-card" in js_source
+    assert "portal-instance-remove" in js_source
+    assert "portal-system-prompt-item" in js_source
+    assert "portal-system-prompt-check" in js_source
+    assert "setModalFeedback" in js_source
+    assert "text-xs text-slate-400" not in js_source
+    assert "text-red-500" not in js_source
+    assert "text-green-500" not in js_source
+    assert "text-rose-500" not in js_source
+    assert "text-green-400 tiny" not in js_source
+    assert "text-red-400 tiny" not in js_source
+    assert "muted tiny" not in js_source
+    assert "hover:text-blue-600" not in js_source
+    assert "border-slate-300" not in js_source
 
     detail_meta_block = js_source[js_source.find("function renderAgentMeta"):js_source.find("function renderAgentActions")]
     assert "text-slate-500 uppercase tracking-wide" not in detail_meta_block
@@ -88,6 +114,21 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".portal-modal-titlebar" in css_source
     assert ".portal-editor-modal-card" in css_source
     assert ".portal-bundle-row" in css_source
+    assert ".portal-inline-state.is-success" in css_source
+    assert ".portal-modal-copy" in css_source
+    assert ".portal-modal-feedback" in css_source
+    assert ".portal-form-textarea-mono" in css_source
+    assert ".portal-modal-actions-stretch" in css_source
+    assert ".portal-settings-section-head" in css_source
+    assert ".portal-settings-instance-card" in css_source
+    assert ".portal-instance-remove" in css_source
+    assert ".portal-password-toggle" in css_source
+    assert ".portal-file-browser" in css_source
+    assert ".portal-file-row" in css_source
+    assert ".portal-file-preview-header" in css_source
+    assert ".portal-file-binary-meta" in css_source
+    assert ".portal-system-prompt-item" in css_source
+    assert ".portal-system-prompt-check" in css_source
     assert ".message-surface-error" in css_source
     assert ".portal-detail-action-grid" in css_source
     assert ".portal-detail-action-btn" in css_source
@@ -100,6 +141,7 @@ def test_frontend_assets_include_phase_b_fixups():
 
 
 def test_templates_portalized_for_panel_visual_consistency():
+    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     app_html = Path("app/templates/app.html").read_text(encoding="utf-8")
     thinking_html = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
     tasks_html = Path("app/templates/partials/my_tasks_panel.html").read_text(encoding="utf-8")
@@ -109,6 +151,7 @@ def test_templates_portalized_for_panel_visual_consistency():
     files_html = Path("app/templates/partials/files_panel.html").read_text(encoding="utf-8")
     bundles_html = Path("app/templates/partials/requirement_bundles_panel.html").read_text(encoding="utf-8")
     settings_html = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    usage_html = Path("app/templates/partials/usage_panel.html").read_text(encoding="utf-8")
 
     assert "portal-toast" in app_html
     assert "portal-toast-inner" in app_html
@@ -122,3 +165,19 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-panel-stack" in files_html
     assert "portal-panel-stack" in bundles_html
     assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html)
+    assert "portal-settings-section-head" in settings_html
+    assert "portal-settings-instance-card" in settings_html
+    assert "portal-instance-remove" in settings_html
+    assert "portal-link-inline" in settings_html
+    assert ("portal-password-toggle" in settings_html) or ("portal-password-toggle" in js_source)
+    assert "portal-panel-stack" in usage_html
+    assert "portal-usage-grid" in usage_html
+    assert "text-slate" not in settings_html
+    assert "bg-slate" not in settings_html
+    assert "border-slate" not in settings_html
+    assert "dark:" not in settings_html
+    assert "bg-blue-500" not in settings_html
+    assert "text-slate" not in usage_html
+    assert "bg-slate" not in usage_html
+    assert "border-slate" not in usage_html
+    assert "dark:" not in usage_html
