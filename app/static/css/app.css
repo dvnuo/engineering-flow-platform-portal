@@ -411,8 +411,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   right: 12px;
   top: 12px;
   bottom: 12px;
-  width: 420px;
-  min-width: 360px;
+  width: 580px;
+  min-width: 420px;
   max-width: 860px;
   z-index: 40;
   display: flex;
