@@ -1055,11 +1055,16 @@ function renderAgentList() {
   const shared = state.mineAgents.filter((agent) => Number(agent.owner_user_id) !== state.currentUserId && agent.visibility !== "public");
   const publicAgents = state.mineAgents.filter((agent) => agent.visibility === "public");
 
-  const renderSection = (title, agents) => {
+  const renderSection = (title, agents, { showTitle = true } = {}) => {
     if (!agents.length) return;
     const section = document.createElement("section");
     section.className = "portal-agent-section";
-    section.innerHTML = `<div class="portal-eyebrow">${safe(title)}</div>`;
+    if (showTitle && title) {
+      const heading = document.createElement("div");
+      heading.className = "portal-eyebrow";
+      heading.textContent = title;
+      section.append(heading);
+    }
 
     agents.forEach((agent) => {
       const status = (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
@@ -1085,7 +1090,7 @@ function renderAgentList() {
     dom.mineList.append(section);
   };
 
-  renderSection("My Space", mine);
+  renderSection("My Space", mine, { showTitle: false });
   renderSection("Shared", shared);
   renderSection("Public", publicAgents);
 }
@@ -2070,10 +2075,6 @@ function renderSecondaryPaneHeader() {
 
 function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
-  const headerEyebrow = document.querySelector('.portal-main-header-copy .portal-eyebrow');
-  if (headerEyebrow) {
-    headerEyebrow.textContent = assistantMode ? "Assistant" : "Workspace";
-  }
 
   const sessionsBtn = document.getElementById("btn-sessions");
   const assistantOnlyControls = [dom.selectedStatus, sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, dom.topSettings, document.getElementById("btn-thinking"), document.getElementById("btn-files")];

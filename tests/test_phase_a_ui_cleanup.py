@@ -9,13 +9,12 @@ def test_app_template_contains_new_portal_shell():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
     assert "portal-shell" in html
     assert "portal-rail" in html
-    assert "portal-agent-pane" in html
-    assert "sessions-drawer" in html
-    assert "sessions-drawer-body" in html
+    assert "portal-secondary-pane" in html
+    assert "btn-sessions" in html
     assert "header-new-chat-btn" in html
     assert "bundles-menu-btn" in html
     assert "home-open-bundles-btn" in html
-    assert "Message an assistant" in html
+    assert "Ask me anything..." in html
     assert "portal-modal-feedback" in html
     assert "portal-modal-copy" in html
     assert "portal-form-textarea-mono" in html
