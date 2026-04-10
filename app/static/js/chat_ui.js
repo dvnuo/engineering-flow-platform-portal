@@ -56,10 +56,6 @@ const dom = {
   addBundleBtn: document.getElementById("add-bundle-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   composerAttachBtn: document.getElementById("composer-attach-btn"),
-  sessionsDrawer: document.getElementById("sessions-drawer"),
-  sessionsDrawerBody: document.getElementById("sessions-drawer-body"),
-  sessionsDrawerBackdrop: document.getElementById("sessions-drawer-backdrop"),
-  closeSessionsDrawer: document.getElementById("close-sessions-drawer"),
   homeTitle: document.getElementById("home-title"),
   homeSubtitle: document.getElementById("home-subtitle"),
   homeAgentSummary: document.getElementById("home-agent-summary"),
@@ -194,6 +190,7 @@ const state = {
   mineAgents: [],
   agentStatus: new Map(),
   detailOpen: false,
+  activeUtilityPanel: null,
   cachedSkills: [],
   cachedSkillsByAgent: new Map(),
   cachedMentionFiles: [],
@@ -1950,10 +1947,11 @@ async function maybeShowSuggest() {
 }
 
 // ===== toolbar actions =====
-function setToolPanel(title, contentHtml) {
+function setToolPanel(title, contentHtml, panelKey = null) {
   if (!dom.toolPanel) return;
   state.detailOpen = false;
   closeSessionsDrawer();
+  state.activeUtilityPanel = panelKey;
   dom.toolPanelTitle.textContent = title;
   if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
     dom.toolPanelBody.textContent = contentHtml.replace('Failed: ', '');
@@ -1966,45 +1964,48 @@ function setToolPanel(title, contentHtml) {
 
 function closeToolPanel() {
   state.detailOpen = false;
+  state.activeUtilityPanel = null;
   if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
   dom.toolBackdrop?.classList.add("hidden");
 }
 
-async function openSessionsDrawer() {
+async function openSessionsPanel() {
   if (!ensureRunningSelectedAssistant("browse sessions")) return;
-  closeToolPanel();
-  dom.sessionsDrawer?.classList.add("is-open");
-  dom.sessionsDrawerBackdrop?.classList.remove("hidden");
-  dom.sessionsDrawerBackdrop?.classList.add("is-open");
-  if (!dom.sessionsDrawerBody) return;
-  dom.sessionsDrawerBody.innerHTML = '<div class="portal-inline-state">Loading sessions…</div>';
+
+  setToolPanel("Sessions", '<div class="portal-inline-state">Loading sessions…</div>', "sessions");
+
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
-      target: "#sessions-drawer-body",
+      target: "#tool-panel-body",
       swap: "innerHTML",
     });
   } catch (error) {
-    dom.sessionsDrawerBody.innerHTML = '<div class="portal-inline-state is-error">Failed to load sessions.</div>';
+    setToolPanel("Sessions", `Failed: ${safe(error.message)}`, "sessions");
     setChatStatus("Failed to load sessions", true);
   }
 }
 
+async function openSessionsDrawer() {
+  await openSessionsPanel();
+}
+
 function closeSessionsDrawer() {
-  dom.sessionsDrawer?.classList.remove("is-open");
-  dom.sessionsDrawerBackdrop?.classList.remove("is-open");
-  dom.sessionsDrawerBackdrop?.classList.add("hidden");
+  if (!dom.toolPanel) return;
+  if (state.activeUtilityPanel !== "sessions") return;
+  if (dom.toolPanel.style.transform === "translateX(120%)") {
+    state.activeUtilityPanel = null;
+    return;
+  }
+  closeToolPanel();
 }
 
 async function toggleSessionsDrawer() {
-  if (dom.sessionsDrawer?.classList.contains("is-open")) {
-    closeSessionsDrawer();
+  const isToolPanelOpen = dom.toolPanel && dom.toolPanel.style.transform !== "translateX(120%)";
+  if (state.activeUtilityPanel === "sessions" && isToolPanelOpen) {
+    closeToolPanel();
     return;
   }
-  await openSessionsDrawer();
-}
-
-async function openSessionsPanel() {
-  await openSessionsDrawer();
+  await openSessionsPanel();
 }
 
 function setMainView(view) {
@@ -3434,12 +3435,26 @@ function bindEvents() {
     }
   });
   document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
-  dom.closeSessionsDrawer?.addEventListener("click", () => closeSessionsDrawer());
-  dom.sessionsDrawerBackdrop?.addEventListener("click", () => closeSessionsDrawer());
 
   dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
+    const newChatBtn = event.target.closest("#sessions-new-chat-btn");
+    if (newChatBtn) {
+      event.preventDefault();
+      closeSessionsDrawer();
+      await startNewChatForSelectedAgent();
+      return;
+    }
+
+    const sessionBtn = event.target.closest("[data-session-id]");
+    if (sessionBtn) {
+      event.preventDefault();
+      await loadSession(sessionBtn.dataset.sessionId || "");
+      closeSessionsDrawer();
+      return;
+    }
+
     const serverPathLink = event.target.closest('[data-server-path]');
     if (serverPathLink) {
       event.preventDefault();
@@ -3501,23 +3516,6 @@ function bindEvents() {
     if (taskBackBtn) {
       event.preventDefault();
       await returnFromTaskDetailToSidebar();
-    }
-  });
-
-  dom.sessionsDrawerBody?.addEventListener("click", async (event) => {
-    const newChatBtn = event.target.closest("#sessions-new-chat-btn");
-    if (newChatBtn) {
-      event.preventDefault();
-      closeSessionsDrawer();
-      await startNewChatForSelectedAgent();
-      return;
-    }
-
-    const sessionBtn = event.target.closest("[data-session-id]");
-    if (sessionBtn) {
-      event.preventDefault();
-      await loadSession(sessionBtn.dataset.sessionId || "");
-      closeSessionsDrawer();
     }
   });
 
