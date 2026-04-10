@@ -24,10 +24,10 @@
   --portal-cta-text: #ffffff;
   --portal-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
   --portal-shadow-lg: 0 18px 40px rgba(15, 23, 42, 0.10);
-  --portal-radius-xl: 16px;
-  --portal-radius-lg: 14px;
-  --portal-radius-md: 12px;
-  --portal-radius-sm: 8px;
+  --portal-radius-xl: 24px;
+  --portal-radius-lg: 20px;
+  --portal-radius-md: 14px;
+  --portal-radius-sm: 10px;
   --portal-transition: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
