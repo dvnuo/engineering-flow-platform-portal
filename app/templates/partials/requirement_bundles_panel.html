@@ -43,7 +43,7 @@
     </div>
 
     <div class="portal-panel-grid cols-2">
-      <form method="post" action="/app/requirement-bundles/collect" hx-post="/app/requirement-bundles/collect" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
+      <form method="post" action="/app/requirement-bundles/collect" hx-post="/app/requirement-bundles/collect" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
         <h3 class="portal-detail-label">Collect Requirements</h3>
         <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
         <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
@@ -81,7 +81,7 @@
         <button type="submit" class="portal-btn is-primary">Create + Dispatch</button>
       </form>
 
-      <form method="post" action="/app/requirement-bundles/design-test-cases" hx-post="/app/requirement-bundles/design-test-cases" hx-target="{{ requirement_bundles_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
+      <form method="post" action="/app/requirement-bundles/design-test-cases" hx-post="/app/requirement-bundles/design-test-cases" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
         <h3 class="portal-detail-label">Design Test Cases</h3>
         <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
         <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
@@ -108,7 +108,7 @@
       <div>task id: {{ task_result.task_id }}</div>
       <div>dispatch status: {{ task_result.dispatch_status }}</div>
       <div>dispatch message: {{ task_result.dispatch_message }}</div>
-      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task_result.task_id }}/panel" hx-target="#tool-panel-body" hx-swap="innerHTML">Open Task Detail</button>
+      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task_result.task_id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Open Task Detail</button>
     </div>
     {% endif %}
   </section>

@@ -17,6 +17,8 @@ const dom = {
   selectedStatus: document.getElementById("selected-status"),
   centerPlaceholder: document.getElementById("center-placeholder"),
   agentChatApp: document.getElementById("agent-chat-app"),
+  workspaceDetailView: document.getElementById("workspace-detail-view"),
+  workspaceDetailContent: document.getElementById("workspace-detail-content"),
   messageList: document.getElementById("message-list"),
   messageScroll: document.getElementById("message-scroll"),
   chatInput: document.getElementById("chat-input"),
@@ -37,10 +39,20 @@ const dom = {
   topSettings: document.getElementById("top-settings"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
+  railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
   bundlesMenuBtn: document.getElementById("bundles-menu-btn"),
-  bundleList: document.getElementById("bundle-list"),
+  portalShell: document.querySelector(".portal-shell"),
+  portalSecondaryPane: document.getElementById("portal-secondary-pane"),
+  secondaryPaneEyebrow: document.getElementById("secondary-pane-eyebrow"),
+  secondaryPaneTitle: document.getElementById("secondary-pane-title"),
+  secondaryPaneActions: document.getElementById("secondary-pane-actions"),
+  assistantsNavSection: document.getElementById("assistants-nav-section"),
+  bundlesNavSection: document.getElementById("bundles-nav-section"),
+  tasksNavSection: document.getElementById("tasks-nav-section"),
+  bundleNavList: document.getElementById("bundle-nav-list"),
+  taskNavList: document.getElementById("task-nav-list"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   composerAttachBtn: document.getElementById("composer-attach-btn"),
@@ -210,6 +222,10 @@ const state = {
   messageBackup: "",
   requirementBundles: [],
   selectedBundleKey: null,
+  activeNavSection: "assistants",
+  secondaryPaneCollapsed: false,
+  myTasks: [],
+  selectedTaskId: null,
   didAppendAttachmentHistoryForPendingSend: false,
 };
 
@@ -1319,6 +1335,7 @@ async function selectAgentById(agentId) {
   syncHiddenSessionInputFromState();
   clearMessageListToWelcome();
 
+  await setActiveNavSection("assistants", { toggleIfSame: false });
   renderAgentList();
   await syncSelectedAgentState();
 }
@@ -1337,10 +1354,10 @@ async function syncSelectedAgentState() {
     dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
     dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
     dom.homeAgentSummary && (dom.homeAgentSummary.textContent = "No assistant selected.");
-    dom.centerPlaceholder.classList.remove("hidden");
-    dom.agentChatApp.classList.add("hidden");
+    setMainView("home");
     state.selectedAgentName = null;
     updateChatInputPlaceholder();
+    syncMainHeader();
     return;
   }
 
@@ -1369,8 +1386,8 @@ async function syncSelectedAgentState() {
   renderAgentActions(agent, status);
 
   const running = status === "running";
-  dom.centerPlaceholder.classList.toggle("hidden", running);
-  dom.agentChatApp.classList.toggle("hidden", !running);
+  setMainView(running ? "chat" : "home");
+  syncMainHeader();
 
   if (running) {
     const lastSessionId = getLastSessionId(agent.id);
@@ -1436,6 +1453,7 @@ async function refreshAll() {
   // Update owner-only button visibility after restoring last agent
   updateOwnerOnlyButtons(state.selectedAgentId);
 
+  await setActiveNavSection("assistants", { toggleIfSame: false });
   renderAgentList();
   await syncSelectedAgentState();
 }
@@ -1989,6 +2007,58 @@ async function openSessionsPanel() {
   await openSessionsDrawer();
 }
 
+function setMainView(view) {
+  dom.centerPlaceholder?.classList.toggle("hidden", view !== "home");
+  dom.agentChatApp?.classList.toggle("hidden", view !== "chat");
+  dom.workspaceDetailView?.classList.toggle("hidden", view !== "detail");
+}
+
+function applySecondaryPaneState() {
+  dom.portalShell?.classList.toggle("is-secondary-collapsed", state.secondaryPaneCollapsed);
+  dom.portalSecondaryPane?.classList.toggle("is-hidden", state.secondaryPaneCollapsed);
+}
+
+function renderSecondaryPaneHeader() {
+  if (!dom.secondaryPaneEyebrow || !dom.secondaryPaneTitle || !dom.secondaryPaneActions) return;
+  const addAgentBtn = dom.addAgentBtn;
+  const addBundleBtn = dom.addBundleBtn;
+  if (addAgentBtn) addAgentBtn.classList.add("hidden");
+  if (addBundleBtn) addBundleBtn.classList.add("hidden");
+
+  if (state.activeNavSection === "assistants") {
+    dom.secondaryPaneEyebrow.textContent = "My Space";
+    dom.secondaryPaneTitle.textContent = "Assistants";
+    if (addAgentBtn) addAgentBtn.classList.remove("hidden");
+  } else if (state.activeNavSection === "bundles") {
+    dom.secondaryPaneEyebrow.textContent = "Workspace";
+    dom.secondaryPaneTitle.textContent = "Bundles";
+    if (addBundleBtn) addBundleBtn.classList.remove("hidden");
+  } else {
+    dom.secondaryPaneEyebrow.textContent = "Workspace";
+    dom.secondaryPaneTitle.textContent = "Tasks";
+  }
+}
+
+function syncMainHeader() {
+  const assistantMode = state.activeNavSection === "assistants";
+  const headerEyebrow = document.querySelector('.portal-main-header-copy .portal-eyebrow');
+  if (headerEyebrow) {
+    headerEyebrow.textContent = assistantMode ? "Assistant" : "Workspace";
+  }
+
+  const sessionsBtn = document.getElementById("btn-sessions");
+  const assistantOnlyControls = [dom.selectedStatus, sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, dom.topSettings, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
+  assistantOnlyControls.forEach((el) => {
+    if (!el) return;
+    el.classList.toggle("hidden", !assistantMode);
+  });
+
+  if (!assistantMode) {
+    dom.embedTitle.textContent = state.activeNavSection === "bundles" ? "Requirement Bundles" : "My Tasks";
+    setChatStatus(state.activeNavSection === "bundles" ? "Browse and open bundle detail in the main stage" : "Browse tasks and open task detail in the main stage");
+  }
+}
+
 function bundleKeyFromRef(ref) {
   if (!ref) return null;
   return `${ref.repo || ""}|${ref.path || ""}|${ref.branch || ""}`;
@@ -1998,19 +2068,51 @@ function bundleKey(item) {
   return bundleKeyFromRef(item?.bundle_ref);
 }
 
+async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
+  const validSections = new Set(["assistants", "bundles", "tasks"]);
+  if (!validSections.has(section)) return;
+
+  if (section === state.activeNavSection && toggleIfSame) {
+    state.secondaryPaneCollapsed = !state.secondaryPaneCollapsed;
+  } else {
+    state.activeNavSection = section;
+    state.secondaryPaneCollapsed = false;
+  }
+
+  dom.railAssistantsBtn?.classList.toggle("is-active", state.activeNavSection === "assistants");
+  dom.bundlesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "bundles");
+  dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
+
+  dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
+  dom.bundlesNavSection?.classList.toggle("hidden", state.activeNavSection !== "bundles");
+  dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
+
+  applySecondaryPaneState();
+  renderSecondaryPaneHeader();
+  syncMainHeader();
+
+  if (state.secondaryPaneCollapsed) return;
+  if (state.activeNavSection === "bundles") {
+    if (!state.requirementBundles.length) await refreshRequirementBundles();
+  }
+  if (state.activeNavSection === "tasks") {
+    if (!state.myTasks.length) await refreshMyTasks();
+  }
+}
+
 function renderRequirementBundleList(errorMessage = "") {
-  if (!dom.bundleList) return;
+  if (!dom.bundleNavList) return;
   if (errorMessage) {
-    dom.bundleList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
+    dom.bundleNavList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
     return;
   }
 
   if (!state.requirementBundles.length) {
-    dom.bundleList.innerHTML = '<div class="portal-bundle-list-state">No bundles found</div>';
+    dom.bundleNavList.innerHTML = '<div class="portal-bundle-list-state">No bundles found</div>';
     return;
   }
 
-  dom.bundleList.innerHTML = "";
+  dom.bundleNavList.innerHTML = "";
   state.requirementBundles.forEach((item) => {
     const key = bundleKey(item);
     const activeClass = state.selectedBundleKey === key ? " is-active" : "";
@@ -2024,22 +2126,20 @@ function renderRequirementBundleList(errorMessage = "") {
     row.addEventListener("click", async () => {
       state.selectedBundleKey = key;
       renderRequirementBundleList();
-      await openRequirementBundlePanel(item.bundle_ref);
+      await setActiveNavSection("bundles", { toggleIfSame: false });
+      await openRequirementBundleInMain(item.bundle_ref);
     });
-    dom.bundleList.append(row);
+    dom.bundleNavList.append(row);
   });
 }
 
 async function refreshRequirementBundles() {
-  if (!dom.bundleList) return;
-  dom.bundleList.innerHTML = '<div class="portal-bundle-list-state">Loading bundles…</div>';
+  if (!dom.bundleNavList) return;
+  dom.bundleNavList.innerHTML = '<div class="portal-bundle-list-state">Loading bundles…</div>';
   try {
     const bundles = await api("/api/requirement-bundles");
     state.requirementBundles = Array.isArray(bundles) ? bundles : [];
-    if (
-      state.selectedBundleKey &&
-      !state.requirementBundles.some((item) => bundleKey(item) === state.selectedBundleKey)
-    ) {
+    if (state.selectedBundleKey && !state.requirementBundles.some((item) => bundleKey(item) === state.selectedBundleKey)) {
       state.selectedBundleKey = null;
     }
     renderRequirementBundleList();
@@ -2048,26 +2148,80 @@ async function refreshRequirementBundles() {
   }
 }
 
-async function openRequirementBundlePanel(bundleRef = null) {
-  setToolPanel("Requirement Bundles", '<div class="portal-inline-state">Loading requirement bundles…</div>');
+async function openRequirementBundleInMain(bundleRef = null) {
+  if (!dom.workspaceDetailContent) return;
+  setMainView("detail");
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading requirement bundles…</div>';
   try {
     let path = "/app/requirement-bundles/panel";
     if (bundleRef) {
-      const params = new URLSearchParams({
-        repo: bundleRef.repo,
-        path: bundleRef.path,
-        branch: bundleRef.branch,
-      });
+      const params = new URLSearchParams({ repo: bundleRef.repo, path: bundleRef.path, branch: bundleRef.branch });
       path = `/app/requirement-bundles/open?${params.toString()}`;
       state.selectedBundleKey = bundleKeyFromRef(bundleRef);
       renderRequirementBundleList();
     }
-    await htmx.ajax("GET", path, {
-      target: "#tool-panel-body",
-      swap: "innerHTML",
-    });
+    await htmx.ajax("GET", path, { target: "#workspace-detail-content", swap: "innerHTML" });
+    syncMainHeader();
   } catch (error) {
-    setToolPanel("Requirement Bundles", `Failed: ${safe(error.message)}`);
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`;
+  }
+}
+
+function renderTaskNavList(errorMessage = "") {
+  if (!dom.taskNavList) return;
+  if (errorMessage) {
+    dom.taskNavList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
+    return;
+  }
+  if (!state.myTasks.length) {
+    dom.taskNavList.innerHTML = '<div class="portal-bundle-list-state">No visible tasks yet.</div>';
+    return;
+  }
+
+  dom.taskNavList.innerHTML = "";
+  state.myTasks.forEach((task) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
+    row.innerHTML = `
+      <div class="portal-bundle-title">${safe(task.task_type || task.id)}</div>
+      <div class="portal-bundle-meta">${safe(task.status || "unknown")} · ${safe(task.id)}</div>
+    `;
+    row.addEventListener("click", async () => {
+      state.selectedTaskId = task.id;
+      renderTaskNavList();
+      await setActiveNavSection("tasks", { toggleIfSame: false });
+      await openTaskDetailInMain(task.id);
+    });
+    dom.taskNavList.append(row);
+  });
+}
+
+async function refreshMyTasks() {
+  if (!dom.taskNavList) return;
+  dom.taskNavList.innerHTML = '<div class="portal-bundle-list-state">Loading tasks…</div>';
+  try {
+    const tasks = await api("/api/my/tasks");
+    state.myTasks = Array.isArray(tasks) ? tasks : [];
+    if (state.selectedTaskId && !state.myTasks.some((task) => task.id === state.selectedTaskId)) {
+      state.selectedTaskId = null;
+    }
+    renderTaskNavList();
+  } catch (error) {
+    renderTaskNavList(`Failed to load tasks: ${error.message}`);
+  }
+}
+
+async function openTaskDetailInMain(taskId) {
+  if (!dom.workspaceDetailContent) return;
+  state.selectedTaskId = taskId;
+  renderTaskNavList();
+  setMainView("detail");
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task detail…</div>';
+  try {
+    await htmx.ajax("GET", `/app/tasks/${encodeURIComponent(taskId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
+  } catch (error) {
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`;
   }
 }
 
@@ -3172,15 +3326,22 @@ function bindEvents() {
 
   dom.composerAttachBtn?.addEventListener("click", () => dom.uploadInput?.click());
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
-  dom.bundlesMenuBtn?.addEventListener("click", () => openRequirementBundlePanel());
+  dom.railAssistantsBtn?.addEventListener("click", () => setActiveNavSection("assistants"));
+  dom.bundlesMenuBtn?.addEventListener("click", () => setActiveNavSection("bundles"));
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
-  dom.homeOpenBundlesBtn?.addEventListener("click", () => openRequirementBundlePanel());
+  dom.homeOpenBundlesBtn?.addEventListener("click", async () => {
+    await setActiveNavSection("bundles", { toggleIfSame: false });
+    if (state.requirementBundles.length) {
+      const first = state.requirementBundles[0];
+      state.selectedBundleKey = bundleKey(first);
+      renderRequirementBundleList();
+      await openRequirementBundleInMain(first.bundle_ref);
+    }
+  });
   dom.homeOpenTasksBtn?.addEventListener("click", async () => {
-    setToolPanel("My Tasks", '<div class="portal-inline-state">Loading tasks…</div>');
-    try {
-      await htmx.ajax("GET", "/app/tasks/panel", { target: "#tool-panel-body", swap: "innerHTML" });
-    } catch (error) {
-      setToolPanel("My Tasks", `Failed: ${safe(error.message)}`);
+    await setActiveNavSection("tasks", { toggleIfSame: false });
+    if (state.myTasks.length) {
+      await openTaskDetailInMain(state.myTasks[0].id);
     }
   });
   document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
@@ -3268,17 +3429,7 @@ function bindEvents() {
     }
   });
 
-  dom.tasksMenuBtn?.addEventListener("click", async () => {
-    setToolPanel("My Tasks", '<div class="portal-inline-state">Loading tasks…</div>');
-    try {
-      await htmx.ajax("GET", "/app/tasks/panel", {
-        target: "#tool-panel-body",
-        swap: "innerHTML",
-      });
-    } catch (error) {
-      setToolPanel("My Tasks", `Failed: ${safe(error.message)}`);
-    }
-  });
+  dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
 
   dom.addBundleBtn?.addEventListener("click", () => {
     dom.createBundleModal?.classList.remove("hidden");
@@ -3397,10 +3548,11 @@ function bindEvents() {
       form.querySelector('[name="base_branch"]').value = payload.base_branch;
       dom.createBundleModal?.classList.add("hidden");
       dom.createBundleModal?.setAttribute("aria-hidden", "true");
+      await setActiveNavSection("bundles", { toggleIfSame: false });
       await refreshRequirementBundles();
       state.selectedBundleKey = bundleKeyFromRef(detail.bundle_ref);
       renderRequirementBundleList();
-      await openRequirementBundlePanel(detail.bundle_ref);
+      await openRequirementBundleInMain(detail.bundle_ref);
     } catch (err) {
       if (dom.createBundleMsg) {
         dom.createBundleMsg.textContent = err.message;
@@ -3546,7 +3698,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   await refreshAll();
-  await refreshRequirementBundles();
+  await setActiveNavSection("assistants", { toggleIfSame: false });
   renderMarkdown(document);
   renderIcons();
 });

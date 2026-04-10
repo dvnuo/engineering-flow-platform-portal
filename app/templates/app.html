@@ -4,7 +4,7 @@
   <div class="portal-shell">
     <nav class="portal-rail" aria-label="Workspace navigation">
       <div class="portal-rail-top">
-        <button id="rail-assistants-btn" class="portal-rail-btn" type="button" title="Assistants">
+        <button id="rail-assistants-btn" class="portal-rail-btn is-active" type="button" title="Assistants">
           <i data-lucide="bot" class="w-5 h-5"></i>
         </button>
         <button id="bundles-menu-btn" class="portal-rail-btn" type="button" title="Bundles">
@@ -29,17 +29,32 @@
       </div>
     </nav>
 
-    <aside class="portal-agent-pane">
+    <aside id="portal-secondary-pane" class="portal-secondary-pane">
       <div class="portal-pane-header">
         <div>
-          <div class="portal-eyebrow">My Space</div>
-          <h2>Assistants</h2>
+          <div id="secondary-pane-eyebrow" class="portal-eyebrow">My Space</div>
+          <h2 id="secondary-pane-title">Assistants</h2>
         </div>
-        <button id="add-agent-btn" class="toolbar-icon-btn" type="button" title="Create Assistant">
-          <i data-lucide="plus" class="w-5 h-5"></i>
-        </button>
+        <div id="secondary-pane-actions">
+          <button id="add-agent-btn" class="toolbar-icon-btn" type="button" title="Create Assistant">
+            <i data-lucide="plus" class="w-5 h-5"></i>
+          </button>
+          <button id="add-bundle-btn" class="toolbar-icon-btn hidden" type="button" title="Create Bundle">
+            <i data-lucide="plus" class="w-5 h-5"></i>
+          </button>
+        </div>
       </div>
-      <div id="mine-list" class="portal-agent-list"></div>
+      <div class="portal-secondary-list">
+        <section id="assistants-nav-section" class="portal-secondary-section">
+          <div id="mine-list" class="portal-agent-list"></div>
+        </section>
+        <section id="bundles-nav-section" class="portal-secondary-section hidden">
+          <div id="bundle-nav-list" class="portal-secondary-list-body"></div>
+        </section>
+        <section id="tasks-nav-section" class="portal-secondary-section hidden">
+          <div id="task-nav-list" class="portal-secondary-list-body"></div>
+        </section>
+      </div>
     </aside>
 
     <main class="portal-main">
@@ -96,14 +111,15 @@
           </article>
 
           <article class="portal-card portal-card-bundles">
-            <div class="portal-card-head">
-              <div class="portal-card-title">Requirement Bundles</div>
-              <button id="add-bundle-btn" class="toolbar-icon-btn" type="button" title="Create Bundle">
-                <i data-lucide="plus" class="w-5 h-5"></i>
-              </button>
-            </div>
-            <div id="bundle-list"></div>
+            <div class="portal-card-title">Workspace Navigation</div>
+            <p class="portal-panel-note">Use the left rail to open bundles or tasks. Their details now open in the center workspace stage.</p>
           </article>
+        </div>
+      </section>
+
+      <section id="workspace-detail-view" class="portal-workspace-detail hidden" aria-label="Workspace detail view">
+        <div id="workspace-detail-content" class="portal-workspace-detail-content">
+          <div class="portal-inline-state">Select a bundle or task from the left sidebar.</div>
         </div>
       </section>
 
