@@ -2176,13 +2176,18 @@ async function loadServerFiles(path) {
 
     // Build breadcrumb with data attributes for event delegation
     const parts = path.split('/').filter(Boolean);
-    let breadcrumb = '<a href="#" class="breadcrumb-link" data-path="/">/</a>';
+    let breadcrumbParts = [
+      '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">/</a>'
+    ];
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      const escapedPath = escapeHtml(currentPath);
-      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapedPath.replace(/"/g, '&quot;') + '">' + escapeHtml(part) + '</a>';
+      breadcrumbParts.push(
+        '<span class="portal-breadcrumb-sep">/</span>' +
+        '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="' + escapeHtmlAttr(currentPath) + '">' + escapeHtml(part) + '</a>'
+      );
     }
+    const breadcrumb = breadcrumbParts.join(' ');
 
     // Build file rows with checkboxes in separate cell
     const rows = items.map((item) => {
@@ -2280,14 +2285,6 @@ async function loadServerFiles(path) {
         if (selected.length > 0) {
           downloadSelectedFiles(selected);
         }
-      });
-
-      // Breadcrumb click
-      panel.querySelectorAll('.breadcrumb-link').forEach(link => {
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          loadServerFiles(link.dataset.path);
-        });
       });
 
       // Initialize button state
