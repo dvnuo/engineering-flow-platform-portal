@@ -2588,7 +2588,7 @@ async function setModalFeedback(el, kind, text) {
   el.className = `portal-modal-feedback${kind ? ` is-${kind}` : ""}`;
 }
 
-function clearChat() {
+async function clearChat() {
   try {
     const sessionId = (document.getElementById("chat-session-id")?.value || "").trim();
     if (sessionId) {

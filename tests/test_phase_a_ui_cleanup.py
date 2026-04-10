@@ -1,3 +1,6 @@
+import pytest
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -71,6 +74,8 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "portal-system-prompt-item" in js_source
     assert "portal-system-prompt-check" in js_source
     assert "setModalFeedback" in js_source
+    assert "async function clearChat()" in js_source
+    assert "\nfunction clearChat() {" not in js_source
     assert "text-xs text-slate-400" not in js_source
     assert "text-red-500" not in js_source
     assert "text-green-500" not in js_source
@@ -155,6 +160,10 @@ def test_templates_portalized_for_panel_visual_consistency():
     bundles_page_html = Path("app/templates/requirement_bundles.html").read_text(encoding="utf-8")
 
     assert "portal-toast" in app_html
+    assert "class=\"primary\"" not in app_html
+    assert "class=\"close-btn\"" not in app_html
+    assert "portal-btn is-primary" in app_html
+    assert "portal-modal-close" in app_html
     assert "portal-toast-inner" in app_html
     assert "text-xs text-slate-500" not in app_html
 
@@ -184,6 +193,10 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "dark:" not in usage_html
     assert 'hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }"' not in settings_html
     assert 'id="settings-status"' in settings_html
+    assert "Settings saved!" not in settings_html
+    assert "setTimeout(function(){closeToolPanel();}, 500)" not in settings_html
+    assert "onclick=\"if(typeof showToast" not in settings_html
+    assert "<label class=\"portal-checkbox-row\">" not in settings_html
     assert 'data-settings-status' in settings_html
     assert 'Please select an agent first' not in settings_html
     assert 'Please select an assistant first' in settings_html
@@ -207,3 +220,14 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert 'bg-slate-100' not in bundles_page_html
     assert 'dark:bg-slate-950' not in bundles_page_html
     assert 'border-slate-200' not in bundles_page_html
+
+
+def test_chat_ui_js_parses_when_node_available():
+    if not shutil.which("node"):
+        pytest.skip("node not available")
+    result = subprocess.run(
+        ["node", "--check", "app/static/js/chat_ui.js"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

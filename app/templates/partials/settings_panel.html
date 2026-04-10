@@ -19,10 +19,10 @@
           <span class="portal-section-accent" aria-hidden="true"></span>
           <h6>Proxy</h6>
         </div>
-        <label class="portal-checkbox-row">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
-        </label>
+        </div>
       </div>
       <label class="portal-form-label">
         <span class="portal-form-label">Proxy URL</span>
@@ -101,10 +101,10 @@
           <span class="portal-section-accent" aria-hidden="true"></span>
           <h6>Jira</h6>
         </div>
-        <label class="portal-checkbox-row">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
-        </label>
+        </div>
       </div>
       <input type="hidden" name="jira_instance_count" value="{{ jira_instances|length }}" data-instance-count="jira" />
       <div class="space-y-2" data-instance-container="jira">
@@ -139,10 +139,10 @@
           <span class="portal-section-accent" aria-hidden="true"></span>
           <h6>Confluence</h6>
         </div>
-        <label class="portal-checkbox-row">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
-        </label>
+        </div>
       </div>
       <input type="hidden" name="confluence_instance_count" value="{{ confluence_instances|length }}" data-instance-count="confluence" />
       <div class="space-y-2" data-instance-container="confluence">
@@ -274,7 +274,7 @@
       <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="portal-btn is-secondary">Copy</button>
       <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="portal-btn is-secondary">Paste</button>
     </div>
-    <button type="submit" onclick="if(typeof showToast === 'function') showToast('Settings saved!'); setTimeout(function(){closeToolPanel();}, 500); return true;" class="portal-btn is-primary">Save Settings</button>
+    <button type="submit" class="portal-btn is-primary">Save Settings</button>
   </form>
 
   <script>
