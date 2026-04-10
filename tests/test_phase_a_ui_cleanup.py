@@ -2,6 +2,7 @@ import pytest
 import shutil
 import subprocess
 from pathlib import Path
+from jinja2 import Environment, FileSystemLoader
 
 
 def test_app_template_contains_new_portal_shell():
@@ -158,6 +159,11 @@ def test_templates_portalized_for_panel_visual_consistency():
     settings_html = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     usage_html = Path("app/templates/partials/usage_panel.html").read_text(encoding="utf-8")
     bundles_page_html = Path("app/templates/requirement_bundles.html").read_text(encoding="utf-8")
+    group_shared_context_list_html = Path("app/templates/partials/group_shared_context_list.html").read_text(encoding="utf-8")
+    group_shared_context_detail_html = Path("app/templates/partials/group_shared_context_detail.html").read_text(encoding="utf-8")
+    group_task_board_html = Path("app/templates/partials/group_task_board.html").read_text(encoding="utf-8")
+    login_html = Path("app/templates/login.html").read_text(encoding="utf-8")
+    register_html = Path("app/templates/register.html").read_text(encoding="utf-8")
 
     assert "portal-toast" in app_html
     assert "class=\"primary\"" not in app_html
@@ -182,6 +188,32 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert ("portal-password-toggle" in settings_html) or ("portal-password-toggle" in js_source)
     assert "portal-panel-stack" in usage_html
     assert "portal-usage-grid" in usage_html
+    assert "portal-panel-stack" in group_shared_context_list_html
+    assert "portal-panel-stack" in group_shared_context_detail_html
+    assert "portal-panel-stack" in group_task_board_html
+    assert "portal-data-table" in group_shared_context_list_html
+    assert "portal-data-table" in group_task_board_html
+    assert "portal-summary-row" in group_task_board_html
+    assert "portal-summary-chip" in group_task_board_html
+    assert "portal-detail-stack" in group_shared_context_detail_html
+    assert "portal-panel-pre" in group_shared_context_detail_html
+    assert "text-blue-600" not in group_shared_context_list_html
+    assert "border-gray-300" not in group_shared_context_list_html
+    assert "border-gray-300" not in group_shared_context_detail_html
+    assert "border-gray-300" not in group_task_board_html
+    assert "space-y-3 text-sm" not in group_shared_context_list_html
+    assert "space-y-3 text-sm" not in group_task_board_html
+    assert "space-y-2 text-sm" not in group_shared_context_detail_html
+    assert "portal-auth-copy" in login_html
+    assert "portal-auth-copy" in register_html
+    assert "portal-auth-footnote" in login_html
+    assert "portal-auth-footnote" in register_html
+    assert "portal-auth-link" in login_html
+    assert "portal-auth-link" in register_html
+    assert "muted tiny" not in login_html
+    assert "muted tiny" not in register_html
+    assert 'class="muted"' not in login_html
+    assert 'class="muted"' not in register_html
     assert "text-slate" not in settings_html
     assert "bg-slate" not in settings_html
     assert "border-slate" not in settings_html
@@ -231,3 +263,29 @@ def test_chat_ui_js_parses_when_node_available():
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_frontend_assets_and_templates_are_syntax_valid():
+    compile_result = subprocess.run(
+        ["python", "-m", "compileall", "-q", "app", "tests"],
+        capture_output=True,
+        text=True,
+    )
+    assert compile_result.returncode == 0, compile_result.stderr
+
+    if shutil.which("node"):
+        node_result = subprocess.run(
+            ["node", "--check", "app/static/js/chat_ui.js"],
+            capture_output=True,
+            text=True,
+        )
+        assert node_result.returncode == 0, node_result.stderr
+
+    def data_attr(v):
+        return '' if v is None else str(v).replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;').replace('<', '&lt;').replace('>', '&gt;')
+
+    env = Environment(loader=FileSystemLoader("app/templates"))
+    env.filters["data_attr"] = data_attr
+    for template_path in Path("app/templates").rglob("*.html"):
+        rel_path = str(template_path.relative_to("app/templates"))
+        env.get_template(rel_path)

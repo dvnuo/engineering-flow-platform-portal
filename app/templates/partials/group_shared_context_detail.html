@@ -1,13 +1,42 @@
-<div class="space-y-2 text-sm">
-  <div><strong>Group:</strong> {{ group_id }}</div>
-  <div><strong>Context Ref:</strong> {{ item.context_ref }}</div>
-  <div><strong>Scope Kind:</strong> {{ item.scope_kind }}</div>
-  <div><strong>Created By:</strong> {{ item.created_by_user_id or "-" }}</div>
-  <div><strong>Source Delegation:</strong> {{ item.source_delegation_id or "-" }}</div>
-  <div><strong>Created At:</strong> {{ item.created_at }}</div>
-  <div><strong>Updated At:</strong> {{ item.updated_at }}</div>
-  <div>
-    <strong>Payload JSON:</strong>
-    <pre class="mt-1 whitespace-pre-wrap border border-gray-300 p-2">{{ item.payload_json }}</pre>
+<div class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">Shared Context Detail</h5>
+      <div class="portal-panel-subtitle">Group {{ group_id }}</div>
+    </div>
+  </div>
+
+  <div class="portal-panel-section">
+    <div class="portal-detail-stack">
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Context Ref</div>
+        <div class="portal-detail-value">{{ item.context_ref }}</div>
+      </div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Scope Kind</div>
+        <div class="portal-detail-value">{{ item.scope_kind }}</div>
+      </div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Created By</div>
+        <div class="portal-detail-value">{{ item.created_by_user_id or "-" }}</div>
+      </div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Source Delegation</div>
+        <div class="portal-detail-value">{{ item.source_delegation_id or "-" }}</div>
+      </div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Created At</div>
+        <div class="portal-detail-value">{{ item.created_at }}</div>
+      </div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Updated At</div>
+        <div class="portal-detail-value">{{ item.updated_at }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="portal-panel-section">
+    <div class="portal-detail-label">Payload JSON</div>
+    <pre class="portal-panel-pre">{{ item.payload_json }}</pre>
   </div>
 </div>

@@ -1,40 +1,47 @@
-<div class="space-y-3 text-sm">
-  <div>
-    <strong>Group:</strong> {{ group_id }}<br>
-    <strong>Leader:</strong> {{ leader_agent_id or "-" }}
-  </div>
-  <div>
-    <strong>Total:</strong> {{ summary.total }} |
-    <strong>Queued:</strong> {{ summary.queued }} |
-    <strong>Running:</strong> {{ summary.running }} |
-    <strong>Done:</strong> {{ summary.done }} |
-    <strong>Failed:</strong> {{ summary.failed }}
+<div class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">Group Task Board</h5>
+      <div class="portal-panel-subtitle">Group {{ group_id }} · Leader {{ leader_agent_id or "-" }}</div>
+    </div>
   </div>
 
-  <table class="min-w-full border-collapse border border-gray-300">
-    <thead>
-      <tr>
-        <th class="border p-1 text-left">Objective</th>
-        <th class="border p-1 text-left">Assignee</th>
-        <th class="border p-1 text-left">Status</th>
-        <th class="border p-1 text-left">Visibility</th>
-        <th class="border p-1 text-left">Result Summary</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
-      <tr>
-        <td class="border p-1">{{ item.objective }}</td>
-        <td class="border p-1">{{ item.assignee_agent_id }}</td>
-        <td class="border p-1">{{ item.status }}</td>
-        <td class="border p-1">{{ item.visibility }}</td>
-        <td class="border p-1">{{ item.result_summary or "-" }}</td>
-      </tr>
-      {% else %}
-      <tr>
-        <td class="border p-2" colspan="5">No delegations yet.</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="portal-summary-row">
+    <span class="portal-summary-chip">Total {{ summary.total }}</span>
+    <span class="portal-summary-chip">Queued {{ summary.queued }}</span>
+    <span class="portal-summary-chip">Running {{ summary.running }}</span>
+    <span class="portal-summary-chip">Done {{ summary.done }}</span>
+    <span class="portal-summary-chip">Failed {{ summary.failed }}</span>
+  </div>
+
+  {% if items %}
+    <div class="portal-panel-section">
+      <div class="portal-data-table-wrap">
+        <table class="portal-data-table">
+          <thead>
+            <tr>
+              <th>Objective</th>
+              <th>Assignee</th>
+              <th>Status</th>
+              <th>Visibility</th>
+              <th>Result Summary</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td>{{ item.objective }}</td>
+              <td>{{ item.assignee_agent_id }}</td>
+              <td>{{ item.status }}</td>
+              <td>{{ item.visibility }}</td>
+              <td>{{ item.result_summary or "-" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="portal-panel-empty">No delegations yet.</div>
+  {% endif %}
 </div>
