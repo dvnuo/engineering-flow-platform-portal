@@ -1,143 +1,254 @@
 {% extends "base.html" %}
 {% block content %}
-<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-role="{{ role }}" class="h-screen bg-slate-950 text-slate-100 text-sm">
-  <div class="h-full grid grid-cols-[280px_minmax(0,1fr)] gap-3 p-3">
-    <aside class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-0">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold">Agents</h2>
-        <button id="add-agent-btn" class="h-8 w-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Add Agent">
-          <i data-lucide="plus" class="w-5 h-5"></i>
+<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-role="{{ role }}" class="portal-app-root">
+  <div class="portal-shell">
+    <nav class="portal-rail" aria-label="Workspace navigation">
+      <div class="portal-rail-top">
+        <button id="rail-assistants-btn" class="portal-rail-btn is-active" type="button" title="Assistants">
+          <i data-lucide="bot" class="w-5 h-5"></i>
         </button>
-      </div>
-
-      <div id="mine-list" class="space-y-2 overflow-auto min-h-0"></div>
-
-      {% if role == "admin" %}
-      <div class="mt-4 pt-4 border-t border-slate-700 dark:border-slate-800">
-        <button id="users-menu-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 dark:text-slate-300 hover:bg-slate-700 dark:hover:bg-slate-800">
+        <button id="bundles-menu-btn" class="portal-rail-btn" type="button" title="Bundles">
+          <i data-lucide="package" class="w-5 h-5"></i>
+        </button>
+        <button id="tasks-menu-btn" class="portal-rail-btn" type="button" title="Tasks">
+          <i data-lucide="list-checks" class="w-5 h-5"></i>
+        </button>
+        {% if role == "admin" %}
+        <button id="users-menu-btn" class="portal-rail-btn" type="button" title="Users">
           <i data-lucide="users" class="w-5 h-5"></i>
-          Users
+        </button>
+        {% endif %}
+      </div>
+      <div class="portal-rail-bottom">
+        <button id="theme-toggle" class="portal-rail-btn" type="button" title="Toggle theme">
+          <i data-lucide="moon" class="w-5 h-5"></i>
+        </button>
+        <button id="logout-btn" class="portal-rail-btn" type="button" title="Logout">
+          <i data-lucide="log-out" class="w-5 h-5"></i>
         </button>
       </div>
-      {% endif %}
+    </nav>
 
-      <div class="mt-auto pt-4 border-t border-slate-800 flex items-center justify-between">
+    <aside id="portal-secondary-pane" class="portal-secondary-pane">
+      <div class="portal-pane-header">
         <div>
-          <div class="font-semibold">{{ nickname }}</div>
-          <div class="text-xs text-slate-400">{{ role }}</div>
+          <div id="secondary-pane-eyebrow" class="portal-eyebrow">My Space</div>
+          <h2 id="secondary-pane-title">Assistants</h2>
         </div>
-        <div class="flex items-center gap-1">
-          <button id="theme-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Toggle theme">
-            <i data-lucide="moon" class="w-5 h-5"></i>
+        <div id="secondary-pane-actions">
+          <button id="add-agent-btn" class="toolbar-icon-btn" type="button" title="Create Assistant">
+            <i data-lucide="plus" class="w-5 h-5"></i>
           </button>
-          <button id="logout-btn" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Logout">
-            <i data-lucide="log-out" class="w-5 h-5"></i>
+          <button id="add-bundle-btn" class="toolbar-icon-btn hidden" type="button" title="Create Bundle">
+            <i data-lucide="plus" class="w-5 h-5"></i>
           </button>
         </div>
+      </div>
+      <div class="portal-secondary-list">
+        <section id="assistants-nav-section" class="portal-secondary-section">
+          <div id="mine-list" class="portal-agent-list"></div>
+        </section>
+        <section id="bundles-nav-section" class="portal-secondary-section hidden">
+          <div id="bundle-nav-list" class="portal-secondary-list-body"></div>
+        </section>
+        <section id="tasks-nav-section" class="portal-secondary-section hidden">
+          <div id="task-nav-list" class="portal-secondary-list-body"></div>
+        </section>
+      </div>
     </aside>
 
-    <main class="rounded-2xl border border-slate-800 bg-slate-900/60 min-h-0 flex flex-col relative">
-      <header class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
-        <div>
-          <div class="text-xs text-slate-400">Active Agent</div>
-          <h1 id="embed-title" class="text-lg font-semibold">Select an agent</h1>
+    <main class="portal-main">
+      <header class="portal-main-header">
+        <div class="portal-main-header-copy">
+          <h1 id="embed-title">Select an assistant</h1>
+          <div id="chat-status" class="portal-statusline">Ready</div>
         </div>
-        <div class="flex items-center gap-2">
-          <span id="selected-status" class="px-3 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">idle</span>
-          <button id="btn-sessions" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Sessions">
-            <i data-lucide="clock" class="w-5 h-5"></i>
+        <div class="portal-main-toolbar">
+          <span id="selected-status" class="toolbar-status-badge">idle</span>
+          <button id="btn-sessions" class="toolbar-secondary-btn" type="button">
+            <i data-lucide="clock" class="w-4 h-4"></i>
+            Sessions
           </button>
-          <button id="btn-thinking" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Thinking Process">
+          <button id="header-new-chat-btn" class="toolbar-primary-btn" type="button">New Chat</button>
+          <button id="btn-thinking" class="toolbar-icon-btn" type="button" title="Thinking Process">
             <i data-lucide="brain" class="w-5 h-5"></i>
           </button>
-          <button id="btn-files" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Server Files" data-owner-only="true">
+          <button id="btn-files" class="toolbar-icon-btn" type="button" title="Server Files" data-owner-only="true">
             <i data-lucide="folder" class="w-5 h-5"></i>
           </button>
-          <button id="top-settings" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Settings" data-owner-only="true"><i data-lucide="settings" class="w-5 h-5"></i></button>
-          <button id="detail-toggle" class="h-9 w-9 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Agent Details">
-            <i data-lucide="panel-left" class="w-5 h-5"></i>
+          <button id="top-settings" class="toolbar-icon-btn" type="button" title="Settings" data-owner-only="true">
+            <i data-lucide="settings" class="w-5 h-5"></i>
+          </button>
+          <button id="detail-toggle" class="toolbar-icon-btn" type="button" title="Assistant details">
+            <i data-lucide="panel-right" class="w-5 h-5"></i>
           </button>
         </div>
       </header>
 
-      <section id="center-placeholder" class="flex-1 grid place-items-center text-center text-slate-400">
-        <div>
-          <h3 class="text-lg text-slate-200 font-semibold">Start an agent conversation</h3>
-          <p class="mt-2">Select an agent and ensure it is running.</p>
+      <section id="center-placeholder" class="portal-home">
+        <div class="portal-home-hero">
+          <div class="portal-home-orb" aria-hidden="true"></div>
+          <div>
+            <h3 id="home-title">Select an assistant</h3>
+            <p id="home-subtitle">Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.</p>
+          </div>
+        </div>
+
+        <div class="portal-home-grid">
+          <article class="portal-card">
+            <div class="portal-card-title">Selected Assistant</div>
+            <div id="home-agent-summary">No assistant selected.</div>
+          </article>
+
+          <article class="portal-card">
+            <div class="portal-card-title">Quick Actions</div>
+            <div class="portal-home-actions">
+              <button id="home-start-chat-btn" type="button" class="toolbar-primary-btn">New Chat</button>
+              <button id="home-open-bundles-btn" type="button" class="toolbar-secondary-btn">Bundles</button>
+              <button id="home-open-tasks-btn" type="button" class="toolbar-secondary-btn">Tasks</button>
+            </div>
+          </article>
+
+          <article class="portal-card portal-card-bundles">
+            <div class="portal-card-title">Workspace Navigation</div>
+            <p class="portal-panel-note">Use the left rail to open bundles or tasks. Their details now open in the center workspace stage.</p>
+          </article>
         </div>
       </section>
 
-      <section id="agent-chat-app" class="hidden flex-1 min-h-0 flex flex-col" aria-label="Agent chat workspace">
-        <div id="message-list" class="flex-1 min-h-0 overflow-y-auto px-5 py-5 space-y-5">
-          <article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
-            <p class="text-xs uppercase tracking-wide text-slate-400 mb-2">{{ agent_name }}</p>
-            <div class="prose prose-invert max-w-none text-sm">👋 Welcome! Ask me anything.</div>
-          </article>
+      <section id="workspace-detail-view" class="portal-workspace-detail hidden" aria-label="Workspace detail view">
+        <div id="workspace-detail-content" class="portal-workspace-detail-content">
+          <div class="portal-inline-state">Select a bundle or task from the left sidebar.</div>
         </div>
+      </section>
 
-        <div class="px-5 pb-4">
-          <input id="upload-input" type="file" class="hidden" />
-          <form id="chat-form"
-                hx-post="/app/chat/send"
-                hx-target="#message-list"
-                hx-swap="beforeend"
-                class="rounded-2xl border p-3 shadow-sm flex items-end gap-2 bg-transparent">
-            <input type="hidden" id="chat-agent-id" name="agent_id" value="" />
-            <input type="hidden" id="chat-session-id" name="session_id" value="" />
-            <input type="hidden" id="chat-attachments" name="attachments" value="" />
-            
-            <!-- Quick Actions -->
-            <button type="button" id="quick-new-chat-btn" class="w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="New Chat">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="plus" aria-hidden="true" class="lucide lucide-plus w-5 h-5"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-            </button>
-            <button type="button" id="quick-uploads-btn" class="w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="My Uploads">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="library" aria-hidden="true" class="lucide lucide-library w-5 h-5"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M2 12h20"/><path d="M2 18h20"/><path d="M2 6h20v12h-20Z"/></svg>
-            </button>
-            
-            <div class="relative flex-1">
-              <div id="input-preview-area" class="hidden grid gap-2 p-2 mb-2 rounded-lg bg-slate-100 dark:bg-slate-700/50"></div>
-              <textarea id="chat-input" name="message" rows="1" required
-                        class="w-full resize-none rounded-xl border px-3 py-2 outline-none placeholder:"
-                        placeholder="Type message, / for skills"></textarea>
-              <div id="chat-suggest" class="hidden absolute bottom-full mb-2 w-full rounded-xl border p-2 space-y-1 max-h-56 overflow-auto shadow-lg"></div>
+      <section id="agent-chat-app" class="portal-conversation hidden" aria-label="Assistant chat workspace">
+        <div class="portal-conversation-main">
+          <div id="message-scroll" class="portal-message-scroll">
+            <div id="message-list" class="portal-message-list">
+              <div class="message-row message-row-assistant" data-welcome="1">
+                <div class="message-meta">
+                  <span class="message-author">Assistant</span>
+                  <span class="message-timestamp">Ready</span>
+                </div>
+                <article class="message-surface message-surface-assistant assistant-message">
+                  <div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div>
+                </article>
+              </div>
             </div>
-            
-            <button id="send-chat-btn" class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold disabled:cursor-not-allowed disabled:opacity-60">Send</button>
-          </form>
+          </div>
+
+          <div class="portal-composer-wrap">
+            <input id="upload-input" type="file" class="hidden" />
+            <form id="chat-form"
+                  hx-post="/app/chat/send"
+                  hx-target="#message-list"
+                  hx-swap="beforeend"
+                  class="portal-composer">
+              <input type="hidden" id="chat-agent-id" name="agent_id" value="" />
+              <input type="hidden" id="chat-session-id" name="session_id" value="" />
+              <input type="hidden" id="chat-attachments" name="attachments" value="" />
+
+              <div class="portal-composer-input-wrap">
+                <div id="input-preview-area" class="hidden"></div>
+                <textarea id="chat-input"
+                          name="message"
+                          rows="1"
+                          required
+                          placeholder="Ask me anything..."></textarea>
+                <div id="chat-suggest" class="hidden"></div>
+              </div>
+
+              <div class="portal-composer-toolbar">
+                <div class="portal-composer-toolbar-left">
+                  <button type="button"
+                          id="quick-uploads-btn"
+                          class="composer-pill-btn composer-source-btn"
+                          title="Select source">
+                    <i data-lucide="library" class="w-4 h-4"></i>
+                    <span>Select Source</span>
+                    <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                  </button>
+                </div>
+
+                <div class="portal-composer-toolbar-right">
+                  <button type="button"
+                          id="composer-attach-btn"
+                          class="composer-pill-btn"
+                          title="Attach files">
+                    <i data-lucide="paperclip" class="w-4 h-4"></i>
+                    <span>Attach</span>
+                  </button>
+
+                  <button id="send-chat-btn" type="submit" class="composer-send-btn">
+                    <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                    <span>Send</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
       </section>
     </main>
   </div>
 
-  <div id="detail-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
   <div id="tool-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
-  
-  <!-- Global Toast -->
-  <div id="global-toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 hidden">
-    <div class="rounded-lg border border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-4 py-2 text-sm shadow-lg"></div>
+
+  <div id="global-toast" class="portal-toast hidden">
+    <div class="portal-toast-inner"></div>
   </div>
-  
-  <!-- Unified Panel (Agent Details, Sessions, Skills, Files, etc.) -->
-  <aside id="tool-panel" class="fixed right-3 top-3 bottom-3 w-[480px] min-w-[300px] max-w-[calc(100vw-24px)] z-40 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl translate-x-[120%] transition-transform duration-200 flex flex-col">
-    <div id="tool-panel-resize" class="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-500/50 rounded-l-2xl"></div>
-    <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-      <h4 id="tool-panel-title" class="text-xl font-semibold text-slate-800 dark:text-slate-100">Panel</h4>
-      <button id="close-tool-panel" class="toolbar-btn"><i data-lucide="x"></i></button>
+
+  <aside id="tool-panel" class="portal-tool-panel">
+    <div id="tool-panel-resize" class="portal-tool-panel-resize"></div>
+    <div class="portal-tool-panel-head">
+      <h4 id="tool-panel-title">Panel</h4>
+      <button id="close-tool-panel" class="toolbar-icon-btn" type="button" title="Close panel"><i data-lucide="x"></i></button>
     </div>
-    <div id="tool-panel-body" class="p-4 overflow-auto min-h-0 text-sm text-slate-600 dark:text-slate-300">Select a utility from top toolbar.</div>
+    <div id="tool-panel-body" class="portal-tool-panel-body">Select a utility from top toolbar.</div>
   </aside>
+</div>
+
+<div id="create-bundle-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-card panel">
+    <div class="portal-modal-titlebar">
+      <h3>Create Bundle</h3>
+      <button id="close-create-bundle-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
+    </div>
+
+    <form id="create-bundle-form" class="stack">
+      <div>
+        <label>Title</label>
+        <input name="title" placeholder="Checkout Flow" required />
+      </div>
+      <div>
+        <label>Domain</label>
+        <input name="domain" placeholder="payments" required />
+      </div>
+      <div>
+        <label>Slug (optional)</label>
+        <input name="slug" placeholder="checkout-flow" />
+      </div>
+      <div>
+        <label>Base Branch</label>
+        <input name="base_branch" placeholder="main" value="{{ bundle_base_branch or 'main' }}" required />
+      </div>
+      <button type="submit">Create Bundle</button>
+      <p id="create-bundle-msg" class="portal-modal-feedback"></p>
+    </form>
+  </div>
 </div>
 
 <div id="create-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
-      <h3>Create Agent</h3>
-      <button id="close-create-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+    <div class="portal-modal-titlebar">
+      <h3>Create Assistant</h3>
+      <button id="close-create-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="create-form" class="stack">
       <div>
-        <label>Agent Name</label>
+        <label>Assistant Name</label>
         <input name="name" placeholder="MyAgent" value="MyAgent" required />
       </div>
       <div>
@@ -148,23 +259,23 @@
         <label>Branch</label>
         <input name="branch" placeholder="master" value="master" />
       </div>
-      <button type="submit">Create Agent</button>
-      <p id="create-msg" class="muted tiny"></p>
+      <button type="submit">Create Assistant</button>
+      <p id="create-msg" class="portal-modal-feedback"></p>
     </form>
   </div>
 </div>
 
 <div id="edit-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
-      <h3>Edit Agent</h3>
-      <button id="close-edit-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+    <div class="portal-modal-titlebar">
+      <h3>Edit Assistant</h3>
+      <button id="close-edit-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="edit-form" class="stack">
       <input type="hidden" name="id" />
       <div>
-        <label>Agent Name</label>
+        <label>Assistant Name</label>
         <input name="name" placeholder="MyAgent" required />
       </div>
       <div>
@@ -176,43 +287,43 @@
         <input name="branch" placeholder="master" />
       </div>
       <button type="submit">Save Changes</button>
-      <p id="edit-msg" class="muted tiny"></p>
+      <p id="edit-msg" class="portal-modal-feedback"></p>
     </form>
   </div>
 </div>
 
 <div id="message-edit-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="message-edit-title" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
+    <div class="portal-modal-titlebar">
       <h3>Edit Message</h3>
-      <button id="close-message-edit-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+      <button id="close-message-edit-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
     <form id="message-edit-form" class="stack">
       <input type="hidden" id="edit-message-id" />
       <input type="hidden" id="edit-attachments" />
       <div>
         <label for="edit-message-content">Message Content</label>
-        <textarea id="edit-message-content" class="w-full resize-none rounded-xl border px-3 py-2 outline-none placeholder: bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200" rows="5" placeholder="Enter new message content..."></textarea>
+        <textarea id="edit-message-content" class="portal-form-textarea" rows="5" placeholder="Enter new message content..."></textarea>
       </div>
-      <p class="text-xs text-slate-400">Note: All subsequent messages will be deleted after editing.</p>
-      <button type="submit" class="primary">Save & Resend</button>
+      <p class="portal-modal-copy">Note: All subsequent messages will be deleted after editing.</p>
+      <button type="submit" class="portal-btn is-primary">Save & Resend</button>
     </form>
   </div>
 </div>
 
 <div id="paste-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
-    <div class="modal-head">
+    <div class="portal-modal-titlebar">
       <h3>Paste Configuration</h3>
-      <button id="close-paste-modal" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+      <button id="close-paste-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
     <div class="stack">
-      <p class="text-sm text-slate-400">Paste your configuration JSON below:</p>
-      <textarea id="paste-config-text" class="w-full h-48 px-3 py-2 rounded-lg border border-slate-600 bg-slate-800 text-slate-200 font-mono text-xs resize-none" placeholder='{"llm": {...}, "jira": {...}}'></textarea>
-      <div id="paste-success-msg" class="hidden text-sm text-green-400 bg-green-900/30 rounded-lg px-3 py-2">Configuration applied successfully!</div>
-      <div class="flex gap-2">
-        <button id="cancel-paste-btn" type="button" class="flex-1 rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700">Cancel</button>
-        <button id="confirm-paste-btn" type="button" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500">Apply</button>
+      <p class="portal-modal-copy">Paste your configuration JSON below:</p>
+      <textarea id="paste-config-text" class="portal-form-textarea portal-form-textarea-mono" placeholder='{"llm": {...}, "jira": {...}}'></textarea>
+      <div id="paste-success-msg" class="portal-inline-state hidden">Configuration applied successfully!</div>
+      <div class="portal-modal-actions portal-modal-actions-stretch">
+        <button id="cancel-paste-btn" type="button" class="portal-btn is-secondary">Cancel</button>
+        <button id="confirm-paste-btn" type="button" class="portal-btn is-primary">Apply</button>
       </div>
     </div>
   </div>
@@ -222,7 +333,7 @@
 <div id="file-preview-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="file-preview-title" aria-hidden="true">
   <div class="modal-backdrop" id="file-preview-backdrop"></div>
   <div class="modal-card file-preview-card">
-    <button id="close-file-preview" class="close-btn" type="button" title="Close" aria-label="Close">✕</button>
+    <button id="close-file-preview" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     <h2 id="file-preview-title" class="sr-only">File Preview</h2>
     <div id="file-preview-content" class="file-preview-content"></div>
   </div>

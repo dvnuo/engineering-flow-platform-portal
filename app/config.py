@@ -12,6 +12,18 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./portal.db"
     secret_key: str = "change-me-in-production"
     session_cookie_name: str = "portal_session"
+    portal_internal_api_key: str = Field(default="", validation_alias="PORTAL_INTERNAL_API_KEY")
+    runtime_internal_api_key: str = Field(default="", validation_alias="RUNTIME_INTERNAL_API_KEY")
+    portal_internal_base_url: str = Field(default="", validation_alias="PORTAL_INTERNAL_BASE_URL")
+    github_webhook_secret: str = Field(default="", validation_alias="GITHUB_WEBHOOK_SECRET")
+    jira_webhook_shared_secret: str = Field(default="", validation_alias="JIRA_WEBHOOK_SHARED_SECRET")
+    allow_insecure_provider_webhooks: bool = Field(default=False, validation_alias="ALLOW_INSECURE_PROVIDER_WEBHOOKS")
+    # Preferred runtime-catalog alignment hook for Portal capability validation/routing.
+    # If this snapshot is missing/invalid, Portal falls back to deterministic local seed mappings.
+    runtime_capability_catalog_snapshot_json: str = Field(
+        default="",
+        validation_alias="RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON",
+    )
 
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = Field(default="", validation_alias="BOOTSTRAP_ADMIN_PASSWORD")
@@ -38,6 +50,15 @@ class Settings(BaseSettings):
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"
     default_agent_mount_path: str = "/root/.efp"
+
+    assets_github_token: str = Field(default="", validation_alias="ASSETS_GITHUB_TOKEN")
+    assets_github_api_base_url: str = Field(default="https://api.github.com", validation_alias="ASSETS_GITHUB_API_BASE_URL")
+    assets_repo_full_name: str = Field(
+        default="dvnuo/engineering-flow-platform-assets",
+        validation_alias="ASSETS_REPO_FULL_NAME",
+    )
+    assets_default_base_branch: str = Field(default="main", validation_alias="ASSETS_DEFAULT_BASE_BRANCH")
+    assets_bundle_root_dir: str = Field(default="requirement-bundles", validation_alias="ASSETS_BUNDLE_ROOT_DIR")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

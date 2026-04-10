@@ -1,6 +1,8 @@
 import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
+import logging
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
@@ -10,12 +12,24 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.agent_group_repo import AgentGroupRepository
+from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
+from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
+from app.services.requirement_bundle_github_service import (
+    RequirementBundleGithubService,
+    RequirementBundleGithubServiceError,
+)
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_fields, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
+from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+from app.services.task_dispatcher import TaskDispatcherService
+from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+from app.log_context import bind_log_context, get_log_context, reset_log_context
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger(__name__)
 
 def escape_data_attr(s):
     """Escape string for safe embedding in HTML data-* attributes using markupsafe."""
@@ -26,6 +40,9 @@ def escape_data_attr(s):
 templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
 proxy_service = ProxyService()
+runtime_execution_context_service = RuntimeExecutionContextService()
+task_dispatcher_service = TaskDispatcherService()
+requirement_bundle_service = RequirementBundleGithubService()
 base_uri = settings.base_uri
 
 
@@ -59,15 +76,27 @@ def _portal_extra_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
 
 
-def _portal_identity_payload(user) -> dict[str, str]:
-    identity = build_portal_identity_fields(user)
-    payload = {}
-    if identity.get("user_id"):
-        payload["portal_user_id"] = identity["user_id"]
-    if identity.get("user_name"):
-        payload["portal_user_name"] = identity["user_name"]
+def _list_writable_agents(db, user) -> list:
+    agents = AgentRepository(db).list_all()
+    return [agent for agent in agents if _can_write(agent, user)]
 
-    return payload
+
+def _parse_multivalue_text_field(raw: str) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    normalized = (raw or "").replace(",", "\n")
+    for item in normalized.splitlines():
+        cleaned = item.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        values.append(cleaned)
+    return values
+
+
+def _has_supported_collect_sources(sources: dict) -> bool:
+    supported_source_keys = ("jira", "confluence", "github_docs")
+    return any(sources.get(source_key) for source_key in supported_source_keys)
 
 
 async def _forward_runtime(
@@ -345,7 +374,437 @@ def app_page(request: Request):
             "nickname": user.nickname or user.username,
             "user_id": user.id,
             "role": user.role,
+            "bundle_base_branch": settings.assets_default_base_branch,
         },
+    )
+
+
+@router.get("/app/requirement-bundles")
+def requirement_bundles_page(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        return _render_requirement_bundles_view(request, user, db)
+    finally:
+        db.close()
+
+
+@router.get("/app/requirement-bundles/panel")
+def requirement_bundles_panel(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        return _render_requirement_bundles_view(request, user, db, panel_mode=True)
+    finally:
+        db.close()
+
+
+
+
+def _content_target_from_request(request: Request, default: str = "#tool-panel-body") -> str:
+    hx_target = (request.headers.get("HX-Target") or "").strip()
+    if hx_target:
+        return hx_target if hx_target.startswith("#") else f"#{hx_target}"
+    return default
+
+def _is_htmx_request(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
+    context = {
+        "request": request,
+        "title": "Requirement Bundles",
+        "username": user.username,
+        "nickname": user.nickname or user.username,
+        "bundle_defaults": {
+            "repo": settings.assets_repo_full_name,
+            "base_branch": settings.assets_default_base_branch,
+            "root_dir": settings.assets_bundle_root_dir,
+        },
+        "agents": _list_writable_agents(db, user),
+        "bundle_result": None,
+        "bundle_detail": None,
+        "status_type": "",
+        "status_message": "",
+        "task_result": None,
+    }
+    context.update(kwargs)
+    return context
+
+
+def _render_requirement_bundles_view(request: Request, user, db, *, panel_mode: bool = False, **kwargs):
+    context = _requirement_bundles_context(request, user, db, **kwargs)
+    context["content_target"] = _content_target_from_request(
+        request,
+        default="#tool-panel-body" if panel_mode else "#requirement-bundles-page-content",
+    )
+    template_name = "partials/requirement_bundles_panel.html" if panel_mode else "requirement_bundles.html"
+    return templates.TemplateResponse(template_name, context)
+
+
+def _visible_group_ids_for_user(db, user) -> list[str]:
+    group_service = AgentGroupService(db)
+    groups = AgentGroupRepository(db).list_all()
+    return [group.id for group in groups if group_service.can_view_group(group, user)]
+
+
+@router.get("/app/tasks/panel")
+def my_tasks_panel(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        group_ids = _visible_group_ids_for_user(db, user)
+        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, visible_group_ids=group_ids)
+        summary = {"queued": 0, "running": 0, "done": 0, "failed": 0}
+        for task in tasks:
+            if task.status in summary:
+                summary[task.status] += 1
+        return templates.TemplateResponse(
+            "partials/my_tasks_panel.html",
+            {"request": request, "tasks": tasks, "summary": summary, "content_target": _content_target_from_request(request)},
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/tasks/{task_id}/panel")
+def task_detail_panel(request: Request, task_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        task = AgentTaskRepository(db).get_by_id(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if user.role != "admin":
+            group_ids = _visible_group_ids_for_user(db, user)
+            is_visible = task.owner_user_id == user.id or task.created_by_user_id == user.id or (
+                task.group_id and task.group_id in group_ids
+            )
+            if not is_visible:
+                raise HTTPException(status_code=404, detail="Task not found")
+        return templates.TemplateResponse(
+            "partials/task_detail_panel.html",
+            {"request": request, "task": task, "content_target": _content_target_from_request(request)},
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/requirement-bundles/create")
+async def requirement_bundle_create(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    panel_mode = _is_htmx_request(request)
+    db = SessionLocal()
+    try:
+        form_data = await request.form()
+        create_form = RequirementBundleCreateForm(
+            title=str(form_data.get("title") or ""),
+            domain=str(form_data.get("domain") or ""),
+            slug=(str(form_data.get("slug") or "").strip() or None),
+            base_branch=str(form_data.get("base_branch") or settings.assets_default_base_branch),
+        )
+        bundle_ref = requirement_bundle_service.create_bundle(create_form)
+        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            bundle_result=bundle_ref,
+            bundle_detail=bundle_detail,
+            status_type="success",
+            status_message="Bundle created successfully.",
+        )
+    except RequirementBundleGithubServiceError as exc:
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            status_type="error",
+            status_message=str(exc),
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/requirement-bundles/open")
+def requirement_bundle_open(request: Request, repo: str = Query(""), path: str = Query(""), branch: str = Query("")):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    target_repo = (repo or settings.assets_repo_full_name).strip()
+    target_path = (path or "").strip()
+    target_branch = (branch or settings.assets_default_base_branch).strip()
+    panel_mode = _is_htmx_request(request)
+
+    db = SessionLocal()
+    try:
+        detail = requirement_bundle_service.inspect_bundle(
+            BundleRef(repo=target_repo, path=target_path, branch=target_branch)
+        )
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            bundle_detail=detail,
+            status_type="success",
+            status_message="Bundle opened successfully.",
+        )
+    except RequirementBundleGithubServiceError as exc:
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            status_type="error",
+            status_message=str(exc),
+        )
+    finally:
+        db.close()
+
+
+def _create_bundle_task_payload(
+    task_type: str,
+    bundle_ref: BundleRef,
+    manifest_ref: BundleRef,
+    sources: dict | None = None,
+) -> dict:
+    payload = {
+        "bundle_ref": {
+            "repo": bundle_ref.repo,
+            "path": bundle_ref.path,
+            "branch": bundle_ref.branch,
+        },
+        "manifest_ref": {
+            "repo": manifest_ref.repo,
+            "path": manifest_ref.path,
+            "branch": manifest_ref.branch,
+        }
+    }
+    if task_type == "requirement_bundle_collect_task":
+        payload["sources"] = sources or {"jira": [], "confluence": [], "github_docs": [], "figma": []}
+    return payload
+
+
+async def _create_and_dispatch_bundle_task(
+    request: Request,
+    *,
+    task_type: str,
+    assignee_agent_id: str,
+    manifest_ref: BundleRef,
+    bundle_ref: BundleRef,
+    sources: dict | None = None,
+):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    panel_mode = _is_htmx_request(request)
+    db = SessionLocal()
+    dispatch_context_token = None
+    try:
+        assignee = AgentRepository(db).get_by_id(assignee_agent_id)
+        if not assignee:
+            raise HTTPException(status_code=404, detail="Assignee agent not found")
+        if not _can_write(assignee, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        inspect_ref = (
+            manifest_ref
+            if manifest_ref.repo and manifest_ref.path and manifest_ref.branch
+            else bundle_ref
+        )
+        bundle_detail = requirement_bundle_service.inspect_bundle(inspect_ref)
+        effective_bundle_ref = bundle_detail.bundle_ref
+        effective_manifest_ref = bundle_detail.manifest_ref
+        task_payload = _create_bundle_task_payload(
+            task_type,
+            effective_bundle_ref,
+            effective_manifest_ref,
+            sources=sources,
+        )
+        source_counts = sources or {}
+        logger.info(
+            "action=create_dispatch_bundle_task task_type=%s selected_agent_id=%s bundle_ref=%s/%s@%s manifest_ref=%s/%s@%s jira_count=%s confluence_count=%s github_docs_count=%s figma_count=%s trace_id=%s",
+            task_type,
+            assignee_agent_id,
+            effective_bundle_ref.repo,
+            effective_bundle_ref.path,
+            effective_bundle_ref.branch,
+            effective_manifest_ref.repo,
+            effective_manifest_ref.path,
+            effective_manifest_ref.branch,
+            len(source_counts.get("jira") or []),
+            len(source_counts.get("confluence") or []),
+            len(source_counts.get("github_docs") or []),
+            len(source_counts.get("figma") or []),
+            get_log_context().get("trace_id"),
+        )
+        task = AgentTaskRepository(db).create(
+            assignee_agent_id=assignee_agent_id,
+            owner_user_id=assignee.owner_user_id,
+            created_by_user_id=user.id,
+            source="portal",
+            task_type=task_type,
+            input_payload_json=json.dumps(task_payload),
+            status="queued",
+        )
+        dispatch_context_token = bind_log_context(portal_task_id=task.id, agent_id=assignee_agent_id)
+        logger.info(
+            "Created requirement bundle task task_id=%s task_type=%s selected_agent_id=%s",
+            task.id,
+            task_type,
+            assignee_agent_id,
+        )
+        logger.debug("Requirement bundle background dispatch scheduled task_id=%s", task.id)
+        task_dispatcher_service.dispatch_task_in_background(task.id)
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            bundle_detail=bundle_detail,
+            status_type="success",
+            status_message=f"Created task {task.id} and scheduled background dispatch. Open My Tasks to follow progress.",
+            task_result={
+                "task_id": task.id,
+                "dispatch_status": "scheduled",
+                "dispatch_message": "Task scheduled for background dispatch",
+            },
+        )
+    except RequirementBundleGithubServiceError as exc:
+        return _render_requirement_bundles_view(
+            request,
+            user,
+            db,
+            panel_mode=panel_mode,
+            status_type="error",
+            status_message=str(exc),
+        )
+    finally:
+        if dispatch_context_token is not None:
+            reset_log_context(dispatch_context_token)
+        db.close()
+
+
+@router.post("/app/requirement-bundles/collect")
+async def requirement_bundle_collect(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    form = await request.form()
+    assignee_agent_id = str(form.get("collect_agent_id") or "").strip()
+    sources = {
+        "jira": _parse_multivalue_text_field(str(form.get("jira_sources") or "")),
+        "confluence": _parse_multivalue_text_field(str(form.get("confluence_sources") or "")),
+        "github_docs": _parse_multivalue_text_field(str(form.get("github_doc_sources") or "")),
+        "figma": _parse_multivalue_text_field(str(form.get("figma_sources") or "")),
+    }
+    bundle_ref = BundleRef(
+        repo=str(form.get("bundle_repo") or "").strip(),
+        path=str(form.get("bundle_path") or "").strip(),
+        branch=str(form.get("bundle_branch") or "").strip(),
+    )
+    manifest_ref = BundleRef(
+        repo=str(form.get("manifest_repo") or form.get("bundle_repo") or "").strip(),
+        path=str(form.get("manifest_path") or form.get("bundle_path") or "").strip(),
+        branch=str(form.get("manifest_branch") or form.get("bundle_branch") or "").strip(),
+    )
+    if not assignee_agent_id:
+        raise HTTPException(status_code=400, detail="collect_agent_id is required")
+    if not _has_supported_collect_sources(sources):
+        bundle_detail = requirement_bundle_service.inspect_bundle(manifest_ref)
+        status_message = (
+            "Figma-only collection is not supported in MVP"
+            if sources.get("figma")
+            else "At least one Jira, Confluence, or GitHub Docs source is required."
+        )
+        panel_mode = _is_htmx_request(request)
+        db = SessionLocal()
+        try:
+            return _render_requirement_bundles_view(
+                request,
+                user,
+                db,
+                panel_mode=panel_mode,
+                bundle_detail=bundle_detail,
+                status_type="error",
+                status_message=status_message,
+            )
+        finally:
+            db.close()
+    return await _create_and_dispatch_bundle_task(
+        request,
+        task_type="requirement_bundle_collect_task",
+        assignee_agent_id=assignee_agent_id,
+        manifest_ref=manifest_ref,
+        bundle_ref=bundle_ref,
+        sources=sources,
+    )
+
+
+@router.post("/app/requirement-bundles/design-test-cases")
+async def requirement_bundle_design_test_cases(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    form = await request.form()
+    assignee_agent_id = str(form.get("design_agent_id") or "").strip()
+    bundle_ref = BundleRef(
+        repo=str(form.get("bundle_repo") or "").strip(),
+        path=str(form.get("bundle_path") or "").strip(),
+        branch=str(form.get("bundle_branch") or "").strip(),
+    )
+    manifest_ref = BundleRef(
+        repo=str(form.get("manifest_repo") or form.get("bundle_repo") or "").strip(),
+        path=str(form.get("manifest_path") or form.get("bundle_path") or "").strip(),
+        branch=str(form.get("manifest_branch") or form.get("bundle_branch") or "").strip(),
+    )
+    if not assignee_agent_id:
+        raise HTTPException(status_code=400, detail="design_agent_id is required")
+    bundle_detail = requirement_bundle_service.inspect_bundle(manifest_ref)
+    if not bundle_detail.requirements_exists:
+        panel_mode = _is_htmx_request(request)
+        db = SessionLocal()
+        try:
+            return _render_requirement_bundles_view(
+                request,
+                user,
+                db,
+                panel_mode=panel_mode,
+                bundle_detail=bundle_detail,
+                status_type="error",
+                status_message=f"{bundle_detail.requirements_file} is missing; collect requirements first",
+            )
+        finally:
+            db.close()
+    return await _create_and_dispatch_bundle_task(
+        request,
+        task_type="requirement_bundle_design_test_cases_task",
+        assignee_agent_id=assignee_agent_id,
+        manifest_ref=manifest_ref,
+        bundle_ref=bundle_ref,
     )
 
 
@@ -928,23 +1387,32 @@ async def app_chat_send(request: Request):
         if agent.status != "running":
             raise HTTPException(status_code=409, detail="Agent not running")
 
+        metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
         payload = {
             "message": message,
-            **_portal_identity_payload(user),
+            "metadata": metadata,
         }
         if session_id:
             payload["session_id"] = session_id
         if attachments:
             payload["attachments"] = attachments
 
-        status_code, content, _ = await _forward_runtime(
-            user=user,
+        try:
+            extra_headers = build_portal_execution_headers(user)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="PORTAL_INTERNAL_API_KEY is not configured",
+            ) from exc
+
+        status_code, content, _ = await proxy_service.forward(
             agent=agent,
             method="POST",
             subpath="api/chat",
             query_items=[],
             body=json.dumps(payload).encode("utf-8"),
             headers={"content-type": "application/json"},
+            extra_headers=extra_headers,
         )
 
         if status_code >= 400:
@@ -965,6 +1433,93 @@ async def app_chat_send(request: Request):
                 "agent_name": agent.name if agent else "Assistant",
                 "user_message_id": data.get("user_message_id") or "",
                 "events": events,
+                "timestamp": datetime.now().strftime("%H:%M"),
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/agent-groups/{group_id}/task-board/panel")
+async def app_group_task_board_panel(request: Request, group_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+
+        service = AgentGroupService(db)
+        try:
+            board = service.get_group_task_board(group_id, user=user, apply_visibility=True)
+        except AgentGroupServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+        return templates.TemplateResponse(
+            "partials/group_task_board.html",
+            {
+                "request": request,
+                "group_id": board["group_id"],
+                "leader_agent_id": board["leader_agent_id"],
+                "summary": board["summary"],
+                "items": board["items"],
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/agent-groups/{group_id}/shared-contexts/panel")
+async def app_group_shared_context_list_panel(request: Request, group_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+
+        service = AgentGroupService(db)
+        try:
+            snapshots = service.list_group_shared_context_snapshots(group_id, user=user)
+        except AgentGroupServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+        return templates.TemplateResponse(
+            "partials/group_shared_context_list.html",
+            {
+                "request": request,
+                "group_id": group_id,
+                "items": snapshots,
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/agent-groups/{group_id}/shared-contexts/{context_ref}/panel")
+async def app_group_shared_context_detail_panel(request: Request, group_id: str, context_ref: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+
+        service = AgentGroupService(db)
+        try:
+            snapshot = service.get_group_shared_context_snapshot(group_id, context_ref, user=user)
+        except AgentGroupServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+        return templates.TemplateResponse(
+            "partials/group_shared_context_detail.html",
+            {
+                "request": request,
+                "group_id": group_id,
+                "item": snapshot,
             },
         )
     finally:

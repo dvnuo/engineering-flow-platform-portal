@@ -62,6 +62,31 @@ class K8sServiceNoopTest(unittest.TestCase):
             {"efp/git-repo-url": None, "efp/git-branch": "main"},
         )
 
+    def test_agent_container_env_includes_phase5_control_plane_keys(self):
+        self.service.settings.portal_internal_base_url = "http://portal.internal.svc"
+
+        env = self.service._build_agent_container_env()
+        names = [item.name for item in env]
+
+        self.assertIn("EFP_CONFIG_KEY", names)
+        self.assertIn("PORTAL_INTERNAL_API_KEY", names)
+        self.assertIn("RUNTIME_INTERNAL_API_KEY", names)
+        self.assertIn("PORTAL_INTERNAL_BASE_URL", names)
+
+        portal_base = next(item for item in env if item.name == "PORTAL_INTERNAL_BASE_URL")
+        self.assertEqual(portal_base.value, "http://portal.internal.svc")
+
+    def test_agent_container_env_omits_empty_portal_internal_base_url(self):
+        self.service.settings.portal_internal_base_url = "   "
+
+        env = self.service._build_agent_container_env()
+        names = [item.name for item in env]
+
+        self.assertIn("EFP_CONFIG_KEY", names)
+        self.assertIn("PORTAL_INTERNAL_API_KEY", names)
+        self.assertIn("RUNTIME_INTERNAL_API_KEY", names)
+        self.assertNotIn("PORTAL_INTERNAL_BASE_URL", names)
+
 
 if __name__ == "__main__":
     unittest.main()

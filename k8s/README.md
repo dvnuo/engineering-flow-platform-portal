@@ -21,6 +21,18 @@ kubectl apply -f portal-git-clone/efp-portal-secret.yaml
 kubectl apply -f efp-agents-secret.yaml
 ```
 
+`efp-portal-secret` should include:
+- `BOOTSTRAP_ADMIN_PASSWORD`
+- `PORTAL_INTERNAL_API_KEY` (**required** for Phase 5 trusted chat execution paths)
+- `RUNTIME_INTERNAL_API_KEY` (**required** for Phase 5 runtime internal control-plane paths)
+- (optional) `GIT_USERNAME`, `GIT_TOKEN` for init clone
+
+`efp-agents-secret` should include:
+- `EFP_CONFIG_KEY`
+- `PORTAL_INTERNAL_API_KEY`
+- `RUNTIME_INTERNAL_API_KEY`
+- (optional) `GIT_USERNAME`, `GIT_TOKEN`
+
 ### Create Deployment
 ```
 kubectl apply -f portal-git-clone/efp-portal-deployment.yaml
@@ -40,4 +52,16 @@ kubectl get svc -n ingress-nginx
 Add ENV `BOOTSTRAP_ADMIN_PASSWORD` for portal admin
 ```
 kubectl edit deploy efp-portal-deployment
+```
+
+Optional: customize git credential key names used in `efp-agents-secret`:
+
+- `K8S_GIT_USERNAME_KEY` (default `GIT_USERNAME`)
+- `K8S_GIT_TOKEN_KEY` (default `GIT_TOKEN`)
+
+`PORTAL_INTERNAL_BASE_URL` should point to Portal internal DNS (example: `http://efp-portal-service.default.svc.cluster.local`).
+
+Portal requires Alembic migrations before startup for both first-time bootstrap and upgrades:
+```
+alembic upgrade head
 ```

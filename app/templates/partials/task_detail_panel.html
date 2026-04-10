@@ -1,0 +1,38 @@
+<div id="task-detail-panel-root" class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <h2 class="portal-panel-title">Task Detail</h2>
+    <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Refresh</button>
+  </div>
+
+  <div class="portal-panel-section">
+    <div><strong>task_id:</strong> {{ task.id }}</div>
+    <div><strong>task_type:</strong> {{ task.task_type }}</div>
+    <div><strong>source:</strong> {{ task.source }}</div>
+    <div><strong>status:</strong> {{ task.status }}</div>
+    <div><strong>assignee_agent_id:</strong> {{ task.assignee_agent_id }}</div>
+    <div><strong>group_id:</strong> {{ task.group_id or '-' }}</div>
+    <div><strong>owner_user_id:</strong> {{ task.owner_user_id or '-' }}</div>
+    <div><strong>created_by_user_id:</strong> {{ task.created_by_user_id or '-' }}</div>
+    <div><strong>runtime_request_id:</strong> {{ task.runtime_request_id or '-' }}</div>
+    <div><strong>created_at:</strong> {{ task.created_at }}</div>
+    <div><strong>started_at:</strong> {{ task.started_at or '-' }}</div>
+    <div><strong>finished_at:</strong> {{ task.finished_at or '-' }}</div>
+    <div><strong>summary:</strong> {{ task.summary or '-' }}</div>
+    <div><strong>error_message:</strong> {{ task.error_message or '-' }}</div>
+  </div>
+
+  <div class="portal-panel-section">
+    <h3 class="portal-detail-label">input_payload_json</h3>
+    <pre class="portal-panel-pre">{{ task.input_payload_json or '{}' }}</pre>
+  </div>
+  <div class="portal-panel-section">
+    <h3 class="portal-detail-label">result_payload_json</h3>
+    <pre class="portal-panel-pre">{{ task.result_payload_json or '{}' }}</pre>
+  </div>
+
+  {% if content_target == "#workspace-detail-content" %}
+  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1">Back to My Tasks</button>
+  {% else %}
+  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Back to My Tasks</button>
+  {% endif %}
+</div>

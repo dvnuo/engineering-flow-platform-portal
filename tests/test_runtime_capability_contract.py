@@ -1,0 +1,198 @@
+import json
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.db import Base
+from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCatalogSnapshot
+from app.services.capability_context_service import CapabilityContextService, CapabilityProfileValidationError
+from app.services.runtime_capability_catalog import RuntimeCapabilityCatalogProvider, build_default_runtime_capability_catalog_provider
+
+
+def test_provider_parses_full_runtime_catalog_payload_and_exposes_metadata():
+    provider = RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+        {
+            "catalog_version": "v2026.04",
+            "supports_snapshot_contract": True,
+            "capabilities": [
+                {"capability_id": "tool:shell", "capability_type": "tool", "logical_name": "shell"},
+                {"capability_id": "skill:review", "capability_type": "skill", "logical_name": "review"},
+                {"capability_id": "channel_action:jira_get_issue", "capability_type": "channel_action", "logical_name": "jira_get_issue"},
+                {
+                    "capability_id": "adapter:github:review_pull_request",
+                    "capability_type": "adapter_action",
+                    "logical_name": "review_pull_request",
+                    "action_alias": "review_pull_request",
+                    "adapter_system": "github",
+                },
+            ],
+        }
+    )
+    assert provider.get_catalog_version() == "v2026.04"
+    assert provider.get_catalog_source() == "runtime_api"
+    assert provider.resolve_tool_name_to_capability_id("shell") == "tool:shell"
+    assert provider.resolve_skill_name_to_capability_id("review") == "skill:review"
+    assert provider.resolve_channel_name_to_capability_id("jira_get_issue") == "channel_action:jira_get_issue"
+    assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
+
+
+def test_action_resolution_only_accepts_adapter_action_aliases():
+    provider = RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+        {
+            "capabilities": [
+                {"capability_id": "tool:shell", "capability_type": "tool", "logical_name": "shell"},
+                {"capability_id": "adapter:github:review_pull_request", "capability_type": "adapter_action", "action_alias": "review_pull_request"},
+            ]
+        }
+    )
+    assert provider.resolve_action_to_capability_id("shell") is None
+    assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
+
+
+def test_runtime_catalog_parser_accepts_legacy_adapter_field_aliases():
+    provider = RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+        {
+            "capabilities": [
+                {
+                    "capability_id": "adapter:github:review_pull_request",
+                    "capability_type": "adapter_action",
+                    "external_system": "github",
+                    "action": "review_pull_request",
+                }
+            ]
+        }
+    )
+    assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
+
+
+def test_seed_fallback_remains_compatible():
+    provider = build_default_runtime_capability_catalog_provider()
+    assert provider.get_catalog_source() == "seed_fallback"
+    assert provider.resolve_action_to_capability_id("review_pull_request") == "adapter:github:review_pull_request"
+
+
+def test_capability_context_validates_full_sets_with_full_snapshot():
+    service = CapabilityContextService(
+        runtime_catalog_snapshot_payload={
+            "catalog_version": "v-full",
+            "supports_snapshot_contract": True,
+            "capabilities": [
+                {"capability_id": "tool:shell", "capability_type": "tool", "logical_name": "shell"},
+                {"capability_id": "skill:review", "capability_type": "skill", "logical_name": "review"},
+                {"capability_id": "channel_action:jira_get_issue", "capability_type": "channel_action", "logical_name": "jira_get_issue"},
+                {"capability_id": "adapter:github:review_pull_request", "capability_type": "adapter_action", "action_alias": "review_pull_request"},
+            ],
+        }
+    )
+    service.validate_profile_payload(
+        {
+            "tool_set_json": '["shell"]',
+            "skill_set_json": '["review"]',
+            "channel_set_json": '["jira_get_issue"]',
+            "allowed_actions_json": '["review_pull_request"]',
+        }
+    )
+
+
+def test_capability_context_rejects_unknown_and_wrong_type_actions():
+    service = CapabilityContextService(
+        runtime_catalog_snapshot_payload={
+            "catalog_version": "v-full",
+            "supports_snapshot_contract": True,
+            "capabilities": [
+                {"capability_id": "tool:shell", "capability_type": "tool", "logical_name": "shell"},
+                {"capability_id": "adapter:github:review_pull_request", "capability_type": "adapter_action", "action_alias": "review_pull_request"},
+            ],
+        }
+    )
+    assert _validation_error(lambda: service.validate_profile_payload({"allowed_actions_json": '["shell"]'})).endswith(
+        "unknown or ambiguous action: shell"
+    )
+    assert _validation_error(lambda: service.validate_profile_payload({"allowed_actions_json": '["unknown"]'})).endswith(
+        "unknown or ambiguous action: unknown"
+    )
+
+
+def test_seed_fallback_mode_does_not_hard_fail_tool_validation():
+    service = CapabilityContextService(runtime_catalog_snapshot_payload=None)
+    service.validate_profile_payload({"tool_set_json": '["anything"]', "allowed_actions_json": '["review_pull_request"]'})
+
+
+def test_capability_context_prefers_agent_scoped_snapshot_over_other_agents():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id="agent-a",
+                catalog_version="v-a",
+                catalog_source="runtime_api",
+                payload_json=json.dumps(
+                    {"catalog_version": "v-a", "capabilities": [{"capability_id": "adapter:a:act", "capability_type": "adapter_action", "action_alias": "act"}]}
+                ),
+            )
+        )
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id="agent-b",
+                catalog_version="v-b",
+                catalog_source="runtime_api",
+                payload_json=json.dumps(
+                    {"catalog_version": "v-b", "capabilities": [{"capability_id": "adapter:b:act", "capability_type": "adapter_action", "action_alias": "act"}]}
+                ),
+            )
+        )
+        db.commit()
+
+        service = CapabilityContextService()
+        context = service.build_runtime_capability_context(
+            capability_profile_id="cap-1",
+            resolved=service.resolve_profile(None).model_copy(update={"allowed_actions": ["act"]}),
+            db=db,
+            agent_id="agent-b",
+        )
+        assert context["allowed_adapter_actions"] == ["adapter:b:act"]
+        assert context["runtime_capability_catalog_version"] == "v-b"
+    finally:
+        db.close()
+
+
+def test_capability_context_falls_back_when_no_agent_scoped_snapshot_exists():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        db.add(
+            RuntimeCapabilityCatalogSnapshot(
+                source_agent_id="another-agent",
+                catalog_version="v-other",
+                catalog_source="runtime_api",
+                payload_json=json.dumps(
+                    {"catalog_version": "v-other", "capabilities": [{"capability_id": "adapter:other:act", "capability_type": "adapter_action", "action_alias": "act"}]}
+                ),
+            )
+        )
+        db.commit()
+
+        service = CapabilityContextService(runtime_catalog_snapshot_payload=None)
+        context = service.build_runtime_capability_context(
+            capability_profile_id="cap-1",
+            resolved=service.resolve_profile(None).model_copy(update={"allowed_actions": ["review_pull_request"]}),
+            db=db,
+            agent_id="missing-agent",
+        )
+        assert context["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+    finally:
+        db.close()
+
+
+def _validation_error(fn):
+    try:
+        fn()
+    except CapabilityProfileValidationError as exc:
+        return exc.detail
+    raise AssertionError("expected validation error")

@@ -1,0 +1,364 @@
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.db import Base
+from app.models import Agent, User
+from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
+from app.repositories.agent_group_repo import AgentGroupRepository
+from app.services.auth_service import hash_password
+
+
+def _build_client_with_overrides():
+    from app.main import app
+    import app.api.agents as agents_api
+    import app.api.external_event_subscriptions as subs_api
+    import app.api.agent_tasks as tasks_api
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSessionLocal()
+    admin_user = User(username="admin", password_hash=hash_password("pw"), role="admin", is_active=True)
+    owner_user = User(username="owner", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    other_user = User(username="other", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    db.add_all([admin_user, owner_user, other_user])
+    db.commit()
+    for item in [admin_user, owner_user, other_user]:
+        db.refresh(item)
+
+    parent_agent = Agent(
+        name="Parent Agent",
+        description="parent",
+        owner_user_id=owner_user.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        repo_url="https://example.com/repo-parent.git",
+        branch="main",
+        cpu="500m",
+        memory="1Gi",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp-agents",
+        deployment_name="dep-parent",
+        service_name="svc-parent",
+        pvc_name="pvc-parent",
+        endpoint_path="/",
+        agent_type="workspace",
+    )
+    assignee_agent = Agent(
+        name="Assignee Agent",
+        description="assignee",
+        owner_user_id=owner_user.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        repo_url="https://example.com/repo-assignee.git",
+        branch="main",
+        cpu="500m",
+        memory="1Gi",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp-agents",
+        deployment_name="dep-assignee",
+        service_name="svc-assignee",
+        pvc_name="pvc-assignee",
+        endpoint_path="/",
+        agent_type="specialist",
+    )
+    db.add(parent_agent)
+    db.add(assignee_agent)
+    outsider_agent = Agent(
+        name="Outsider Agent",
+        description="outsider",
+        owner_user_id=other_user.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        repo_url="https://example.com/repo-outsider.git",
+        branch="main",
+        cpu="500m",
+        memory="1Gi",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp-agents",
+        deployment_name="dep-outsider",
+        service_name="svc-outsider",
+        pvc_name="pvc-outsider",
+        endpoint_path="/",
+        agent_type="workspace",
+    )
+    db.add(outsider_agent)
+    db.commit()
+    db.refresh(parent_agent)
+    db.refresh(assignee_agent)
+    db.refresh(outsider_agent)
+
+    state = {"user": admin_user}
+
+    def _override_user():
+        user = state["user"]
+        return SimpleNamespace(id=user.id, role=user.role, username=user.username, nickname="Owner")
+
+    def _override_db():
+        yield db
+
+    app.dependency_overrides[subs_api.get_current_user] = _override_user
+    app.dependency_overrides[subs_api.get_db] = _override_db
+    app.dependency_overrides[tasks_api.get_current_user] = _override_user
+    app.dependency_overrides[tasks_api.get_db] = _override_db
+    app.dependency_overrides[agents_api.get_current_user] = _override_user
+    app.dependency_overrides[agents_api.get_db] = _override_db
+
+    def _cleanup():
+        app.dependency_overrides.clear()
+        db.close()
+
+    def _set_user(user_obj):
+        state["user"] = user_obj
+
+    return TestClient(app), parent_agent, assignee_agent, outsider_agent, admin_user, owner_user, other_user, _set_user, _cleanup
+
+
+def test_create_and_list_external_event_subscriptions():
+    client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        create_resp = client.post(
+            "/api/external-event-subscriptions",
+            json={
+                "agent_id": parent_agent.id,
+                "source_type": "GitHub",
+                "event_type": "push",
+                "target_ref": "repo:main",
+                "enabled": True,
+                "config_json": '{"branch":"main"}',
+                "dedupe_key_template": "github:push:{sha}",
+            },
+        )
+        assert create_resp.status_code == 200
+        body = create_resp.json()
+        assert body["agent_id"] == parent_agent.id
+        assert body["source_type"] == "github"
+
+        set_user(_admin_user)
+        list_resp = client.get("/api/external-event-subscriptions")
+        assert list_resp.status_code == 200
+        items = list_resp.json()
+        assert len(items) == 1
+        assert items[0]["event_type"] == "push"
+    finally:
+        cleanup()
+
+
+def test_create_github_review_subscription_persists_config_json():
+    client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        create_resp = client.post(
+            "/api/external-event-subscriptions",
+            json={
+                "agent_id": parent_agent.id,
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "enabled": True,
+                "config_json": '{"allowed_repos": ["octo/portal", "octo/docs"]}',
+            },
+        )
+        assert create_resp.status_code == 200
+        body = create_resp.json()
+        assert body["config_json"] == '{"allowed_repos": ["octo/portal", "octo/docs"]}'
+
+        set_user(_admin_user)
+        list_resp = client.get("/api/external-event-subscriptions")
+        assert list_resp.status_code == 200
+        items = list_resp.json()
+        assert len(items) == 1
+        assert items[0]["config_json"] == '{"allowed_repos": ["octo/portal", "octo/docs"]}'
+    finally:
+        cleanup()
+
+
+def test_list_external_event_subscriptions_by_agent():
+    client, parent_agent, assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        create_1 = client.post(
+            "/api/external-event-subscriptions",
+            json={"agent_id": parent_agent.id, "source_type": "github", "event_type": "push", "enabled": True},
+        )
+        create_2 = client.post(
+            "/api/external-event-subscriptions",
+            json={"agent_id": assignee_agent.id, "source_type": "jira", "event_type": "issue_updated", "enabled": True},
+        )
+        assert create_1.status_code == 200
+        assert create_2.status_code == 200
+
+        list_by_agent_resp = client.get(f"/api/agents/{parent_agent.id}/external-event-subscriptions")
+        assert list_by_agent_resp.status_code == 200
+        items = list_by_agent_resp.json()
+        assert len(items) == 1
+        assert items[0]["agent_id"] == parent_agent.id
+    finally:
+        cleanup()
+
+
+def test_create_and_list_agent_tasks_and_status_persistence():
+    client, parent_agent, assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        create_resp = client.post(
+            "/api/agent-tasks",
+            json={
+                "parent_agent_id": parent_agent.id,
+                "assignee_agent_id": assignee_agent.id,
+                "source": "external_event",
+                "task_type": "triage",
+                "input_payload_json": '{"event":"push"}',
+                "status": "queued",
+                "retry_count": 1,
+            },
+        )
+        assert create_resp.status_code == 200
+        task = create_resp.json()
+        assert task["assignee_agent_id"] == assignee_agent.id
+        assert task["status"] == "queued"
+
+        set_user(_admin_user)
+        list_resp = client.get("/api/agent-tasks")
+        assert list_resp.status_code == 200
+        tasks = list_resp.json()
+        assert len(tasks) == 1
+        assert tasks[0]["task_type"] == "triage"
+        assert tasks[0]["retry_count"] == 1
+    finally:
+        cleanup()
+
+
+def test_list_tasks_by_assignee_agent():
+    client, parent_agent, assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        create_resp = client.post(
+            "/api/agent-tasks",
+            json={
+                "parent_agent_id": parent_agent.id,
+                "assignee_agent_id": assignee_agent.id,
+                "source": "portal",
+                "task_type": "review",
+                "status": "running",
+            },
+        )
+        assert create_resp.status_code == 200
+
+        list_by_agent_resp = client.get(f"/api/agents/{assignee_agent.id}/tasks")
+        assert list_by_agent_resp.status_code == 200
+        tasks = list_by_agent_resp.json()
+        assert len(tasks) == 1
+        assert tasks[0]["assignee_agent_id"] == assignee_agent.id
+        assert tasks[0]["status"] == "running"
+    finally:
+        cleanup()
+
+
+def test_list_agent_tasks_by_group_id_and_response_includes_group_id():
+    client, parent_agent, assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        from app.main import app
+        import app.api.agent_tasks as tasks_api
+
+        db_gen = app.dependency_overrides[tasks_api.get_db]()
+        try:
+            db = next(db_gen)
+            set_user(_admin_user)
+            group = AgentGroupRepository(db).create(
+                name="Task Group",
+                leader_agent_id=parent_agent.id,
+                created_by_user_id=parent_agent.owner_user_id,
+            )
+            AgentGroupMemberRepository(db).create(
+                group_id=group.id, member_type="agent", user_id=None, agent_id=parent_agent.id, role="leader"
+            )
+            AgentGroupMemberRepository(db).create(
+                group_id=group.id, member_type="agent", user_id=None, agent_id=assignee_agent.id, role="member"
+            )
+
+            create_resp = client.post(
+                "/api/agent-tasks",
+                json={
+                    "group_id": group.id,
+                    "parent_agent_id": parent_agent.id,
+                    "assignee_agent_id": assignee_agent.id,
+                    "source": "portal",
+                    "task_type": "group-review",
+                    "status": "queued",
+                },
+            )
+            assert create_resp.status_code == 200
+            created_task = create_resp.json()
+            assert created_task["group_id"] == group.id
+
+            list_resp = client.get(f"/api/agent-tasks?group_id={group.id}")
+            assert list_resp.status_code == 200
+            tasks = list_resp.json()
+            assert len(tasks) == 1
+            assert tasks[0]["group_id"] == group.id
+            assert tasks[0]["task_type"] == "group-review"
+        finally:
+            db_gen.close()
+    finally:
+        cleanup()
+
+
+def test_external_event_subscriptions_enforce_authorization():
+    client, parent_agent, _assignee_agent, outsider_agent, admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(other_user)
+        forbidden_create = client.post(
+            "/api/external-event-subscriptions",
+            json={"agent_id": parent_agent.id, "source_type": "github", "event_type": "push", "enabled": True},
+        )
+        assert forbidden_create.status_code == 403
+
+        set_user(owner_user)
+        allowed_create = client.post(
+            "/api/external-event-subscriptions",
+            json={"agent_id": parent_agent.id, "source_type": "github", "event_type": "push", "enabled": True},
+        )
+        assert allowed_create.status_code == 200
+
+        set_user(other_user)
+        forbidden_by_agent = client.get(f"/api/agents/{parent_agent.id}/external-event-subscriptions")
+        assert forbidden_by_agent.status_code == 403
+
+        set_user(owner_user)
+        allowed_by_agent = client.get(f"/api/agents/{parent_agent.id}/external-event-subscriptions")
+        assert allowed_by_agent.status_code == 200
+        assert len(allowed_by_agent.json()) == 1
+
+        set_user(other_user)
+        forbidden_list_all = client.get("/api/external-event-subscriptions")
+        assert forbidden_list_all.status_code == 403
+
+        set_user(admin_user)
+        allowed_list_all = client.get("/api/external-event-subscriptions")
+        assert allowed_list_all.status_code == 200
+        assert len(allowed_list_all.json()) == 1
+
+        set_user(other_user)
+        forbidden_outsider_create = client.post(
+            "/api/external-event-subscriptions",
+            json={"agent_id": outsider_agent.id, "source_type": "jira", "event_type": "issue_updated", "enabled": True},
+        )
+        assert forbidden_outsider_create.status_code == 200
+    finally:
+        cleanup()

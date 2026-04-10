@@ -70,8 +70,30 @@ spec:
               value: "true"
             - name: AGENTS_NAMESPACE
               value: "efp-agents"
+            - name: BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: BOOTSTRAP_ADMIN_PASSWORD
+                  optional: true
+            - name: PORTAL_INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: PORTAL_INTERNAL_API_KEY
+            - name: RUNTIME_INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: RUNTIME_INTERNAL_API_KEY
+            - name: PORTAL_INTERNAL_BASE_URL
+              value: "http://efp-portal-service.default.svc.cluster.local"
             - name: K8S_KUBECONFIG
               value: ""
+            - name: K8S_GIT_USERNAME_KEY
+              value: "GIT_USERNAME"
+            - name: K8S_GIT_TOKEN_KEY
+              value: "GIT_TOKEN"
               # Use /app/data for SQLite database
             - name: DATABASE_URL
               value: "sqlite:////app/data/portal.db"
@@ -82,6 +104,12 @@ spec:
             - name: efp-portal-data
               mountPath: /app/app
               subPath: efp-portal-code/app
+            - name: efp-portal-data
+              mountPath: /app/alembic
+              subPath: efp-portal-code/alembic
+            - name: efp-portal-data
+              mountPath: /app/alembic.ini
+              subPath: efp-portal-code/alembic.ini
           resources:
             limits:
               memory: 1024Mi

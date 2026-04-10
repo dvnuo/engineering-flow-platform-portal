@@ -1,0 +1,352 @@
+import pytest
+import json
+
+import asyncio
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.db import Base
+from app.models import Agent, AgentTask, User
+from app.services.auth_service import hash_password
+from app.services.task_dispatcher import TaskDispatcherService
+
+
+@pytest.fixture()
+def db_session():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSessionLocal()
+    user = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    agent = Agent(
+        name="Dispatch Agent",
+        description="dispatch",
+        owner_user_id=user.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        repo_url="https://example.com/repo.git",
+        branch="main",
+        cpu="500m",
+        memory="1Gi",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp-agents",
+        deployment_name="dep-d",
+        service_name="svc-d",
+        pvc_name="pvc-d",
+        endpoint_path="/",
+        agent_type="workspace",
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+
+    yield db, agent
+    db.close()
+
+
+def _create_task(db: Session, agent_id: str) -> AgentTask:
+    task = AgentTask(
+        assignee_agent_id=agent_id,
+        owner_user_id=1,
+        source="jira",
+        task_type="jira_workflow_review_task",
+        input_payload_json='{"a": 1}',
+        shared_context_ref="EFP-1",
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-1"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-1"}
+
+    class StatusResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    async def fake_get(_url, _meta):
+        return StatusResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.dispatched is True
+    assert result.task_status == "done"
+
+    db.refresh(task)
+    assert task.status == "done"
+    assert task.runtime_request_id == "req-1"
+    assert task.started_at is not None
+    assert task.finished_at is not None
+    assert task.summary == "done"
+
+
+def test_dispatch_task_async_submit_then_error(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-2"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-2"}
+
+    class StatusResp:
+        status_code = 200
+        text = '{"ok": false, "status": "error", "error": {"message": "bad input"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": False, "status": "error", "error": {"message": "bad input"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    async def fake_get(_url, _meta):
+        return StatusResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    assert task.status == "failed"
+    assert task.error_message == "bad input"
+
+
+def test_dispatch_task_sync_runtime_success_compatible(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "ok"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+    db.refresh(task)
+    assert task.status == "done"
+
+
+def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-3"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-3"}
+
+    class PendingResp:
+        status_code = 200
+        text = '{"ok": true, "status": "running"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "running"}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    async def fake_get(_url, _meta):
+        return PendingResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+    monkeypatch.setattr(service, "_poll_runtime_task_until_terminal", lambda **_kwargs: TaskDispatcherService._poll_runtime_task_until_terminal(service, timeout_seconds=0, interval_seconds=0, **_kwargs))
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    payload = json.loads(task.result_payload_json or "{}")
+    assert payload["error_code"] == "runtime_poll_timeout"
+    assert payload["trace_id"]
+    assert payload["portal_dispatch_id"]
+
+
+def test_dispatch_task_continues_polling_on_http_200_running(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-4"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-4"}
+
+    class RunningResp:
+        status_code = 200
+        text = '{"ok": true, "status": "running"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "running"}
+
+    class SuccessResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    polls = {"count": 0}
+
+    async def fake_get(_url, _meta):
+        polls["count"] += 1
+        if polls["count"] == 1:
+            return RunningResp()
+        return SuccessResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+    assert polls["count"] >= 2
+
+
+def test_dispatch_task_invalid_input_sets_error_message_and_finished_at(db_session):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.input_payload_json = "not-json"
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    assert task.error_message
+    assert task.finished_at is not None
+
+
+def test_dispatch_task_runtime_exception_sets_error_message_and_finished_at(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    async def fake_post(_url, _body):
+        raise RuntimeError("runtime unavailable")
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "failed"
+    db.refresh(task)
+    assert task.error_message
+    assert task.finished_at is not None
+
+
+def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkeypatch):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        source="github",
+        task_type="github_review_task",
+        input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
+        shared_context_ref="github:review:octo/portal:1:acct:sha-1",
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    stale_payload = json.dumps(
+        {
+            "ok": False,
+            "error_code": "superseded_by_new_head_sha",
+            "message": "GitHub review task superseded by a newer PR head_sha",
+            "superseded_by_task_id": "new-task-1",
+            "superseded_by_head_sha": "sha-2",
+        }
+    )
+
+    class Resp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"result": "ok"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
+
+    async def fake_post(_url, _body):
+        fresh = db.get(AgentTask, task.id)
+        fresh.status = "stale"
+        fresh.result_payload_json = stale_payload
+        db.add(fresh)
+        db.commit()
+        return Resp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "stale"
+    db.refresh(task)
+    assert task.status == "stale"

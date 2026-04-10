@@ -1,0 +1,46 @@
+<div id="my-tasks-panel-root" class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <div>
+      <h2 class="portal-panel-title">My Tasks</h2>
+      <p class="portal-panel-subtitle">Tasks you own, created, or can see through groups.</p>
+    </div>
+  </div>
+
+  <div class="portal-panel-grid cols-2">
+    <div class="portal-panel-section">queued: <strong>{{ summary.queued }}</strong></div>
+    <div class="portal-panel-section">running: <strong>{{ summary.running }}</strong></div>
+    <div class="portal-panel-section">done: <strong>{{ summary.done }}</strong></div>
+    <div class="portal-panel-section">failed: <strong>{{ summary.failed }}</strong></div>
+  </div>
+
+  <div class="portal-panel-stack">
+    {% for task in tasks %}
+    <div class="portal-panel-section">
+      <div class="portal-panel-header">
+        <div class="portal-detail-code">{{ task.id }}</div>
+        <span class="portal-panel-chip">{{ task.status }}</span>
+      </div>
+      <div class="portal-panel-note">type: {{ task.task_type }} · source: {{ task.source }}</div>
+      <div class="portal-panel-note">assignee: {{ task.assignee_agent_id }}</div>
+      <div class="portal-panel-note">created: {{ task.created_at }} · updated: {{ task.updated_at }}</div>
+      {% if task.error_message %}
+      <div class="portal-inline-state is-error">{{ task.error_message[:180] }}</div>
+      {% elif task.summary %}
+      <div class="portal-panel-note">{{ task.summary[:180] }}</div>
+      {% endif %}
+      {% if content_target == "#workspace-detail-content" %}
+      <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ task.id }}">View detail</button>
+      {% else %}
+      <button
+        class="portal-btn is-secondary"
+        hx-get="/app/tasks/{{ task.id }}/panel"
+        hx-target="{{ content_target }}"
+        hx-swap="innerHTML"
+      >View detail</button>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="portal-panel-empty">No visible tasks yet.</div>
+    {% endfor %}
+  </div>
+</div>

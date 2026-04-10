@@ -1,0 +1,45 @@
+<div class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">Shared Contexts</h5>
+      <div class="portal-panel-subtitle">Group {{ group_id }}</div>
+    </div>
+  </div>
+
+  {% if items %}
+    <div class="portal-panel-section">
+      <div class="portal-data-table-wrap">
+        <table class="portal-data-table">
+          <thead>
+            <tr>
+              <th>Context Ref</th>
+              <th>Scope Kind</th>
+              <th>Created By</th>
+              <th>Source Delegation</th>
+              <th>Created At</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td>{{ item.context_ref }}</td>
+              <td>{{ item.scope_kind }}</td>
+              <td>{{ item.created_by_user_id or "-" }}</td>
+              <td>{{ item.source_delegation_id or "-" }}</td>
+              <td>{{ item.created_at }}</td>
+              <td>
+                <a class="portal-link-inline" href="/app/agent-groups/{{ group_id }}/shared-contexts/{{ item.context_ref }}/panel">
+                  View
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="portal-panel-empty">No shared contexts yet.</div>
+  {% endif %}
+</div>

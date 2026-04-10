@@ -349,3 +349,14 @@ def test_file_upload_enforces_10mb_limit(monkeypatch):
 
     assert response.status_code == 400
     assert "File too large" in response.json()["detail"]
+
+
+def test_non_execution_runtime_proxy_path_keeps_body_untouched(monkeypatch):
+    client, captured_calls = _setup_web_runtime_test(monkeypatch)
+
+    captured_calls.clear()
+    response = client.get("/app/agents/agent-1/files/panel")
+    assert response.status_code == 200
+    assert captured_calls[-1]["subpath"] == "api/files/list"
+    assert captured_calls[-1]["body"] is None
+    assert captured_calls[-1]["headers"] == {}

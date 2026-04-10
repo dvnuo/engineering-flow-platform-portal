@@ -32,9 +32,14 @@ Portal is the web interface for Engineering Flow Platform. It provides agent man
 # Install dependencies
 pip install -r requirements.txt
 
+# Apply schema migrations (required for both first-time setup and upgrades)
+alembic upgrade head
+
 # Start server
 uvicorn app.main:app --reload
 ```
+
+For local Python development, migrations are still a manual prerequisite (`alembic upgrade head`) before starting `uvicorn`.
 
 Access `http://localhost:8000/login`
 
@@ -54,15 +59,68 @@ Access `http://localhost:8000/login`
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
+| `PORTAL_INTERNAL_API_KEY` | **Required** trusted Portal→Runtime execution key for chat/auth headers (`X-Portal-Internal-Api-Key`) | (empty) |
+| `RUNTIME_INTERNAL_API_KEY` | **Required** Portal→Runtime internal key for control-plane endpoints (for example `/api/tasks/execute`, `/api/capabilities`) | (empty) |
+| `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
+| `GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC secret for `/api/webhooks/github` | (empty) |
+| `JIRA_WEBHOOK_SHARED_SECRET` | Shared secret expected in `X-Efp-Webhook-Secret` for `/api/webhooks/jira` | (empty) |
+| `ALLOW_INSECURE_PROVIDER_WEBHOOKS` | **Dev-only opt-out** to allow provider webhooks without configured secrets (unsafe in production) | `false` |
+| `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `K8S_ENABLED` | Enable Kubernetes integration | `false` |
 | `K8S_INCLUSTER` | Use in-cluster config | `true` |
 | `K8S_KUBECONFIG` | Path to kubeconfig | `/etc/rancher/k3s/k3s.yaml` |
 | `K8S_AGENT_SERVICE_TYPE` | Agent service type (ClusterIP/NodePort) | `ClusterIP` |
+| `K8S_GIT_USERNAME_KEY` | Secret key name for git username in `efp-agents-secret` | `GIT_USERNAME` |
+| `K8S_GIT_TOKEN_KEY` | Secret key name for git token in `efp-agents-secret` | `GIT_TOKEN` |
 | `K8S_NODE_IP` | Node IP for NodePort proxy (auto-detected if not set) | (auto-detect) |
 | `AGENTS_NAMESPACE` | Agents namespace | `efp-agents` |
 | `K8S_STORAGE_CLASS` | Storage class for PVC | `local-path` |
 | `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
+
+Phase 5 productization closure notes (upgrade path + capability snapshot contract): `docs/PHASE5_PRODUCTIZATION.md`.
+
+### Phase 5 control-plane contract
+
+- Portal -> EFP trusted chat headers use `X-Portal-Internal-Api-Key` (from `PORTAL_INTERNAL_API_KEY`).
+- Portal -> EFP runtime internal endpoints (`/api/tasks/execute`, `/api/capabilities`) use `X-Internal-Api-Key` (from `RUNTIME_INTERNAL_API_KEY`).
+- EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
+
+### Phase 5 required internal keys
+
+- `PORTAL_INTERNAL_API_KEY` is required for trusted chat execution paths.
+- `RUNTIME_INTERNAL_API_KEY` is required for runtime internal control-plane paths.
+- Missing keys cause runtime request failures (for example 503s), not optional feature degradation.
+
+### Internal control-plane export contract
+
+- `GET /api/internal/workflow-transition-rules` keeps existing fields (`system_type`, `is_enabled`, `project_key`, `trigger_status`) and also provides compatibility aliases (`provider_type`, `enabled`, `project_keys`, `trigger_statuses`).
+- `GET /api/internal/agent-identity-bindings` keeps existing fields (`system_type`, `scope`, `enabled`) and also provides compatibility aliases (`provider_type`, `scope_json`).
+- Task dispatch metadata now carries canonical session-registry fields used by Runtime publishing: `group_id`, `current_task_id`, `current_delegation_id`, `current_coordination_run_id`.
+
+### Session Metadata Registry (internal)
+
+- Registry key semantics: **`(agent_id, session_id)`** (agent-scoped), not globally-unique `session_id`.
+- Exact upsert/get:
+  - `PUT /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
+  - `GET /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
+- List/query:
+  - `GET /api/internal/agents/{agent_id}/sessions/metadata`
+  - optional filters: `group_id`, `latest_event_state`, `current_task_id`
+
+### GitHub review supersession lifecycle
+
+- For GitHub `pull_request_review_requested`, Portal dedupes exact duplicates by `(owner/repo/pull_number/reviewer/head_sha)`.
+- When a newer `head_sha` arrives, Portal creates a new review task and marks older active review tasks as `stale`.
+- `stale` is treated as a superseded terminal state; late runtime results do not overwrite a task already marked `stale`.
+
+### Schema upgrade
+
+Portal requires Alembic migrations before startup for both first-time setup on a new database and upgrades of an existing database:
+
+```bash
+alembic upgrade head
+```
 
 ---
 
@@ -158,6 +216,8 @@ file: <binary>
 
 ### Kubernetes
 
+For the git-clone deployment pattern used in this repo, mount runtime code and migration assets from the same cloned revision (`/app/app`, `/app/alembic`, and `/app/alembic.ini`) so Alembic revisions always match application code.
+
 ```yaml
 # See k8s/portal-deployment-nfs.yaml for full example
 apiVersion: apps/v1
@@ -187,6 +247,8 @@ spec:
 ```
 
 ### Docker
+
+Container startup runs `alembic upgrade head` automatically before launching Uvicorn.
 
 ```bash
 docker run -d \

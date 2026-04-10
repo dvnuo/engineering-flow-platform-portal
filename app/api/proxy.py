@@ -1,10 +1,14 @@
 import asyncio
+import json
 import logging
 logger = logging.getLogger(__name__)
 from urllib.parse import urlencode
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 import websockets
 
 from app.config import get_settings
@@ -14,11 +18,13 @@ from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
+from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.redaction import sanitize_exception_message
 
 router = APIRouter(tags=["proxy"])
 proxy_service = ProxyService()
+runtime_execution_context_service = RuntimeExecutionContextService()
 settings = get_settings()
 
 
@@ -43,6 +49,38 @@ def _filter_proxy_query_items(query_items):
     return [(k, v) for k, v in query_items if k.lower() != "token"]
 
 
+
+
+def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
+    normalized = (subpath or "").strip("/").lower()
+    return method.upper() == "POST" and normalized in {"api/chat", "api/chat/stream"}
+
+
+def _content_type_is_json(content_type: str | None) -> bool:
+    return bool(content_type and "application/json" in content_type.lower())
+
+
+def _select_streaming_response_headers(upstream_headers) -> dict[str, str]:
+    allowed = {"content-type", "cache-control", "x-accel-buffering"}
+    selected = {}
+    for key in allowed:
+        value = upstream_headers.get(key)
+        if value:
+            selected[key] = value
+    return selected
+
+
+def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
+    enriched = dict(payload)
+    _ = user
+    enriched.pop("metadata", None)
+    enriched.pop("capability_context", None)
+    enriched.pop("policy_context", None)
+    enriched.pop("portal_user_id", None)
+    enriched.pop("portal_user_name", None)
+
+    enriched["metadata"] = runtime_metadata
+    return enriched
 @router.api_route("/a/{agent_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @router.api_route("/a/{agent_id}/{subpath:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_agent(
@@ -68,15 +106,82 @@ async def proxy_agent(
         if content_type:
             forward_headers["content-type"] = content_type
 
+        request_body = (await request.body()) or None
+        is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
+        if is_direct_chat_execution:
+            try:
+                extra_headers = build_portal_execution_headers(user)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="PORTAL_INTERNAL_API_KEY is not configured",
+                ) from exc
+        else:
+            extra_headers = build_portal_identity_headers(user)
+
+        if is_direct_chat_execution and request_body:
+            if not _content_type_is_json(content_type):
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail="Direct chat execution requires application/json content-type",
+                )
+            try:
+                parsed_payload = json.loads(request_body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
+            if not isinstance(parsed_payload, dict):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON payload must be an object")
+            runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
+            parsed_payload = _enrich_chat_payload_with_runtime_metadata(parsed_payload, runtime_metadata, user)
+            request_body = json.dumps(parsed_payload).encode("utf-8")
+
+        normalized_subpath = (subpath or "").strip("/").lower()
+        if request.method.upper() == "POST" and normalized_subpath == "api/chat/stream":
+            try:
+                base = proxy_service.build_agent_base_url(agent).rstrip("/")
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+            upstream_url = f"{base}/api/chat/stream"
+            outbound_headers = proxy_service._build_outbound_headers(forward_headers, extra_headers)
+            client = httpx.AsyncClient(timeout=None)
+            try:
+                upstream_response = await client.stream(
+                    method="POST",
+                    url=upstream_url,
+                    params=_filter_proxy_query_items(request.query_params.multi_items()),
+                    content=request_body,
+                    headers=outbound_headers,
+                ).__aenter__()
+            except Exception:
+                await client.aclose()
+                raise
+
+            async def _close_stream_resources() -> None:
+                await upstream_response.aclose()
+                await client.aclose()
+
+            stream_headers = _select_streaming_response_headers(upstream_response.headers)
+            media_type = upstream_response.headers.get("content-type")
+            return StreamingResponse(
+                upstream_response.aiter_raw(),
+                status_code=upstream_response.status_code,
+                media_type=media_type,
+                headers=stream_headers,
+                background=BackgroundTask(_close_stream_resources),
+            )
+
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
             method=request.method,
             subpath=subpath,
             query_items=_filter_proxy_query_items(request.query_params.multi_items()),
-            body=(await request.body()) or None,
+            body=request_body,
             headers=forward_headers,
-            extra_headers=build_portal_identity_headers(user),
+            extra_headers=extra_headers,
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Proxy error agent_id=%s method=%s subpath=%s", agent_id, request.method, subpath)
         safe_error = sanitize_exception_message(exc)
@@ -122,9 +227,14 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
     finally:
         db.close()
 
+    try:
+        base = proxy_service.build_agent_base_url(agent).rstrip("/")
+    except ValueError:
+        await websocket.close(code=1011, reason="Runtime URL unavailable")
+        return
+
     await websocket.accept()
 
-    base = proxy_service.build_agent_base_url(agent).rstrip("/")
     if base.startswith("https://"):
         ws_base = "wss://" + base[len("https://") :]
     elif base.startswith("http://"):

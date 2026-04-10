@@ -1,79 +1,57 @@
-<div class="space-y-3">
-  <div class="flex items-center justify-between">
-    <h5 class="text-sm font-semibold text-slate-800 dark:text-slate-200">My Uploads</h5>
-    <span class="text-xs text-slate-500 dark:text-slate-400">{{ files|length }} files</span>
+<div class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <h5 class="portal-panel-title">My Uploads</h5>
+    <span class="portal-panel-subtitle">{{ files|length }} files</span>
   </div>
 
   {% if files %}
-    <div id="uploads-list" class="space-y-2">
+    <div id="uploads-list" class="portal-panel-stack">
       {% for file in files %}
         {% set file_ref = '@file_' ~ (file.file_id[:8]) %}
         <div
-          class="file-row group flex items-center gap-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500"
+          class="file-row portal-panel-section"
           data-file-id="{{ file.file_id }}"
           data-file-ref="{{ file_ref }}"
         >
-          <button
-            type="button"
-            class="insert-ref-btn flex-1 text-left truncate"
-            title="Insert {{ file_ref }}"
-          >
-            <div class="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{{ file.filename }}</div>
-            <div class="truncate text-xs text-slate-500 dark:text-slate-400">
-              {{ file_ref }}
-              {% if file.content_type %} · {{ file.content_type }}{% endif %}
-              {% if file.size is not none %} · {{ file.size }} B{% endif %}
+          <div class="portal-panel-header">
+            <button
+              type="button"
+              class="insert-ref-btn flex-1 text-left truncate"
+              title="Insert {{ file_ref }}"
+            >
+              <div class="portal-bundle-title truncate">{{ file.filename }}</div>
+              <div class="portal-panel-note truncate">
+                {{ file_ref }}
+                {% if file.content_type %} · {{ file.content_type }}{% endif %}
+                {% if file.size is not none %} · {{ file.size }} B{% endif %}
+              </div>
+            </button>
+            <div class="flex items-center gap-1">
+              <button type="button" class="preview-btn portal-btn" aria-label="Preview file" title="Preview">Preview</button>
+              <button type="button" class="delete-btn portal-btn is-danger" aria-label="Delete file" title="Delete">Delete</button>
             </div>
-          </button>
-          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              type="button"
-              class="preview-btn p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-              aria-label="Preview file"
-              title="Preview"
-            >
-              <svg class="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-              </svg>
-            </button>
-            <button
-              type="button"
-              class="delete-btn p-1.5 rounded hover:bg-rose-100 dark:hover:bg-rose-900/30"
-              aria-label="Delete file"
-              title="Delete"
-            >
-              <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-              </svg>
-            </button>
           </div>
         </div>
       {% endfor %}
     </div>
   {% else %}
-    <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-2 py-3 text-xs text-slate-500 dark:text-slate-400">
-      No uploaded files.
-    </div>
+    <div class="portal-panel-empty">No uploaded files.</div>
   {% endif %}
 </div>
 
 <script>
 (function() {
-  // Use event delegation to avoid XSS and function name collision
   const container = document.getElementById('uploads-list');
   if (!container) return;
-  
+
   container.addEventListener('click', async function(e) {
     const row = e.target.closest('.file-row');
     if (!row) return;
-    
+
     const fileId = row.dataset.fileId;
-    const fileRef = row.dataset.fileRef;
-    
+
     if (e.target.closest('.insert-ref-btn')) {
-      e.stopPropagation(); // Prevent bubbling to parent with data-file-ref
-      // Use existing global function - pass full file_id
+      e.stopPropagation();
       if (typeof insertFileReference === 'function') {
         insertFileReference(fileId);
       }
@@ -87,9 +65,9 @@
 
 async function deleteFile(fileId, row) {
   if (!confirm('Delete this file?')) return;
-  
+
   row.style.opacity = '0.5';
-  
+
   try {
     const resp = await fetch(`/a/${window.selectedAgentId}/api/files/${fileId}`, {
       method: 'DELETE'
@@ -109,14 +87,14 @@ async function previewFile(fileId) {
     const resp = await fetch(`/a/${window.selectedAgentId}/api/files/${fileId}/preview?max_chars=5000`);
     if (!resp.ok) throw new Error('Preview failed');
     const data = await resp.json();
-    
+
     if (data.preview) {
-      setToolPanel('File Preview', '<pre class="whitespace-pre-wrap text-xs">' + escapeHtml(data.preview) + '</pre>');
+      setToolPanel('File Preview', '<pre class="portal-panel-pre">' + escapeHtml(data.preview) + '</pre>');
     } else {
-      setToolPanel('File Preview', '<div class="text-slate-500">No preview available</div>');
+      setToolPanel('File Preview', '<div class="portal-inline-state">No preview available</div>');
     }
   } catch (e) {
-    setToolPanel('File Preview', '<div class="text-rose-500">Preview failed: ' + escapeHtml(e.message) + '</div>');
+    setToolPanel('File Preview', '<div class="portal-inline-state is-error">Preview failed: ' + escapeHtml(e.message) + '</div>');
   }
 }
 

@@ -1,257 +1,267 @@
-<div class="space-y-4" id="settings-panel-root">
-  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }" class="space-y-4">
+<div class="portal-panel-stack" id="settings-panel-root" data-agent-id="{{ agent_id }}">
+  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
     <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
+    {% if status_message %}
+      <div
+        id="settings-status"
+        class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
+        data-settings-status="{{ status_type }}"
+        tabindex="-1"
+      >
+        {{ status_message }}
+      </div>
+    {% endif %}
 
     <!-- Proxy Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Proxy</h6>
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Proxy</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
-        </label>
+        </div>
       </div>
-      <label class="block text-xs">
-        <span class="mb-1 block text-slate-600 dark:text-slate-400">Proxy URL</span>
-        <input type="text" name="proxy_url" value="{{ proxy.get('url', '') }}" placeholder="http://proxy.example.com:8080" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+      <label class="portal-form-label">
+        <span class="portal-form-label">Proxy URL</span>
+        <input type="text" name="proxy_url" value="{{ proxy.get('url', '') }}" placeholder="http://proxy.example.com:8080" class="portal-form-input" />
       </label>
       <div class="grid grid-cols-2 gap-3">
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">Username</span>
-          <input type="text" name="proxy_username" value="{{ proxy.get('username', '') }}" placeholder="Optional" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <label class="portal-form-label">
+          <span class="portal-form-label">Username</span>
+          <input type="text" name="proxy_username" value="{{ proxy.get('username', '') }}" placeholder="Optional" class="portal-form-input" />
         </label>
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">Password</span>
-          <input type="password" name="proxy_password" value="{{ proxy.get('password', '') }}" placeholder="Optional" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <label class="portal-form-label">
+          <span class="portal-form-label">Password</span>
+          <input type="password" name="proxy_password" value="{{ proxy.get('password', '') }}" placeholder="Optional" class="portal-form-input" />
         </label>
       </div>
     </section>
     
     <!-- LLM Model Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center gap-2">
-        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">LLM Model</h6>
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-title">
+        <span class="portal-section-accent" aria-hidden="true"></span>
+        <h6>LLM Model</h6>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">Provider</span>
-          <select name="llm_provider" id="llm_provider" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Provider</span>
+          <select name="llm_provider" id="llm_provider" class="portal-form-select">
             <option value="openai" {{ 'selected' if llm.get('provider') == 'openai' else '' }}>OpenAI</option>
             <option value="anthropic" {{ 'selected' if llm.get('provider') == 'anthropic' else '' }}>Anthropic</option>
             <option value="github_copilot" {{ 'selected' if llm.get('provider') == 'github_copilot' else '' }}>GitHub Copilot</option>
           </select>
         </label>
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">Model</span>
-          <select name="llm_model" id="llm_model" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Model</span>
+          <select name="llm_model" id="llm_model" class="portal-form-select">
           </select>
         </label>
       </div>
-      <label class="block text-xs">
-        <span class="mb-1 block text-slate-600 dark:text-slate-400">API Key</span>
-        <input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+      <label class="portal-form-label">
+        <span class="portal-form-label">API Key</span>
+        <input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="portal-form-input" />
       </label>
       
       <!-- Authorize GitHub Copilot Button (shown only for github_copilot) -->
-      <button type="button" id="copilot_auth_btn" class="w-full rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 px-4 py-2 text-sm font-medium text-white transition-colors hidden">
+      <button type="button" id="copilot_auth_btn" class="portal-btn is-secondary hidden">
         Authorize GitHub Copilot
       </button>
       
       <!-- Copilot Auth Status -->
-      <div id="copilot_auth_status" class="hidden rounded-lg border border-slate-300 dark:border-slate-600 p-3 space-y-2">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-700 dark:text-slate-300">Status:</span>
-          <span id="copilot_status_text" class="text-xs text-slate-500">Not authorized</span>
+      <div id="copilot_auth_status" class="portal-form-input">
+        <div class="portal-settings-section-head">
+          <span class="portal-inline-note">Status:</span>
+          <span id="copilot_status_text" class="portal-inline-note">Not authorized</span>
         </div>
         <div id="copilot_instructions" class="hidden space-y-2">
-          <p class="text-xs text-slate-500">Step 1: Click the link below to authorize</p>
-          <a id="copilot_verify_link" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-500 hover:underline break-all"></a>
-          <p class="text-xs text-slate-500 mt-2">Step 2: Copy this code</p>
+          <p class="portal-inline-note">Step 1: Click the link below to authorize</p>
+          <a id="copilot_verify_link" href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline"></a>
+          <p class="portal-inline-note">Step 2: Copy this code</p>
           <div class="flex items-center gap-2">
-            <span id="copilot_user_code" class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200"></span>
-            <button type="button" id="copilot_copy_btn" class="text-xs text-blue-500 hover:underline">Copy</button>
+            <span id="copilot_user_code" class="portal-detail-code"></span>
+            <button type="button" id="copilot_copy_btn" class="portal-btn is-secondary">Copy</button>
           </div>
-          <p class="text-xs text-slate-500 mt-2">Step 3: Click to complete authorization</p>
-          <a id="copilot_device_link" href="#" target="_blank" rel="noopener noreferrer" class="hidden text-xs text-blue-500 hover:underline break-all">Complete Authorization →</a>
+          <p class="portal-inline-note">Step 3: Click to complete authorization</p>
+          <a id="copilot_device_link" href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all">Complete Authorization →</a>
           <div class="flex items-center gap-2 mt-2">
-            <span id="copilot_timer" class="text-xs text-slate-500"></span>
+            <span id="copilot_timer" class="portal-inline-note"></span>
           </div>
         </div>
       </div>
     </section>
 
     <!-- Jira Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3" data-instance-group="jira">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Jira</h6>
+    <section class="portal-panel-section" data-instance-group="jira">
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Jira</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
-        </label>
+        </div>
       </div>
       <input type="hidden" name="jira_instance_count" value="{{ jira_instances|length }}" data-instance-count="jira" />
       <div class="space-y-2" data-instance-container="jira">
         {% for inst in jira_instances %}
-          <div class="rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-2" data-instance-item="jira">
-            <div class="flex justify-between items-center">
-              <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Instance {{ loop.index }}</span>
-              <button type="button" class="text-xs text-red-600 dark:text-red-400 hover:underline" data-action="remove-instance" data-group="jira">Remove</button>
+          <div class="portal-settings-instance-card" data-instance-item="jira">
+            <div class="portal-settings-instance-head">
+              <span class="portal-settings-instance-title">Instance {{ loop.index }}</span>
+              <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="jira">Remove</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" />
+              <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" />
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="portal-form-input" />
+              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" />
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="portal-form-input" />
+              <input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="portal-form-input" />
             </div>
           </div>
         {% endfor %}
       </div>
-      <button type="button" class="w-full rounded-lg border border-dashed border-slate-300 dark:border-slate-500 px-3 py-2 text-xs text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-500 transition-colors" data-action="add-instance" data-group="jira">+ Add Jira Instance</button>
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="jira">+ Add Jira Instance</button>
     </section>
 
     <!-- Confluence Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3" data-instance-group="confluence">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Confluence</h6>
+    <section class="portal-panel-section" data-instance-group="confluence">
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Confluence</h6>
         </div>
-        <label class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
-        </label>
+        </div>
       </div>
       <input type="hidden" name="confluence_instance_count" value="{{ confluence_instances|length }}" data-instance-count="confluence" />
       <div class="space-y-2" data-instance-container="confluence">
         {% for inst in confluence_instances %}
-          <div class="rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-2" data-instance-item="confluence">
-            <div class="flex justify-between items-center">
-              <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Instance {{ loop.index }}</span>
-              <button type="button" class="text-xs text-red-600 dark:text-red-400 hover:underline" data-action="remove-instance" data-group="confluence">Remove</button>
+          <div class="portal-settings-instance-card" data-instance-item="confluence">
+            <div class="portal-settings-instance-head">
+              <span class="portal-settings-instance-title">Instance {{ loop.index }}</span>
+              <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="confluence">Remove</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" />
+              <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="portal-form-input" />
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="portal-form-input" />
+              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" />
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-              <input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+              <input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="portal-form-input" />
+              <input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="portal-form-input" />
             </div>
           </div>
         {% endfor %}
       </div>
-      <button type="button" class="w-full rounded-lg border border-dashed border-slate-300 dark:border-slate-500 px-3 py-2 text-xs text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-500 transition-colors" data-action="add-instance" data-group="confluence">+ Add Confluence Instance</button>
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="confluence">+ Add Confluence Instance</button>
     </section>
 
     <!-- GitHub Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">GitHub</h6>
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>GitHub</h6>
         </div>
-        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">Base URL</span>
-          <input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <label class="portal-form-label">
+          <span class="portal-form-label">Base URL</span>
+          <input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="portal-form-input" />
         </label>
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">API Token</span>
-          <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <label class="portal-form-label">
+          <span class="portal-form-label">API Token</span>
+          <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="portal-form-input" />
         </label>
       </div>
     </section>
 
     <!-- Git Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center gap-2">
-        <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Git</h6>
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-title">
+        <span class="portal-section-accent" aria-hidden="true"></span>
+        <h6>Git</h6>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">User Name</span>
-          <input type="text" name="git_user_name" value="{{ git.get('user', {}).get('name', '') }}" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <label class="portal-form-label">
+          <span class="portal-form-label">User Name</span>
+          <input type="text" name="git_user_name" value="{{ git.get('user', {}).get('name', '') }}" class="portal-form-input" />
         </label>
-        <label class="block text-xs">
-          <span class="mb-1 block text-slate-600 dark:text-slate-400">User Email</span>
-          <input type="text" name="git_user_email" value="{{ git.get('user', {}).get('email', '') }}" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+        <label class="portal-form-label">
+          <span class="portal-form-label">User Email</span>
+          <input type="text" name="git_user_email" value="{{ git.get('user', {}).get('email', '') }}" class="portal-form-input" />
         </label>
       </div>
     </section>
 
     <!-- SSH Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">SSH</h6>
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>SSH</h6>
         </div>
-        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="ssh_enabled" {% if ssh.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </div>
       </div>
-      <div id="ssh-existing-key" class="hidden p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-        <p class="text-xs text-blue-700 dark:text-blue-300 mb-2">✅ Existing SSH key found:</p>
-        <textarea id="ssh-existing-public-key" readonly class="w-full h-16 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-800 dark:text-slate-200" rows="2"></textarea>
-        <p class="text-xs text-blue-600 dark:text-blue-400 mt-2">This key is already configured. Use regenerate to create a new one.</p>
+      <div id="ssh-existing-key" class="hidden portal-inline-state">
+        <p class="portal-inline-note">✅ Existing SSH key found:</p>
+        <textarea id="ssh-existing-public-key" readonly class="portal-form-textarea" rows="2"></textarea>
+        <p class="portal-inline-note">This key is already configured. Use regenerate to create a new one.</p>
       </div>
-      <label class="block text-xs">
-        <span class="mb-1 block text-slate-600 dark:text-slate-400">Private Key Path</span>
-        <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa or ~/.efp/.ssh/id_rsa" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none" />
+      <label class="portal-form-label">
+        <span class="portal-form-label">Private Key Path</span>
+        <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa or ~/.efp/.ssh/id_rsa" class="portal-form-input" />
       </label>
-      <button type="button" onclick="generateSSHKey('{{ agent_id }}')" class="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500 shadow-sm transition-colors">
+      <button type="button" class="portal-btn is-primary" data-settings-action="generate-ssh-key">
         Generate RSA Key
       </button>
-      <div id="ssh-key-result" class="hidden mt-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-        <p class="text-xs font-semibold text-green-700 dark:text-green-300 mb-2">🔐 Public Key (add to GitHub/GitLab):</p>
-        <textarea id="ssh-public-key" readonly class="w-full h-20 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-800 dark:text-slate-200" rows="3"></textarea>
-        <div class="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-200 dark:border-yellow-800">
-          <p class="text-xs text-yellow-700 dark:text-yellow-300 font-semibold">⚠️ Important: Add the above public key to your GitHub/GitLab account:</p>
-          <p class="text-xs text-yellow-600 dark:text-yellow-400 mt-1">GitHub: Settings → SSH and GPG keys → New SSH key</p>
+      <div id="ssh-key-result" class="hidden portal-inline-state">
+        <p class="portal-inline-success">🔐 Public Key (add to GitHub/GitLab):</p>
+        <textarea id="ssh-public-key" readonly class="portal-form-textarea" rows="3"></textarea>
+        <div class="portal-inline-state is-error">
+          <p class="portal-inline-error">⚠️ Important: Add the above public key to your GitHub/GitLab account:</p>
+          <p class="portal-inline-error">GitHub: Settings → SSH and GPG keys → New SSH key</p>
         </div>
-        <p class="text-xs text-green-600 dark:text-green-400 mt-2" id="ssh-key-message"></p>
+        <p class="portal-inline-success" id="ssh-key-message"></p>
       </div>
     </section>
 
     <!-- Debug Section -->
-    <section class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
-          <h6 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Debug</h6>
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Debug</h6>
         </div>
-        <div class="flex items-center gap-2 text-xs cursor-pointer text-slate-600 dark:text-slate-300">
+        <div class="portal-checkbox-row">
           <label class="toggle-switch"><input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
           <span>Enabled</span>
         </div>
       </div>
-      <label class="block text-xs">
-        <span class="mb-1 block text-slate-600 dark:text-slate-400">Log Level</span>
-        <select name="debug_log_level" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none">
+      <label class="portal-form-label">
+        <span class="portal-form-label">Log Level</span>
+        <select name="debug_log_level" class="portal-form-select">
           <option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option>
           <option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option>
           <option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option>
@@ -261,10 +271,10 @@
     </section>
 
     <div class="flex gap-2">
-      <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 shadow-sm transition-colors">Copy</button>
-      <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 shadow-sm transition-colors">Paste</button>
+      <button type="button" class="portal-btn is-secondary" data-settings-action="copy-config">Copy</button>
+      <button type="button" class="portal-btn is-secondary" data-settings-action="paste-config">Paste</button>
     </div>
-    <button type="submit" onclick="if(typeof showToast === 'function') showToast('Settings saved!'); setTimeout(function(){closeToolPanel();}, 500); return true;" class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 shadow-sm transition-colors">Save Settings</button>
+    <button type="submit" class="portal-btn is-primary">Save Settings</button>
   </form>
 
   <script>
@@ -432,8 +442,7 @@
       
       try {
         if (!state.selectedAgentId) {
-          if (typeof showToast === 'function') showToast('Please select an agent first');
-          else alert('Please select an agent first');
+          if (typeof showToast === 'function') showToast('Please select an assistant first');
           return;
         }
         // Capture agentId to avoid drift during polling
@@ -444,7 +453,6 @@
 
         if (data.error) {
           if (typeof showToast === 'function') showToast('Failed: ' + data.error);
-          else alert('Failed to start authorization: ' + data.error);
           return;
         }
 
@@ -470,7 +478,7 @@
         userCode.textContent = data.user_code;
         timer.textContent = data.expires_in + 's';
         statusText.textContent = 'Waiting for authorization...';
-        statusText.className = 'text-xs text-amber-500';
+        statusText.className = 'portal-inline-note';
 
         // Start countdown timer
         let currentTimer = data.expires_in || 600;
@@ -481,7 +489,7 @@
           if (currentTimer <= 0) {
             clearInterval(copilotTimerInterval);
             statusText.textContent = 'Authorization timed out. Please try again.';
-            statusText.className = 'text-xs text-red-500';
+            statusText.className = 'portal-inline-error';
           }
         }, 1000);
 
@@ -503,7 +511,7 @@
               clearInterval(copilotAuthInterval);
               clearInterval(copilotTimerInterval);
               statusText.textContent = 'Authorized successfully!';
-              statusText.className = 'text-xs text-green-500';
+              statusText.className = 'portal-inline-success';
               instructions.classList.add('hidden');
               
               // Store token in API key field
@@ -515,7 +523,7 @@
               clearInterval(copilotAuthInterval);
               clearInterval(copilotTimerInterval);
               statusText.textContent = checkData.message || 'Authorization failed';
-              statusText.className = 'text-xs text-red-500';
+              statusText.className = 'portal-inline-error';
             }
           } catch (e) {
             console.error('Polling error:', e);
@@ -524,7 +532,6 @@
 
       } catch (e) {
         if (typeof showToast === 'function') showToast('Failed: ' + e);
-        else alert('Failed to start authorization: ' + e);
       }
     }
 
@@ -576,7 +583,7 @@
         toggle.tabIndex = 0;
         toggle.setAttribute('aria-label', 'Toggle password visibility');
         toggle.setAttribute('aria-pressed', 'false');
-        toggle.className = 'absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 focus:outline-none';
+        toggle.className = 'portal-password-toggle';
         toggle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
         toggle.addEventListener('click', function() {
           if (input.type === 'password') {
@@ -608,16 +615,28 @@
     }
     
     initSettings();
-    
-    // Remove inline status message after HTMX swap
-    document.body.addEventListener("htmx:afterSwap", function(event) {
-      if (event.target.id === "tool-panel-body") {
-        var statusDiv = event.target.querySelector(".border-emerald-600, .border-red-600");
-        if (statusDiv) {
-          statusDiv.remove();
+
+    const settingsStatus = document.getElementById('settings-status');
+    if (settingsStatus) {
+      const kind = settingsStatus.dataset.settingsStatus || '';
+      const message = (settingsStatus.textContent || '').trim();
+
+      if (kind === 'success') {
+        if (typeof showToast === 'function' && message) {
+          showToast(message);
+        }
+        if (typeof closeToolPanel === 'function') {
+          closeToolPanel();
+        }
+        return;
+      }
+
+      if (kind === 'error') {
+        if (typeof settingsStatus.focus === 'function') {
+          settingsStatus.focus();
         }
       }
-    });
+    }
   })();
   </script>
 </div>
