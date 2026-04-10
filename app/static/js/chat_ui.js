@@ -482,7 +482,9 @@ function setButtonDisabled(button, disabled, disabledTitle = "") {
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
   const assistantName = String(state.selectedAgentName || "").trim();
-  dom.chatInput.placeholder = assistantName ? `Message ${assistantName}` : "Message an assistant";
+  dom.chatInput.placeholder = assistantName
+    ? `Ask ${assistantName} anything...`
+    : "Ask me anything...";
 }
 
 function buildUserMessageArticle(text, attachments = []) {
@@ -3087,7 +3089,7 @@ function bindEvents() {
     maybeShowSuggest();
     // Auto-expand textarea
     dom.chatInput.style.height = 'auto';
-    dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 150) + 'px';
+    dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 220) + 'px';
   });
   dom.chatInput?.addEventListener("compositionstart", () => {
     state.isComposingInput = true;
