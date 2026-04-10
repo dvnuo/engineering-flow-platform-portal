@@ -2013,6 +2013,33 @@ function setMainView(view) {
   dom.workspaceDetailView?.classList.toggle("hidden", view !== "detail");
 }
 
+function restoreAssistantHeaderState() {
+  const agent = getSelectedAgent();
+  if (agent) {
+    const status = getSelectedAgentStatus();
+    dom.embedTitle.textContent = agent.name || "Select an assistant";
+    if (dom.selectedStatus) {
+      dom.selectedStatus.textContent = status;
+      dom.selectedStatus.className = `toolbar-status-badge status-${status}`;
+    }
+    setChatStatus("Ready");
+    return;
+  }
+
+  dom.embedTitle.textContent = "Select an assistant";
+  if (dom.selectedStatus) {
+    dom.selectedStatus.textContent = "idle";
+    dom.selectedStatus.className = "toolbar-status-badge";
+  }
+  setChatStatus("Ready");
+}
+
+function renderWorkspaceDetailPlaceholder(message = "Select a bundle or task from the left sidebar.") {
+  if (!dom.workspaceDetailContent) return;
+  setMainView("detail");
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${safe(message)}</div>`;
+}
+
 function applySecondaryPaneState() {
   dom.portalShell?.classList.toggle("is-secondary-collapsed", state.secondaryPaneCollapsed);
   dom.portalSecondaryPane?.classList.toggle("is-hidden", state.secondaryPaneCollapsed);
@@ -2053,7 +2080,9 @@ function syncMainHeader() {
     el.classList.toggle("hidden", !assistantMode);
   });
 
-  if (!assistantMode) {
+  if (assistantMode) {
+    restoreAssistantHeaderState();
+  } else {
     dom.embedTitle.textContent = state.activeNavSection === "bundles" ? "Requirement Bundles" : "My Tasks";
     setChatStatus(state.activeNavSection === "bundles" ? "Browse and open bundle detail in the main stage" : "Browse tasks and open task detail in the main stage");
   }
@@ -2214,15 +2243,28 @@ async function refreshMyTasks() {
 
 async function openTaskDetailInMain(taskId) {
   if (!dom.workspaceDetailContent) return;
+  await setActiveNavSection("tasks", { toggleIfSame: false });
+  if (!state.myTasks.some((task) => task.id === taskId)) {
+    await refreshMyTasks();
+  }
   state.selectedTaskId = taskId;
   renderTaskNavList();
   setMainView("detail");
   dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task detail…</div>';
   try {
     await htmx.ajax("GET", `/app/tasks/${encodeURIComponent(taskId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
+    syncMainHeader();
   } catch (error) {
     dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`;
   }
+}
+
+async function returnFromTaskDetailToSidebar() {
+  await setActiveNavSection("tasks", { toggleIfSame: false });
+  state.selectedTaskId = null;
+  renderTaskNavList();
+  renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.");
+  syncMainHeader();
 }
 
 function renderChatHistory(messages, metadata = {}) {
@@ -3395,6 +3437,23 @@ function bindEvents() {
       const group = removeBtn.dataset.group || "jira";
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(group);
+    }
+  });
+
+  dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const openTaskMainBtn = event.target.closest("[data-open-task-main]");
+    if (openTaskMainBtn) {
+      event.preventDefault();
+      const taskId = openTaskMainBtn.dataset.openTaskMain || "";
+      if (!taskId) return;
+      await openTaskDetailInMain(taskId);
+      return;
+    }
+
+    const taskBackBtn = event.target.closest("[data-task-back-sidebar]");
+    if (taskBackBtn) {
+      event.preventDefault();
+      await returnFromTaskDetailToSidebar();
     }
   });
 

@@ -28,12 +28,16 @@
       {% elif task.summary %}
       <div class="portal-panel-note">{{ task.summary[:180] }}</div>
       {% endif %}
+      {% if content_target == "#workspace-detail-content" %}
+      <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ task.id }}">View detail</button>
+      {% else %}
       <button
         class="portal-btn is-secondary"
         hx-get="/app/tasks/{{ task.id }}/panel"
         hx-target="{{ content_target }}"
         hx-swap="innerHTML"
       >View detail</button>
+      {% endif %}
     </div>
     {% else %}
     <div class="portal-panel-empty">No visible tasks yet.</div>

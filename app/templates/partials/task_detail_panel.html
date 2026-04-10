@@ -30,5 +30,9 @@
     <pre class="portal-panel-pre">{{ task.result_payload_json or '{}' }}</pre>
   </div>
 
+  {% if content_target == "#workspace-detail-content" %}
+  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1">Back to My Tasks</button>
+  {% else %}
   <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Back to My Tasks</button>
+  {% endif %}
 </div>

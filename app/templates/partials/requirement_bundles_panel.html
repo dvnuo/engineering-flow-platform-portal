@@ -108,7 +108,11 @@
       <div>task id: {{ task_result.task_id }}</div>
       <div>dispatch status: {{ task_result.dispatch_status }}</div>
       <div>dispatch message: {{ task_result.dispatch_message }}</div>
+      {% if content_target == "#workspace-detail-content" %}
+      <button type="button" class="portal-btn is-secondary" data-open-task-main="{{ task_result.task_id }}">Open Task Detail</button>
+      {% else %}
       <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task_result.task_id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Open Task Detail</button>
+      {% endif %}
     </div>
     {% endif %}
   </section>
