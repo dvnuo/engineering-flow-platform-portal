@@ -29,6 +29,10 @@ def test_frontend_assets_include_phase_b_fixups():
 
     assert "ensureRunningSelectedAssistant" in js_source
     assert "setButtonDisabled" in js_source
+    assert "removeTemporaryAssistantRows" in js_source
+    assert "removeLatestOptimisticUserRow" in js_source
+    assert "didAppendAttachmentHistoryForPendingSend" in js_source
+    assert "data-temporary-assistant=\"1\"" in js_source
     assert "closest('.message-row')" in js_source
     assert 'data-optimistic-user="1"' in js_source
     assert "getLatestOptimisticUserArticle" in js_source
@@ -40,11 +44,26 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".flex.flex-col" not in js_source
     assert "message message-error flex gap-3 py-3" not in js_source
     assert "buildPendingAssistantRowForEvents" in js_source
+    assert js_source.count("#sessions-new-chat-btn") == 1
+    assert js_source.count("[data-session-id]") == 1
+
+    detail_meta_block = js_source[js_source.find("function renderAgentMeta"):js_source.find("function renderAgentActions")]
+    assert "text-slate-500 uppercase tracking-wide" not in detail_meta_block
+    assert "bg-slate-100 dark:bg-slate-800" not in detail_meta_block
+    assert "text-blue-500" not in detail_meta_block
 
     assert ".portal-tool-panel" in css_source
     assert ".portal-tool-panel-head" in css_source
     assert ".portal-tool-panel-body" in css_source
     assert ".portal-detail-card" in css_source
+    assert ".portal-detail-stack" in css_source
+    assert ".portal-detail-section" in css_source
+    assert ".portal-detail-label" in css_source
+    assert ".portal-detail-code" in css_source
+    assert ".portal-resource-pill" in css_source
+    assert ".portal-usage-grid" in css_source
+    assert ".portal-inline-error" in css_source
+    assert ".portal-link-inline" in css_source
     assert ".message-surface-error" in css_source
     assert ".portal-detail-action-grid" in css_source
     assert ".portal-detail-action-btn" in css_source

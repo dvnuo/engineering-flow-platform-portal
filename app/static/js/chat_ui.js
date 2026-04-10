@@ -213,6 +213,7 @@ const state = {
   messageBackup: "",
   requirementBundles: [],
   selectedBundleKey: null,
+  didAppendAttachmentHistoryForPendingSend: false,
 };
 
 const md = window.markdownit({
@@ -499,14 +500,14 @@ function buildUserMessageArticle(text, attachments = []) {
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = state.selectedAgentName || "Assistant";
-  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
 function buildPendingAssistantRowForEvents(thinkingId) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const name = state.selectedAgentName || "Assistant";
   return `
-    <div class="message-row message-row-assistant" data-thinking-fallback="1">
+    <div class="message-row message-row-assistant" data-temporary-assistant="1" data-thinking-fallback="1">
       <div class="message-meta">
         <span class="message-author">${escapeHtml(name)}</span>
         <span class="message-timestamp">${now}</span>
@@ -516,11 +517,24 @@ function buildPendingAssistantRowForEvents(thinkingId) {
   `;
 }
 
-function removePendingAssistantPlaceholder() {
+function removeTemporaryAssistantRows() {
   if (!dom.messageList) return;
+  const tempRows = new Set();
   dom.messageList
     .querySelectorAll('article[data-pending-assistant="1"]')
-    .forEach((article) => article.closest('.message-row')?.remove());
+    .forEach((article) => {
+      const row = article.closest('.message-row');
+      if (row) tempRows.add(row);
+    });
+  dom.messageList
+    .querySelectorAll('.message-row[data-thinking-fallback="1"], .message-row[data-temporary-assistant="1"]')
+    .forEach((row) => tempRows.add(row));
+  tempRows.forEach((row) => row.remove());
+}
+
+function removeLatestOptimisticUserRow() {
+  const latest = getLatestOptimisticUserArticle();
+  latest?.closest('.message-row')?.remove();
 }
 
 function getLatestOptimisticUserArticle() {
@@ -1060,48 +1074,48 @@ function renderAgentMeta(agent) {
   if (agent.repo_url) {
     const branch = agent.branch || 'main';
     repoSection = `
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Repository</div>
-        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.repo_url)}</div>
-        <div class="text-xs text-slate-500 mt-1">Branch: <span class="text-slate-700 dark:text-slate-300">${safe(branch)}</span></div>
-        <div id="agent-git-commit" class="text-xs text-slate-400 mt-1">Loading commit...</div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Repository</div>
+        <code class="portal-detail-code">${safe(agent.repo_url)}</code>
+        <div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(branch)}</span></div>
+        <div id="agent-git-commit" class="portal-detail-subtle">Loading commit...</div>
       </div>
     `;
   }
 
   dom.agentMeta.innerHTML = `
-    <div class="space-y-3 text-sm">
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Assistant ID</div>
-        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.id)}</div>
+    <div class="portal-detail-stack">
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Assistant ID</div>
+        <code class="portal-detail-code">${safe(agent.id)}</code>
       </div>
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Image</div>
-        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.image)}</div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Image</div>
+        <code class="portal-detail-code">${safe(agent.image)}</code>
       </div>
       ${repoSection}
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Created</div>
-        <div class="text-slate-700 dark:text-slate-300">${dateStr}</div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Created</div>
+        <div class="portal-detail-value">${dateStr}</div>
       </div>
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Resources</div>
-        <div class="flex flex-wrap gap-1.5">
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium">
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Resources</div>
+        <div class="portal-resource-pills">
+          <span class="portal-resource-pill is-cpu">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
             ${cpu}
           </span>
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-medium">
+          <span class="portal-resource-pill is-memory">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
             ${mem}
           </span>
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium">
+          <span class="portal-resource-pill is-disk">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
             ${disk}Gi
           </span>
         </div>
       </div>
-      <div id="agent-usage" class="text-xs text-slate-400">Loading usage...</div>
+      <div id="agent-usage" class="portal-detail-subtle">Loading usage...</div>
     </div>
   `;
 
@@ -1148,23 +1162,27 @@ async function fetchGitInfo(agentId) {
         commitLink.href = `${safeUrl}/commit/${data.commit_id}`;
         commitLink.target = '_blank';
         commitLink.rel = 'noopener noreferrer';
-        commitLink.className = 'text-blue-500 hover:underline font-mono';
+        commitLink.className = 'portal-link-inline';
         commitLink.textContent = shortCommit;
         commitEl.appendChild(commitLink);
       } else {
         const commitText = document.createElement('span');
-        commitText.className = 'text-blue-500 font-mono';
+        commitText.className = 'portal-detail-value';
         commitText.textContent = shortCommit;
         commitEl.appendChild(commitText);
       }
     } else if (data.status === 'running') {
+      commitEl.className = "portal-detail-subtle";
       commitEl.textContent = "Commit: Not available";
     } else if (data.status === 'error') {
+      commitEl.className = "portal-inline-error";
       commitEl.textContent = "Git info unavailable";
     } else {
+      commitEl.className = "portal-detail-subtle";
       commitEl.textContent = "Assistant not running";
     }
   } catch (e) {
+    commitEl.className = "portal-inline-error";
     commitEl.textContent = "Failed to load commit";
   }
 }
@@ -1175,6 +1193,7 @@ async function fetchUsageForAgent(agentId) {
   try {
     const data = await api(`/a/${agentId}/api/usage`);
     if (!data) {
+      usageEl.className = "portal-detail-subtle";
       usageEl.textContent = "No usage data";
       return;
     }
@@ -1184,27 +1203,28 @@ async function fetchUsageForAgent(agentId) {
     const inputTokens = global.total_input_tokens || global.total_input || 0;
     const outputTokens = global.total_output_tokens || global.total_output || 0;
     usageEl.innerHTML = `
-      <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Usage (30 days)</div>
-      <div class="grid grid-cols-2 gap-2">
-        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
-          <div class="text-slate-500 dark:text-slate-400">Requests</div>
-          <div class="font-semibold text-slate-700 dark:text-slate-200">${reqCount}</div>
+      <div class="portal-detail-label">Usage (30 days)</div>
+      <div class="portal-usage-grid">
+        <div class="portal-usage-card">
+          <span class="portal-usage-k">Requests</span>
+          <strong class="portal-usage-v">${reqCount}</strong>
         </div>
-        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
-          <div class="text-slate-500 dark:text-slate-400">Cost</div>
-          <div class="font-semibold text-slate-700 dark:text-slate-200">$${cost.toFixed(4)}</div>
+        <div class="portal-usage-card">
+          <span class="portal-usage-k">Cost</span>
+          <strong class="portal-usage-v">$${cost.toFixed(4)}</strong>
         </div>
-        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
-          <div class="text-slate-500 dark:text-slate-400">Input</div>
-          <div class="font-semibold text-slate-700 dark:text-slate-200">${inputTokens.toLocaleString()}</div>
+        <div class="portal-usage-card">
+          <span class="portal-usage-k">Input</span>
+          <strong class="portal-usage-v">${inputTokens.toLocaleString()}</strong>
         </div>
-        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
-          <div class="text-slate-500 dark:text-slate-400">Output</div>
-          <div class="font-semibold text-slate-700 dark:text-slate-200">${outputTokens.toLocaleString()}</div>
+        <div class="portal-usage-card">
+          <span class="portal-usage-k">Output</span>
+          <strong class="portal-usage-v">${outputTokens.toLocaleString()}</strong>
         </div>
       </div>
     `;
   } catch (e) {
+    usageEl.className = "portal-inline-error";
     usageEl.textContent = "No usage data";
   }
 }
@@ -1426,11 +1446,12 @@ function handleChatBeforeRequest(event) {
   // Backup message and files for potential restore on error
   messageBackup = message;
   pendingFilesBackup = [...state.pendingFiles];
+  state.didAppendAttachmentHistoryForPendingSend = false;
 
   // Build attachments from pendingFiles for display
   setChatSubmitting(true);
   removeWelcomeMessageIfPresent();
-  removePendingAssistantPlaceholder();
+  removeTemporaryAssistantRows();
   hideSuggest();
 
   // Build attachments from pending files for display
@@ -1486,7 +1507,12 @@ function handleChatBeforeRequest(event) {
 function handleChatResponseError(event) {
   if (event.target?.id !== "chat-form") return;
 
-  removePendingAssistantPlaceholder();
+  removeTemporaryAssistantRows();
+  removeLatestOptimisticUserRow();
+  if (state.didAppendAttachmentHistoryForPendingSend && Array.isArray(state.attachmentHistory) && state.attachmentHistory.length) {
+    state.attachmentHistory.pop();
+  }
+  state.didAppendAttachmentHistoryForPendingSend = false;
   setChatSubmitting(false);
   state.inflightThinking = null;
 
@@ -1536,6 +1562,7 @@ function handleChatAfterRequest(event) {
   if (!event.detail?.successful) return;
 
   setChatSubmitting(false);
+  state.didAppendAttachmentHistoryForPendingSend = false;
   state.pendingMessage = "";
   state.messagePrepared = false;
 
@@ -1609,12 +1636,13 @@ function handleChatAfterSwap(target) {
     }
   });
   
-  removePendingAssistantPlaceholder();
+  removeTemporaryAssistantRows();
   if (allEvents.length) attachThinkingToLatestAssistant(allEvents);
   
   // Clear states
   state.pendingThinkingEvents = null;
   state.inflightThinking = null;
+  state.didAppendAttachmentHistoryForPendingSend = false;
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
   // Re-query the element each time since OOB swap replaces the DOM element
@@ -1660,6 +1688,7 @@ function initializeRenderLifecycle() {
         
         // Store attachments in history (always record, even empty arrays for indexing)
         addToAttachmentHistory(uploadedFileIds);
+        state.didAppendAttachmentHistoryForPendingSend = true;
       }
     }
   });
@@ -1910,10 +1939,15 @@ async function openSessionsDrawer() {
   dom.sessionsDrawerBackdrop?.classList.add("is-open");
   if (!dom.sessionsDrawerBody) return;
   dom.sessionsDrawerBody.innerHTML = '<div class="text-xs text-slate-500">Loading sessions…</div>';
-  await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
-    target: "#sessions-drawer-body",
-    swap: "innerHTML",
-  });
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
+      target: "#sessions-drawer-body",
+      swap: "innerHTML",
+    });
+  } catch (error) {
+    dom.sessionsDrawerBody.innerHTML = '<div class="portal-inline-error">Failed to load sessions.</div>';
+    setChatStatus("Failed to load sessions", true);
+  }
 }
 
 function closeSessionsDrawer() {
@@ -2557,7 +2591,7 @@ async function clearChat() {
 
     updateSelectedAgentSession("");
     state.inflightThinking = null;
-    removePendingAssistantPlaceholder();
+    removeTemporaryAssistantRows();
     clearMessageListToWelcome();
     setChatStatus("Chat cleared");
   } catch (error) {
@@ -2570,7 +2604,7 @@ async function startNewChatForSelectedAgent() {
   closeSessionsDrawer();
   updateSelectedAgentSession("");
   state.inflightThinking = null;
-  removePendingAssistantPlaceholder();
+  removeTemporaryAssistantRows();
   clearMessageListToWelcome();
   setChatSubmitting(false);
   setChatStatus("New chat started");
@@ -3089,20 +3123,6 @@ function bindEvents() {
   dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
-    const newChatBtn = event.target.closest("#sessions-new-chat-btn");
-    if (newChatBtn) {
-      event.preventDefault();
-      await startNewChatForSelectedAgent();
-      return;
-    }
-
-    const sessionBtn = event.target.closest("[data-session-id]");
-    if (sessionBtn) {
-      event.preventDefault();
-      await loadSession(sessionBtn.dataset.sessionId || "");
-      return;
-    }
-
     const fileBtn = event.target.closest("[data-file-ref]");
     if (fileBtn) {
       event.preventDefault();
