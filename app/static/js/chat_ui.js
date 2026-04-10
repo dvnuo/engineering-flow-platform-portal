@@ -482,7 +482,20 @@ function setButtonDisabled(button, disabled, disabledTitle = "") {
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
   const assistantName = String(state.selectedAgentName || "").trim();
-  dom.chatInput.placeholder = assistantName ? `Message ${assistantName}` : "Message an assistant";
+  dom.chatInput.placeholder = assistantName
+    ? `Ask ${assistantName} anything...`
+    : "Ask me anything...";
+}
+
+function syncChatInputHeight() {
+  if (!dom.chatInput) return;
+  dom.chatInput.style.height = 'auto';
+  dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 220) + 'px';
+}
+
+function resetChatInputHeight() {
+  if (!dom.chatInput) return;
+  dom.chatInput.style.height = 'auto';
 }
 
 function buildUserMessageArticle(text, attachments = []) {
@@ -1289,6 +1302,7 @@ async function selectAgentById(agentId) {
   const selectedAgent = allAgents.find(a => a.id === agentId);
   state.selectedAgentName = selectedAgent?.name || null;
   updateChatInputPlaceholder();
+  resetChatInputHeight();
   closeSessionsDrawer();
 
   updateOwnerOnlyButtons(agentId);
@@ -1504,6 +1518,7 @@ function handleChatBeforeRequest(event) {
   // Clear pending files and input (message is already captured in 'message' variable)
   clearPendingFiles();
   if (dom.chatInput) dom.chatInput.value = "";
+  resetChatInputHeight();
   setChatStatus("Sending...");
 
   // Note: attachments is now set via htmx:configRequest event
@@ -1525,6 +1540,7 @@ function handleChatResponseError(event) {
   // Restore message and files from backup
   if (messageBackup || pendingFilesBackup.length > 0) {
     if (dom.chatInput) dom.chatInput.value = messageBackup;
+    syncChatInputHeight();
     state.pendingFiles = pendingFilesBackup;
     renderInputPreview();
     pendingFilesBackup = [];
@@ -2496,7 +2512,7 @@ async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("My Uploads", '<div class="portal-inline-state">Loading files…</div>');
+  setToolPanel("Select Source", '<div class="portal-inline-state">Loading files…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
@@ -2504,7 +2520,7 @@ async function openMyUploads() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("My Uploads", `Failed: ${safe(error.message)}`);
+    setToolPanel("Select Source", `Failed: ${safe(error.message)}`);
   }
 }
 
@@ -2643,6 +2659,7 @@ async function clearChat() {
     state.inflightThinking = null;
     removeTemporaryAssistantRows();
     clearMessageListToWelcome();
+    resetChatInputHeight();
     setChatStatus("Chat cleared");
   } catch (error) {
     setChatStatus(`Clear failed: ${safe(error.message)}`);
@@ -2657,6 +2674,7 @@ async function startNewChatForSelectedAgent() {
   removeTemporaryAssistantRows();
   clearMessageListToWelcome();
   setChatSubmitting(false);
+  resetChatInputHeight();
   setChatStatus("New chat started");
   dom.chatInput?.focus();
 }
@@ -3086,8 +3104,7 @@ function bindEvents() {
   dom.chatInput?.addEventListener("input", () => {
     maybeShowSuggest();
     // Auto-expand textarea
-    dom.chatInput.style.height = 'auto';
-    dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 150) + 'px';
+    syncChatInputHeight();
   });
   dom.chatInput?.addEventListener("compositionstart", () => {
     state.isComposingInput = true;

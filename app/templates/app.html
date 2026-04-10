@@ -148,20 +148,53 @@
               <input type="hidden" id="chat-session-id" name="session_id" value="" />
               <input type="hidden" id="chat-attachments" name="attachments" value="" />
 
-              <button type="button" id="composer-attach-btn" class="toolbar-icon-btn" title="Attach files">
-                <i data-lucide="paperclip" class="w-5 h-5"></i>
-              </button>
-              <button type="button" id="quick-uploads-btn" class="toolbar-icon-btn" title="My Uploads">
-                <i data-lucide="library" class="w-5 h-5"></i>
-              </button>
-
               <div class="portal-composer-input-wrap">
                 <div id="input-preview-area" class="hidden"></div>
-                <textarea id="chat-input" name="message" rows="1" required placeholder="Message an assistant"></textarea>
+                <textarea id="chat-input"
+                          name="message"
+                          rows="1"
+                          required
+                          placeholder="Ask me anything..."></textarea>
                 <div id="chat-suggest" class="hidden"></div>
               </div>
 
-              <button id="send-chat-btn" type="submit">Send</button>
+              <div class="portal-composer-toolbar">
+                <div class="portal-composer-toolbar-left">
+                  <button type="button"
+                          id="quick-uploads-btn"
+                          class="composer-pill-btn composer-source-btn"
+                          title="Select source">
+                    <i data-lucide="library" class="w-4 h-4"></i>
+                    <span>Select Source</span>
+                    <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                  </button>
+                </div>
+
+                <div class="portal-composer-toolbar-right">
+                  <button type="button"
+                          id="composer-attach-btn"
+                          class="composer-pill-btn"
+                          title="Attach files">
+                    <i data-lucide="paperclip" class="w-4 h-4"></i>
+                    <span>Attach</span>
+                  </button>
+
+                  <button type="button"
+                          id="composer-voice-btn"
+                          class="composer-pill-btn is-disabled"
+                          title="Voice coming soon"
+                          aria-disabled="true"
+                          disabled>
+                    <i data-lucide="mic" class="w-4 h-4"></i>
+                    <span>Voice</span>
+                  </button>
+
+                  <button id="send-chat-btn" type="submit" class="composer-send-btn">
+                    <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                    <span>Send</span>
+                  </button>
+                </div>
+              </div>
             </form>
           </div>
         </div>
