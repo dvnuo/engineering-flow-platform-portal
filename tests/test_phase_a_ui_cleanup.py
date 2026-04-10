@@ -152,6 +152,7 @@ def test_templates_portalized_for_panel_visual_consistency():
     bundles_html = Path("app/templates/partials/requirement_bundles_panel.html").read_text(encoding="utf-8")
     settings_html = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     usage_html = Path("app/templates/partials/usage_panel.html").read_text(encoding="utf-8")
+    bundles_page_html = Path("app/templates/requirement_bundles.html").read_text(encoding="utf-8")
 
     assert "portal-toast" in app_html
     assert "portal-toast-inner" in app_html
@@ -181,3 +182,28 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "bg-slate" not in usage_html
     assert "border-slate" not in usage_html
     assert "dark:" not in usage_html
+    assert 'hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }"' not in settings_html
+    assert 'id="settings-status"' in settings_html
+    assert 'data-settings-status' in settings_html
+    assert 'Please select an agent first' not in settings_html
+    assert 'Please select an assistant first' in settings_html
+    assert 'text-blue-500' not in settings_html
+    assert 'portal-note-500' not in settings_html
+    assert 'portal-note-800' not in settings_html
+    assert 'portal-note-200' not in settings_html
+    assert 'portal-accent-bg' not in settings_html
+    assert '.border-emerald-600, .border-red-600' not in settings_html
+    assert 'input-preview-badge' in js_source
+    assert 'bg-yellow-500' not in js_source
+    assert 'bg-green-500' not in js_source
+    assert 'bg-red-500' not in js_source
+    assert '.portal-inline-success' in Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert '.portal-file-icon' in Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert '.input-preview-badge' in Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert '.portal-standalone-page' in Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert '.portal-standalone-page-back' in Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert 'portal-standalone-page' in bundles_page_html
+    assert 'portal-standalone-page-back' in bundles_page_html
+    assert 'bg-slate-100' not in bundles_page_html
+    assert 'dark:bg-slate-950' not in bundles_page_html
+    assert 'border-slate-200' not in bundles_page_html

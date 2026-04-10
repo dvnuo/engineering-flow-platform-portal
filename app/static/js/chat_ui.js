@@ -355,11 +355,11 @@ function renderInputPreview() {
 
     // Status badge
     if (pf.status === 'uploading') {
-      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-yellow-500 text-white px-1 rounded">⏳</span>';
+      statusBadge = '<span class="input-preview-badge is-uploading" aria-hidden="true">⏳</span>';
     } else if (pf.status === 'uploaded') {
-      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-green-500 text-white px-1 rounded">✓</span>';
+      statusBadge = '<span class="input-preview-badge is-success" aria-hidden="true">✓</span>';
     } else if (pf.status === 'failed') {
-      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-red-500 text-white px-1 rounded">✗</span>';
+      statusBadge = '<span class="input-preview-badge is-error" aria-hidden="true">✗</span>';
     }
 
     if (pf.isImage && pf.previewUrl) {

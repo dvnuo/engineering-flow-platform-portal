@@ -1,6 +1,16 @@
 <div class="portal-panel-stack" id="settings-panel-root">
-  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }" class="portal-panel-stack">
+  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
     <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
+    {% if status_message %}
+      <div
+        id="settings-status"
+        class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
+        data-settings-status="{{ status_type }}"
+        tabindex="-1"
+      >
+        {{ status_message }}
+      </div>
+    {% endif %}
 
     <!-- Proxy Section -->
     <section class="portal-panel-section">
@@ -32,9 +42,9 @@
     
     <!-- LLM Model Section -->
     <section class="portal-panel-section">
-      <div class="flex items-center gap-2">
-        <div class="w-1 h-4 portal-accent-bg rounded-full"></div>
-        <h6 class="text-sm font-semibold portal-note-800 portal-note-200">LLM Model</h6>
+      <div class="portal-settings-section-title">
+        <span class="portal-section-accent" aria-hidden="true"></span>
+        <h6>LLM Model</h6>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
@@ -70,13 +80,13 @@
         <div id="copilot_instructions" class="hidden space-y-2">
           <p class="portal-inline-note">Step 1: Click the link below to authorize</p>
           <a id="copilot_verify_link" href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline"></a>
-          <p class="text-xs portal-note-500 mt-2">Step 2: Copy this code</p>
+          <p class="portal-inline-note">Step 2: Copy this code</p>
           <div class="flex items-center gap-2">
             <span id="copilot_user_code" class="portal-detail-code"></span>
             <button type="button" id="copilot_copy_btn" class="portal-btn is-secondary">Copy</button>
           </div>
-          <p class="text-xs portal-note-500 mt-2">Step 3: Click to complete authorization</p>
-          <a id="copilot_device_link" href="#" target="_blank" rel="noopener noreferrer" class="hidden text-xs text-blue-500 hover:underline break-all">Complete Authorization →</a>
+          <p class="portal-inline-note">Step 3: Click to complete authorization</p>
+          <a id="copilot_device_link" href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all">Complete Authorization →</a>
           <div class="flex items-center gap-2 mt-2">
             <span id="copilot_timer" class="portal-inline-note"></span>
           </div>
@@ -186,9 +196,9 @@
 
     <!-- Git Section -->
     <section class="portal-panel-section">
-      <div class="flex items-center gap-2">
-        <div class="w-1 h-4 portal-accent-bg rounded-full"></div>
-        <h6 class="text-sm font-semibold portal-note-800 portal-note-200">Git</h6>
+      <div class="portal-settings-section-title">
+        <span class="portal-section-accent" aria-hidden="true"></span>
+        <h6>Git</h6>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
@@ -432,8 +442,8 @@
       
       try {
         if (!state.selectedAgentId) {
-          if (typeof showToast === 'function') showToast('Please select an agent first');
-          else alert('Please select an agent first');
+          if (typeof showToast === 'function') showToast('Please select an assistant first');
+          else alert('Please select an assistant first');
           return;
         }
         // Capture agentId to avoid drift during polling
@@ -608,16 +618,28 @@
     }
     
     initSettings();
-    
-    // Remove inline status message after HTMX swap
-    document.body.addEventListener("htmx:afterSwap", function(event) {
-      if (event.target.id === "tool-panel-body") {
-        var statusDiv = event.target.querySelector(".border-emerald-600, .border-red-600");
-        if (statusDiv) {
-          statusDiv.remove();
+
+    const settingsStatus = document.getElementById('settings-status');
+    if (settingsStatus) {
+      const kind = settingsStatus.dataset.settingsStatus || '';
+      const message = (settingsStatus.textContent || '').trim();
+
+      if (kind === 'success') {
+        if (typeof showToast === 'function' && message) {
+          showToast(message);
+        }
+        if (typeof closeToolPanel === 'function') {
+          closeToolPanel();
+        }
+        return;
+      }
+
+      if (kind === 'error') {
+        if (typeof settingsStatus.focus === 'function') {
+          settingsStatus.focus();
         }
       }
-    });
+    }
   })();
   </script>
 </div>
