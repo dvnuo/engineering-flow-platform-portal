@@ -441,6 +441,37 @@ function canWriteAgent(agent) {
   return state.currentUserRole === "admin" || Number(agent.owner_user_id) === state.currentUserId;
 }
 
+function getSelectedAgent() {
+  return state.mineAgents.find((item) => item.id === state.selectedAgentId) || null;
+}
+
+function getSelectedAgentStatus() {
+  const agent = getSelectedAgent();
+  if (!agent) return "idle";
+  return (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+}
+
+function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
+  const agent = getSelectedAgent();
+  if (!agent) {
+    showToast("Please select an assistant first");
+    return false;
+  }
+  const status = getSelectedAgentStatus();
+  if (status !== "running") {
+    showToast(`${agent.name} is ${status}. Start it from Assistant details first.`);
+    return false;
+  }
+  return true;
+}
+
+function setButtonDisabled(button, disabled, disabledTitle = "") {
+  if (!button) return;
+  button.disabled = !!disabled;
+  button.setAttribute("aria-disabled", disabled ? "true" : "false");
+  if (disabled && disabledTitle) button.title = disabledTitle;
+}
+
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
   const assistantName = String(state.selectedAgentName || "").trim();
@@ -625,7 +656,7 @@ async function openThinkingProcessPanel() {
 function renderThinkingProcess(article, events) {
   if (!article) return;
 
-  const isDark = document.documentElement.classList.contains("dark");
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
   let host = article.querySelector('[data-thinking-process="1"]');
   if (!host) {
     host = document.createElement("div");
@@ -822,10 +853,9 @@ function toggleTheme() {
 }
 
 function setChatStatus(text, isError = false) {
-  if (dom.chatStatus) {
-    dom.chatStatus.textContent = text;
-    dom.chatStatus.className = isError ? "text-xs text-red-400" : "text-xs text-slate-400";
-  }
+  if (!dom.chatStatus) return;
+  dom.chatStatus.textContent = text;
+  dom.chatStatus.className = `portal-statusline${isError ? " is-error" : ""}`;
 }
 
 function scrollToBottom() {
@@ -1251,12 +1281,16 @@ async function selectAgentById(agentId) {
 }
 
 async function syncSelectedAgentState() {
-  const agent = state.mineAgents.find((item) => item.id === state.selectedAgentId);
+  const agent = getSelectedAgent();
+  const sessionsBtn = document.getElementById("btn-sessions");
 
   if (!agent) {
     dom.embedTitle.textContent = "Select an assistant";
     dom.selectedStatus.textContent = "idle";
-    dom.chatStatus && (dom.chatStatus.textContent = "Ready");
+    setChatStatus("Ready");
+    setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
+    setButtonDisabled(sessionsBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
     dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
     dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
     dom.homeAgentSummary && (dom.homeAgentSummary.textContent = "No assistant selected.");
@@ -1267,13 +1301,17 @@ async function syncSelectedAgentState() {
     return;
   }
 
-  const status = (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+  const status = getSelectedAgentStatus();
   state.selectedAgentName = agent.name || null;
   updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
   dom.selectedStatus.textContent = status;
   dom.selectedStatus.className = `toolbar-status-badge status-${status}`;
-  dom.chatStatus && (dom.chatStatus.textContent = "Ready");
+  setChatStatus("Ready");
+  const needsStart = status !== "running";
+  setButtonDisabled(dom.headerNewChatBtn, needsStart, "Start the assistant from Assistant details first");
+  setButtonDisabled(sessionsBtn, needsStart, "Start the assistant from Assistant details first");
+  setButtonDisabled(dom.homeStartChatBtn, needsStart, "Start the assistant from Assistant details first");
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
   dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
   if (dom.homeAgentSummary) {
@@ -1290,8 +1328,6 @@ async function syncSelectedAgentState() {
   const running = status === "running";
   dom.centerPlaceholder.classList.toggle("hidden", running);
   dom.agentChatApp.classList.toggle("hidden", !running);
-
-  if (dom.toolPanelTitle?.textContent === "Sessions") closeToolPanel();
 
   if (running) {
     const lastSessionId = getLastSessionId(agent.id);
@@ -1906,6 +1942,7 @@ async function maybeShowSuggest() {
 // ===== toolbar actions =====
 function setToolPanel(title, contentHtml) {
   if (!dom.toolPanel) return;
+  state.detailOpen = false;
   closeSessionsDrawer();
   dom.toolPanelTitle.textContent = title;
   if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
@@ -1918,15 +1955,13 @@ function setToolPanel(title, contentHtml) {
 }
 
 function closeToolPanel() {
+  state.detailOpen = false;
   if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
   dom.toolBackdrop?.classList.add("hidden");
 }
 
 async function openSessionsDrawer() {
-  if (!state.selectedAgentId) {
-    showToast("Please select an assistant first");
-    return;
-  }
+  if (!ensureRunningSelectedAssistant("browse sessions")) return;
   closeToolPanel();
   dom.sessionsDrawer?.classList.add("is-open");
   dom.sessionsDrawerBackdrop?.classList.remove("hidden");
@@ -2589,15 +2624,13 @@ async function clearChat() {
 }
 
 async function startNewChatForSelectedAgent() {
+  if (!ensureRunningSelectedAssistant("start a new chat")) return;
   updateSelectedAgentSession("");
   state.inflightThinking = null;
   removePendingAssistantPlaceholder();
   clearMessageListToWelcome();
   setChatStatus("New chat started");
 
-  if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "Sessions") {
-    await openSessionsPanel();
-  }
 }
 
 // ===== misc actions =====
@@ -3007,6 +3040,10 @@ function bindEvents() {
   });
 
   dom.detailToggle?.addEventListener("click", () => {
+    if (!state.selectedAgentId) {
+      showToast("Please select an assistant first");
+      return;
+    }
     if (state.detailOpen) {
       setDetailOpen(false);
     } else {
@@ -3015,7 +3052,7 @@ function bindEvents() {
       const agent = state.mineAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
         dom.toolPanelTitle.textContent = "Assistant details";
-        dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
+        dom.toolPanelBody.innerHTML = `\n          <div id="agent-meta" class="portal-detail-card"></div>\n          <div id="agent-actions" class="portal-detail-actions"></div>\n        `;
         dom.agentMeta = document.getElementById("agent-meta");
         dom.agentActions = document.getElementById("agent-actions");
         renderAgentMeta(agent);

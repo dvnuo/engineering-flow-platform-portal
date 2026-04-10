@@ -2,6 +2,7 @@ import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 import logging
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
@@ -1417,6 +1418,7 @@ async def app_chat_send(request: Request):
                 "agent_name": agent.name if agent else "Assistant",
                 "user_message_id": data.get("user_message_id") or "",
                 "events": events,
+                "timestamp": datetime.now().strftime("%H:%M"),
             },
         )
     finally:
