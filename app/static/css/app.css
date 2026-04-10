@@ -1,13 +1,13 @@
 :root {
   color-scheme: light dark;
-  --portal-app-bg: #f5f7fb;
+  --portal-app-bg: #f4f4f3;
   --portal-surface: #ffffff;
   --portal-surface-muted: #f8fafc;
   --portal-surface-soft: #f1f5f9;
-  --portal-workspace-shell: #eef2f7;
-  --portal-workspace-rail: #e7edf5;
-  --portal-workspace-secondary: #f8fafd;
-  --portal-workspace-main: #edf2f8;
+  --portal-workspace-shell: #f0f0ef;
+  --portal-workspace-rail: #e9e9e8;
+  --portal-workspace-secondary: #f9f9f8;
+  --portal-workspace-main: #f3f3f2;
   --portal-border: #e5e7eb;
   --portal-border-strong: #d7dde7;
   --portal-text: #0f172a;
@@ -32,14 +32,14 @@
 }
 
 html[data-theme="dark"] {
-  --portal-app-bg: #0b1020;
+  --portal-app-bg: #17181b;
   --portal-surface: #111827;
   --portal-surface-muted: #131c2f;
   --portal-surface-soft: #182132;
-  --portal-workspace-shell: #0f172a;
-  --portal-workspace-rail: #131d33;
-  --portal-workspace-secondary: #182337;
-  --portal-workspace-main: #111b30;
+  --portal-workspace-shell: #1d1f24;
+  --portal-workspace-rail: #191b20;
+  --portal-workspace-secondary: #23262c;
+  --portal-workspace-main: #1f2228;
   --portal-border: #24314a;
   --portal-border-strong: #334155;
   --portal-text: #e5e7eb;
@@ -138,7 +138,7 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   position: relative;
   background: var(--portal-workspace-main);
 }
-.portal-main-header { padding: 16px 24px; border-bottom: 1px solid var(--portal-border); height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.portal-main-header { padding: 16px 24px; border-bottom: 1px solid var(--portal-border); height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 14px; background: var(--portal-workspace-secondary); }
 .portal-main-header-copy h1 { margin: 0; font-size: 1.15rem; }
 .portal-main-toolbar { display: flex; align-items: center; gap: 8px; }
 .portal-eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--portal-text-muted); }
