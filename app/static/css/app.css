@@ -927,6 +927,26 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   text-decoration: underline;
 }
 
+.portal-breadcrumb-link {
+  color: var(--portal-accent-strong);
+  text-decoration: none;
+}
+
+.portal-breadcrumb-link:hover {
+  text-decoration: underline;
+}
+
+.portal-breadcrumb-sep {
+  color: var(--portal-text-muted);
+}
+
+.portal-auth-error {
+  min-height: 1.1rem;
+  margin: 0;
+  color: var(--portal-danger);
+  font-size: .85rem;
+}
+
 .portal-form-label {
   display: block;
   margin-bottom: 6px;

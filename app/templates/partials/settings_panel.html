@@ -1,4 +1,4 @@
-<div class="portal-panel-stack" id="settings-panel-root">
+<div class="portal-panel-stack" id="settings-panel-root" data-agent-id="{{ agent_id }}">
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
     <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
     {% if status_message %}
@@ -233,7 +233,7 @@
         <span class="portal-form-label">Private Key Path</span>
         <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa or ~/.efp/.ssh/id_rsa" class="portal-form-input" />
       </label>
-      <button type="button" onclick="generateSSHKey('{{ agent_id }}')" class="portal-btn is-primary">
+      <button type="button" class="portal-btn is-primary" data-settings-action="generate-ssh-key">
         Generate RSA Key
       </button>
       <div id="ssh-key-result" class="hidden portal-inline-state">
@@ -271,8 +271,8 @@
     </section>
 
     <div class="flex gap-2">
-      <button type="button" onclick="copyAgentConfig('{{ agent_id }}')" class="portal-btn is-secondary">Copy</button>
-      <button type="button" onclick="pasteAgentConfig('{{ agent_id }}')" class="portal-btn is-secondary">Paste</button>
+      <button type="button" class="portal-btn is-secondary" data-settings-action="copy-config">Copy</button>
+      <button type="button" class="portal-btn is-secondary" data-settings-action="paste-config">Paste</button>
     </div>
     <button type="submit" class="portal-btn is-primary">Save Settings</button>
   </form>
@@ -443,7 +443,6 @@
       try {
         if (!state.selectedAgentId) {
           if (typeof showToast === 'function') showToast('Please select an assistant first');
-          else alert('Please select an assistant first');
           return;
         }
         // Capture agentId to avoid drift during polling
@@ -454,7 +453,6 @@
 
         if (data.error) {
           if (typeof showToast === 'function') showToast('Failed: ' + data.error);
-          else alert('Failed to start authorization: ' + data.error);
           return;
         }
 
@@ -534,7 +532,6 @@
 
       } catch (e) {
         if (typeof showToast === 'function') showToast('Failed: ' + e);
-        else alert('Failed to start authorization: ' + e);
       }
     }
 

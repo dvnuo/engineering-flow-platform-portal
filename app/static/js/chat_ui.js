@@ -142,13 +142,10 @@ const blobUrlToFileId = {};
 
 function getFileIdFromBlobUrl(blobUrl) {
   const fileId = blobUrlToFileId[blobUrl] || null;
-  // console.log(' getFileIdFromBlobUrl:', blobUrl, '->', fileId);
-  // console.log(' Current mappings:', JSON.stringify(blobUrlToFileId));
   return fileId;
 }
 
 function setBlobUrlMapping(blobUrl, fileId) {
-  // console.log(' Setting mapping:', blobUrl, '->', fileId);
   blobUrlToFileId[blobUrl] = fileId;
 }
 
@@ -157,7 +154,6 @@ function addToAttachmentHistory(attachments) {
     state.attachmentHistory = [];
   }
   state.attachmentHistory.push(attachments);
-  // console.log(' Added attachments:', attachments);
 }
 
 function getLastSessionKey(agentId) {
@@ -1388,7 +1384,6 @@ async function loadLastSessionFromRemote(agentId) {
       }
     }
   } catch (e) {
-    // console.log("Failed to load last session from remote:", e);
   }
 }
 
@@ -1686,7 +1681,6 @@ function initializeRenderLifecycle() {
       
       // If already set (from Edit), don't overwrite
       if (existingAttachments && existingAttachments !== '') {
-        // console.log(' Using existing attachments:', existingAttachments);
         event.detail.parameters.attachments = existingAttachments;
       } else {
         // Normal send - use pendingFiles
@@ -2402,13 +2396,18 @@ async function previewServerFile(filePath, currentDir) {
 
     // Build breadcrumb for navigation
     const parts = dir.split('/').filter(Boolean);
-    let breadcrumb = '<a href="#" onclick="loadServerFiles(\'/\'); event.preventDefault();">/</a>';
+    let breadcrumbParts = [
+      '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">/</a>'
+    ];
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + part + '</a> /';
+      breadcrumbParts.push(
+        '<span class="portal-breadcrumb-sep">/</span>' +
+        '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="' + escapeHtmlAttr(currentPath) + '">' + escapeHtml(part) + '</a>'
+      );
     }
-    breadcrumb = breadcrumb.replace(/ \/$/, '');
+    const breadcrumb = breadcrumbParts.join(' ');
 
     if (resp.error) {
       // Check if it's a binary file error - show file info instead
@@ -2555,9 +2554,43 @@ function addInstanceRow(group) {
 
 
 function initializeSettingsPanel() {
-  if (!dom.toolPanelBody?.querySelector("#settings-form")) return;
+  const root = dom.toolPanelBody?.querySelector("#settings-panel-root");
+  if (!root || !dom.toolPanelBody?.querySelector("#settings-form")) return;
+
   normalizeInstanceInputs("jira");
   normalizeInstanceInputs("confluence");
+
+  if (root.dataset.actionsBound === "1") return;
+  root.dataset.actionsBound = "1";
+
+  root.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-settings-action]");
+    if (!btn) return;
+    event.preventDefault();
+
+    const agentId = root.dataset.agentId || state.selectedAgentId;
+    if (!agentId) {
+      showToast("Please select an assistant first");
+      return;
+    }
+
+    const action = btn.dataset.settingsAction;
+    if (action === "generate-ssh-key") {
+      if (typeof window.generateSSHKey === "function") {
+        await window.generateSSHKey(agentId);
+      }
+      return;
+    }
+
+    if (action === "copy-config") {
+      await copyAgentConfig(agentId);
+      return;
+    }
+
+    if (action === "paste-config") {
+      await pasteAgentConfig(agentId);
+    }
+  });
 }
 
 async function openSettings() {
@@ -3133,6 +3166,13 @@ function bindEvents() {
   dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
+    const serverPathLink = event.target.closest('[data-server-path]');
+    if (serverPathLink) {
+      event.preventDefault();
+      await loadServerFiles(serverPathLink.dataset.serverPath || '/');
+      return;
+    }
+
     const fileBtn = event.target.closest("[data-file-ref]");
     if (fileBtn) {
       event.preventDefault();
@@ -3778,7 +3818,6 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
     method: 'PUT',
     body: JSON.stringify(payload)
   }).then(function() {
-    console.log('Updated ' + section + ' to ' + enabled);
   }).catch(function(e) {
     console.error('Failed to update:', e);
     showToast('Failed to update: ' + e.message);
@@ -3875,7 +3914,6 @@ function saveSystemPromptSection(agentId, section) {
     method: 'PUT',
     body: JSON.stringify({ enabled: enabled, content: content })
   }).then(function() {
-    console.log('Saved ' + section + ': enabled=' + enabled);
     closeSystemPromptEditor();
     loadSystemPromptConfig(agentId);
   }).catch(function(e) {

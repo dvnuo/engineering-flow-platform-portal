@@ -75,6 +75,12 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "portal-system-prompt-item" in js_source
     assert "portal-system-prompt-check" in js_source
     assert "setModalFeedback" in js_source
+    assert "data-server-path" in js_source
+    assert 'onclick="loadServerFiles(' not in js_source
+    assert "console.log(" not in js_source
+    assert "portal-breadcrumb-link" in js_source
+    assert 'root.dataset.actionsBound = "1"' in js_source
+    assert "data-settings-action" in js_source
     assert "async function clearChat()" in js_source
     assert "\nfunction clearChat() {" not in js_source
     assert "text-xs text-slate-400" not in js_source
@@ -210,6 +216,10 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-auth-footnote" in register_html
     assert "portal-auth-link" in login_html
     assert "portal-auth-link" in register_html
+    assert "portal-auth-error" in login_html
+    assert "portal-auth-error" in register_html
+    assert 'class="error"' not in login_html
+    assert 'class="error"' not in register_html
     assert "muted tiny" not in login_html
     assert "muted tiny" not in register_html
     assert 'class="muted"' not in login_html
@@ -225,6 +235,12 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "dark:" not in usage_html
     assert 'hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }"' not in settings_html
     assert 'id="settings-status"' in settings_html
+    assert "onclick=" not in settings_html
+    assert "alert(" not in settings_html
+    assert 'data-settings-action="generate-ssh-key"' in settings_html
+    assert 'data-settings-action="copy-config"' in settings_html
+    assert 'data-settings-action="paste-config"' in settings_html
+    assert 'data-agent-id="{{ agent_id }}"' in settings_html
     assert "Settings saved!" not in settings_html
     assert "setTimeout(function(){closeToolPanel();}, 500)" not in settings_html
     assert "onclick=\"if(typeof showToast" not in settings_html
@@ -247,6 +263,9 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert '.input-preview-badge' in Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert '.portal-standalone-page' in Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert '.portal-standalone-page-back' in Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert '.portal-breadcrumb-link' in Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert '.portal-breadcrumb-sep' in Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert '.portal-auth-error' in Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert 'portal-standalone-page' in bundles_page_html
     assert 'portal-standalone-page-back' in bundles_page_html
     assert 'bg-slate-100' not in bundles_page_html
