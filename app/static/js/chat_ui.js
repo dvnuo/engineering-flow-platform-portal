@@ -2035,9 +2035,10 @@ function restoreAssistantHeaderState() {
   setChatStatus("Ready");
 }
 
-function renderWorkspaceDetailPlaceholder(message = "Select a bundle or task from the left sidebar.") {
+function renderWorkspaceDetailPlaceholder(message = "Select a bundle or task from the left sidebar.", workspaceState = "workspace-placeholder") {
   if (!dom.workspaceDetailContent) return;
   setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = workspaceState;
   dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${safe(message)}</div>`;
 }
 
@@ -2101,12 +2102,24 @@ function showAssistantDefaultMainView() {
 }
 
 function showBundlesDefaultMainView() {
-  renderWorkspaceDetailPlaceholder("Select a bundle from the left sidebar.");
+  renderWorkspaceDetailPlaceholder("Select a bundle from the left sidebar.", "bundles-placeholder");
   syncMainHeader();
 }
 
 function showTasksDefaultMainView() {
-  renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.");
+  renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.", "tasks-placeholder");
+  syncMainHeader();
+}
+
+function showBundlesLoadingMainView() {
+  setMainView("detail");
+  renderWorkspaceDetailPlaceholder("Loading bundles…", "bundles-loading");
+  syncMainHeader();
+}
+
+function showTasksLoadingMainView() {
+  setMainView("detail");
+  renderWorkspaceDetailPlaceholder("Loading tasks…", "tasks-loading");
   syncMainHeader();
 }
 
@@ -2158,18 +2171,42 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   renderSecondaryPaneHeader();
   syncMainHeader();
 
-  if (!state.secondaryPaneCollapsed && state.activeNavSection === "bundles") {
-    if (!state.requirementBundles.length) await refreshRequirementBundles();
-  }
-  if (!state.secondaryPaneCollapsed && state.activeNavSection === "tasks") {
-    if (!state.myTasks.length) await refreshMyTasks();
-  }
-
   if (state.secondaryPaneCollapsed) return;
 
-  if (section !== previousSection) {
-    syncDefaultMainViewForSection(section);
-    return;
+  const didSwitchSection = section !== previousSection;
+
+  if (didSwitchSection) {
+    if (section === "assistants") {
+      showAssistantDefaultMainView();
+    } else if (section === "bundles") {
+      showBundlesLoadingMainView();
+    } else if (section === "tasks") {
+      showTasksLoadingMainView();
+    }
+  }
+
+  if (state.activeNavSection === "bundles") {
+    await refreshRequirementBundles();
+    if (
+      state.activeNavSection === "bundles" &&
+      !state.secondaryPaneCollapsed &&
+      !state.selectedBundleKey &&
+      dom.workspaceDetailContent?.dataset.workspaceState === "bundles-loading"
+    ) {
+      showBundlesDefaultMainView();
+    }
+  }
+
+  if (state.activeNavSection === "tasks") {
+    await refreshMyTasks();
+    if (
+      state.activeNavSection === "tasks" &&
+      !state.secondaryPaneCollapsed &&
+      !state.selectedTaskId &&
+      dom.workspaceDetailContent?.dataset.workspaceState === "tasks-loading"
+    ) {
+      showTasksDefaultMainView();
+    }
   }
 
   if (sidebarWasCollapsed && !state.secondaryPaneCollapsed) {
@@ -2228,6 +2265,7 @@ async function refreshRequirementBundles() {
 async function openRequirementBundleInMain(bundleRef = null) {
   if (!dom.workspaceDetailContent) return;
   setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
   dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading requirement bundles…</div>';
   try {
     let path = "/app/requirement-bundles/panel";
@@ -2238,8 +2276,10 @@ async function openRequirementBundleInMain(bundleRef = null) {
       renderRequirementBundleList();
     }
     await htmx.ajax("GET", path, { target: "#workspace-detail-content", swap: "innerHTML" });
+    dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
     syncMainHeader();
   } catch (error) {
+    dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
     dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`;
   }
 }
@@ -2298,11 +2338,14 @@ async function openTaskDetailInMain(taskId) {
   state.selectedTaskId = taskId;
   renderTaskNavList();
   setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
   dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task detail…</div>';
   try {
     await htmx.ajax("GET", `/app/tasks/${encodeURIComponent(taskId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
+    dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
     syncMainHeader();
   } catch (error) {
+    dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
     dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`;
   }
 }
@@ -2311,7 +2354,7 @@ async function returnFromTaskDetailToSidebar() {
   await setActiveNavSection("tasks", { toggleIfSame: false });
   state.selectedTaskId = null;
   renderTaskNavList();
-  renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.");
+  renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.", "tasks-placeholder");
   syncMainHeader();
 }
 
