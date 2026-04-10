@@ -493,7 +493,7 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">You</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">You</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
@@ -502,9 +502,32 @@ function buildPendingAssistantArticle() {
   return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
+function buildPendingAssistantRowForEvents(thinkingId) {
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const name = state.selectedAgentName || "Assistant";
+  return `
+    <div class="message-row message-row-assistant" data-thinking-fallback="1">
+      <div class="message-meta">
+        <span class="message-author">${escapeHtml(name)}</span>
+        <span class="message-timestamp">${now}</span>
+      </div>
+      <article class="message-surface message-surface-assistant assistant-message pending-thinking" data-thinking-id="${escapeHtmlAttr(thinkingId)}"></article>
+    </div>
+  `;
+}
+
 function removePendingAssistantPlaceholder() {
   if (!dom.messageList) return;
-  dom.messageList.querySelectorAll('[data-pending-assistant="1"]').forEach((el) => el.remove());
+  dom.messageList
+    .querySelectorAll('article[data-pending-assistant="1"]')
+    .forEach((article) => article.closest('.message-row')?.remove());
+}
+
+function getLatestOptimisticUserArticle() {
+  const optimistic = Array.from(
+    dom.messageList?.querySelectorAll('article[data-local-user="1"][data-optimistic-user="1"]') || []
+  );
+  return optimistic[optimistic.length - 1] || null;
 }
 
 function disconnectEventSocket() {
@@ -656,40 +679,28 @@ async function openThinkingProcessPanel() {
 function renderThinkingProcess(article, events) {
   if (!article) return;
 
-  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
   let host = article.querySelector('[data-thinking-process="1"]');
   if (!host) {
     host = document.createElement("div");
     host.dataset.thinkingProcess = "1";
-    host.className = isDark
-      ? "mt-3 rounded-xl border border-slate-600 bg-slate-800/50 p-2"
-      : "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
+    host.className = "portal-thinking-block";
     article.append(host);
   }
 
   const expanded = host.dataset.expanded === "1";
   const count = events.length;
-  const rows = events.map((event, idx) => {
+  const rows = events.map((event) => {
     const view = getThinkingEventDisplay(event);
-    const border = idx === events.length - 1 ? "" : (isDark ? " border-slate-600" : " border-slate-200");
-    const iconBg = isDark ? "bg-slate-700 border-slate-600 text-slate-300" : "bg-white border-slate-300 text-slate-500";
-    const titleColor = isDark ? "text-slate-200" : "text-slate-700";
-    const detailColor = isDark ? "text-slate-400" : "text-slate-500";
-    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border ${iconBg}"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold ${titleColor}">${safe(view.title)}</div><div class="text-xs ${detailColor} whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
+    return `<div class="portal-thinking-step"><span class="portal-thinking-step-icon"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="portal-thinking-step-title">${safe(view.title)}</div><div class="portal-thinking-step-detail">${safe(view.detail || "")}</div></div>`;
   }).join("");
 
-  const btnClass = isDark
-    ? "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-600 bg-slate-700 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-600"
-    : "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100";
-  const waitingMsg = isDark ? "text-slate-400" : "text-slate-500";
-
   host.innerHTML = `
-    <button type="button" data-thinking-toggle="1" class="${btnClass}">
+    <button type="button" data-thinking-toggle="1" class="portal-thinking-toggle">
       <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
       <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
     </button>
-    <div data-thinking-timeline="1" class="mt-2 ${expanded ? "" : "hidden"}">
-      ${count ? rows : `<div class="text-xs ${waitingMsg} px-1 py-1">Waiting for runtime events…</div>`}
+    <div data-thinking-timeline="1" class="portal-thinking-timeline ${expanded ? "" : "hidden"}">
+      ${count ? rows : `<div class="portal-thinking-empty">Waiting for runtime events…</div>`}
     </div>
   `;
 
@@ -748,16 +759,10 @@ function handleAgentEventMessage(raw) {
     state.inflightThinking = { id: thinkingId, events: [], completed: false };
     
     // Find or create the assistant message placeholder
-    let assistantPlaceholder = dom.messageList?.querySelector('.assistant-message.pending-thinking, article.pending-thinking');
+    let assistantPlaceholder = dom.messageList?.querySelector('article.assistant-message.pending-thinking');
     if (!assistantPlaceholder) {
-      // Create placeholder if it doesn't exist
-      const lastUser = dom.messageList?.querySelector('article[data-local-user="1"]:last-of-type');
-      if (lastUser) {
-        assistantPlaceholder = document.createElement('article');
-        assistantPlaceholder.className = 'assistant-message pending-thinking';
-        assistantPlaceholder.dataset.thinkingId = thinkingId;
-        lastUser.after(assistantPlaceholder);
-      }
+      dom.messageList?.insertAdjacentHTML("beforeend", buildPendingAssistantRowForEvents(thinkingId));
+      assistantPlaceholder = dom.messageList?.querySelector(`article.pending-thinking[data-thinking-id="${thinkingId}"]`);
     }
     if (assistantPlaceholder) {
       assistantPlaceholder.dataset.thinkingId = thinkingId;
@@ -1211,37 +1216,34 @@ function renderAgentActions(agent, status) {
   const writable = canWriteAgent(agent);
 
   const container = document.createElement("div");
-  container.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
+  container.className = "portal-detail-action-grid";
 
-  const grid = document.createElement("div");
-  grid.className = "grid grid-cols-4 gap-2";
-
-  const buildIconBtn = ({ label, icon, classes, onClick, disabled = false }) => {
+  const buildIconBtn = ({ label, icon, variantClass, onClick, disabled = false }) => {
     const button = document.createElement("button");
     button.type = "button";
     button.title = label;
-    button.className = `h-14 rounded-lg border text-white inline-flex flex-col items-center justify-center gap-1 shadow-sm ${classes}`;
+    button.className = `portal-detail-action-btn ${variantClass}`;
     button.innerHTML = `
       <i data-lucide="${icon}" class="w-4 h-4"></i>
-      <span class="text-[10px] font-medium opacity-90">${label}</span>
+      <span class="text-[10px] font-medium">${label}</span>
     `;
     button.disabled = disabled;
+    button.setAttribute("aria-disabled", disabled ? "true" : "false");
     button.addEventListener("click", onClick);
     return button;
   };
 
   const actions = [
-    { label: "Start", icon: "play", classes: "border-emerald-600 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
-    { label: "Stop", icon: "square", classes: "border-amber-500 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
-    { label: "Restart", icon: "rotate-cw", classes: "border-blue-500 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
-    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-indigo-500 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
-    { label: "Edit", icon: "pencil", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => openEditDialog(agent) },
-    { label: "Delete", icon: "trash-2", classes: "border-red-500 bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
-    { label: "Destroy", icon: "flame", classes: "border-rose-600 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
+    { label: "Start", icon: "play", variantClass: "is-success", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
+    { label: "Stop", icon: "square", variantClass: "is-warning", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
+    { label: "Restart", icon: "rotate-cw", variantClass: "is-info", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
+    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
+    { label: "Edit", icon: "pencil", variantClass: "is-neutral", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
+    { label: "Destroy", icon: "flame", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
   ];
 
-  actions.forEach((cfg) => grid.append(buildIconBtn(cfg)));
-  container.append(grid);
+  actions.forEach((cfg) => container.append(buildIconBtn(cfg)));
 
   if (!writable) {
     const note = document.createElement("div");
@@ -1512,19 +1514,20 @@ function handleChatResponseError(event) {
 
   // Also show error in message list
   if (dom.messageList) {
-    const errorDiv = document.createElement("div");
-    errorDiv.className = "message message-error flex gap-3 py-3";
-    errorDiv.innerHTML = `
-      <div class="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
-        <i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i>
+    const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    dom.messageList.insertAdjacentHTML("beforeend", `
+      <div class="message-row message-row-assistant message-row-error">
+        <div class="message-meta">
+          <span class="message-author">System</span>
+          <span class="message-timestamp">${now}</span>
+        </div>
+        <article class="message-surface message-surface-assistant message-surface-error">
+          <div class="message-body whitespace-pre-wrap text-sm">${safe(errorMsg)}</div>
+        </article>
       </div>
-      <div class="flex-1 min-w-0">
-        <div class="text-red-400 text-sm">${errorMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-      </div>
-    `;
-    dom.messageList.appendChild(errorDiv);
-    renderIcons();
+    `);
     scrollToBottom();
+    renderIcons();
   }
 }
 
@@ -1546,35 +1549,20 @@ function handleChatAfterRequest(event) {
       const oobInput = doc.querySelector('#chat-user-message-id');
       if (oobInput && oobInput.value) {
         const userMessageId = oobInput.value;
+        const optimisticUserArticle = getLatestOptimisticUserArticle();
+        if (optimisticUserArticle) {
+          optimisticUserArticle.dataset.messageId = userMessageId;
+          delete optimisticUserArticle.dataset.optimisticUser;
 
-        // Find the last user message article (the one just sent) and update its ID
-        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-        if (userArticles.length > 0) {
-          const lastUserArticle = userArticles[userArticles.length - 1];
-          // Update the data-message-id attribute with the real ID
-          lastUserArticle.dataset.messageId = userMessageId;
-
-          // Update any edit button's onclick to use the real ID
-          // Button may be in article or in parent container
-          const parentContainer = lastUserArticle.parentElement;
-          const editBtn = lastUserArticle.querySelector('.edit-msg-btn') ||
-                         parentContainer?.querySelector?.('.edit-msg-btn');
+          const parentContainer = optimisticUserArticle.parentElement;
+          const editBtn = optimisticUserArticle.querySelector('.edit-msg-btn') ||
+            parentContainer?.querySelector?.('.edit-msg-btn');
           if (editBtn) {
-            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
+            const contentEl = optimisticUserArticle.querySelector('.message-body, .whitespace-pre-wrap');
             const content = contentEl ? contentEl.textContent : '';
-
-            // Get attachments from attachmentHistory - use last entry since this is the latest message
-            const attachments = [];
-            // console.log(' History length:', state.attachmentHistory.length);
-            if (state.attachmentHistory.length > 0) {
-              // Use the last entry in history for the latest message
-              const lastAttachments = state.attachmentHistory[state.attachmentHistory.length - 1];
-              // console.log(' Last attachments:', lastAttachments);
-              if (lastAttachments) {
-                attachments.push(...lastAttachments);
-              }
-            }
-
+            const attachments = state.attachmentHistory.length > 0
+              ? (state.attachmentHistory[state.attachmentHistory.length - 1] || [])
+              : [];
             editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
           }
         }
@@ -1597,28 +1585,6 @@ function handleChatAfterRequest(event) {
         }
       }
       
-      // Also extract user message ID (reuse parsed doc)
-      const userMsgIdInput = doc.querySelector('[name="user_message_id"]');
-      if (userMsgIdInput) {
-        const userMsgId = userMsgIdInput.value;
-        // Update optimistic message with real ID
-        const pendingUser = dom.messageList?.querySelector('[data-local-user="1"]');
-        if (pendingUser) {
-          pendingUser.dataset.messageId = userMsgId;
-          
-          // Update edit button's onclick with real ID
-          const editBtn = pendingUser.querySelector('.edit-msg-btn');
-          if (editBtn) {
-            const contentEl = pendingUser.querySelector('.whitespace-pre-wrap');
-            const content = contentEl ? contentEl.textContent : '';
-            // Get attachments from history for this message
-            const attachments = state.attachmentHistory.length > 0 
-              ? state.attachmentHistory[state.attachmentHistory.length - 1] || [] 
-              : [];
-            editBtn.onclick = () => openEditMessageModal(userMsgId, content, attachments);
-          }
-        }
-      }
     }
   } catch (e) {
     // Ignore errors
@@ -1659,30 +1625,6 @@ function handleChatAfterSwap(target) {
   decorateToolMessages(dom.messageList);
   renderIcons();
   scrollToBottom();
-
-  // Clean up any orphan header divs after all processing (divs without article child)
-  const messageList = target;
-  const children = Array.from(messageList.children);
-  children.forEach(child => {
-    // Check if it's a container div without an article child (orphan)
-    if (child.tagName === 'DIV' && !child.querySelector('article') && child.querySelector('span')) {
-      // Check if it has Assistant text
-      if (child.textContent.includes('Assistant') || child.querySelector('.text-emerald-400')) {
-        child.remove();
-      }
-    }
-  });
-
-  // Add timestamp to server-rendered Assistant messages if missing
-  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const assistantContainers = messageList.querySelectorAll('.assistant-header:not([data-timestamp-added])');
-  assistantContainers.forEach(header => {
-    const timeSpan = document.createElement("span");
-    timeSpan.className = "message-timestamp text-xs text-slate-500";
-    timeSpan.textContent = now;
-    header.appendChild(timeSpan);
-    header.setAttribute("data-timestamp-added", "true");
-  });
 
   setChatStatus("Ready");
 }
@@ -2625,12 +2567,14 @@ async function clearChat() {
 
 async function startNewChatForSelectedAgent() {
   if (!ensureRunningSelectedAssistant("start a new chat")) return;
+  closeSessionsDrawer();
   updateSelectedAgentSession("");
   state.inflightThinking = null;
   removePendingAssistantPlaceholder();
   clearMessageListToWelcome();
+  setChatSubmitting(false);
   setChatStatus("New chat started");
-
+  dom.chatInput?.focus();
 }
 
 // ===== misc actions =====
@@ -2984,32 +2928,24 @@ function bindEvents() {
         // Remove the target message and subsequent messages from the UI
         // This ensures the old messages are cleared before the new ones are added
         if (dom.messageList) {
-          const containers = Array.from(dom.messageList.querySelectorAll('.flex.flex-col'));
-          
-          // Find the index of the container with the target message ID
-          let foundIndex = -1;
-          for (let i = 0; i < containers.length; i++) {
-            const article = containers[i].querySelector('article[data-message-id]');
-            if (article && article.dataset.messageId === messageId) {
-              foundIndex = i;
-              break;
+          const rows = Array.from(dom.messageList.querySelectorAll('.message-row'));
+          const targetRowIndex = rows.findIndex((row) => {
+            const article = row.querySelector('article[data-message-id]');
+            return article && article.dataset.messageId === messageId;
+          });
+
+          if (targetRowIndex >= 0) {
+            for (let i = rows.length - 1; i >= targetRowIndex; i -= 1) {
+              rows[i].remove();
             }
-          }
-          
-          // If found, remove this and all subsequent containers
-          if (foundIndex >= 0) {
-            for (let i = containers.length - 1; i >= foundIndex; i--) {
-              containers[i].remove();
-            }
-            // Also truncate attachmentHistory to stay in sync (only if lengths align)
-            if (Array.isArray(state.attachmentHistory) && 
-                state.attachmentHistory.length === containers.length &&
-                foundIndex < state.attachmentHistory.length) {
-              state.attachmentHistory = state.attachmentHistory.slice(0, foundIndex);
+
+            const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
+            const targetUserIndex = userArticles.findIndex((article) => article.dataset.messageId === messageId);
+            if (targetUserIndex >= 0 && Array.isArray(state.attachmentHistory)) {
+              state.attachmentHistory = state.attachmentHistory.slice(0, targetUserIndex);
             }
           } else {
-            // Fallback: just clear all messages and reload
-            dom.messageList.innerHTML = '';
+            clearMessageListToWelcome();
             state.attachmentHistory = [];
           }
         }

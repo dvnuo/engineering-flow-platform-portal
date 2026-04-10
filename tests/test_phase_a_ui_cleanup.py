@@ -29,15 +29,27 @@ def test_frontend_assets_include_phase_b_fixups():
 
     assert "ensureRunningSelectedAssistant" in js_source
     assert "setButtonDisabled" in js_source
+    assert "closest('.message-row')" in js_source
+    assert 'data-optimistic-user="1"' in js_source
+    assert "getLatestOptimisticUserArticle" in js_source
     assert "portal-statusline" in js_source
     assert "state.detailOpen = false" in js_source
-    assert 'document.documentElement.getAttribute("data-theme") === "dark"' in js_source
+    assert 'document.documentElement.getAttribute("data-theme")' in js_source
     assert 'toolPanelTitle?.textContent === "Sessions"' not in js_source
+    assert ".assistant-header" not in js_source
+    assert ".flex.flex-col" not in js_source
+    assert "message message-error flex gap-3 py-3" not in js_source
+    assert "buildPendingAssistantRowForEvents" in js_source
 
     assert ".portal-tool-panel" in css_source
     assert ".portal-tool-panel-head" in css_source
     assert ".portal-tool-panel-body" in css_source
     assert ".portal-detail-card" in css_source
+    assert ".message-surface-error" in css_source
+    assert ".portal-detail-action-grid" in css_source
+    assert ".portal-detail-action-btn" in css_source
+    assert ".portal-thinking-block" in css_source
+    assert ".portal-thinking-toggle" in css_source
     assert ".portal-statusline.is-error" in css_source
     assert ":disabled" in css_source
 
