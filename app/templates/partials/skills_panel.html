@@ -1,11 +1,11 @@
-<div class="space-y-3">
-  <div class="flex items-center justify-between">
-    <h5 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Skills</h5>
-    <span class="text-xs text-slate-500 dark:text-slate-400">{{ skills|length }} available</span>
+<div class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <h5 class="portal-panel-title">Skills</h5>
+    <span class="portal-panel-subtitle">{{ skills|length }} available</span>
   </div>
 
   {% if skills %}
-    <div class="space-y-2" id="skills-list">
+    <div class="portal-panel-stack" id="skills-list">
       {% for skill in skills %}
         {% set skill_name = ((skill.name if skill is mapping else skill) or '')|trim %}
         {% set normalized_skill_name = skill_name.lstrip('/') %}
@@ -13,21 +13,19 @@
         {% if normalized_skill_name %}
         <button
           type="button"
-          class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-2 py-2 text-left hover:border-blue-500"
+          class="portal-panel-section"
           data-skill-command="/{{ normalized_skill_name }}"
           title="Insert /{{ normalized_skill_name }}"
         >
-          <div class="text-sm font-medium text-slate-800 dark:text-slate-200">/{{ normalized_skill_name }}</div>
+          <div class="portal-bundle-title">/{{ normalized_skill_name }}</div>
           {% if skill_desc %}
-            <div class="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{{ skill_desc }}</div>
+            <div class="portal-panel-note">{{ skill_desc }}</div>
           {% endif %}
         </button>
         {% endif %}
       {% endfor %}
     </div>
   {% else %}
-    <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-2 py-3 text-xs text-slate-500 dark:text-slate-400">
-      No skills available.
-    </div>
+    <div class="portal-panel-empty">No skills available.</div>
   {% endif %}
 </div>

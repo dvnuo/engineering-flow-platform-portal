@@ -25,10 +25,7 @@ const dom = {
   chatStatus: document.getElementById("chat-status"),
   sendChatBtn: document.getElementById("send-chat-btn"),
   uploadInput: document.getElementById("upload-input"),
-  detailPanel: document.getElementById("detail-panel"),
-  detailBackdrop: document.getElementById("detail-backdrop"),
   detailToggle: document.getElementById("detail-toggle"),
-  detailClose: document.getElementById("detail-close"),
   toolPanel: document.getElementById("tool-panel"),
   toolPanelTitle: document.getElementById("tool-panel-title"),
   toolPanelBody: document.getElementById("tool-panel-body"),
@@ -37,14 +34,25 @@ const dom = {
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
   topSettings: document.getElementById("top-settings"),
-  uploadInput: document.getElementById("upload-input"),
-  topUploadInline: document.getElementById("top-upload-inline"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
+  bundlesMenuBtn: document.getElementById("bundles-menu-btn"),
   bundleList: document.getElementById("bundle-list"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
+  headerNewChatBtn: document.getElementById("header-new-chat-btn"),
+  composerAttachBtn: document.getElementById("composer-attach-btn"),
+  sessionsDrawer: document.getElementById("sessions-drawer"),
+  sessionsDrawerBody: document.getElementById("sessions-drawer-body"),
+  sessionsDrawerBackdrop: document.getElementById("sessions-drawer-backdrop"),
+  closeSessionsDrawer: document.getElementById("close-sessions-drawer"),
+  homeTitle: document.getElementById("home-title"),
+  homeSubtitle: document.getElementById("home-subtitle"),
+  homeAgentSummary: document.getElementById("home-agent-summary"),
+  homeStartChatBtn: document.getElementById("home-start-chat-btn"),
+  homeOpenBundlesBtn: document.getElementById("home-open-bundles-btn"),
+  homeOpenTasksBtn: document.getElementById("home-open-tasks-btn"),
   createBundleModal: document.getElementById("create-bundle-modal"),
   createBundleForm: document.getElementById("create-bundle-form"),
   createBundleMsg: document.getElementById("create-bundle-msg"),
@@ -134,13 +142,10 @@ const blobUrlToFileId = {};
 
 function getFileIdFromBlobUrl(blobUrl) {
   const fileId = blobUrlToFileId[blobUrl] || null;
-  // console.log(' getFileIdFromBlobUrl:', blobUrl, '->', fileId);
-  // console.log(' Current mappings:', JSON.stringify(blobUrlToFileId));
   return fileId;
 }
 
 function setBlobUrlMapping(blobUrl, fileId) {
-  // console.log(' Setting mapping:', blobUrl, '->', fileId);
   blobUrlToFileId[blobUrl] = fileId;
 }
 
@@ -149,7 +154,6 @@ function addToAttachmentHistory(attachments) {
     state.attachmentHistory = [];
   }
   state.attachmentHistory.push(attachments);
-  // console.log(' Added attachments:', attachments);
 }
 
 function getLastSessionKey(agentId) {
@@ -205,6 +209,7 @@ const state = {
   messageBackup: "",
   requirementBundles: [],
   selectedBundleKey: null,
+  didAppendAttachmentHistoryForPendingSend: false,
 };
 
 const md = window.markdownit({
@@ -346,11 +351,11 @@ function renderInputPreview() {
 
     // Status badge
     if (pf.status === 'uploading') {
-      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-yellow-500 text-white px-1 rounded">⏳</span>';
+      statusBadge = '<span class="input-preview-badge is-uploading" aria-hidden="true">⏳</span>';
     } else if (pf.status === 'uploaded') {
-      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-green-500 text-white px-1 rounded">✓</span>';
+      statusBadge = '<span class="input-preview-badge is-success" aria-hidden="true">✓</span>';
     } else if (pf.status === 'failed') {
-      statusBadge = '<span class="absolute top-1 left-1 text-xs bg-red-500 text-white px-1 rounded">✗</span>';
+      statusBadge = '<span class="input-preview-badge is-error" aria-hidden="true">✗</span>';
     }
 
     if (pf.isImage && pf.previewUrl) {
@@ -433,6 +438,46 @@ function canWriteAgent(agent) {
   return state.currentUserRole === "admin" || Number(agent.owner_user_id) === state.currentUserId;
 }
 
+function getSelectedAgent() {
+  return state.mineAgents.find((item) => item.id === state.selectedAgentId) || null;
+}
+
+function getSelectedAgentStatus() {
+  const agent = getSelectedAgent();
+  if (!agent) return "idle";
+  return (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+}
+
+function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
+  const agent = getSelectedAgent();
+  if (!agent) {
+    showToast("Please select an assistant first");
+    return false;
+  }
+  const status = getSelectedAgentStatus();
+  if (status !== "running") {
+    showToast(`${agent.name} is ${status}. Start it from Assistant details first.`);
+    return false;
+  }
+  return true;
+}
+
+function setButtonDisabled(button, disabled, disabledTitle = "") {
+  if (!button) return;
+  if (!button.dataset.defaultTitle) {
+    button.dataset.defaultTitle = button.getAttribute("title") || "";
+  }
+  button.disabled = !!disabled;
+  button.setAttribute("aria-disabled", disabled ? "true" : "false");
+  if (disabled) {
+    if (disabledTitle) button.setAttribute("title", disabledTitle);
+  } else {
+    const original = button.dataset.defaultTitle || "";
+    if (original) button.setAttribute("title", original);
+    else button.removeAttribute("title");
+  }
+}
+
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
   const assistantName = String(state.selectedAgentName || "").trim();
@@ -441,33 +486,67 @@ function updateChatInputPlaceholder() {
 
 function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-  let attachmentHtml = '';
+  let attachmentHtml = "";
   if (attachments.length > 0) {
-    attachmentHtml = `<div class="flex flex-wrap gap-2 mt-2">${attachments.map(a => {
+    attachmentHtml = `<div class="message-attachments">${attachments.map(a => {
       const safeName = (a.name || '').replace(/[<>"'&]/g, '');
       const safeUrl = escapeHtmlAttr(a.previewUrl || a.url || '');
       const safeNameAttr = escapeHtmlAttr(safeName);
       if (a.type === 'image') {
-        return `<img src="${safeUrl}" class="max-w-32 max-h-32 rounded-lg border border-slate-500 cursor-pointer hover:opacity-80" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
-      } else {
-        return `<div class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs cursor-pointer hover:bg-slate-600" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
+        return `<img src="${safeUrl}" class="message-attachment-thumb" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
       }
+      return `<div class="message-attachment-file" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row flex flex-col items-end"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-blue-400">${state.currentUserName || "You"}</span><span class="message-timestamp text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50" data-local-user="1"><div class="whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">You</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = state.selectedAgentName || "Assistant";
-  return `<div class="message-row flex flex-col items-start"><div class="flex items-center gap-2 mb-1"><span class="text-xs font-semibold text-emerald-400">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp text-xs text-slate-500">${now}</span></div><article class="max-w-2xl rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 assistant-message text-slate-100" data-pending-assistant="1"><div class="text-slate-300">Thinking...</div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
-function removePendingAssistantPlaceholder() {
+function buildPendingAssistantRowForEvents(thinkingId) {
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const name = state.selectedAgentName || "Assistant";
+  return `
+    <div class="message-row message-row-assistant" data-temporary-assistant="1" data-thinking-fallback="1">
+      <div class="message-meta">
+        <span class="message-author">${escapeHtml(name)}</span>
+        <span class="message-timestamp">${now}</span>
+      </div>
+      <article class="message-surface message-surface-assistant assistant-message pending-thinking" data-thinking-id="${escapeHtmlAttr(thinkingId)}"></article>
+    </div>
+  `;
+}
+
+function removeTemporaryAssistantRows() {
   if (!dom.messageList) return;
-  dom.messageList.querySelectorAll('[data-pending-assistant="1"]').forEach((el) => el.remove());
+  const tempRows = new Set();
+  dom.messageList
+    .querySelectorAll('article[data-pending-assistant="1"]')
+    .forEach((article) => {
+      const row = article.closest('.message-row');
+      if (row) tempRows.add(row);
+    });
+  dom.messageList
+    .querySelectorAll('.message-row[data-thinking-fallback="1"], .message-row[data-temporary-assistant="1"]')
+    .forEach((row) => tempRows.add(row));
+  tempRows.forEach((row) => row.remove());
+}
+
+function removeLatestOptimisticUserRow() {
+  const latest = getLatestOptimisticUserArticle();
+  latest?.closest('.message-row')?.remove();
+}
+
+function getLatestOptimisticUserArticle() {
+  const optimistic = Array.from(
+    dom.messageList?.querySelectorAll('article[data-local-user="1"][data-optimistic-user="1"]') || []
+  );
+  return optimistic[optimistic.length - 1] || null;
 }
 
 function disconnectEventSocket() {
@@ -599,12 +678,12 @@ async function openThinkingProcessPanel() {
   }
   
   if (!currentSessionId) {
-    setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">No session selected. Start a conversation first.</div>');
+    setToolPanel("Thinking Process", '<div class="portal-inline-state">No session selected. Start a conversation first.</div>');
     return;
   }
   
   // Use htmx to load backend-rendered panel
-  setToolPanel("Thinking Process", '<div class="text-xs text-slate-400">Loading...</div>');
+  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>');
   
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
@@ -612,47 +691,35 @@ async function openThinkingProcessPanel() {
       swap: "innerHTML"
     });
   } catch (err) {
-    setToolPanel("Thinking Process", `<div class="text-xs text-red-500">Error: ${err.message}</div>`);
+    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`);
   }
 }
 
 function renderThinkingProcess(article, events) {
   if (!article) return;
 
-  const isDark = document.documentElement.classList.contains("dark");
   let host = article.querySelector('[data-thinking-process="1"]');
   if (!host) {
     host = document.createElement("div");
     host.dataset.thinkingProcess = "1";
-    host.className = isDark
-      ? "mt-3 rounded-xl border border-slate-600 bg-slate-800/50 p-2"
-      : "mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2";
+    host.className = "portal-thinking-block";
     article.append(host);
   }
 
   const expanded = host.dataset.expanded === "1";
   const count = events.length;
-  const rows = events.map((event, idx) => {
+  const rows = events.map((event) => {
     const view = getThinkingEventDisplay(event);
-    const border = idx === events.length - 1 ? "" : (isDark ? " border-slate-600" : " border-slate-200");
-    const iconBg = isDark ? "bg-slate-700 border-slate-600 text-slate-300" : "bg-white border-slate-300 text-slate-500";
-    const titleColor = isDark ? "text-slate-200" : "text-slate-700";
-    const detailColor = isDark ? "text-slate-400" : "text-slate-500";
-    return `<div class="relative pl-6 pb-3${border}"><span class="absolute left-0 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border ${iconBg}"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="text-xs font-semibold ${titleColor}">${safe(view.title)}</div><div class="text-xs ${detailColor} whitespace-pre-wrap">${safe(view.detail || "")}</div></div>`;
+    return `<div class="portal-thinking-step"><span class="portal-thinking-step-icon"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="portal-thinking-step-title">${safe(view.title)}</div><div class="portal-thinking-step-detail">${safe(view.detail || "")}</div></div>`;
   }).join("");
 
-  const btnClass = isDark
-    ? "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-600 bg-slate-700 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-600"
-    : "w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100";
-  const waitingMsg = isDark ? "text-slate-400" : "text-slate-500";
-
   host.innerHTML = `
-    <button type="button" data-thinking-toggle="1" class="${btnClass}">
+    <button type="button" data-thinking-toggle="1" class="portal-thinking-toggle">
       <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
       <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
     </button>
-    <div data-thinking-timeline="1" class="mt-2 ${expanded ? "" : "hidden"}">
-      ${count ? rows : `<div class="text-xs ${waitingMsg} px-1 py-1">Waiting for runtime events…</div>`}
+    <div data-thinking-timeline="1" class="portal-thinking-timeline ${expanded ? "" : "hidden"}">
+      ${count ? rows : `<div class="portal-thinking-empty">Waiting for runtime events…</div>`}
     </div>
   `;
 
@@ -711,16 +778,10 @@ function handleAgentEventMessage(raw) {
     state.inflightThinking = { id: thinkingId, events: [], completed: false };
     
     // Find or create the assistant message placeholder
-    let assistantPlaceholder = dom.messageList?.querySelector('.assistant-message.pending-thinking, article.pending-thinking');
+    let assistantPlaceholder = dom.messageList?.querySelector('article.assistant-message.pending-thinking');
     if (!assistantPlaceholder) {
-      // Create placeholder if it doesn't exist
-      const lastUser = dom.messageList?.querySelector('article[data-local-user="1"]:last-of-type');
-      if (lastUser) {
-        assistantPlaceholder = document.createElement('article');
-        assistantPlaceholder.className = 'assistant-message pending-thinking';
-        assistantPlaceholder.dataset.thinkingId = thinkingId;
-        lastUser.after(assistantPlaceholder);
-      }
+      dom.messageList?.insertAdjacentHTML("beforeend", buildPendingAssistantRowForEvents(thinkingId));
+      assistantPlaceholder = dom.messageList?.querySelector(`article.pending-thinking[data-thinking-id="${thinkingId}"]`);
     }
     if (assistantPlaceholder) {
       assistantPlaceholder.dataset.thinkingId = thinkingId;
@@ -816,10 +877,9 @@ function toggleTheme() {
 }
 
 function setChatStatus(text, isError = false) {
-  if (dom.chatStatus) {
-    dom.chatStatus.textContent = text;
-    dom.chatStatus.className = isError ? "text-xs text-red-400" : "text-xs text-slate-400";
-  }
+  if (!dom.chatStatus) return;
+  dom.chatStatus.textContent = text;
+  dom.chatStatus.className = `portal-statusline${isError ? " is-error" : ""}`;
 }
 
 function scrollToBottom() {
@@ -854,9 +914,8 @@ function renderIcons() {
 }
 
 function setDetailOpen(open) {
-  // Close tool panel when opening detail panel (mutual exclusivity)
   if (open) {
-    closeToolPanel();
+    closeSessionsDrawer();
   }
   state.detailOpen = open;
   // Use unified tool-panel for agent details
@@ -895,7 +954,7 @@ async function agentApi(path, options = {}) {
 
 function defaultWelcomeMessage() {
   const welcomeAgentName = state.selectedAgentName || "Assistant";
-  return `<article data-welcome="1" class="max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 p-4"><p class="text-xs uppercase tracking-wide text-slate-400 mb-2">${escapeHtml(welcomeAgentName)}</p><div class="prose prose-invert max-w-none">👋 Welcome! Ask me anything.</div></article>`;
+  return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
 }
 
 function clearMessageListToWelcome() {
@@ -960,7 +1019,7 @@ function renderAgentList() {
 
   dom.mineList.innerHTML = "";
   if (!state.mineAgents.length) {
-    dom.mineList.innerHTML = '<div class="text-slate-500 text-sm">No assistants</div>';
+    dom.mineList.innerHTML = '<div class="portal-empty-note">No assistants</div>';
     return;
   }
 
@@ -970,22 +1029,29 @@ function renderAgentList() {
 
   const renderSection = (title, agents) => {
     if (!agents.length) return;
-    const section = document.createElement("div");
-    section.className = "space-y-2";
-    section.innerHTML = `<div class="text-xs uppercase tracking-wide text-slate-400 mt-2">${safe(title)}</div>`;
+    const section = document.createElement("section");
+    section.className = "portal-agent-section";
+    section.innerHTML = `<div class="portal-eyebrow">${safe(title)}</div>`;
 
     agents.forEach((agent) => {
-      const status = state.agentStatus.get(agent.id)?.status || agent.status;
-      const activeClass = state.selectedAgentId === agent.id
-        ? "border-blue-500 bg-blue-500/10"
-        : "border-slate-700 bg-slate-800/40";
-      const badge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-500">shared</span>';
-
-      const button = document.createElement("button");
-      button.className = `w-full rounded-xl border px-3 py-2 text-left ${activeClass}`;
-      button.innerHTML = `<div class="flex items-center justify-between"><span class="font-medium">${safe(agent.name)}${badge}</span><span class="h-2.5 w-2.5 rounded-full ${status === "running" ? "bg-emerald-400" : "bg-slate-500"}"></span></div>`;
-      button.addEventListener("click", () => selectAgentById(agent.id));
-      section.append(button);
+      const status = (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+      const isActive = state.selectedAgentId === agent.id;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `portal-agent-row${isActive ? " is-active" : ""}`;
+      const sharedBadge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="portal-agent-shared">shared</span>';
+      row.innerHTML = `
+        <div class="portal-agent-row-head">
+          <span class="portal-agent-name">${safe(agent.name)}</span>
+          ${sharedBadge}
+        </div>
+        <div class="portal-agent-row-foot">
+          <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
+          <span class="portal-agent-status-text">${safe(status)}</span>
+        </div>
+      `;
+      row.addEventListener("click", () => selectAgentById(agent.id));
+      section.append(row);
     });
 
     dom.mineList.append(section);
@@ -993,7 +1059,7 @@ function renderAgentList() {
 
   renderSection("My Space", mine);
   renderSection("Shared", shared);
-  if (publicAgents.length) renderSection("Public", publicAgents);
+  renderSection("Public", publicAgents);
 }
 
 function renderAgentMeta(agent) {
@@ -1013,48 +1079,48 @@ function renderAgentMeta(agent) {
   if (agent.repo_url) {
     const branch = agent.branch || 'main';
     repoSection = `
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Repository</div>
-        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.repo_url)}</div>
-        <div class="text-xs text-slate-500 mt-1">Branch: <span class="text-slate-700 dark:text-slate-300">${safe(branch)}</span></div>
-        <div id="agent-git-commit" class="text-xs text-slate-400 mt-1">Loading commit...</div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Repository</div>
+        <code class="portal-detail-code">${safe(agent.repo_url)}</code>
+        <div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(branch)}</span></div>
+        <div id="agent-git-commit" class="portal-detail-subtle">Loading commit...</div>
       </div>
     `;
   }
 
   dom.agentMeta.innerHTML = `
-    <div class="space-y-3 text-sm">
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Assistant ID</div>
-        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.id)}</div>
+    <div class="portal-detail-stack">
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Assistant ID</div>
+        <code class="portal-detail-code">${safe(agent.id)}</code>
       </div>
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Image</div>
-        <div class="font-mono text-xs bg-slate-100 dark:bg-slate-800 rounded px-2 py-1.5 break-all text-slate-700 dark:text-slate-300">${safe(agent.image)}</div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Image</div>
+        <code class="portal-detail-code">${safe(agent.image)}</code>
       </div>
       ${repoSection}
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Created</div>
-        <div class="text-slate-700 dark:text-slate-300">${dateStr}</div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Created</div>
+        <div class="portal-detail-value">${dateStr}</div>
       </div>
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Resources</div>
-        <div class="flex flex-wrap gap-1.5">
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium">
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Resources</div>
+        <div class="portal-resource-pills">
+          <span class="portal-resource-pill is-cpu">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
             ${cpu}
           </span>
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-medium">
+          <span class="portal-resource-pill is-memory">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
             ${mem}
           </span>
-          <span class="inline-flex items-center px-2 py-1 rounded-md bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium">
+          <span class="portal-resource-pill is-disk">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
             ${disk}Gi
           </span>
         </div>
       </div>
-      <div id="agent-usage" class="text-xs text-slate-400">Loading usage...</div>
+      <div id="agent-usage" class="portal-detail-subtle">Loading usage...</div>
     </div>
   `;
 
@@ -1101,23 +1167,27 @@ async function fetchGitInfo(agentId) {
         commitLink.href = `${safeUrl}/commit/${data.commit_id}`;
         commitLink.target = '_blank';
         commitLink.rel = 'noopener noreferrer';
-        commitLink.className = 'text-blue-500 hover:underline font-mono';
+        commitLink.className = 'portal-link-inline';
         commitLink.textContent = shortCommit;
         commitEl.appendChild(commitLink);
       } else {
         const commitText = document.createElement('span');
-        commitText.className = 'text-blue-500 font-mono';
+        commitText.className = 'portal-detail-value';
         commitText.textContent = shortCommit;
         commitEl.appendChild(commitText);
       }
     } else if (data.status === 'running') {
+      commitEl.className = "portal-detail-subtle";
       commitEl.textContent = "Commit: Not available";
     } else if (data.status === 'error') {
+      commitEl.className = "portal-inline-error";
       commitEl.textContent = "Git info unavailable";
     } else {
+      commitEl.className = "portal-detail-subtle";
       commitEl.textContent = "Assistant not running";
     }
   } catch (e) {
+    commitEl.className = "portal-inline-error";
     commitEl.textContent = "Failed to load commit";
   }
 }
@@ -1128,6 +1198,7 @@ async function fetchUsageForAgent(agentId) {
   try {
     const data = await api(`/a/${agentId}/api/usage`);
     if (!data) {
+      usageEl.className = "portal-detail-subtle";
       usageEl.textContent = "No usage data";
       return;
     }
@@ -1137,27 +1208,28 @@ async function fetchUsageForAgent(agentId) {
     const inputTokens = global.total_input_tokens || global.total_input || 0;
     const outputTokens = global.total_output_tokens || global.total_output || 0;
     usageEl.innerHTML = `
-      <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Usage (30 days)</div>
-      <div class="grid grid-cols-2 gap-2">
-        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
-          <div class="text-slate-500 dark:text-slate-400">Requests</div>
-          <div class="font-semibold text-slate-700 dark:text-slate-200">${reqCount}</div>
+      <div class="portal-detail-label">Usage (30 days)</div>
+      <div class="portal-usage-grid">
+        <div class="portal-usage-card">
+          <span class="portal-usage-k">Requests</span>
+          <strong class="portal-usage-v">${reqCount}</strong>
         </div>
-        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
-          <div class="text-slate-500 dark:text-slate-400">Cost</div>
-          <div class="font-semibold text-slate-700 dark:text-slate-200">$${cost.toFixed(4)}</div>
+        <div class="portal-usage-card">
+          <span class="portal-usage-k">Cost</span>
+          <strong class="portal-usage-v">$${cost.toFixed(4)}</strong>
         </div>
-        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
-          <div class="text-slate-500 dark:text-slate-400">Input</div>
-          <div class="font-semibold text-slate-700 dark:text-slate-200">${inputTokens.toLocaleString()}</div>
+        <div class="portal-usage-card">
+          <span class="portal-usage-k">Input</span>
+          <strong class="portal-usage-v">${inputTokens.toLocaleString()}</strong>
         </div>
-        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-2">
-          <div class="text-slate-500 dark:text-slate-400">Output</div>
-          <div class="font-semibold text-slate-700 dark:text-slate-200">${outputTokens.toLocaleString()}</div>
+        <div class="portal-usage-card">
+          <span class="portal-usage-k">Output</span>
+          <strong class="portal-usage-v">${outputTokens.toLocaleString()}</strong>
         </div>
       </div>
     `;
   } catch (e) {
+    usageEl.className = "portal-inline-error";
     usageEl.textContent = "No usage data";
   }
 }
@@ -1169,41 +1241,38 @@ function renderAgentActions(agent, status) {
   const writable = canWriteAgent(agent);
 
   const container = document.createElement("div");
-  container.className = "space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-2";
+  container.className = "portal-detail-action-grid";
 
-  const grid = document.createElement("div");
-  grid.className = "grid grid-cols-4 gap-2";
-
-  const buildIconBtn = ({ label, icon, classes, onClick, disabled = false }) => {
+  const buildIconBtn = ({ label, icon, variantClass, onClick, disabled = false }) => {
     const button = document.createElement("button");
     button.type = "button";
     button.title = label;
-    button.className = `h-14 rounded-lg border text-white inline-flex flex-col items-center justify-center gap-1 shadow-sm ${classes}`;
+    button.className = `portal-detail-action-btn ${variantClass}`;
     button.innerHTML = `
       <i data-lucide="${icon}" class="w-4 h-4"></i>
-      <span class="text-[10px] font-medium opacity-90">${label}</span>
+      <span class="text-[10px] font-medium">${label}</span>
     `;
     button.disabled = disabled;
+    button.setAttribute("aria-disabled", disabled ? "true" : "false");
     button.addEventListener("click", onClick);
     return button;
   };
 
   const actions = [
-    { label: "Start", icon: "play", classes: "border-emerald-600 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
-    { label: "Stop", icon: "square", classes: "border-amber-500 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
-    { label: "Restart", icon: "rotate-cw", classes: "border-blue-500 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
-    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", classes: "border-indigo-500 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
-    { label: "Edit", icon: "pencil", classes: "border-slate-500 bg-slate-500 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => openEditDialog(agent) },
-    { label: "Delete", icon: "trash-2", classes: "border-red-500 bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
-    { label: "Destroy", icon: "flame", classes: "border-rose-600 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
+    { label: "Start", icon: "play", variantClass: "is-success", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
+    { label: "Stop", icon: "square", variantClass: "is-warning", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
+    { label: "Restart", icon: "rotate-cw", variantClass: "is-info", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
+    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
+    { label: "Edit", icon: "pencil", variantClass: "is-neutral", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
+    { label: "Destroy", icon: "flame", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
   ];
 
-  actions.forEach((cfg) => grid.append(buildIconBtn(cfg)));
-  container.append(grid);
+  actions.forEach((cfg) => container.append(buildIconBtn(cfg)));
 
   if (!writable) {
     const note = document.createElement("div");
-    note.className = "text-xs text-slate-400";
+    note.className = "portal-detail-note";
     note.textContent = "Read-only for shared assistant.";
     container.append(note);
   }
@@ -1214,16 +1283,15 @@ function renderAgentActions(agent, status) {
 
 async function selectAgentById(agentId) {
   state.selectedAgentId = agentId;
-  // Get agent name from state or lookup
   const allAgents = state.mineAgents || [];
   const selectedAgent = allAgents.find(a => a.id === agentId);
   state.selectedAgentName = selectedAgent?.name || null;
   updateChatInputPlaceholder();
-  
-  // Update owner-only button visibility
+  closeSessionsDrawer();
+
   updateOwnerOnlyButtons(agentId);
 
-  window.selectedAgentId = agentId;  // Expose for inline scripts
+  window.selectedAgentId = agentId;
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.cachedMentionFiles = [];
@@ -1240,11 +1308,19 @@ async function selectAgentById(agentId) {
 }
 
 async function syncSelectedAgentState() {
-  const agent = state.mineAgents.find((item) => item.id === state.selectedAgentId);
+  const agent = getSelectedAgent();
+  const sessionsBtn = document.getElementById("btn-sessions");
 
   if (!agent) {
     dom.embedTitle.textContent = "Select an assistant";
     dom.selectedStatus.textContent = "idle";
+    setChatStatus("Ready");
+    setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
+    setButtonDisabled(sessionsBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
+    dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
+    dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
+    dom.homeAgentSummary && (dom.homeAgentSummary.textContent = "No assistant selected.");
     dom.centerPlaceholder.classList.remove("hidden");
     dom.agentChatApp.classList.add("hidden");
     state.selectedAgentName = null;
@@ -1252,16 +1328,22 @@ async function syncSelectedAgentState() {
     return;
   }
 
-  const status = state.agentStatus.get(agent.id)?.status || agent.status;
+  const status = getSelectedAgentStatus();
   state.selectedAgentName = agent.name || null;
   updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
   dom.selectedStatus.textContent = status;
-  if (dom.selectedStatus) {
-    dom.selectedStatus.className = "px-3 py-1 rounded-full text-xs border";
-    if (status === "running") dom.selectedStatus.classList.add("border-emerald-200", "dark:border-emerald-500", "bg-emerald-50", "dark:bg-emerald-900/40", "text-emerald-700", "dark:text-emerald-400");
-    else if (status === "failed") dom.selectedStatus.classList.add("border-rose-200", "dark:border-rose-500", "bg-rose-50", "dark:bg-rose-900/40", "text-rose-700", "dark:text-rose-400");
-    else dom.selectedStatus.classList.add("border-slate-200", "dark:border-slate-600", "bg-slate-100", "dark:bg-slate-800", "text-slate-600", "dark:text-slate-400");
+  dom.selectedStatus.className = `toolbar-status-badge status-${status}`;
+  setChatStatus("Ready");
+  const needsStart = status !== "running";
+  setButtonDisabled(dom.headerNewChatBtn, needsStart, "Start the assistant from Assistant details first");
+  setButtonDisabled(sessionsBtn, needsStart, "Start the assistant from Assistant details first");
+  setButtonDisabled(dom.homeStartChatBtn, needsStart, "Start the assistant from Assistant details first");
+  dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
+  dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
+  if (dom.homeAgentSummary) {
+    if (status !== "running") dom.homeAgentSummary.textContent = `${agent.name} is ${status}. Start it to open chat.`;
+    else dom.homeAgentSummary.textContent = `${agent.name} is running. Open a session or start a new chat.`;
   }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
@@ -1274,18 +1356,15 @@ async function syncSelectedAgentState() {
   dom.centerPlaceholder.classList.toggle("hidden", running);
   dom.agentChatApp.classList.toggle("hidden", !running);
 
-  // Auto-load last session if available (localStorage or remote)
   if (running) {
     const lastSessionId = getLastSessionId(agent.id);
     if (lastSessionId) {
       try {
         await loadSession(lastSessionId);
       } catch (e) {
-        // Session not found locally, try remote
         await loadLastSessionFromRemote(agent.id);
       }
     } else {
-      // No local session, fetch from remote
       await loadLastSessionFromRemote(agent.id);
     }
   }
@@ -1305,7 +1384,6 @@ async function loadLastSessionFromRemote(agentId) {
       }
     }
   } catch (e) {
-    // console.log("Failed to load last session from remote:", e);
   }
 }
 
@@ -1372,11 +1450,12 @@ function handleChatBeforeRequest(event) {
   // Backup message and files for potential restore on error
   messageBackup = message;
   pendingFilesBackup = [...state.pendingFiles];
+  state.didAppendAttachmentHistoryForPendingSend = false;
 
   // Build attachments from pendingFiles for display
   setChatSubmitting(true);
   removeWelcomeMessageIfPresent();
-  removePendingAssistantPlaceholder();
+  removeTemporaryAssistantRows();
   hideSuggest();
 
   // Build attachments from pending files for display
@@ -1432,7 +1511,12 @@ function handleChatBeforeRequest(event) {
 function handleChatResponseError(event) {
   if (event.target?.id !== "chat-form") return;
 
-  removePendingAssistantPlaceholder();
+  removeTemporaryAssistantRows();
+  removeLatestOptimisticUserRow();
+  if (state.didAppendAttachmentHistoryForPendingSend && Array.isArray(state.attachmentHistory) && state.attachmentHistory.length) {
+    state.attachmentHistory.pop();
+  }
+  state.didAppendAttachmentHistoryForPendingSend = false;
   setChatSubmitting(false);
   state.inflightThinking = null;
 
@@ -1460,19 +1544,20 @@ function handleChatResponseError(event) {
 
   // Also show error in message list
   if (dom.messageList) {
-    const errorDiv = document.createElement("div");
-    errorDiv.className = "message message-error flex gap-3 py-3";
-    errorDiv.innerHTML = `
-      <div class="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
-        <i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i>
+    const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    dom.messageList.insertAdjacentHTML("beforeend", `
+      <div class="message-row message-row-assistant message-row-error">
+        <div class="message-meta">
+          <span class="message-author">System</span>
+          <span class="message-timestamp">${now}</span>
+        </div>
+        <article class="message-surface message-surface-assistant message-surface-error">
+          <div class="message-body whitespace-pre-wrap text-sm">${safe(errorMsg)}</div>
+        </article>
       </div>
-      <div class="flex-1 min-w-0">
-        <div class="text-red-400 text-sm">${errorMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-      </div>
-    `;
-    dom.messageList.appendChild(errorDiv);
-    renderIcons();
+    `);
     scrollToBottom();
+    renderIcons();
   }
 }
 
@@ -1481,6 +1566,7 @@ function handleChatAfterRequest(event) {
   if (!event.detail?.successful) return;
 
   setChatSubmitting(false);
+  state.didAppendAttachmentHistoryForPendingSend = false;
   state.pendingMessage = "";
   state.messagePrepared = false;
 
@@ -1494,35 +1580,20 @@ function handleChatAfterRequest(event) {
       const oobInput = doc.querySelector('#chat-user-message-id');
       if (oobInput && oobInput.value) {
         const userMessageId = oobInput.value;
+        const optimisticUserArticle = getLatestOptimisticUserArticle();
+        if (optimisticUserArticle) {
+          optimisticUserArticle.dataset.messageId = userMessageId;
+          delete optimisticUserArticle.dataset.optimisticUser;
 
-        // Find the last user message article (the one just sent) and update its ID
-        const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-        if (userArticles.length > 0) {
-          const lastUserArticle = userArticles[userArticles.length - 1];
-          // Update the data-message-id attribute with the real ID
-          lastUserArticle.dataset.messageId = userMessageId;
-
-          // Update any edit button's onclick to use the real ID
-          // Button may be in article or in parent container
-          const parentContainer = lastUserArticle.parentElement;
-          const editBtn = lastUserArticle.querySelector('.edit-msg-btn') ||
-                         parentContainer?.querySelector?.('.edit-msg-btn');
+          const parentContainer = optimisticUserArticle.parentElement;
+          const editBtn = optimisticUserArticle.querySelector('.edit-msg-btn') ||
+            parentContainer?.querySelector?.('.edit-msg-btn');
           if (editBtn) {
-            const contentEl = lastUserArticle.querySelector('.whitespace-pre-wrap');
+            const contentEl = optimisticUserArticle.querySelector('.message-body, .whitespace-pre-wrap');
             const content = contentEl ? contentEl.textContent : '';
-
-            // Get attachments from attachmentHistory - use last entry since this is the latest message
-            const attachments = [];
-            // console.log(' History length:', state.attachmentHistory.length);
-            if (state.attachmentHistory.length > 0) {
-              // Use the last entry in history for the latest message
-              const lastAttachments = state.attachmentHistory[state.attachmentHistory.length - 1];
-              // console.log(' Last attachments:', lastAttachments);
-              if (lastAttachments) {
-                attachments.push(...lastAttachments);
-              }
-            }
-
+            const attachments = state.attachmentHistory.length > 0
+              ? (state.attachmentHistory[state.attachmentHistory.length - 1] || [])
+              : [];
             editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
           }
         }
@@ -1545,28 +1616,6 @@ function handleChatAfterRequest(event) {
         }
       }
       
-      // Also extract user message ID (reuse parsed doc)
-      const userMsgIdInput = doc.querySelector('[name="user_message_id"]');
-      if (userMsgIdInput) {
-        const userMsgId = userMsgIdInput.value;
-        // Update optimistic message with real ID
-        const pendingUser = dom.messageList?.querySelector('[data-local-user="1"]');
-        if (pendingUser) {
-          pendingUser.dataset.messageId = userMsgId;
-          
-          // Update edit button's onclick with real ID
-          const editBtn = pendingUser.querySelector('.edit-msg-btn');
-          if (editBtn) {
-            const contentEl = pendingUser.querySelector('.whitespace-pre-wrap');
-            const content = contentEl ? contentEl.textContent : '';
-            // Get attachments from history for this message
-            const attachments = state.attachmentHistory.length > 0 
-              ? state.attachmentHistory[state.attachmentHistory.length - 1] || [] 
-              : [];
-            editBtn.onclick = () => openEditMessageModal(userMsgId, content, attachments);
-          }
-        }
-      }
     }
   } catch (e) {
     // Ignore errors
@@ -1591,12 +1640,13 @@ function handleChatAfterSwap(target) {
     }
   });
   
-  removePendingAssistantPlaceholder();
+  removeTemporaryAssistantRows();
   if (allEvents.length) attachThinkingToLatestAssistant(allEvents);
   
   // Clear states
   state.pendingThinkingEvents = null;
   state.inflightThinking = null;
+  state.didAppendAttachmentHistoryForPendingSend = false;
 
   // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
   // Re-query the element each time since OOB swap replaces the DOM element
@@ -1607,30 +1657,6 @@ function handleChatAfterSwap(target) {
   decorateToolMessages(dom.messageList);
   renderIcons();
   scrollToBottom();
-
-  // Clean up any orphan header divs after all processing (divs without article child)
-  const messageList = target;
-  const children = Array.from(messageList.children);
-  children.forEach(child => {
-    // Check if it's a container div without an article child (orphan)
-    if (child.tagName === 'DIV' && !child.querySelector('article') && child.querySelector('span')) {
-      // Check if it has Assistant text
-      if (child.textContent.includes('Assistant') || child.querySelector('.text-emerald-400')) {
-        child.remove();
-      }
-    }
-  });
-
-  // Add timestamp to server-rendered Assistant messages if missing
-  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const assistantContainers = messageList.querySelectorAll('.assistant-header:not([data-timestamp-added])');
-  assistantContainers.forEach(header => {
-    const timeSpan = document.createElement("span");
-    timeSpan.className = "message-timestamp text-xs text-slate-500";
-    timeSpan.textContent = now;
-    header.appendChild(timeSpan);
-    header.setAttribute("data-timestamp-added", "true");
-  });
 
   setChatStatus("Ready");
 }
@@ -1655,7 +1681,6 @@ function initializeRenderLifecycle() {
       
       // If already set (from Edit), don't overwrite
       if (existingAttachments && existingAttachments !== '') {
-        // console.log(' Using existing attachments:', existingAttachments);
         event.detail.parameters.attachments = existingAttachments;
       } else {
         // Normal send - use pendingFiles
@@ -1666,6 +1691,7 @@ function initializeRenderLifecycle() {
         
         // Store attachments in history (always record, even empty arrays for indexing)
         addToAttachmentHistory(uploadedFileIds);
+        state.didAppendAttachmentHistoryForPendingSend = true;
       }
     }
   });
@@ -1698,7 +1724,7 @@ function showSuggest(items, onPick) {
   }
 
   dom.chatSuggest.innerHTML = items.map((item, index) => (
-    `<button type="button" data-i="${index}" class="w-full text-left rounded-lg px-2 py-1 hover:bg-slate-700"><div class="font-medium">${safe(item.label || item.title || "")}</div><div class="text-xs text-slate-400">${safe(item.desc || "")}</div></button>`
+    `<button type="button" data-i="${index}" class="portal-suggest-item"><div class="portal-suggest-title">${safe(item.label || item.title || "")}</div><div class="portal-suggest-desc">${safe(item.desc || "")}</div></button>`
   )).join("");
   dom.chatSuggest.classList.remove("hidden");
   state.selectedSuggestionIndex = 0;
@@ -1707,7 +1733,7 @@ function showSuggest(items, onPick) {
   buttons.forEach((button) => {
     button.addEventListener("click", () => onPick(items[Number(button.dataset.i)]));
   });
-  buttons[0]?.classList.add("bg-slate-700");
+  buttons[0]?.classList.add("is-active");
 }
 
 function moveSuggestionSelection(direction) {
@@ -1715,10 +1741,10 @@ function moveSuggestionSelection(direction) {
   const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
   if (!buttons.length) return;
 
-  buttons.forEach((b) => b.classList.remove("bg-slate-700"));
+  buttons.forEach((b) => b.classList.remove("is-active"));
   state.selectedSuggestionIndex = (state.selectedSuggestionIndex + direction + buttons.length) % buttons.length;
   const selected = buttons[state.selectedSuggestionIndex];
-  selected.classList.add("bg-slate-700");
+  selected.classList.add("is-active");
   selected.scrollIntoView({ block: "nearest" });
 }
 
@@ -1890,33 +1916,59 @@ async function maybeShowSuggest() {
 // ===== toolbar actions =====
 function setToolPanel(title, contentHtml) {
   if (!dom.toolPanel) return;
+  state.detailOpen = false;
+  closeSessionsDrawer();
   dom.toolPanelTitle.textContent = title;
-  // Use textContent for error messages to prevent XSS, innerHTML for HTML content
   if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
     dom.toolPanelBody.textContent = contentHtml.replace('Failed: ', '');
   } else {
     dom.toolPanelBody.innerHTML = contentHtml;
   }
-  // Hide detail panel, show tool panel
-  setDetailOpen(false);
   dom.toolPanel.style.transform = "translateX(0)";
   dom.toolBackdrop?.classList.remove("hidden");
 }
 
 function closeToolPanel() {
+  state.detailOpen = false;
   if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
   dom.toolBackdrop?.classList.add("hidden");
 }
 
+async function openSessionsDrawer() {
+  if (!ensureRunningSelectedAssistant("browse sessions")) return;
+  closeToolPanel();
+  dom.sessionsDrawer?.classList.add("is-open");
+  dom.sessionsDrawerBackdrop?.classList.remove("hidden");
+  dom.sessionsDrawerBackdrop?.classList.add("is-open");
+  if (!dom.sessionsDrawerBody) return;
+  dom.sessionsDrawerBody.innerHTML = '<div class="portal-inline-state">Loading sessions…</div>';
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
+      target: "#sessions-drawer-body",
+      swap: "innerHTML",
+    });
+  } catch (error) {
+    dom.sessionsDrawerBody.innerHTML = '<div class="portal-inline-state is-error">Failed to load sessions.</div>';
+    setChatStatus("Failed to load sessions", true);
+  }
+}
+
+function closeSessionsDrawer() {
+  dom.sessionsDrawer?.classList.remove("is-open");
+  dom.sessionsDrawerBackdrop?.classList.remove("is-open");
+  dom.sessionsDrawerBackdrop?.classList.add("hidden");
+}
+
+async function toggleSessionsDrawer() {
+  if (dom.sessionsDrawer?.classList.contains("is-open")) {
+    closeSessionsDrawer();
+    return;
+  }
+  await openSessionsDrawer();
+}
+
 async function openSessionsPanel() {
-  if (!state.selectedAgentId) return;
-
-  setToolPanel("Sessions", '<div class="text-xs text-slate-400">Loading sessions…</div>');
-
-  await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
-    target: "#tool-panel-body",
-    swap: "innerHTML",
-  });
+  await openSessionsDrawer();
 }
 
 function bundleKeyFromRef(ref) {
@@ -1931,27 +1983,25 @@ function bundleKey(item) {
 function renderRequirementBundleList(errorMessage = "") {
   if (!dom.bundleList) return;
   if (errorMessage) {
-    dom.bundleList.innerHTML = `<div class="text-xs rounded-lg border border-rose-300 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 px-3 py-2">${safe(errorMessage)}</div>`;
+    dom.bundleList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
     return;
   }
 
   if (!state.requirementBundles.length) {
-    dom.bundleList.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 px-1">No bundles found</div>';
+    dom.bundleList.innerHTML = '<div class="portal-bundle-list-state">No bundles found</div>';
     return;
   }
 
   dom.bundleList.innerHTML = "";
   state.requirementBundles.forEach((item) => {
     const key = bundleKey(item);
-    const activeClass = state.selectedBundleKey === key
-      ? "border-blue-300 dark:border-blue-500 bg-blue-50 dark:bg-blue-500/10"
-      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/60";
+    const activeClass = state.selectedBundleKey === key ? " is-active" : "";
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `w-full rounded-xl border px-3 py-2 text-left transition-colors duration-150 ${activeClass}`;
+    row.className = `portal-bundle-row${activeClass}`;
     row.innerHTML = `
-      <div class="font-medium text-slate-800 dark:text-slate-100">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
-      <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
+      <div class="portal-bundle-title">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
+      <div class="portal-bundle-meta">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
     `;
     row.addEventListener("click", async () => {
       state.selectedBundleKey = key;
@@ -1964,7 +2014,7 @@ function renderRequirementBundleList(errorMessage = "") {
 
 async function refreshRequirementBundles() {
   if (!dom.bundleList) return;
-  dom.bundleList.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 px-1">Loading bundles…</div>';
+  dom.bundleList.innerHTML = '<div class="portal-bundle-list-state">Loading bundles…</div>';
   try {
     const bundles = await api("/api/requirement-bundles");
     state.requirementBundles = Array.isArray(bundles) ? bundles : [];
@@ -1981,7 +2031,7 @@ async function refreshRequirementBundles() {
 }
 
 async function openRequirementBundlePanel(bundleRef = null) {
-  setToolPanel("Requirement Bundles", '<div class="text-xs text-slate-400">Loading requirement bundles…</div>');
+  setToolPanel("Requirement Bundles", '<div class="portal-inline-state">Loading requirement bundles…</div>');
   try {
     let path = "/app/requirement-bundles/panel";
     if (bundleRef) {
@@ -2014,89 +2064,67 @@ function renderChatHistory(messages, metadata = {}) {
   dom.messageList.innerHTML = "";
   messages.forEach((message) => {
     if (message.role !== "user" && message.role !== "assistant") return;
-
     const isUser = message.role === "user";
-
-    // Format timestamp
     let timeStr = "";
     if (message.timestamp) {
       try {
-        const ts = new Date(message.timestamp);
-        timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        timeStr = new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       } catch (e) {}
     }
 
-    // Create message container
     const container = document.createElement("div");
-    container.className = isUser ? "message-row flex flex-col items-end" : "message-row flex flex-col items-start";
+    container.className = `message-row ${isUser ? "message-row-user" : "message-row-assistant"}`;
 
-    // Role label and timestamp
     const header = document.createElement("div");
-    header.className = "flex items-center gap-2 mb-1";
-
+    header.className = `message-meta${isUser ? " message-meta-user" : ""}`;
     const roleLabel = document.createElement("span");
-    roleLabel.className = isUser ? "text-xs font-semibold text-blue-400" : "text-xs font-semibold text-emerald-400";
-    const fallbackUserName = "User";
-    const fallbackAgentName = state.selectedAgentName || "Assistant";
-    const roleDisplayName = message.author_name || (isUser ? fallbackUserName : fallbackAgentName);
-    roleLabel.textContent = roleDisplayName;
-
+    roleLabel.className = "message-author";
+    roleLabel.textContent = message.author_name || (isUser ? "You" : (state.selectedAgentName || "Assistant"));
     header.appendChild(roleLabel);
-
     if (timeStr) {
       const timeLabel = document.createElement("span");
-      timeLabel.className = "message-timestamp text-xs text-slate-500";
+      timeLabel.className = "message-timestamp";
       timeLabel.textContent = timeStr;
       header.appendChild(timeLabel);
     }
-
     container.appendChild(header);
 
-    // Message bubble
     const article = document.createElement("article");
+    article.className = `message-surface ${isUser ? "message-surface-user" : "message-surface-assistant assistant-message"}`;
+
     if (isUser) {
-      article.className = "max-w-2xl rounded-2xl border border-blue-500/50 bg-blue-600/20 px-4 py-3 text-blue-50";
       article.dataset.localUser = "1";
-      // Set message ID if available
-      if (message.id) {
-        article.dataset.messageId = message.id;
-      }
+      if (message.id) article.dataset.messageId = message.id;
       const content = document.createElement("div");
-      content.className = "whitespace-pre-wrap text-sm";
+      content.className = "message-body whitespace-pre-wrap text-sm";
       content.textContent = message.content || "";
       article.appendChild(content);
 
-      // Render attachments from message.attachments (new format)
       const msgAttachments = message.attachments || [];
       if (msgAttachments.length > 0) {
         const attachmentDiv = document.createElement("div");
-        attachmentDiv.className = "flex flex-wrap gap-2 mt-2";
+        attachmentDiv.className = "message-attachments";
         attachmentDiv.dataset.attachments = JSON.stringify(msgAttachments);
         article.dataset.attachments = JSON.stringify(msgAttachments);
         msgAttachments.forEach(fileId => {
           const img = document.createElement("img");
           img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
-          img.className = "max-w-32 max-h-32 rounded-lg border border-slate-500";
+          img.className = "message-attachment-thumb";
           img.alt = fileId;
           img.dataset.fileId = fileId;
-          // Show placeholder on error
-          img.onerror = () => {
-            img.style.display = 'none';
-          };
+          img.onerror = () => { img.style.display = "none"; };
           attachmentDiv.appendChild(img);
         });
         article.appendChild(attachmentDiv);
       }
     } else {
-      article.className = "max-w-2xl rounded-2xl border border-slate-700 bg-slate-800/80 px-4 py-3 assistant-message";
       const content = document.createElement("div");
-      content.className = "md-render prose prose-invert max-w-none text-sm";
+      content.className = "message-markdown md-render max-w-none text-sm";
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
 
     container.appendChild(article);
-    
     dom.messageList.appendChild(container);
   });
 
@@ -2132,7 +2160,7 @@ async function loadSession(sessionId) {
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Server Files", `<div class="text-xs text-red-500">You do not have permission to access this assistant's files.</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`);
     return;
   }
   const workspacePath = '/root/.efp/workspace';
@@ -2140,7 +2168,7 @@ async function openServerFiles() {
 }
 
 async function loadServerFiles(path) {
-  setToolPanel("Server Files", '<div class="text-xs text-slate-400">Loading files…</div>');
+  setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>');
 
   try {
     const data = await agentApi(`/api/files?path=${encodeURIComponent(path)}`);
@@ -2148,24 +2176,29 @@ async function loadServerFiles(path) {
 
     // Build breadcrumb with data attributes for event delegation
     const parts = path.split('/').filter(Boolean);
-    let breadcrumb = '<a href="#" class="breadcrumb-link" data-path="/">/</a>';
+    let breadcrumbParts = [
+      '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">/</a>'
+    ];
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      const escapedPath = escapeHtml(currentPath);
-      breadcrumb += ' <a href="#" class="breadcrumb-link" data-path="' + escapedPath.replace(/"/g, '&quot;') + '">' + escapeHtml(part) + '</a>';
+      breadcrumbParts.push(
+        '<span class="portal-breadcrumb-sep">/</span>' +
+        '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="' + escapeHtmlAttr(currentPath) + '">' + escapeHtml(part) + '</a>'
+      );
     }
+    const breadcrumb = breadcrumbParts.join(' ');
 
     // Build file rows with checkboxes in separate cell
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
       const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       return (
-        `<div class="file-row group flex items-center gap-3 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 hover:border-blue-500 file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox flex-shrink-0 w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
-          `<div class="flex-1 flex items-center gap-2 cursor-pointer name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-            `<span class="text-lg">${icon}</span>` +
-            `<span class="flex-1 truncate text-sm text-slate-800 dark:text-slate-200">${escapeHtml(item.name)}</span>` +
+        `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+          `<input type="checkbox" class="file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+          `<div class="portal-file-name-cell name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+            `<span class="portal-file-icon">${icon}</span>` +
+            `<span class="portal-file-name">${escapeHtml(item.name)}</span>` +
           `</div>` +
         `</div>`
       );
@@ -2173,19 +2206,18 @@ async function loadServerFiles(path) {
 
     // Set panel content with toolbar
     setToolPanel("Server Files",
-      `<div class="space-y-3" id="server-files-panel">` +
-        // Toolbar
-        `<div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">` +
-          `<div class="text-xs text-slate-500 dark:text-slate-400 flex-1">${breadcrumb}</div>` +
-          `<button class="sf-upload-btn px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded">Upload ZIP</button>` +
-          `<button class="sf-download-btn px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded" disabled>Download</button>` +
+      `<div id="server-files-panel" class="portal-file-browser">` +
+        `<div class="portal-file-toolbar">` +
+          `<div class="portal-file-breadcrumb">${breadcrumb}</div>` +
+          `<div class="portal-file-toolbar-actions">` +
+            `<button class="portal-btn is-secondary sf-upload-btn">Upload ZIP</button>` +
+            `<button class="portal-btn is-secondary sf-download-btn" disabled>Download</button>` +
+          `</div>` +
         `</div>` +
-        // Select all
-        `<div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">` +
-          `<input type="checkbox" id="sf-select-all" class="w-4 h-4 rounded border border-slate-400 bg-white text-blue-600 focus:ring-blue-500 accent-blue-600"> <label for="sf-select-all">Select all</label>` +
+        `<div class="portal-file-select-row">` +
+          `<input type="checkbox" id="sf-select-all"> <label for="sf-select-all">Select all</label>` +
         `</div>` +
-        // File list
-        `<div class="space-y-1">${rows || "Empty directory"}</div>` +
+        `<div class="portal-panel-stack">${rows || '<div class="portal-inline-state">Empty directory</div>'}</div>` +
       `</div>`
     );
 
@@ -2255,19 +2287,11 @@ async function loadServerFiles(path) {
         }
       });
 
-      // Breadcrumb click
-      panel.querySelectorAll('.breadcrumb-link').forEach(link => {
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          loadServerFiles(link.dataset.path);
-        });
-      });
-
       // Initialize button state
       updateDownloadButton(panel);
     }
   } catch (error) {
-    setToolPanel("Server Files", `Failed: ${error.message}`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`);
   }
 }
 
@@ -2319,7 +2343,7 @@ async function uploadZipToServer(targetPath) {
     const file = e.target.files[0];
     if (!file) return;
 
-    setToolPanel("Server Files", `<div class="text-xs text-slate-400">Uploading ${escapeHtml(file.name)}…</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`);
 
     try {
       const formData = new FormData();
@@ -2333,20 +2357,20 @@ async function uploadZipToServer(targetPath) {
 
       if (!resp.ok) {
         const errText = await resp.text();
-        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(errText)}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errText)}</div>`);
         return;
       }
 
       const data = await resp.json();
       if (data.success) {
         const safeCount = Number.isFinite(Number(data.count)) ? Number(data.count) : 0;
-        setToolPanel("Server Files", `<div class="text-xs text-green-500">Uploaded ${safeCount} files</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-success">Uploaded ${safeCount} files</div>`);
         loadServerFiles(targetPath);
       } else {
-        setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(data.error)}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`);
       }
     } catch (err) {
-      setToolPanel("Server Files", `<div class="text-xs text-red-500">Upload failed: ${escapeHtml(err.message)}</div>`);
+      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`);
     }
   };
   input.click();
@@ -2369,13 +2393,18 @@ async function previewServerFile(filePath, currentDir) {
 
     // Build breadcrumb for navigation
     const parts = dir.split('/').filter(Boolean);
-    let breadcrumb = '<a href="#" onclick="loadServerFiles(\'/\'); event.preventDefault();">/</a>';
+    let breadcrumbParts = [
+      '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">/</a>'
+    ];
     let currentPath = '';
     for (const part of parts) {
       currentPath += '/' + part;
-      breadcrumb += ' <a href="#" onclick="loadServerFiles(\'' + currentPath + '\'); event.preventDefault();">' + part + '</a> /';
+      breadcrumbParts.push(
+        '<span class="portal-breadcrumb-sep">/</span>' +
+        '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="' + escapeHtmlAttr(currentPath) + '">' + escapeHtml(part) + '</a>'
+      );
     }
-    breadcrumb = breadcrumb.replace(/ \/$/, '');
+    const breadcrumb = breadcrumbParts.join(' ');
 
     if (resp.error) {
       // Check if it's a binary file error - show file info instead
@@ -2385,20 +2414,18 @@ async function previewServerFile(filePath, currentDir) {
         const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
 
         if (isImage) {
-          // Show image directly
           setToolPanel("File: " + filePath.split('/').pop(),
-            `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
-            `<div class="text-center"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
+            `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+            `<div class="portal-preview-image-wrap"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
           );
         } else {
           setToolPanel("File: " + filePath.split('/').pop(),
-            `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
-            `<div class="text-slate-500 dark:text-slate-400">Binary file (${size} bytes)</div>` +
-            `<div class="text-xs text-slate-400 mt-2">Type: ${ext.toUpperCase()}</div>`
+            `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+            `<div class="portal-file-binary-meta"><div>Binary file (${size} bytes)</div><div>Type: ${ext.toUpperCase()}</div></div>`
           );
         }
       } else {
-        setToolPanel("File Preview", `<div class="text-rose-500">Error: ${safe(resp.error)}</div>`);
+        setToolPanel("File Preview", `<div class="portal-inline-state is-error">Error: ${safe(resp.error)}</div>`);
       }
       return;
     }
@@ -2406,11 +2433,11 @@ async function previewServerFile(filePath, currentDir) {
     const content = resp.content || "(empty file)";
     const language = resp.language || 'text';
     setToolPanel("File: " + filePath.split('/').pop(),
-      `<div class="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">${breadcrumb}</div>` +
-      `<pre class="whitespace-pre-wrap text-xs bg-slate-100 dark:bg-slate-900 p-2 rounded overflow-auto max-h-96">${escapeHtml(content)}</pre>`
+      `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+      `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`
     );
   } catch (error) {
-    setToolPanel("File Preview", `<div class="text-rose-500">Failed: ${safe(error.message)}</div>`);
+    setToolPanel("File Preview", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`);
   }
 }
 
@@ -2418,7 +2445,7 @@ async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Skills", '<div class="text-xs text-slate-400">Loading skills…</div>');
+  setToolPanel("Skills", '<div class="portal-inline-state">Loading skills…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
@@ -2442,7 +2469,7 @@ async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Usage", '<div class="text-xs text-slate-400">Loading usage…</div>');
+  setToolPanel("Usage", '<div class="portal-inline-state">Loading usage…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
@@ -2459,7 +2486,7 @@ async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("My Uploads", '<div class="text-xs text-slate-400">Loading files…</div>');
+  setToolPanel("My Uploads", '<div class="portal-inline-state">Loading files…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
@@ -2494,24 +2521,24 @@ function addInstanceRow(group) {
   if (!container) return;
 
   const div = document.createElement("div");
-  div.className = "rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-2";
+  div.className = "portal-settings-instance-card";
   div.dataset.instanceItem = group;
 
   // Build fields HTML matching server-rendered format
   const projectHtml = group === "jira"
-    ? `<input type="text" data-field="project" value="" placeholder="Project" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`
-    : `<input type="text" data-field="space" value="" placeholder="Space Key" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`;
+    ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
+    : `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`;
 
-  const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /><input type="password" data-field="password" value="" placeholder="Password" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />`;
+  const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" />`;
 
   div.innerHTML = `
-    <div class="flex justify-between items-center">
-      <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Instance</span>
-      <button type="button" class="text-xs text-red-600 dark:text-red-400 hover:underline" data-action="remove-instance" data-group="${group}">Remove</button>
+    <div class="portal-settings-instance-head">
+      <span class="portal-settings-instance-title">Instance</span>
+      <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button>
     </div>
-    <div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /><input type="text" data-field="url" value="" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" /></div>
-    <div class="grid grid-cols-2 gap-2">${usernamePasswordHtml}</div>
-    <div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API Token" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />${projectHtml}</div>
+    <div class="portal-panel-grid cols-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" /></div>
+    <div class="portal-panel-grid cols-2">${usernamePasswordHtml}</div>
+    <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API Token" class="portal-form-input" />${projectHtml}</div>
   `;
   container.append(div);
   normalizeInstanceInputs(group);
@@ -2524,21 +2551,55 @@ function addInstanceRow(group) {
 
 
 function initializeSettingsPanel() {
-  if (!dom.toolPanelBody?.querySelector("#settings-form")) return;
+  const root = dom.toolPanelBody?.querySelector("#settings-panel-root");
+  if (!root || !dom.toolPanelBody?.querySelector("#settings-form")) return;
+
   normalizeInstanceInputs("jira");
   normalizeInstanceInputs("confluence");
+
+  if (root.dataset.actionsBound === "1") return;
+  root.dataset.actionsBound = "1";
+
+  root.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-settings-action]");
+    if (!btn) return;
+    event.preventDefault();
+
+    const agentId = root.dataset.agentId || state.selectedAgentId;
+    if (!agentId) {
+      showToast("Please select an assistant first");
+      return;
+    }
+
+    const action = btn.dataset.settingsAction;
+    if (action === "generate-ssh-key") {
+      if (typeof window.generateSSHKey === "function") {
+        await window.generateSSHKey(agentId);
+      }
+      return;
+    }
+
+    if (action === "copy-config") {
+      await copyAgentConfig(agentId);
+      return;
+    }
+
+    if (action === "paste-config") {
+      await pasteAgentConfig(agentId);
+    }
+  });
 }
 
 async function openSettings() {
   if (!state.selectedAgentId) return;
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Settings", `<div class="text-xs text-red-500">You do not have permission to modify this assistant's settings.</div>`);
+    setToolPanel("Settings", `<div class="portal-inline-state is-error">You do not have permission to modify this assistant's settings.</div>`);
     return;
   }
 
 
-  setToolPanel("Settings", '<div class="text-xs text-slate-400">Loading settings…</div>');
+  setToolPanel("Settings", '<div class="portal-inline-state">Loading settings…</div>');
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/settings/panel`, {
@@ -2549,6 +2610,12 @@ async function openSettings() {
   } catch (error) {
     setToolPanel("Settings", `Failed: ${safe(error.message)}`);
   }
+}
+
+async function setModalFeedback(el, kind, text) {
+  if (!el) return;
+  el.textContent = text || "";
+  el.className = `portal-modal-feedback${kind ? ` is-${kind}` : ""}`;
 }
 
 async function clearChat() {
@@ -2564,7 +2631,7 @@ async function clearChat() {
 
     updateSelectedAgentSession("");
     state.inflightThinking = null;
-    removePendingAssistantPlaceholder();
+    removeTemporaryAssistantRows();
     clearMessageListToWelcome();
     setChatStatus("Chat cleared");
   } catch (error) {
@@ -2573,15 +2640,15 @@ async function clearChat() {
 }
 
 async function startNewChatForSelectedAgent() {
+  if (!ensureRunningSelectedAssistant("start a new chat")) return;
+  closeSessionsDrawer();
   updateSelectedAgentSession("");
   state.inflightThinking = null;
-  removePendingAssistantPlaceholder();
+  removeTemporaryAssistantRows();
   clearMessageListToWelcome();
+  setChatSubmitting(false);
   setChatStatus("New chat started");
-
-  if (!dom.toolPanel?.classList.contains("hidden") && dom.toolPanelTitle?.textContent === "Sessions") {
-    await openSessionsPanel();
-  }
+  dom.chatInput?.focus();
 }
 
 // ===== misc actions =====
@@ -2773,62 +2840,39 @@ function closeEditMessageModal() {
 
 // Add edit buttons to user messages
 function addEditButtonsToMessages() {
-  // Find all user message articles with data-local-user="1"
-  // Note: data-message-id may not exist for optimistically-rendered messages
   const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
-  
+
   messages.forEach(article => {
-    // Only show edit button if message has a real backend ID (not local/temporary ID)
     const messageId = article.getAttribute('data-message-id');
     if (!messageId || messageId.startsWith('local-')) return;
-    
-    // Check if edit button already exists (in article or container)
-    const parentContainer = article.parentElement;
-    const existingInArticle = article.querySelector('.edit-msg-btn');
-    const existingInContainer = parentContainer?.querySelector?.('.edit-msg-btn');
-    if (existingInArticle || existingInContainer) return;
-    
-    // Get message ID (may be from data-message-id or generated)
+
+    const container = article.closest('.message-row');
+    if (!container || container.querySelector('.edit-msg-btn')) return;
+
     const editBtn = document.createElement("button");
-    editBtn.className = "edit-msg-btn text-slate-500 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 mt-1 p-1.5 rounded-md border-0 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors";
+    editBtn.className = "edit-msg-btn";
     editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
     editBtn.title = "Edit message";
     editBtn.setAttribute("aria-label", "Edit message");
     editBtn.onclick = () => {
-      const contentEl = article.querySelector('.whitespace-pre-wrap');
+      const contentEl = article.querySelector('.message-body, .whitespace-pre-wrap');
       const content = contentEl ? contentEl.textContent : '';
-      
-      // Get attachments from the article
       const attachments = [];
-      
-      // Method 1: Try to get from article dataset
+
       if (article.dataset.attachments) {
-        try {
-          const storedAttachments = JSON.parse(article.dataset.attachments);
-          attachments.push(...storedAttachments);
-        } catch (e) {}
+        try { attachments.push(...JSON.parse(article.dataset.attachments)); } catch (e) {}
       }
-      
-      // Method 2: Try to get from attachment history based on position
+
       if (attachments.length === 0) {
-        // Find all user messages in the message list
         const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
         const articleIndex = allUserArticles.indexOf(article);
-        // console.log(' Looking for article index...');
-        // console.log(' All user articles count:', allUserArticles.length);
-        // console.log(' Article index:', articleIndex);
-        // console.log(' History:', attachmentHistory);
         if (articleIndex >= 0 && articleIndex < state.attachmentHistory.length) {
-          // console.log(' Found in history:', state.attachmentHistory[articleIndex]);
           attachments.push(...state.attachmentHistory[articleIndex]);
-        } else {
-          // console.log(' NOT found in history - index out of range');
         }
       }
-      
-      // Method 3: Try to get from blob URL mapping
+
       if (attachments.length === 0) {
-        const images = article.querySelectorAll('.flex.flex-wrap.gap-2 img');
+        const images = article.querySelectorAll('img');
         images.forEach(img => {
           if (img.src && img.src.startsWith('blob:')) {
             const fileId = getFileIdFromBlobUrl(img.src);
@@ -2836,22 +2880,13 @@ function addEditButtonsToMessages() {
           }
         });
       }
-      
-      // console.log(' Extracted attachments:', attachments);
-      
+
       openEditMessageModal(messageId, content, attachments);
     };
-    
-    // Move button outside article (below the message)
-    const container = article.parentElement;
-    if (container && container.classList.contains('flex')) {
-      container.appendChild(editBtn);
-      container.classList.add('items-end');
-      container.tabIndex = 0;
-      container.setAttribute("aria-label", "User message actions");
-    } else {
-      article.appendChild(editBtn);
-    }
+
+    container.appendChild(editBtn);
+    container.tabIndex = 0;
+    container.setAttribute("aria-label", "User message actions");
   });
 }
 
@@ -2894,7 +2929,7 @@ function bindEvents() {
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
-    msgEl.className = "muted tiny";
+    setModalFeedback(msgEl, "", msgEl.textContent);
 
     try {
       await api(`/api/agents/${id}`, {
@@ -2902,7 +2937,7 @@ function bindEvents() {
         body: JSON.stringify(updates),
       });
       msgEl.textContent = "Saved!";
-      msgEl.className = "text-green-400 tiny";
+      setModalFeedback(msgEl, "success", msgEl.textContent);
       setTimeout(() => {
         document.getElementById("edit-modal").classList.add("hidden");
         document.getElementById("edit-modal").setAttribute("aria-hidden", "true");
@@ -2910,7 +2945,7 @@ function bindEvents() {
       }, 800);
     } catch (err) {
       msgEl.textContent = err.message || "Error saving";
-      msgEl.className = "text-red-400 tiny";
+      setModalFeedback(msgEl, "error", msgEl.textContent);
     }
   });
 
@@ -2967,32 +3002,24 @@ function bindEvents() {
         // Remove the target message and subsequent messages from the UI
         // This ensures the old messages are cleared before the new ones are added
         if (dom.messageList) {
-          const containers = Array.from(dom.messageList.querySelectorAll('.flex.flex-col'));
-          
-          // Find the index of the container with the target message ID
-          let foundIndex = -1;
-          for (let i = 0; i < containers.length; i++) {
-            const article = containers[i].querySelector('article[data-message-id]');
-            if (article && article.dataset.messageId === messageId) {
-              foundIndex = i;
-              break;
+          const rows = Array.from(dom.messageList.querySelectorAll('.message-row'));
+          const targetRowIndex = rows.findIndex((row) => {
+            const article = row.querySelector('article[data-message-id]');
+            return article && article.dataset.messageId === messageId;
+          });
+
+          if (targetRowIndex >= 0) {
+            for (let i = rows.length - 1; i >= targetRowIndex; i -= 1) {
+              rows[i].remove();
             }
-          }
-          
-          // If found, remove this and all subsequent containers
-          if (foundIndex >= 0) {
-            for (let i = containers.length - 1; i >= foundIndex; i--) {
-              containers[i].remove();
-            }
-            // Also truncate attachmentHistory to stay in sync (only if lengths align)
-            if (Array.isArray(state.attachmentHistory) && 
-                state.attachmentHistory.length === containers.length &&
-                foundIndex < state.attachmentHistory.length) {
-              state.attachmentHistory = state.attachmentHistory.slice(0, foundIndex);
+
+            const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
+            const targetUserIndex = userArticles.findIndex((article) => article.dataset.messageId === messageId);
+            if (targetUserIndex >= 0 && Array.isArray(state.attachmentHistory)) {
+              state.attachmentHistory = state.attachmentHistory.slice(0, targetUserIndex);
             }
           } else {
-            // Fallback: just clear all messages and reload
-            dom.messageList.innerHTML = '';
+            clearMessageListToWelcome();
             state.attachmentHistory = [];
           }
         }
@@ -3023,15 +3050,19 @@ function bindEvents() {
   });
 
   dom.detailToggle?.addEventListener("click", () => {
+    if (!state.selectedAgentId) {
+      showToast("Please select an assistant first");
+      return;
+    }
     if (state.detailOpen) {
       setDetailOpen(false);
     } else {
       setDetailOpen(true);
       // Render agent details to tool panel
-      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId) || publicAgents.find(a => a.id === state.selectedAgentId);
+      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
         dom.toolPanelTitle.textContent = "Assistant details";
-        dom.toolPanelBody.innerHTML = '<div id="agent-meta" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 text-sm"></div><div id="agent-actions" class="space-y-2 mt-4"></div>';
+        dom.toolPanelBody.innerHTML = `\n          <div id="agent-meta" class="portal-detail-card"></div>\n          <div id="agent-actions" class="portal-detail-actions"></div>\n        `;
         dom.agentMeta = document.getElementById("agent-meta");
         dom.agentActions = document.getElementById("agent-actions");
         renderAgentMeta(agent);
@@ -3039,8 +3070,6 @@ function bindEvents() {
       }
     }
   });
-  dom.detailClose?.addEventListener("click", () => setDetailOpen(false));
-  dom.detailBackdrop?.addEventListener("click", () => setDetailOpen(false));
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
   dom.toolBackdrop?.addEventListener("click", closeToolPanel);
 
@@ -3114,21 +3143,30 @@ function bindEvents() {
     }
   });
 
-  dom.topUploadInline?.addEventListener("click", () => dom.uploadInput.click());
+  dom.composerAttachBtn?.addEventListener("click", () => dom.uploadInput?.click());
+  dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
+  dom.bundlesMenuBtn?.addEventListener("click", () => openRequirementBundlePanel());
+  dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
+  dom.homeOpenBundlesBtn?.addEventListener("click", () => openRequirementBundlePanel());
+  dom.homeOpenTasksBtn?.addEventListener("click", async () => {
+    setToolPanel("My Tasks", '<div class="portal-inline-state">Loading tasks…</div>');
+    try {
+      await htmx.ajax("GET", "/app/tasks/panel", { target: "#tool-panel-body", swap: "innerHTML" });
+    } catch (error) {
+      setToolPanel("My Tasks", `Failed: ${safe(error.message)}`);
+    }
+  });
+  document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
+  dom.closeSessionsDrawer?.addEventListener("click", () => closeSessionsDrawer());
+  dom.sessionsDrawerBackdrop?.addEventListener("click", () => closeSessionsDrawer());
+
   dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
-    const newChatBtn = event.target.closest("#sessions-new-chat-btn");
-    if (newChatBtn) {
+    const serverPathLink = event.target.closest('[data-server-path]');
+    if (serverPathLink) {
       event.preventDefault();
-      await startNewChatForSelectedAgent();
-      return;
-    }
-
-    const sessionBtn = event.target.closest("[data-session-id]");
-    if (sessionBtn) {
-      event.preventDefault();
-      await loadSession(sessionBtn.dataset.sessionId || "");
+      await loadServerFiles(serverPathLink.dataset.serverPath || '/');
       return;
     }
 
@@ -3172,10 +3210,27 @@ function bindEvents() {
     }
   });
 
+  dom.sessionsDrawerBody?.addEventListener("click", async (event) => {
+    const newChatBtn = event.target.closest("#sessions-new-chat-btn");
+    if (newChatBtn) {
+      event.preventDefault();
+      closeSessionsDrawer();
+      await startNewChatForSelectedAgent();
+      return;
+    }
+
+    const sessionBtn = event.target.closest("[data-session-id]");
+    if (sessionBtn) {
+      event.preventDefault();
+      await loadSession(sessionBtn.dataset.sessionId || "");
+      closeSessionsDrawer();
+    }
+  });
+
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", async () => {
-    setToolPanel("Users", '<div class="text-xs text-slate-400">Loading users…</div>');
+    setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>');
     try {
       await htmx.ajax("GET", "/app/users/panel", {
         target: "#tool-panel-body",
@@ -3187,7 +3242,7 @@ function bindEvents() {
   });
 
   dom.tasksMenuBtn?.addEventListener("click", async () => {
-    setToolPanel("My Tasks", '<div class="text-xs text-slate-400">Loading tasks…</div>');
+    setToolPanel("My Tasks", '<div class="portal-inline-state">Loading tasks…</div>');
     try {
       await htmx.ajax("GET", "/app/tasks/panel", {
         target: "#tool-panel-body",
@@ -3203,7 +3258,7 @@ function bindEvents() {
     dom.createBundleModal?.setAttribute("aria-hidden", "false");
     if (dom.createBundleMsg) {
       dom.createBundleMsg.textContent = "";
-      dom.createBundleMsg.className = "muted tiny";
+      setModalFeedback(dom.createBundleMsg, "", dom.createBundleMsg.textContent);
     }
   });
 
@@ -3257,7 +3312,7 @@ function bindEvents() {
       };
 
       msgEl.textContent = "Creating...";
-      msgEl.className = "muted tiny";
+      setModalFeedback(msgEl, "", msgEl.textContent);
       const resp = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3268,7 +3323,7 @@ function bindEvents() {
       }
       const agent = await resp.json();
       msgEl.textContent = "Assistant created!";
-      msgEl.className = "text-green-400 tiny";
+      setModalFeedback(msgEl, "success", msgEl.textContent);
       form.reset();
       setTimeout(() => {
         document.getElementById("create-modal")?.classList.add("hidden");
@@ -3277,7 +3332,7 @@ function bindEvents() {
       }, 1000);
     } catch (err) {
       msgEl.textContent = err.message;
-      msgEl.className = "text-red-400 tiny";
+      setModalFeedback(msgEl, "error", msgEl.textContent);
     }
   });
 
@@ -3295,7 +3350,7 @@ function bindEvents() {
     try {
       if (dom.createBundleMsg) {
         dom.createBundleMsg.textContent = "Creating...";
-        dom.createBundleMsg.className = "muted tiny";
+        setModalFeedback(dom.createBundleMsg, "", dom.createBundleMsg.textContent);
       }
       const resp = await fetch("/api/requirement-bundles", {
         method: "POST",
@@ -3308,7 +3363,7 @@ function bindEvents() {
       const detail = await resp.json();
       if (dom.createBundleMsg) {
         dom.createBundleMsg.textContent = "Bundle created!";
-        dom.createBundleMsg.className = "text-green-400 tiny";
+        setModalFeedback(dom.createBundleMsg, "success", dom.createBundleMsg.textContent);
       }
 
       form.reset();
@@ -3322,7 +3377,7 @@ function bindEvents() {
     } catch (err) {
       if (dom.createBundleMsg) {
         dom.createBundleMsg.textContent = err.message;
-        dom.createBundleMsg.className = "text-red-400 tiny";
+        setModalFeedback(dom.createBundleMsg, "error", dom.createBundleMsg.textContent);
       }
     }
   });
@@ -3445,12 +3500,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     openMyUploads();
   });
 
-  document.getElementById('quick-new-chat-btn')?.addEventListener('click', () => {
-    if (state.selectedAgentId) {
-      startNewChatForSelectedAgent();
-    }
-  });
-
   // Server Files button in header
   document.getElementById('btn-files')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
@@ -3458,15 +3507,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openServerFiles();
-  });
-
-  // Sessions button in header
-  document.getElementById('btn-sessions')?.addEventListener('click', () => {
-    if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
-      return;
-    }
-    openSessionsPanel();
   });
 
   // Thinking Process button in header
@@ -3694,8 +3734,8 @@ function renderSystemPromptSection(agent) {
   
   var section = document.createElement('div');
   section.id = 'system-prompt-section';
-  section.className = 'mt-4 pt-4 border-t border-slate-200 dark:border-slate-700';
-  section.innerHTML = '<div class="flex items-center justify-between mb-3"><div class="text-xs text-slate-500 uppercase tracking-wide">System Prompt</div></div><div id="system-prompt-items" class="space-y-2"></div><div id="system-prompt-loading" class="text-xs text-slate-400 py-2">Loading...</div><div id="system-prompt-error" class="text-xs text-red-500 py-2 hidden"></div>';
+  section.className = 'portal-panel-section';
+  section.innerHTML = '<div class="portal-panel-header"><div class="portal-detail-label">System Prompt</div></div><div id="system-prompt-items" class="portal-panel-stack"></div><div id="system-prompt-loading" class="portal-inline-state">Loading...</div><div id="system-prompt-error" class="portal-inline-state is-error hidden"></div>';
   
   container.appendChild(section);
   
@@ -3735,10 +3775,10 @@ function loadSystemPromptConfig(agentId) {
       var name = sections[i];
       var enabled = config[name] && config[name].enabled !== undefined ? config[name].enabled : true;
       var disabledAttr = canWrite ? '' : ' disabled';
-      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="text-blue-500 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Edit ' + labels[name] + '"' + disabledAttr + '><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>' : '';
+      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + labels[name] + '"' + disabledAttr + '>Edit</button>' : '';
       var item = document.createElement('div');
-      item.className = 'flex items-center justify-between py-1';
-      item.innerHTML = '<div class="flex items-center gap-2"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="rounded border-slate-300 dark:border-slate-600 text-blue-500 focus:ring-blue-500"' + disabledAttr + '><label for="sp-' + name + '-enabled" class="text-xs font-medium text-slate-700 dark:text-slate-300">' + labels[name] + '</label></div>' + editButton;
+      item.className = 'portal-system-prompt-item';
+      item.innerHTML = '<label class="portal-checkbox-row"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span>' + labels[name] + '</span></label>' + editButton;
       items.appendChild(item);
     }
     
@@ -3775,7 +3815,6 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
     method: 'PUT',
     body: JSON.stringify(payload)
   }).then(function() {
-    console.log('Updated ' + section + ' to ' + enabled);
   }).catch(function(e) {
     console.error('Failed to update:', e);
     showToast('Failed to update: ' + e.message);
@@ -3795,30 +3834,29 @@ function editSystemPromptSection(agentId, section) {
 
 function showSystemPromptEditor(agentId, section, content, enabled) {
   var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY' };
-  
+
   var modal = document.getElementById('system-prompt-editor-modal');
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'system-prompt-editor-modal';
     modal.className = 'modal hidden';
+    modal.dataset.keyHandlerAttached = '0';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-labelledby', 'sp-editor-title');
-    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card" style="width: min(600px, 90vw); max-height: 80vh;"><div class="flex items-center justify-between mb-4"><h3 id="sp-editor-title" class="text-lg font-semibold"></h3><button type="button" id="sp-editor-close" class="text-slate-400 hover:text-slate-600" aria-label="Close"><svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div><div class="mb-4"><label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sp-editor-enabled" class="rounded border-slate-300"><span>Enabled</span></label></div><textarea id="sp-editor-content" class="w-full h-64 p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-mono resize-none" placeholder="Enter content..."></textarea><div class="flex justify-end gap-2 mt-4"><button type="button" id="sp-editor-cancel" class="px-4 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button><button type="button" id="sp-editor-save" class="px-4 py-2 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600">Save</button></div></div></div>';
+    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><label class="portal-checkbox-row"><input type="checkbox" id="sp-editor-enabled"><span>Enable custom prompt for this section</span></label><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
     document.body.appendChild(modal);
-    
-    // Close on Escape key
+
     modal._keyHandler = function(e) {
       if (e.key === 'Escape') {
         closeSystemPromptEditor();
       }
     };
-    
+
     document.getElementById('sp-editor-close').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-backdrop').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-cancel').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-save').addEventListener('click', function() {
-      // Read current values from modal dataset
       var currentAgentId = modal.dataset.agentId;
       var currentSection = modal.dataset.section;
       if (currentAgentId && currentSection) {
@@ -3826,23 +3864,22 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
       }
     });
   }
-  
-  // Add/remove Escape key listener
-  document.addEventListener('keydown', modal._keyHandler);
-  
+
+  if (modal.dataset.keyHandlerAttached !== '1') {
+    document.addEventListener('keydown', modal._keyHandler);
+    modal.dataset.keyHandlerAttached = '1';
+  }
+
   document.getElementById('sp-editor-title').textContent = labels[section] + ' Configuration';
   document.getElementById('sp-editor-enabled').checked = enabled;
   document.getElementById('sp-editor-content').value = content;
   modal.dataset.section = section;
   modal.dataset.agentId = agentId;
-  
+
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
-  
-  // Store previously focused element for restoration on close
+
   modal._previousActiveElement = document.activeElement;
-  
-  // Move focus into the modal
   var focusTarget = document.getElementById('sp-editor-content') || document.getElementById('sp-editor-enabled');
   if (focusTarget && typeof focusTarget.focus === 'function') {
     focusTarget.focus();
@@ -3852,15 +3889,13 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
 function closeSystemPromptEditor() {
   var modal = document.getElementById('system-prompt-editor-modal');
   if (!modal) return;
-  
+
   modal.classList.add('hidden');
   modal.setAttribute('aria-hidden', 'true');
-  // Remove Escape key listener
-  if (modal._keyHandler) {
+  if (modal._keyHandler && modal.dataset.keyHandlerAttached === '1') {
     document.removeEventListener('keydown', modal._keyHandler);
-    modal._keyHandler = null;
+    modal.dataset.keyHandlerAttached = '0';
   }
-  // Restore focus to previously focused element
   if (modal._previousActiveElement) {
     modal._previousActiveElement.focus();
     modal._previousActiveElement = null;
@@ -3876,7 +3911,6 @@ function saveSystemPromptSection(agentId, section) {
     method: 'PUT',
     body: JSON.stringify({ enabled: enabled, content: content })
   }).then(function() {
-    console.log('Saved ' + section + ': enabled=' + enabled);
     closeSystemPromptEditor();
     loadSystemPromptConfig(agentId);
   }).catch(function(e) {

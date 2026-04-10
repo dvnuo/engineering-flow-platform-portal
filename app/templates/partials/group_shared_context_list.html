@@ -1,38 +1,45 @@
-<div class="space-y-3 text-sm">
-  <div>
-    <strong>Group:</strong> {{ group_id }}
+<div class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">Shared Contexts</h5>
+      <div class="portal-panel-subtitle">Group {{ group_id }}</div>
+    </div>
   </div>
 
-  <table class="min-w-full border-collapse border border-gray-300">
-    <thead>
-      <tr>
-        <th class="border p-1 text-left">Context Ref</th>
-        <th class="border p-1 text-left">Scope Kind</th>
-        <th class="border p-1 text-left">Created By</th>
-        <th class="border p-1 text-left">Source Delegation</th>
-        <th class="border p-1 text-left">Created At</th>
-        <th class="border p-1 text-left">Detail</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
-      <tr>
-        <td class="border p-1">{{ item.context_ref }}</td>
-        <td class="border p-1">{{ item.scope_kind }}</td>
-        <td class="border p-1">{{ item.created_by_user_id or "-" }}</td>
-        <td class="border p-1">{{ item.source_delegation_id or "-" }}</td>
-        <td class="border p-1">{{ item.created_at }}</td>
-        <td class="border p-1">
-          <a class="text-blue-600 underline" href="/app/agent-groups/{{ group_id }}/shared-contexts/{{ item.context_ref }}/panel">
-            View
-          </a>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td class="border p-2" colspan="6">No shared contexts yet.</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if items %}
+    <div class="portal-panel-section">
+      <div class="portal-data-table-wrap">
+        <table class="portal-data-table">
+          <thead>
+            <tr>
+              <th>Context Ref</th>
+              <th>Scope Kind</th>
+              <th>Created By</th>
+              <th>Source Delegation</th>
+              <th>Created At</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td>{{ item.context_ref }}</td>
+              <td>{{ item.scope_kind }}</td>
+              <td>{{ item.created_by_user_id or "-" }}</td>
+              <td>{{ item.source_delegation_id or "-" }}</td>
+              <td>{{ item.created_at }}</td>
+              <td>
+                <a class="portal-link-inline" href="/app/agent-groups/{{ group_id }}/shared-contexts/{{ item.context_ref }}/panel">
+                  View
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="portal-panel-empty">No shared contexts yet.</div>
+  {% endif %}
 </div>

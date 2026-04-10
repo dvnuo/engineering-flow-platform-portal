@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-6">
-  <div class="max-w-6xl mx-auto space-y-6">
-    <div class="flex items-center justify-end">
-      <a href="/app" class="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700">Back to App</a>
+<div class="portal-standalone-page">
+  <div class="portal-standalone-page-inner">
+    <div class="portal-standalone-page-head">
+      <a href="/app" class="portal-standalone-page-back">Back to App</a>
     </div>
     <div id="requirement-bundles-page-content">
       {% include "partials/requirement_bundles_panel.html" %}
