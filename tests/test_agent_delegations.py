@@ -138,9 +138,7 @@ def _build_client_with_overrides(monkeypatch):
         "user": SimpleNamespace(id=leader_owner.id, role=leader_owner.role, username=leader_owner.username, nickname="Owner"),
         "captured_bodies": [],
         "saw_running": [],
-        "original_internal_api_key": deps_module.settings.portal_internal_api_key,
     }
-    deps_module.settings.portal_internal_api_key = "internal-test-key"
 
     monkeypatch.setattr("app.services.proxy_service.ProxyService.build_agent_base_url", lambda _self, _agent: "http://runtime")
 
@@ -194,7 +192,6 @@ def _build_client_with_overrides(monkeypatch):
 
     def _cleanup():
         app.dependency_overrides.clear()
-        deps_module.settings.portal_internal_api_key = state["original_internal_api_key"]
         db.close()
 
     return (

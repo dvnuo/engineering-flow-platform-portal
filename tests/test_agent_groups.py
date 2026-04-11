@@ -469,11 +469,9 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
     try:
         from app.main import app
         import app.api.agent_groups as groups_api
-        import app.deps as deps_module
 
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
-        deps_module.settings.portal_internal_api_key = "internal-test-key"
 
         specialist_a = Agent(
             name="Internal Specialist A",
@@ -567,13 +565,11 @@ def test_internal_task_agent_create_delete_without_key_enforcement_preserves_saf
         from app.main import app
         import app.api.agent_groups as groups_api
         import app.api.agents as agents_api
-        import app.deps as deps_module
         import app.services.agent_group_service as group_service_module
         from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
-        deps_module.settings.portal_internal_api_key = "internal-test-key"
         capability_profile = CapabilityProfile(name="cap-group-template", skill_set_json='["review"]')
         policy_profile = PolicyProfile(name="policy-group-template")
         db.add(capability_profile)
