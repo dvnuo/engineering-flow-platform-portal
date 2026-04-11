@@ -99,15 +99,10 @@ def _build_client():
 
 
 def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
-    import app.deps as deps_module
-
     client, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         rules_resp = client.get(
             "/api/internal/workflow-transition-rules?system_type=jira&enabled=true&project_key=EFP",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert rules_resp.status_code == 200
         rules = rules_resp.json()
@@ -123,7 +118,6 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
 
         bindings_resp = client.get(
             "/api/internal/agent-identity-bindings?system_type=jira&enabled=true",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert bindings_resp.status_code == 200
         bindings = bindings_resp.json()
@@ -136,7 +130,6 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
 
         jira_disabled_resp = client.get(
             "/api/internal/agent-identity-bindings?system_type=jira&enabled=false",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert jira_disabled_resp.status_code == 200
         jira_disabled = jira_disabled_resp.json()
@@ -147,7 +140,6 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
 
         enabled_resp = client.get(
             "/api/internal/agent-identity-bindings?enabled=true",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert enabled_resp.status_code == 200
         enabled_bindings = enabled_resp.json()
@@ -155,24 +147,18 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
         assert {item["system_type"] for item in enabled_bindings} == {"jira", "github"}
         assert {item["external_account_id"] for item in enabled_bindings} == {"jira-acct-1", "github-acct-1"}
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 
-def test_internal_exports_require_internal_api_key():
-    import app.deps as deps_module
-
+def test_internal_exports_allow_requests_without_internal_api_key():
     client, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         missing = client.get("/api/internal/workflow-transition-rules")
         wrong = client.get(
             "/api/internal/agent-identity-bindings",
             headers={"X-Internal-Api-Key": "wrong"},
         )
-        assert missing.status_code == 401
-        assert wrong.status_code == 401
+        assert missing.status_code == 200
+        assert wrong.status_code == 200
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()

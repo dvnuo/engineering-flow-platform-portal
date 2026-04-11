@@ -57,20 +57,10 @@ def build_portal_identity_headers(user) -> dict[str, str]:
 
 
 def build_portal_execution_headers(user) -> dict[str, str]:
-    headers = build_portal_identity_headers(user)
-    settings = get_settings()
-    portal_internal_api_key = sanitize_header_value(settings.portal_internal_api_key)
-    if not portal_internal_api_key:
-        raise ValueError("PORTAL_INTERNAL_API_KEY is not configured")
-    headers["X-Portal-Internal-Api-Key"] = portal_internal_api_key
-    return headers
+    return build_portal_identity_headers(user)
 
 def build_runtime_internal_headers() -> dict[str, str]:
-    settings = get_settings()
-    runtime_internal_api_key = sanitize_header_value(settings.runtime_internal_api_key)
-    if not runtime_internal_api_key:
-        raise ValueError("RUNTIME_INTERNAL_API_KEY is not configured")
-    return {"X-Internal-Api-Key": runtime_internal_api_key}
+    return {}
 
 
 def build_runtime_trace_headers(trace_context: dict[str, str] | None) -> dict[str, str]:
@@ -285,7 +275,6 @@ class ProxyService:
             "x-portal-author-source": "X-Portal-Author-Source",
             "x-portal-user-id": "X-Portal-User-Id",
             "x-portal-user-name": "X-Portal-User-Name",
-            "x-portal-internal-api-key": "X-Portal-Internal-Api-Key",
         }
         forbidden_extra_headers = {
             "content-type",

@@ -80,15 +80,10 @@ def _build_client():
 
 
 def test_internal_session_metadata_upsert_create_and_update():
-    import app.deps as deps_module
-
     client, agent, _agent_b, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         create_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={
                 "group_id": "g-1",
                 "current_task_id": "t-1",
@@ -108,7 +103,6 @@ def test_internal_session_metadata_upsert_create_and_update():
 
         update_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={
                 "group_id": "g-2",
                 "current_task_id": "t-1",
@@ -124,7 +118,6 @@ def test_internal_session_metadata_upsert_create_and_update():
 
         get_resp = client.get(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert get_resp.status_code == 200
         fetched = get_resp.json()
@@ -134,16 +127,11 @@ def test_internal_session_metadata_upsert_create_and_update():
         assert fetched["source_type"] == "jira"
         assert fetched["source_ref"] == "task-1"
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 
-def test_internal_session_metadata_requires_internal_api_key():
-    import app.deps as deps_module
-
+def test_internal_session_metadata_allows_requests_without_internal_api_key():
     client, agent, _agent_b, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         missing_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-unauth/metadata",
@@ -154,28 +142,21 @@ def test_internal_session_metadata_requires_internal_api_key():
             headers={"X-Internal-Api-Key": "wrong"},
             json={"group_id": "g-1"},
         )
-        assert missing_resp.status_code == 401
-        assert wrong_resp.status_code == 401
+        assert missing_resp.status_code == 200
+        assert wrong_resp.status_code == 200
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 
 def test_same_session_id_across_two_agents_does_not_conflict():
-    import app.deps as deps_module
-
     client, agent_a, agent_b, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         resp_a = client.put(
             f"/api/internal/agents/{agent_a.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-a", "latest_event_state": "running"},
         )
         resp_b = client.put(
             f"/api/internal/agents/{agent_b.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-b", "latest_event_state": "queued"},
         )
         assert resp_a.status_code == 200
@@ -184,18 +165,15 @@ def test_same_session_id_across_two_agents_does_not_conflict():
 
         get_a = client.get(
             f"/api/internal/agents/{agent_a.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         get_b = client.get(
             f"/api/internal/agents/{agent_b.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert get_a.status_code == 200
         assert get_b.status_code == 200
         assert get_a.json()["group_id"] == "g-a"
         assert get_b.json()["group_id"] == "g-b"
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 
@@ -204,35 +182,28 @@ def test_list_session_metadata_with_filters_and_sorting():
     import time
 
     client, agent, _agent_b, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-1", "latest_event_state": "running", "current_task_id": "t-1"},
         )
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-2/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-1", "latest_event_state": "done", "current_task_id": "t-2"},
         )
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-3/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-2", "latest_event_state": "running", "current_task_id": "t-3"},
         )
         # ensure s-1 becomes most recently updated
         time.sleep(1.1)
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-1", "latest_event_state": "running", "current_task_id": "t-1"},
         )
 
         base_list = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert base_list.status_code == 200
         items = base_list.json()
@@ -241,26 +212,22 @@ def test_list_session_metadata_with_filters_and_sorting():
 
         by_group = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata?group_id=g-1",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert by_group.status_code == 200
         assert {item["session_id"] for item in by_group.json()} == {"s-1", "s-2"}
 
         by_state = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata?latest_event_state=running",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert by_state.status_code == 200
         assert {item["session_id"] for item in by_state.json()} == {"s-1", "s-3"}
 
         by_task = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata?current_task_id=t-2",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert by_task.status_code == 200
         assert [item["session_id"] for item in by_task.json()] == ["s-2"]
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 

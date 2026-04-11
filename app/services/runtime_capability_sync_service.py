@@ -26,10 +26,7 @@ class RuntimeCapabilitySyncService:
         except Exception as exc:
             raise RuntimeCapabilitySyncError(f"Unable to resolve runtime endpoint: {exc}") from exc
 
-        try:
-            headers = self.proxy_service.build_runtime_internal_headers()
-        except ValueError as exc:
-            raise RuntimeCapabilitySyncError(str(exc)) from exc
+        headers = self.proxy_service.build_runtime_internal_headers()
 
         try:
             response = httpx.get(f"{base_url}/api/capabilities", timeout=15.0, headers=headers)

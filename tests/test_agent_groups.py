@@ -469,11 +469,9 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
     try:
         from app.main import app
         import app.api.agent_groups as groups_api
-        import app.deps as deps_module
 
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
-        deps_module.settings.portal_internal_api_key = "internal-test-key"
 
         specialist_a = Agent(
             name="Internal Specialist A",
@@ -535,17 +533,16 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
             json={"specialist_agent_ids": [specialist_b.id, specialist_a.id]},
         ).status_code == 200
 
-        assert client.get(f"/api/internal/agent-groups/{group['id']}/specialist-pool").status_code == 401
+        assert client.get(f"/api/internal/agent-groups/{group['id']}/specialist-pool").status_code == 200
         assert (
             client.get(
                 f"/api/internal/agent-groups/{group['id']}/specialist-pool",
                 headers={"X-Internal-Api-Key": "wrong"},
             ).status_code
-            == 401
+            == 200
         )
         ok = client.get(
             f"/api/internal/agent-groups/{group['id']}/specialist-pool",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert ok.status_code == 200
         body = ok.json()
@@ -562,19 +559,17 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
         cleanup()
 
 
-def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards():
+def test_internal_task_agent_create_delete_without_key_enforcement_preserves_safeguards():
     client, leader_agent, _member_agent, _user_member, _outsider, _set_user, cleanup = _build_client_with_overrides()
     try:
         from app.main import app
         import app.api.agent_groups as groups_api
         import app.api.agents as agents_api
-        import app.deps as deps_module
         import app.services.agent_group_service as group_service_module
         from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
-        deps_module.settings.portal_internal_api_key = "internal-test-key"
         capability_profile = CapabilityProfile(name="cap-group-template", skill_set_json='["review"]')
         policy_profile = PolicyProfile(name="policy-group-template")
         db.add(capability_profile)
@@ -632,41 +627,38 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
             "visibility": "private",
             "task_agent_cleanup_policy": "delete_on_done",
         }
-        assert client.post(f"/api/internal/agent-groups/{group['id']}/task-agents", json=payload).status_code == 401
+        assert client.post(
+            f"/api/internal/agent-groups/{group['id']}/task-agents",
+            json={k: v for k, v in payload.items() if k != "leader_agent_id"},
+        ).status_code == 422
         missing_leader = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json={k: v for k, v in payload.items() if k != "leader_agent_id"},
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert missing_leader.status_code == 422
         blank_leader = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json={**payload, "leader_agent_id": "   "},
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert blank_leader.status_code == 422
         mismatch_leader = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json={**payload, "leader_agent_id": specialist_template.id},
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert mismatch_leader.status_code == 409
         bad_visibility = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json={**payload, "visibility": "INVALID"},
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert bad_visibility.status_code == 422
         bad_cleanup = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json={**payload, "task_agent_cleanup_policy": "never"},
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert bad_cleanup.status_code == 422
         created_resp = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json=payload,
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert created_resp.status_code == 200
         created = created_resp.json()
@@ -699,22 +691,24 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         assert member is not None
         pool = client.get(
             f"/api/internal/agent-groups/{group['id']}/specialist-pool",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         ).json()
         assert created["id"] in pool["specialist_agent_ids"]
 
-        assert client.delete(f"/api/internal/agent-groups/{group['id']}/task-agents/{created['id']}").status_code == 401
         assert (
             client.delete(
                 f"/api/internal/agent-groups/{group['id']}/task-agents/{group['leader_agent_id']}",
-                headers={"X-Internal-Api-Key": "internal-test-key"},
+            ).status_code
+            == 409
+        )
+        assert (
+            client.delete(
+                f"/api/internal/agent-groups/{group['id']}/task-agents/{group['leader_agent_id']}",
             ).status_code
             == 409
         )
 
         deleted = client.delete(
             f"/api/internal/agent-groups/{group['id']}/task-agents/{created['id']}",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert deleted.status_code == 200
         assert deleted.json() == {"ok": True}
@@ -727,7 +721,6 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         assert AgentGroupMemberRepository(db).get_by_group_and_agent(group["id"], created["id"]) is None
         pool_after = client.get(
             f"/api/internal/agent-groups/{group['id']}/specialist-pool",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         ).json()
         assert created["id"] not in pool_after["specialist_agent_ids"]
 

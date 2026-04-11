@@ -14,7 +14,6 @@ from app.services.auth_service import hash_password
 def _build_client(monkeypatch):
     from app.main import app
     import app.api.runtime_capability_catalog as catalog_api
-    import app.deps as deps_module
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -76,8 +75,6 @@ def _build_client(monkeypatch):
     db.refresh(other_agent)
 
     monkeypatch.setattr(catalog_api.service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.test")
-    original_runtime_key = deps_module.settings.runtime_internal_api_key
-    deps_module.settings.runtime_internal_api_key = "runtime-internal-test-key"
 
     state = {"user": admin_user}
 
@@ -93,7 +90,6 @@ def _build_client(monkeypatch):
 
     def _cleanup():
         app.dependency_overrides.clear()
-        deps_module.settings.runtime_internal_api_key = original_runtime_key
         db.close()
 
     def _set_user(user_obj):
@@ -130,7 +126,7 @@ def test_sync_api_persists_snapshot_and_latest_reads_it(monkeypatch):
         assert sync_resp.status_code == 200
         assert sync_resp.json()["catalog_version"] == "v-sync-1"
         assert sync_resp.json()["source_agent_id"] == agent.id
-        assert captured["headers"]["X-Internal-Api-Key"] == "runtime-internal-test-key"
+        assert captured["headers"] == {}
 
         set_user(admin_user)
         latest = client.get("/api/runtime-capability-catalog/latest")
@@ -179,12 +175,8 @@ def test_sync_api_returns_clear_error_when_runtime_unreachable(monkeypatch):
         cleanup()
 
 
-def test_sync_api_returns_clear_error_when_runtime_internal_key_missing(monkeypatch):
+def test_sync_api_succeeds_when_runtime_internal_key_missing(monkeypatch):
     client, agent, _other_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client(monkeypatch)
-    import app.deps as deps_module
-
-    original_runtime_key = deps_module.settings.runtime_internal_api_key
-    deps_module.settings.runtime_internal_api_key = ""
 
     class _FakeResponse:
         status_code = 200
@@ -197,10 +189,9 @@ def test_sync_api_returns_clear_error_when_runtime_internal_key_missing(monkeypa
     try:
         set_user(owner_user)
         resp = client.post("/api/runtime-capability-catalog/sync", json={"agent_id": agent.id})
-        assert resp.status_code == 502
-        assert resp.json()["detail"] == "RUNTIME_INTERNAL_API_KEY is not configured"
+        assert resp.status_code == 200
+        assert resp.json()["catalog_version"] == "v-sync-2"
     finally:
-        deps_module.settings.runtime_internal_api_key = original_runtime_key
         cleanup()
 
 

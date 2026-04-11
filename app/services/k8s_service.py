@@ -449,26 +449,6 @@ class K8sService:
                     )
                 ),
             ),
-            client.V1EnvVar(
-                name="PORTAL_INTERNAL_API_KEY",
-                value_from=client.V1EnvVarSource(
-                    secret_key_ref=client.V1SecretKeySelector(
-                        name="efp-agents-secret",
-                        key="PORTAL_INTERNAL_API_KEY",
-                        optional=True,
-                    )
-                ),
-            ),
-            client.V1EnvVar(
-                name="RUNTIME_INTERNAL_API_KEY",
-                value_from=client.V1EnvVarSource(
-                    secret_key_ref=client.V1SecretKeySelector(
-                        name="efp-agents-secret",
-                        key="RUNTIME_INTERNAL_API_KEY",
-                        optional=True,
-                    )
-                ),
-            ),
         ]
         base_url = (self.settings.portal_internal_base_url or "").strip()
         if base_url:

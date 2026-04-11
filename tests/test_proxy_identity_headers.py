@@ -39,8 +39,7 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
             "build_runtime_metadata",
             lambda _db, _agent: {"capability_profile_id": None, "policy_profile_id": None, "policy_context": {"policy_profile_id": None}},
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
-
+    
         captured = {}
 
         async def _fake_forward(**kwargs):
@@ -69,7 +68,6 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "55"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
-    assert captured["extra_headers"]["X-Portal-Internal-Api-Key"] == "portal-internal-key"
 
 
 def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch):
@@ -100,7 +98,6 @@ def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
@@ -228,7 +225,6 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
@@ -280,7 +276,6 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "77"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
-    assert captured["extra_headers"]["X-Portal-Internal-Api-Key"] == "portal-internal-key"
 
 
 def test_proxy_direct_chat_rejects_malformed_json_without_forwarding(monkeypatch):
@@ -311,8 +306,7 @@ def test_proxy_direct_chat_rejects_malformed_json_without_forwarding(monkeypatch
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
-
+    
         calls = {"count": 0}
 
         async def _fake_forward(**kwargs):
@@ -363,8 +357,7 @@ def test_proxy_direct_chat_rejects_non_json_content_type_without_forwarding(monk
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
-
+    
         calls = {"count": 0}
 
         async def _fake_forward(**kwargs):
@@ -414,8 +407,7 @@ def test_proxy_direct_chat_rejects_missing_content_type_without_forwarding(monke
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
-
+    
         calls = {"count": 0}
 
         async def _fake_forward(**kwargs):
@@ -464,8 +456,7 @@ def test_proxy_direct_chat_rejects_non_object_json_payload_without_forwarding(mo
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
-
+    
         calls = {"count": 0}
 
         async def _fake_forward(**kwargs):
@@ -488,17 +479,11 @@ def test_proxy_direct_chat_rejects_non_object_json_payload_without_forwarding(mo
     assert calls["count"] == 0
 
 
-def test_build_runtime_internal_headers_returns_only_internal_header(monkeypatch):
-    import app.deps as deps_module
+def test_build_runtime_internal_headers_returns_empty_dict():
     from app.services.proxy_service import build_runtime_internal_headers
 
-    original = deps_module.settings.runtime_internal_api_key
-    deps_module.settings.runtime_internal_api_key = "runtime-s2s-key"
-    try:
-        headers = build_runtime_internal_headers()
-        assert headers == {"X-Internal-Api-Key": "runtime-s2s-key"}
-    finally:
-        deps_module.settings.runtime_internal_api_key = original
+    headers = build_runtime_internal_headers()
+    assert headers == {}
 
 
 def test_runtime_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
@@ -514,42 +499,36 @@ def test_runtime_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
     assert "X-Internal-Api-Key" not in outbound
 
 
-def test_build_portal_execution_headers_adds_internal_key(monkeypatch):
-    import app.deps as deps_module
+def test_portal_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
+    from app.services.proxy_service import ProxyService
+
+    outbound = ProxyService._build_outbound_headers(
+        headers={"content-type": "application/json"},
+        extra_headers={
+            "X-Portal-Internal-Api-Key": "portal-s2s-key",
+            "X-Portal-User-Id": "10",
+            "X-Portal-Author-Source": "portal",
+        },
+    )
+
+    assert outbound["content-type"] == "application/json"
+    assert outbound["X-Portal-User-Id"] == "10"
+    assert outbound["X-Portal-Author-Source"] == "portal"
+    assert "X-Portal-Internal-Api-Key" not in outbound
+
+
+def test_build_portal_execution_headers_returns_identity_headers_only():
     from app.services.proxy_service import build_portal_execution_headers
 
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = " internal-key\n"
-    try:
-        user = SimpleNamespace(id=" 55 ", username="user", nickname=" Name\n")
-        headers = build_portal_execution_headers(user)
-        assert headers["X-Portal-Author-Source"] == "portal"
-        assert headers["X-Portal-User-Id"] == "55"
-        assert headers["X-Portal-User-Name"] == "Name"
-        assert headers["X-Portal-Internal-Api-Key"] == "internal-key"
-    finally:
-        deps_module.settings.portal_internal_api_key = original
+    user = SimpleNamespace(id=" 55 ", username="user", nickname=" Name\n")
+    headers = build_portal_execution_headers(user)
+    assert headers["X-Portal-Author-Source"] == "portal"
+    assert headers["X-Portal-User-Id"] == "55"
+    assert headers["X-Portal-User-Name"] == "Name"
+    assert "X-Portal-Internal-Api-Key" not in headers
 
 
-def test_build_portal_execution_headers_requires_internal_key_when_unset(monkeypatch):
-    import app.deps as deps_module
-    from app.services.proxy_service import build_portal_execution_headers
-
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = ""
-    try:
-        user = SimpleNamespace(id=1, username="alice", nickname=None)
-        try:
-            build_portal_execution_headers(user)
-        except ValueError as exc:
-            assert str(exc) == "PORTAL_INTERNAL_API_KEY is not configured"
-        else:
-            raise AssertionError("expected ValueError when internal API key is unset")
-    finally:
-        deps_module.settings.portal_internal_api_key = original
-
-
-def test_proxy_direct_chat_returns_503_when_portal_internal_api_key_missing(monkeypatch):
+def test_proxy_direct_chat_succeeds_when_portal_internal_api_key_missing(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module
 
@@ -577,7 +556,11 @@ def test_proxy_direct_chat_returns_503_when_portal_internal_api_key_missing(monk
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "")
+        monkeypatch.setattr(
+            proxy_module.runtime_execution_context_service,
+            "build_runtime_metadata",
+            lambda _db, _agent: {"capability_profile_id": None, "policy_profile_id": None},
+        )
 
         calls = {"count": 0}
 
@@ -596,38 +579,20 @@ def test_proxy_direct_chat_returns_503_when_portal_internal_api_key_missing(monk
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == "PORTAL_INTERNAL_API_KEY is not configured"
-    assert calls["count"] == 0
+    assert response.status_code == 200
+    assert calls["count"] == 1
 
 
-def test_require_internal_api_key_strips_whitespace_and_accepts_match():
+def test_require_internal_api_key_is_permissive_without_header():
     import app.deps as deps_module
 
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = " expected-key "
-    try:
-        assert deps_module.require_internal_api_key(" expected-key\n") is True
-    finally:
-        deps_module.settings.portal_internal_api_key = original
+    assert deps_module.require_internal_api_key(None) is True
 
 
-def test_require_internal_api_key_rejects_wrong_value_with_401():
+def test_require_internal_api_key_is_permissive_with_any_header_value():
     import app.deps as deps_module
-    from fastapi import HTTPException
 
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "expected-key"
-    try:
-        try:
-            deps_module.require_internal_api_key("wrong-key")
-        except HTTPException as exc:
-            assert exc.status_code == 401
-            assert exc.detail == "Invalid internal API key"
-        else:
-            raise AssertionError("expected HTTPException for invalid internal API key")
-    finally:
-        deps_module.settings.portal_internal_api_key = original
+    assert deps_module.require_internal_api_key("wrong-key") is True
 
 
 def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypatch):
@@ -658,7 +623,6 @@ def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypa
             "AgentRepository",
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
-        monkeypatch.setattr(proxy_module.settings, "portal_internal_api_key", "portal-internal-key")
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
@@ -726,13 +690,9 @@ def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypa
     assert calls["stream_request"]["params"] == [("stream", "runtime")]
 
 
-def test_build_runtime_internal_headers_default_contract(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.proxy_service.get_settings",
-        lambda: SimpleNamespace(runtime_internal_api_key="runtime-key"),
-    )
+def test_build_runtime_internal_headers_default_contract():
     headers = build_runtime_internal_headers()
-    assert headers == {"X-Internal-Api-Key": "runtime-key"}
+    assert headers == {}
 
 
 def test_build_runtime_trace_headers_only_includes_non_empty_sanitized_values():
