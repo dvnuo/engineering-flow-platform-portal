@@ -80,11 +80,7 @@ def _build_client():
 
 
 def test_internal_session_metadata_upsert_create_and_update():
-    import app.deps as deps_module
-
     client, agent, _agent_b, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         create_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
@@ -134,16 +130,11 @@ def test_internal_session_metadata_upsert_create_and_update():
         assert fetched["source_type"] == "jira"
         assert fetched["source_ref"] == "task-1"
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 
-def test_internal_session_metadata_requires_internal_api_key():
-    import app.deps as deps_module
-
+def test_internal_session_metadata_allows_requests_without_internal_api_key():
     client, agent, _agent_b, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         missing_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-unauth/metadata",
@@ -154,19 +145,14 @@ def test_internal_session_metadata_requires_internal_api_key():
             headers={"X-Internal-Api-Key": "wrong"},
             json={"group_id": "g-1"},
         )
-        assert missing_resp.status_code == 401
-        assert wrong_resp.status_code == 401
+        assert missing_resp.status_code == 200
+        assert wrong_resp.status_code == 200
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 
 def test_same_session_id_across_two_agents_does_not_conflict():
-    import app.deps as deps_module
-
     client, agent_a, agent_b, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         resp_a = client.put(
             f"/api/internal/agents/{agent_a.id}/sessions/s-1/metadata",
@@ -195,7 +181,6 @@ def test_same_session_id_across_two_agents_does_not_conflict():
         assert get_a.json()["group_id"] == "g-a"
         assert get_b.json()["group_id"] == "g-b"
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 
@@ -204,8 +189,6 @@ def test_list_session_metadata_with_filters_and_sorting():
     import time
 
     client, agent, _agent_b, cleanup = _build_client()
-    original = deps_module.settings.portal_internal_api_key
-    deps_module.settings.portal_internal_api_key = "internal-key"
     try:
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
@@ -260,7 +243,6 @@ def test_list_session_metadata_with_filters_and_sorting():
         assert by_task.status_code == 200
         assert [item["session_id"] for item in by_task.json()] == ["s-2"]
     finally:
-        deps_module.settings.portal_internal_api_key = original
         cleanup()
 
 

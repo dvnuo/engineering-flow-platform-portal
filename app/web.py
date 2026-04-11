@@ -1397,13 +1397,7 @@ async def app_chat_send(request: Request):
         if attachments:
             payload["attachments"] = attachments
 
-        try:
-            extra_headers = build_portal_execution_headers(user)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="PORTAL_INTERNAL_API_KEY is not configured",
-            ) from exc
+        extra_headers = build_portal_execution_headers(user)
 
         status_code, content, _ = await proxy_service.forward(
             agent=agent,

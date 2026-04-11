@@ -59,8 +59,8 @@ Access `http://localhost:8000/login`
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
-| `PORTAL_INTERNAL_API_KEY` | **Required** trusted Portal→Runtime execution key for chat/auth headers (`X-Portal-Internal-Api-Key`) | (empty) |
-| `RUNTIME_INTERNAL_API_KEY` | **Required** Portal→Runtime internal key for control-plane endpoints (for example `/api/tasks/execute`, `/api/capabilities`) | (empty) |
+| `PORTAL_INTERNAL_API_KEY` | Reserved for optional future Portal↔Runtime internal key enforcement (currently not required by Portal runtime paths) | (empty) |
+| `RUNTIME_INTERNAL_API_KEY` | Reserved for optional future Portal↔Runtime internal key enforcement (currently not required by Portal runtime paths) | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC secret for `/api/webhooks/github` | (empty) |
 | `JIRA_WEBHOOK_SHARED_SECRET` | Shared secret expected in `X-Efp-Webhook-Secret` for `/api/webhooks/jira` | (empty) |
@@ -82,15 +82,14 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 
 ### Phase 5 control-plane contract
 
-- Portal -> EFP trusted chat headers use `X-Portal-Internal-Api-Key` (from `PORTAL_INTERNAL_API_KEY`).
-- Portal -> EFP runtime internal endpoints (`/api/tasks/execute`, `/api/capabilities`) use `X-Internal-Api-Key` (from `RUNTIME_INTERNAL_API_KEY`).
+- Portal remains the only user-facing entry point and forwards Portal identity headers to Runtime.
+- Portal runtime requests no longer require or emit internal API-key headers in the current in-VPC topology.
 - EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
 
-### Phase 5 required internal keys
+### Phase 5 internal-key enforcement status
 
-- `PORTAL_INTERNAL_API_KEY` is required for trusted chat execution paths.
-- `RUNTIME_INTERNAL_API_KEY` is required for runtime internal control-plane paths.
-- Missing keys cause runtime request failures (for example 503s), not optional feature degradation.
+- Internal API key enforcement for Portal↔Runtime traffic is intentionally disabled in the current deployment topology.
+- `PORTAL_INTERNAL_API_KEY` and `RUNTIME_INTERNAL_API_KEY` remain available as config fields for possible future reintroduction.
 
 ### Internal control-plane export contract
 

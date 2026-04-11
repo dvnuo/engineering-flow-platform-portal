@@ -23,14 +23,10 @@ kubectl apply -f efp-agents-secret.yaml
 
 `efp-portal-secret` should include:
 - `BOOTSTRAP_ADMIN_PASSWORD`
-- `PORTAL_INTERNAL_API_KEY` (**required** for Phase 5 trusted chat execution paths)
-- `RUNTIME_INTERNAL_API_KEY` (**required** for Phase 5 runtime internal control-plane paths)
 - (optional) `GIT_USERNAME`, `GIT_TOKEN` for init clone
 
 `efp-agents-secret` should include:
 - `EFP_CONFIG_KEY`
-- `PORTAL_INTERNAL_API_KEY`
-- `RUNTIME_INTERNAL_API_KEY`
 - (optional) `GIT_USERNAME`, `GIT_TOKEN`
 
 ### Create Deployment

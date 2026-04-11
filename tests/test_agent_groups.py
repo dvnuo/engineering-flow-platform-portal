@@ -535,13 +535,13 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
             json={"specialist_agent_ids": [specialist_b.id, specialist_a.id]},
         ).status_code == 200
 
-        assert client.get(f"/api/internal/agent-groups/{group['id']}/specialist-pool").status_code == 401
+        assert client.get(f"/api/internal/agent-groups/{group['id']}/specialist-pool").status_code == 200
         assert (
             client.get(
                 f"/api/internal/agent-groups/{group['id']}/specialist-pool",
                 headers={"X-Internal-Api-Key": "wrong"},
             ).status_code
-            == 401
+            == 200
         )
         ok = client.get(
             f"/api/internal/agent-groups/{group['id']}/specialist-pool",
@@ -562,7 +562,7 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
         cleanup()
 
 
-def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards():
+def test_internal_task_agent_create_delete_without_key_enforcement_preserves_safeguards():
     client, leader_agent, _member_agent, _user_member, _outsider, _set_user, cleanup = _build_client_with_overrides()
     try:
         from app.main import app
@@ -632,7 +632,10 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
             "visibility": "private",
             "task_agent_cleanup_policy": "delete_on_done",
         }
-        assert client.post(f"/api/internal/agent-groups/{group['id']}/task-agents", json=payload).status_code == 401
+        assert client.post(
+            f"/api/internal/agent-groups/{group['id']}/task-agents",
+            json={k: v for k, v in payload.items() if k != "leader_agent_id"},
+        ).status_code == 422
         missing_leader = client.post(
             f"/api/internal/agent-groups/{group['id']}/task-agents",
             json={k: v for k, v in payload.items() if k != "leader_agent_id"},
@@ -703,7 +706,12 @@ def test_internal_task_agent_create_delete_requires_key_and_preserves_safeguards
         ).json()
         assert created["id"] in pool["specialist_agent_ids"]
 
-        assert client.delete(f"/api/internal/agent-groups/{group['id']}/task-agents/{created['id']}").status_code == 401
+        assert (
+            client.delete(
+                f"/api/internal/agent-groups/{group['id']}/task-agents/{group['leader_agent_id']}",
+            ).status_code
+            == 409
+        )
         assert (
             client.delete(
                 f"/api/internal/agent-groups/{group['id']}/task-agents/{group['leader_agent_id']}",
