@@ -620,8 +620,6 @@ def test_capability_profile_patch_and_delete_are_admin_only(monkeypatch):
 def test_internal_agent_runtime_context_endpoint_returns_effective_context(monkeypatch):
     client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
-        import app.deps as deps_module
-
         cap = client.post(
             "/api/capability-profiles",
             json={
@@ -651,10 +649,8 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
         )
         assert updated.status_code == 200
 
-        deps_module.settings.portal_internal_api_key = "internal-test-key"
         runtime_ctx = client.get(
             f"/api/internal/agents/{agent.id}/runtime-context",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert runtime_ctx.status_code == 200
         body = runtime_ctx.json()
@@ -686,8 +682,6 @@ def test_internal_agent_runtime_context_endpoint_returns_effective_context(monke
 def test_runtime_router_and_internal_runtime_context_expose_consistent_capability_fields(monkeypatch):
     client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
-        import app.deps as deps_module
-
         cap = client.post(
             "/api/capability-profiles",
             json={
@@ -716,10 +710,8 @@ def test_runtime_router_and_internal_runtime_context_expose_consistent_capabilit
         assert routing.status_code == 200
         routing_ctx = routing.json()["capability_context"]
 
-        deps_module.settings.portal_internal_api_key = "internal-test-key"
         internal = client.get(
             f"/api/internal/agents/{agent.id}/runtime-context",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert internal.status_code == 200
         internal_ctx = internal.json()["capability_context"]
