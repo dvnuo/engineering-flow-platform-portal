@@ -103,7 +103,6 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
     try:
         rules_resp = client.get(
             "/api/internal/workflow-transition-rules?system_type=jira&enabled=true&project_key=EFP",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert rules_resp.status_code == 200
         rules = rules_resp.json()
@@ -119,7 +118,6 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
 
         bindings_resp = client.get(
             "/api/internal/agent-identity-bindings?system_type=jira&enabled=true",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert bindings_resp.status_code == 200
         bindings = bindings_resp.json()
@@ -132,7 +130,6 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
 
         jira_disabled_resp = client.get(
             "/api/internal/agent-identity-bindings?system_type=jira&enabled=false",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert jira_disabled_resp.status_code == 200
         jira_disabled = jira_disabled_resp.json()
@@ -143,7 +140,6 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
 
         enabled_resp = client.get(
             "/api/internal/agent-identity-bindings?enabled=true",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert enabled_resp.status_code == 200
         enabled_bindings = enabled_resp.json()

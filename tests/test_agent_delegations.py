@@ -881,7 +881,7 @@ def test_internal_api_rejects_leader_agent_mismatch(monkeypatch):
             "visibility": "leader_only",
             "skill_name": "review",
         }
-        response = client.post("/api/internal/agent-delegations", json=payload, headers={"X-Internal-Api-Key": "internal-test-key"})
+        response = client.post("/api/internal/agent-delegations", json=payload)
         assert response.status_code == 403
         assert "leader_agent_id" in response.json()["detail"]
     finally:
@@ -905,7 +905,7 @@ def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkey
             "input_artifacts": [{"type": "pull_request", "id": 44}],
             "skill_kwargs": {"agent_mode": "task"},
         }
-        response = client.post("/api/internal/agent-delegations", json=payload, headers={"X-Internal-Api-Key": "internal-test-key"})
+        response = client.post("/api/internal/agent-delegations", json=payload)
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "done"
@@ -963,7 +963,6 @@ def test_internal_read_routes_are_unfiltered_without_key_enforcement(monkeypatch
                 "coordination_run_id": "run-abc",
                 "round_index": 3,
             },
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert leader_only.status_code == 200
         assert group_visible.status_code == 200
@@ -978,7 +977,6 @@ def test_internal_read_routes_are_unfiltered_without_key_enforcement(monkeypatch
 
         delegations_response = client.get(
             f"/api/internal/agent-groups/{group.id}/delegations",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert delegations_response.status_code == 200
         items = delegations_response.json()
@@ -990,7 +988,6 @@ def test_internal_read_routes_are_unfiltered_without_key_enforcement(monkeypatch
 
         board_response = client.get(
             f"/api/internal/agent-groups/{group.id}/task-board",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert board_response.status_code == 200
         board = board_response.json()
@@ -1162,7 +1159,6 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
                 "coordination_run_id": "run-z",
                 "round_index": 1,
             },
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert ok_resp.status_code == 200
 
@@ -1190,13 +1186,11 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
                 "coordination_run_id": "run-z",
                 "round_index": 2,
             },
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert failed_resp.status_code == 200
 
         board = client.get(
             f"/api/internal/agent-groups/{group.id}/task-board",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert board.status_code == 200
         runs = {item["coordination_run_id"]: item for item in board.json()["runs"]}
@@ -1212,7 +1206,6 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
 
         board = client.get(
             f"/api/internal/agent-groups/{group.id}/task-board",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert board.status_code == 200
         runs = {item["coordination_run_id"]: item for item in board.json()["runs"]}
@@ -1243,7 +1236,6 @@ def test_internal_task_board_exposes_effective_max_parallel_tasks(monkeypatch):
 
         board = client.get(
             f"/api/internal/agent-groups/{group.id}/task-board",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert board.status_code == 200
         assert board.json()["effective_max_parallel_tasks"] == 4
@@ -1266,7 +1258,6 @@ def test_internal_coordination_run_read_endpoints(monkeypatch):
                 "coordination_run_id": "run-read-1",
                 "round_index": 1,
             },
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert create.status_code == 200
         assert client.get(f"/api/internal/agent-groups/{group.id}/coordination-runs").status_code == 200
@@ -1274,14 +1265,12 @@ def test_internal_coordination_run_read_endpoints(monkeypatch):
 
         run_list = client.get(
             f"/api/internal/agent-groups/{group.id}/coordination-runs",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert run_list.status_code == 200
         assert any(item["coordination_run_id"] == "run-read-1" for item in run_list.json())
 
         run_detail = client.get(
             "/api/internal/coordination-runs/run-read-1",
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert run_detail.status_code == 200
         body = run_detail.json()
@@ -1320,7 +1309,6 @@ def test_coordination_run_status_updates_to_failed_on_terminal_failure(monkeypat
                 "coordination_run_id": "run-failed-1",
                 "round_index": 1,
             },
-            headers={"X-Internal-Api-Key": "internal-test-key"},
         )
         assert create.status_code == 200
         run_row = db.query(AgentCoordinationRun).filter(AgentCoordinationRun.coordination_run_id == "run-failed-1").first()

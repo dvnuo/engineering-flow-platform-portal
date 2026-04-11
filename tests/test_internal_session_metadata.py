@@ -84,7 +84,6 @@ def test_internal_session_metadata_upsert_create_and_update():
     try:
         create_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={
                 "group_id": "g-1",
                 "current_task_id": "t-1",
@@ -104,7 +103,6 @@ def test_internal_session_metadata_upsert_create_and_update():
 
         update_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={
                 "group_id": "g-2",
                 "current_task_id": "t-1",
@@ -120,7 +118,6 @@ def test_internal_session_metadata_upsert_create_and_update():
 
         get_resp = client.get(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert get_resp.status_code == 200
         fetched = get_resp.json()
@@ -156,12 +153,10 @@ def test_same_session_id_across_two_agents_does_not_conflict():
     try:
         resp_a = client.put(
             f"/api/internal/agents/{agent_a.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-a", "latest_event_state": "running"},
         )
         resp_b = client.put(
             f"/api/internal/agents/{agent_b.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-b", "latest_event_state": "queued"},
         )
         assert resp_a.status_code == 200
@@ -170,11 +165,9 @@ def test_same_session_id_across_two_agents_does_not_conflict():
 
         get_a = client.get(
             f"/api/internal/agents/{agent_a.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         get_b = client.get(
             f"/api/internal/agents/{agent_b.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert get_a.status_code == 200
         assert get_b.status_code == 200
@@ -192,30 +185,25 @@ def test_list_session_metadata_with_filters_and_sorting():
     try:
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-1", "latest_event_state": "running", "current_task_id": "t-1"},
         )
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-2/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-1", "latest_event_state": "done", "current_task_id": "t-2"},
         )
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-3/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-2", "latest_event_state": "running", "current_task_id": "t-3"},
         )
         # ensure s-1 becomes most recently updated
         time.sleep(1.1)
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
             json={"group_id": "g-1", "latest_event_state": "running", "current_task_id": "t-1"},
         )
 
         base_list = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert base_list.status_code == 200
         items = base_list.json()
@@ -224,21 +212,18 @@ def test_list_session_metadata_with_filters_and_sorting():
 
         by_group = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata?group_id=g-1",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert by_group.status_code == 200
         assert {item["session_id"] for item in by_group.json()} == {"s-1", "s-2"}
 
         by_state = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata?latest_event_state=running",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert by_state.status_code == 200
         assert {item["session_id"] for item in by_state.json()} == {"s-1", "s-3"}
 
         by_task = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata?current_task_id=t-2",
-            headers={"X-Internal-Api-Key": "internal-key"},
         )
         assert by_task.status_code == 200
         assert [item["session_id"] for item in by_task.json()] == ["s-2"]

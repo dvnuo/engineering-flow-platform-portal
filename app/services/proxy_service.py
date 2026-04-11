@@ -275,7 +275,6 @@ class ProxyService:
             "x-portal-author-source": "X-Portal-Author-Source",
             "x-portal-user-id": "X-Portal-User-Id",
             "x-portal-user-name": "X-Portal-User-Name",
-            "x-portal-internal-api-key": "X-Portal-Internal-Api-Key",
         }
         forbidden_extra_headers = {
             "content-type",
