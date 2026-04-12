@@ -231,6 +231,8 @@ const state = {
 const md = window.markdownit({
   html: false,
   linkify: true,
+  breaks: true,
+  typographer: true,
   highlight: (str, lang) => {
     if (lang && hljs.getLanguage(lang)) {
       const highlighted = hljs.highlight(str, { language: lang }).value;
@@ -916,17 +918,193 @@ function scrollToBottom() {
   if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
 }
 
+function normalizeMarkdownText(text) {
+  return decodeHtml(String(text || "")).replace(/\r\n?/g, "\n");
+}
+
+function parseDisplayBlocks(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function renderCodeBlock(block) {
+  const language = String(block?.lang || block?.language || "").trim().toLowerCase();
+  const code = String(block?.content || "");
+  const className = language ? `language-${language}` : "";
+  return `
+    <section class="message-block message-block-code">
+      <div class="message-codeblock">
+        <div class="message-codeblock-toolbar">
+          <span class="message-codeblock-lang">${safe(language || "text")}</span>
+          <button type="button" class="message-codeblock-copy" data-copy-text="${escapeHtmlAttr(code)}">Copy</button>
+        </div>
+        <pre><code class="${className}">${safe(code)}</code></pre>
+      </div>
+    </section>
+  `;
+}
+
+function renderTableBlock(block) {
+  const headers = Array.isArray(block?.headers) ? block.headers : [];
+  const rows = Array.isArray(block?.rows) ? block.rows : [];
+  const headHtml = headers.length
+    ? `<thead><tr>${headers.map((header) => `<th>${safe(header)}</th>`).join("")}</tr></thead>`
+    : "";
+  const bodyHtml = rows.length
+    ? `<tbody>${rows.map((row) => `<tr>${(Array.isArray(row) ? row : []).map((cell) => `<td>${safe(cell)}</td>`).join("")}</tr>`).join("")}</tbody>`
+    : "";
+  return `
+    <section class="message-block message-block-table">
+      <div class="message-table-wrap">
+        <table>${headHtml}${bodyHtml}</table>
+      </div>
+    </section>
+  `;
+}
+
+function renderSingleDisplayBlock(block) {
+  if (!block || typeof block !== "object") return "";
+  const type = String(block.type || "").toLowerCase();
+  if (type === "markdown") {
+    return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(block.content || ""))}</section>`;
+  }
+  if (type === "code") return renderCodeBlock(block);
+  if (type === "table") return renderTableBlock(block);
+  if (type === "callout") {
+    const tone = String(block.tone || "info").toLowerCase();
+    const title = String(block.title || "").trim();
+    return `
+      <section class="message-block">
+        <div class="message-callout is-${safe(tone)}">
+          ${title ? `<div class="message-callout-title">${safe(title)}</div>` : ""}
+          <div class="message-callout-content">${md.render(normalizeMarkdownText(block.content || ""))}</div>
+        </div>
+      </section>
+    `;
+  }
+  if (type === "tool_result") {
+    const title = String(block.title || "Tool result");
+    const status = String(block.status || "").toLowerCase();
+    return `
+      <section class="message-block">
+        <div class="message-tool-result${status ? ` is-${safe(status)}` : ""}">
+          <div class="message-tool-result-title">${safe(title)}</div>
+          <div class="message-tool-result-content">${md.render(normalizeMarkdownText(block.content || ""))}</div>
+        </div>
+      </section>
+    `;
+  }
+  return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(block.content || ""))}</section>`;
+}
+
+function renderDisplayBlocksToHtml(blocks, fallbackMarkdown = "") {
+  if (!Array.isArray(blocks) || !blocks.length) {
+    return md.render(normalizeMarkdownText(fallbackMarkdown));
+  }
+  const html = blocks.map((block) => renderSingleDisplayBlock(block)).join("");
+  return html || md.render(normalizeMarkdownText(fallbackMarkdown));
+}
+
+async function copyText(text) {
+  const value = String(text || "");
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (error) {}
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "readonly");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  return copied;
+}
+
+function enhanceMarkdownBlock(root) {
+  if (!root) return;
+  root.querySelectorAll("a").forEach((anchor) => {
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.classList.add("message-link");
+  });
+
+  root.querySelectorAll("table").forEach((table) => {
+    if (table.closest(".message-table-wrap")) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "message-table-wrap";
+    table.parentNode.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  });
+
+  root.querySelectorAll("pre > code").forEach((code) => {
+    if (code.closest(".message-codeblock")) return;
+    const pre = code.parentElement;
+    if (!pre) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "message-codeblock";
+    const toolbar = document.createElement("div");
+    toolbar.className = "message-codeblock-toolbar";
+    const lang = document.createElement("span");
+    lang.className = "message-codeblock-lang";
+    const rawClass = Array.from(code.classList).find((item) => item.startsWith("language-")) || "";
+    lang.textContent = rawClass.replace("language-", "") || "text";
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "message-codeblock-copy";
+    copyButton.textContent = "Copy";
+    copyButton.addEventListener("click", async () => {
+      const copied = await copyText(code.textContent || "");
+      if (!copied) return;
+      copyButton.textContent = "Copied";
+      copyButton.classList.add("is-copied");
+      window.setTimeout(() => {
+        copyButton.textContent = "Copy";
+        copyButton.classList.remove("is-copied");
+      }, 1400);
+    });
+    toolbar.append(lang, copyButton);
+    pre.parentNode.insertBefore(wrapper, pre);
+    wrapper.append(toolbar, pre);
+  });
+
+  root.querySelectorAll(".message-codeblock-copy[data-copy-text]").forEach((button) => {
+    if (button.dataset.boundCopy === "1") return;
+    button.dataset.boundCopy = "1";
+    button.addEventListener("click", async () => {
+      const copied = await copyText(button.dataset.copyText || "");
+      if (!copied) return;
+      button.textContent = "Copied";
+      button.classList.add("is-copied");
+      window.setTimeout(() => {
+        button.textContent = "Copy";
+        button.classList.remove("is-copied");
+      }, 1400);
+    });
+  });
+}
+
 function renderMarkdown(scope = document) {
   scope.querySelectorAll(".md-render").forEach((el) => {
-    let html = md.render(decodeHtml(el.dataset.md) || "");
-      el.innerHTML = html;
-      // Add target="_blank" to all links via DOM
-      el.querySelectorAll('a').forEach(a => {
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-      });
+    const markdown = normalizeMarkdownText(el.dataset.md || "");
+    const blocks = parseDisplayBlocks(el.dataset.displayBlocks || "");
+    el.innerHTML = renderDisplayBlocksToHtml(blocks, markdown);
+    enhanceMarkdownBlock(el);
+    el.querySelectorAll("pre code").forEach((code) => {
+      if (code.dataset.highlighted === "1" || code.classList.contains("hljs")) return;
+      hljs.highlightElement(code);
+      code.dataset.highlighted = "1";
+    });
   });
-  scope.querySelectorAll("pre code").forEach((el) => hljs.highlightElement(el));
 }
 
 function decorateToolMessages(scope = document) {
@@ -2428,6 +2606,9 @@ function renderChatHistory(messages, metadata = {}) {
     } else {
       const content = document.createElement("div");
       content.className = "message-markdown md-render max-w-none text-sm";
+      if (Array.isArray(message.display_blocks) && message.display_blocks.length) {
+        content.dataset.displayBlocks = JSON.stringify(message.display_blocks);
+      }
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
@@ -2479,8 +2660,11 @@ async function openServerFiles() {
 function buildServerFilesBreadcrumb(path, rootPath) {
   const normalizedRoot = String(rootPath || '').replace(/\/+$/, '');
   const normalizedPath = String(path || normalizedRoot || '').replace(/\/+$/, '');
+  const workspaceCrumb = normalizedRoot
+    ? `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">Workspace</a>`
+    : '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">Workspace</a>';
   const breadcrumbParts = [
-    `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">Workspace</a>`
+    workspaceCrumb
   ];
 
   if (normalizedPath === normalizedRoot) {

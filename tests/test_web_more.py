@@ -132,6 +132,16 @@ def test_proxy_api_chat_stream():
     assert response.status_code in [400, 401, 403, 404, 500, 502]
 
 
+def test_chat_ui_includes_display_block_renderer_helpers():
+    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "function parseDisplayBlocks(" in js_source
+    assert "function renderDisplayBlocksToHtml(" in js_source
+    assert "function renderSingleDisplayBlock(" in js_source
+    assert "function renderCodeBlock(" in js_source
+    assert "function renderTableBlock(" in js_source
+    assert "function enhanceMarkdownBlock(" in js_source
+
+
 def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
     start_marker = f"// RUNTIME_EVENT_HELPER_START: {helper_name}"
     end_marker = f"// RUNTIME_EVENT_HELPER_END: {helper_name}"

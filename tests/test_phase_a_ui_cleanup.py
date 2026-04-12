@@ -32,6 +32,7 @@ def test_chat_response_partial_contract():
     assert "message-surface-assistant" in partial
     assert "message-timestamp" in partial
     assert "message-markdown" in partial
+    assert "data-display-blocks" in partial
 
 
 def test_frontend_assets_include_phase_b_fixups():
@@ -156,6 +157,15 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".portal-thinking-toggle" in css_source
     assert ".portal-statusline.is-error" in css_source
     assert ":disabled" in css_source
+    assert "renderDisplayBlocksToHtml" in js_source
+    assert "enhanceMarkdownBlock" in js_source
+    assert "copyText(" in js_source
+    assert "data-display-blocks" in js_source or "dataset.displayBlocks" in js_source
+    assert ".message-codeblock" in css_source
+    assert ".message-codeblock-toolbar" in css_source
+    assert ".message-table-wrap" in css_source
+    assert ".message-callout" in css_source
+    assert ".message-tool-result" in css_source
 
     assert '"timestamp": datetime.now().strftime("%H:%M")' in web_source
 

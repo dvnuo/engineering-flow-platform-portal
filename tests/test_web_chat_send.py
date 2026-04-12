@@ -196,3 +196,57 @@ def test_app_chat_send_succeeds_when_portal_internal_api_key_missing(monkeypatch
 
     assert response.status_code == 200
     assert calls["count"] == 1
+
+
+def test_app_chat_send_includes_display_blocks_attribute(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=123,
+        visibility="private",
+        status="running",
+        name="Agent One",
+    )
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(
+        web_module,
+        "AgentRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+    )
+    monkeypatch.setattr(
+        web_module.runtime_execution_context_service,
+        "build_runtime_metadata",
+        lambda _db, _agent: {"capability_profile_id": "cap-web", "policy_profile_id": "pol-web"},
+    )
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "response": "hello",
+            "display_blocks": [{"type": "markdown", "content": "hello"}],
+            "session_id": "s-1",
+            "events": [],
+        }
+        return 200, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+
+    client = TestClient(app)
+    response = client.post(
+        "/app/chat/send",
+        data={
+            "agent_id": "agent-1",
+            "message": "hi",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "data-display-blocks=" in response.text

@@ -6,6 +6,7 @@
   <article class="message-surface message-surface-assistant assistant-message">
     <div class="message-markdown md-render max-w-none text-sm"
          data-md="{{ assistant_message | data_attr }}"
+         data-display-blocks='{{ display_blocks | tojson | replace("'", "&#39;") | safe }}'
          {% if events %}data-events='{{ events | tojson }}'{% endif %}></div>
   </article>
 </div>

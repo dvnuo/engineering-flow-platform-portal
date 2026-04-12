@@ -1416,6 +1416,9 @@ async def app_chat_send(request: Request):
         
         # Forward events to frontend for Thinking Process
         events = data.get("events", [])
+        display_blocks = data.get("display_blocks")
+        if not isinstance(display_blocks, list):
+            display_blocks = []
         
         return templates.TemplateResponse(
             "partials/chat_response.html",
@@ -1427,6 +1430,7 @@ async def app_chat_send(request: Request):
                 "agent_name": agent.name if agent else "Assistant",
                 "user_message_id": data.get("user_message_id") or "",
                 "events": events,
+                "display_blocks": display_blocks,
                 "timestamp": datetime.now().strftime("%H:%M"),
             },
         )
