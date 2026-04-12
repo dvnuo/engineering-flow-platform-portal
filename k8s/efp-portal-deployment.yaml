@@ -29,7 +29,7 @@ spec:
               &&REPO_URL="${GIT_REPO_URL}" && if [ -n "${GIT_TOKEN}" ]; then
               ASKPASS_SCRIPT=/tmp/git-askpass.sh &&
               printf '%s\n' '#!/bin/sh' 'case "$1" in' '  *Username*) echo
-              "${GIT_USERNAME:-x-access-token}" ;;' '  *) echo "${GIT_TOKEN}" ;;'
+              "x-access-token" ;;' '  *) echo "${GIT_TOKEN}" ;;'
               'esac' > "${ASKPASS_SCRIPT}" && chmod 700 "${ASKPASS_SCRIPT}" &&
               export GIT_ASKPASS="${ASKPASS_SCRIPT}" && export GIT_TERMINAL_PROMPT=0;
               fi && git clone --depth 1 --branch "${GIT_BRANCH}" "${REPO_URL}" .
@@ -42,12 +42,6 @@ spec:
               value: https://github.com/dvnuo/engineering-flow-platform-portal
             - name: GIT_BRANCH
               value: master
-            - name: GIT_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  key: GIT_USERNAME
-                  name: efp-portal-secret
-                  optional: true
             - name: GIT_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -82,8 +76,6 @@ spec:
               value: "http://efp-portal-service.default.svc.cluster.local"
             - name: K8S_KUBECONFIG
               value: ""
-            - name: K8S_GIT_USERNAME_KEY
-              value: "GIT_USERNAME"
             - name: K8S_GIT_TOKEN_KEY
               value: "GIT_TOKEN"
               # Use /app/data for SQLite database

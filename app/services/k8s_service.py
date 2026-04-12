@@ -411,19 +411,6 @@ class K8sService:
         if not self.settings.k8s_git_token_key:
             return env
 
-        if self.settings.k8s_git_username_key:
-            env.append(
-                client.V1EnvVar(
-                    name="GIT_USERNAME",
-                    value_from=client.V1EnvVarSource(
-                        secret_key_ref=client.V1SecretKeySelector(
-                            name="efp-agents-secret",
-                            key=self.settings.k8s_git_username_key,
-                            optional=True,
-                        )
-                    ),
-                )
-            )
         env.append(
             client.V1EnvVar(
                 name="GIT_TOKEN",
@@ -468,7 +455,7 @@ class K8sService:
             "printf '%s\n' "
             "'#!/bin/sh' "
             "'case \"$1\" in' "
-            "'  *Username*) echo \"${GIT_USERNAME:-x-access-token}\" ;;' "
+            "'  *Username*) echo \"x-access-token\" ;;' "
             "'  *) echo \"${GIT_TOKEN}\" ;;' "
             "'esac' > \"${ASKPASS_SCRIPT}\" && "
             "chmod 700 \"${ASKPASS_SCRIPT}\" && "

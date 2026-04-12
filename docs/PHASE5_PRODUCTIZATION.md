@@ -69,13 +69,14 @@ Portal also injects plain env:
 
 Portal runtime creation reads git credentials from `efp-agents-secret`.
 
-Configurable selector keys:
+Configurable selector key:
 
-- `K8S_GIT_USERNAME_KEY` (default `GIT_USERNAME`)
 - `K8S_GIT_TOKEN_KEY` (default `GIT_TOKEN`)
 
-If both credentials are present, clone URL is rewritten to authenticated HTTPS.
-If credentials are absent, clone proceeds with unauthenticated URL.
+Portal clone uses HTTPS + `GIT_ASKPASS` + token-only auth.
+The askpass username response is fixed to `x-access-token`.
+Clone URL is not rewritten to authenticated HTTPS and credentials are not embedded in URL.
+If token is absent, clone proceeds with unauthenticated URL.
 
 ## 6) Session Metadata Registry semantics
 

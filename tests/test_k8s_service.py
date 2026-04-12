@@ -88,10 +88,23 @@ class K8sServiceNoopTest(unittest.TestCase):
     def test_git_clone_shell_command_uses_askpass_not_credential_url(self):
         command = self.service._git_clone_shell_command()
         self.assertNotIn("https://${GIT_USERNAME}:${GIT_TOKEN}@", command)
+        self.assertNotIn("${GIT_USERNAME}", command)
         self.assertNotIn(":443", command)
         self.assertNotIn("http.sslVerify=false", command)
         self.assertIn("GIT_ASKPASS", command)
         self.assertIn("x-access-token", command)
+
+    def test_build_git_clone_env_includes_token_without_username(self):
+        self.service.settings.k8s_git_token_key = "GIT_TOKEN"
+        agent = SimpleNamespace(repo_url="https://github.com/acme/repo.git", branch="main")
+
+        env = self.service._build_git_clone_env(agent)
+        names = [item.name for item in env]
+
+        self.assertIn("GIT_REPO_URL", names)
+        self.assertIn("GIT_BRANCH", names)
+        self.assertIn("GIT_TOKEN", names)
+        self.assertNotIn("GIT_USERNAME", names)
 
     def test_normalize_git_repo_url_ssh_to_https(self):
         self.assertEqual(

@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     k8s_incluster: bool = True
     k8s_kubeconfig: Optional[str] = "/etc/rancher/k3s/k3s.yaml"
     k8s_agent_service_type: str = "ClusterIP"
-    k8s_git_username_key: Optional[str] = "GIT_USERNAME"
+    # GitHub HTTPS clone uses token-only auth. Username is fixed to x-access-token in askpass.
     k8s_git_token_key: Optional[str] = "GIT_TOKEN"
 
     # Default agent config (image repo without tag)
