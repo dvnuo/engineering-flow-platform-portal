@@ -263,6 +263,11 @@ const result = {{
     code: "   ",
     text: "print(1)",
   }}),
+  codeOnly: renderCodeBlock({{
+    type: "code",
+    code: "print(1)",
+    language: "python",
+  }}),
   renderCodeFromCodeField: renderCodeBlock({{
     type: "code",
     code: "print(1)",
@@ -307,6 +312,7 @@ console.log(JSON.stringify(result));
     assert "hello from value" in data["markdownFromValue"]
     assert "print(1)" in data["blankCodeContentFallsBackToText"]
     assert "print(1)" in data["blankCodeFieldFallsBackToText"]
+    assert "print(1)" in data["codeOnly"]
     assert "print(1)" in data["renderCodeFromCodeField"]
     assert "language-python" in data["renderCodeFromCodeField"]
     assert "Copy" in data["renderCodeFromCodeField"]

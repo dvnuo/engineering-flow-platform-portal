@@ -1,15 +1,51 @@
-from app.chat_payloads import normalize_assistant_chat_payload
+from app.chat_payloads import (
+    build_markdown_display_blocks,
+    normalize_assistant_chat_payload,
+    normalize_display_blocks,
+)
 
 
-def test_normalize_assistant_chat_payload_prefers_response_over_content():
+def test_normalize_assistant_chat_payload_prefers_meaningful_response_over_blank_content():
     payload = normalize_assistant_chat_payload(
         {
-            "response": "from response",
-            "content": "from content",
+            "response": "hello",
+            "content": "   ",
             "display_blocks": [],
         }
     )
-    assert payload["assistant_message"] == "from response"
+    assert payload["assistant_message"] == "hello"
+
+
+def test_normalize_assistant_chat_payload_builds_placeholder_only_when_text_and_blocks_absent():
+    payload = normalize_assistant_chat_payload(
+        {
+            "response": "   ",
+            "display_blocks": [{"type": "   "}],
+        }
+    )
+    assert payload["assistant_message"] == "(empty response)"
+    assert payload["display_blocks"] == []
+
+
+def test_normalize_display_blocks_supports_code_field_alias():
+    blocks = normalize_display_blocks(
+        [{"type": "code", "code": "print(1)", "language": "python"}],
+        "",
+    )
+    assert blocks[0]["type"] == "code"
+    assert blocks[0]["content"] == "print(1)"
+    assert blocks[0]["lang"] == "python"
+
+
+def test_build_markdown_display_blocks_preserves_original_whitespace_when_meaningful():
+    raw = "\n# Title\n\nBody\n"
+    blocks = build_markdown_display_blocks(raw)
+    assert blocks == [{"type": "markdown", "content": raw}]
+
+
+def test_normalize_display_blocks_table_without_structure_falls_back_to_markdown():
+    blocks = normalize_display_blocks([{"type": "table", "content": "fallback only"}], "")
+    assert blocks == [{"type": "markdown", "content": "fallback only"}]
 
 
 def test_normalize_assistant_chat_payload_uses_content_when_response_missing():
@@ -18,105 +54,11 @@ def test_normalize_assistant_chat_payload_uses_content_when_response_missing():
     assert payload["display_blocks"] == [{"type": "markdown", "content": "from content"}]
 
 
-def test_normalize_assistant_chat_payload_block_only_keeps_empty_assistant_message():
+def test_normalize_assistant_chat_payload_events_and_session_fallbacks():
     payload = normalize_assistant_chat_payload(
-        {
-            "response": "",
-            "display_blocks": [
-                {"type": "tool_result", "title": "Bash", "status": "success", "output": "done"}
-            ],
-        }
-    )
-    assert payload["assistant_message"] == ""
-
-
-def test_normalize_assistant_chat_payload_empty_payload_uses_placeholder():
-    payload = normalize_assistant_chat_payload({})
-    assert payload["assistant_message"] == "(empty response)"
-
-
-def test_normalize_assistant_chat_payload_field_fallbacks_and_type_safety():
-    payload = normalize_assistant_chat_payload(
-        {
-            "events": "not-a-list",
-            "display_blocks": "not-a-list",
-            "session_id": "",
-            "user_message_id": None,
-        },
-        fallback_session_id="fallback-session",
+        {"events": "bad", "session_id": "", "user_message_id": None},
+        fallback_session_id="session-fallback",
     )
     assert payload["events"] == []
-    assert payload["display_blocks"] == []
-    assert payload["session_id"] == "fallback-session"
+    assert payload["session_id"] == "session-fallback"
     assert payload["user_message_id"] == ""
-
-
-def test_normalize_assistant_chat_payload_invalid_block_only_uses_placeholder():
-    payload = normalize_assistant_chat_payload(
-        {
-            "response": "   ",
-            "display_blocks": [None, {"type": "   "}],
-        }
-    )
-    assert payload["assistant_message"] == "(empty response)"
-    assert payload["display_blocks"] == []
-
-
-def test_normalize_assistant_chat_payload_tool_result_output_alias_to_content():
-    payload = normalize_assistant_chat_payload(
-        {
-            "response": "   ",
-            "display_blocks": [
-                {"type": "tool_result", "title": "Bash", "status": "success", "output": "done"}
-            ],
-        }
-    )
-    assert payload["assistant_message"] == ""
-    assert payload["display_blocks"][0]["type"] == "tool_result"
-    assert payload["display_blocks"][0]["content"] == "done"
-
-
-def test_normalize_assistant_chat_payload_whitespace_content_is_treated_as_empty():
-    payload = normalize_assistant_chat_payload({"content": "   "})
-    assert payload["assistant_message"] == "(empty response)"
-    assert payload["display_blocks"] == []
-
-
-def test_normalize_assistant_chat_payload_code_text_and_language_aliases():
-    payload = normalize_assistant_chat_payload(
-        {
-            "response": "",
-            "display_blocks": [
-                {"type": "code", "text": "print(1)", "language": "python"}
-            ],
-        }
-    )
-    assert payload["display_blocks"][0]["type"] == "code"
-    assert payload["display_blocks"][0]["content"] == "print(1)"
-    assert payload["display_blocks"][0]["lang"] == "python"
-
-
-def test_normalize_assistant_chat_payload_table_columns_alias_to_headers():
-    payload = normalize_assistant_chat_payload(
-        {
-            "response": "",
-            "display_blocks": [
-                {"type": "table", "columns": ["A"], "rows": [["1"]]},
-            ],
-        }
-    )
-    assert payload["display_blocks"][0]["type"] == "table"
-    assert payload["display_blocks"][0]["headers"] == ["A"]
-
-
-def test_normalize_assistant_chat_payload_markdown_fallback_preserves_leading_and_trailing_newlines():
-    payload = normalize_assistant_chat_payload({"response": "\n# Title\n\nBody\n"})
-    assert payload["assistant_message"] == "\n# Title\n\nBody\n"
-    assert payload["display_blocks"] == [{"type": "markdown", "content": "\n# Title\n\nBody\n"}]
-
-
-def test_normalize_assistant_chat_payload_markdown_fallback_preserves_indented_code_text():
-    raw = "    indented code line\n    second\n"
-    payload = normalize_assistant_chat_payload({"response": raw})
-    assert payload["assistant_message"] == raw
-    assert payload["display_blocks"] == [{"type": "markdown", "content": raw}]

@@ -967,7 +967,7 @@ function parseDisplayBlocks(raw) {
 function getDisplayBlockText(block, preferCode = false) {
   if (!block || typeof block !== "object") return "";
   const textCandidates = preferCode
-    ? [block.code, block.content, block.text, block.output, block.result, block.value]
+    ? [block.code, block.content, block.text, block.output, block.result, block.value, block.message]
     : [block.content, block.text, block.output, block.result, block.value, block.message];
   for (const value of textCandidates) {
     if (typeof value !== "string") continue;

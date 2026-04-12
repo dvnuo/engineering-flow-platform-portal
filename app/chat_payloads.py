@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 def build_markdown_display_blocks(text: str) -> list[dict]:
     if not isinstance(text, str):
         return []
@@ -6,14 +9,14 @@ def build_markdown_display_blocks(text: str) -> list[dict]:
     return [{"type": "markdown", "content": text}]
 
 
-def _first_text_value(block: dict, field_order: tuple[str, ...]) -> str:
+def _first_nonblank_str(block: dict, field_order: tuple[str, ...]) -> str:
     for field in field_order:
         value = block.get(field)
-        if value is None:
+        if not isinstance(value, str):
             continue
-        text = str(value)
-        if text.strip():
-            return text
+        if not value.strip():
+            continue
+        return value
     return ""
 
 
@@ -22,10 +25,6 @@ def _meaningful_text(value) -> str:
         return ""
     text = str(value)
     return text if text.strip() else ""
-
-
-def _text_value(block: dict) -> str:
-    return _first_text_value(block, ("content", "text", "message", "output", "result", "value"))
 
 
 def _normalize_display_block(block: dict) -> dict | None:
@@ -40,77 +39,83 @@ def _normalize_display_block(block: dict) -> dict | None:
     if not block_type:
         return None
 
-    if block_type == "markdown":
-        content = _text_value(block)
-        return {"type": "markdown", "content": content} if content else None
+    text_fields = ("content", "text", "message", "output", "result", "value")
 
-    if block_type == "callout":
-        content = _text_value(block)
+    if block_type == "markdown":
+        content = _first_nonblank_str(block, text_fields)
         if not content:
             return None
-        normalized = {"type": "callout", "content": content}
-        title = block.get("title")
-        if title not in (None, ""):
-            normalized["title"] = str(title)
-        tone = block.get("tone")
-        if tone not in (None, ""):
-            normalized["tone"] = str(tone)
+        return {"type": "markdown", "content": content}
+
+    if block_type == "code":
+        code_text = _first_nonblank_str(block, ("content", "code", "text", "output", "result", "value"))
+        if not code_text:
+            return None
+        normalized = {"type": "code", "content": code_text}
+        lang = block.get("lang")
+        if not isinstance(lang, str) or not lang.strip():
+            lang = block.get("language")
+        if isinstance(lang, str) and lang.strip():
+            normalized["lang"] = lang
         return normalized
 
     if block_type == "tool_result":
-        content = _text_value(block)
+        content = _first_nonblank_str(block, text_fields)
         if not content:
             return None
         normalized = {"type": "tool_result", "content": content}
         title = block.get("title")
-        if title not in (None, ""):
-            normalized["title"] = str(title)
+        if isinstance(title, str) and title != "":
+            normalized["title"] = title
         status = block.get("status")
-        if status not in (None, ""):
-            normalized["status"] = str(status)
+        if isinstance(status, str) and status != "":
+            normalized["status"] = status
         return normalized
 
-    if block_type == "code":
-        content = _first_text_value(block, ("content", "code", "text", "value", "output"))
+    if block_type == "callout":
+        content = _first_nonblank_str(block, text_fields)
         if not content:
             return None
-        normalized = {"type": "code", "content": content}
-        language = block.get("lang")
-        if language in (None, ""):
-            language = block.get("language")
-        if language not in (None, ""):
-            normalized["lang"] = str(language)
+        normalized = {"type": "callout", "content": content}
+        title = block.get("title")
+        if isinstance(title, str) and title != "":
+            normalized["title"] = title
+        tone = block.get("tone")
+        if isinstance(tone, str) and tone != "":
+            normalized["tone"] = tone
         return normalized
 
     if block_type == "table":
         headers = block.get("headers")
         if not isinstance(headers, list):
             headers = block.get("columns")
-        headers = [str(item) for item in headers] if isinstance(headers, list) else []
+        headers = headers if isinstance(headers, list) else []
         rows = block.get("rows")
         rows = rows if isinstance(rows, list) else []
+        fallback_text = _first_nonblank_str(block, text_fields)
+        if not headers and not rows:
+            if not fallback_text:
+                return None
+            return {"type": "markdown", "content": fallback_text}
         normalized = {"type": "table", "headers": headers, "rows": rows}
-        content = _text_value(block)
-        if content:
-            normalized["content"] = content
-        if headers or rows or content:
-            return normalized
-        return None
+        if fallback_text:
+            normalized["content"] = fallback_text
+        return normalized
 
-    content = _text_value(block)
-    if not content:
+    fallback_text = _first_nonblank_str(block, text_fields)
+    if not fallback_text:
         return None
-    return {"type": "markdown", "content": content}
+    return {"type": "markdown", "content": fallback_text}
 
 
 def normalize_display_blocks(raw_blocks, fallback_text: str = "") -> list[dict]:
     if not isinstance(raw_blocks, list):
         return build_markdown_display_blocks(fallback_text)
 
-    normalized = []
+    normalized: list[dict] = []
     for block in raw_blocks:
         parsed = _normalize_display_block(block)
-        if parsed:
+        if parsed is not None:
             normalized.append(parsed)
 
     if normalized:
@@ -122,15 +127,13 @@ def normalize_assistant_chat_payload(data: dict, fallback_session_id: str = "") 
     if not isinstance(data, dict):
         data = {}
 
-    response_text = _meaningful_text(data.get("response"))
-    content_text = _meaningful_text(data.get("content"))
-    assistant_message = response_text or content_text or ""
+    assistant_message = _meaningful_text(data.get("response")) or _meaningful_text(data.get("content"))
     display_blocks = normalize_display_blocks(data.get("display_blocks"), assistant_message)
 
     if not assistant_message and not display_blocks:
         assistant_message = "(empty response)"
 
-    events = data.get("events", [])
+    events = data.get("events")
     if not isinstance(events, list):
         events = []
 
