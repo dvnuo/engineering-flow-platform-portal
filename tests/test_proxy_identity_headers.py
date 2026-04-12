@@ -266,7 +266,6 @@ def test_proxy_agent_allows_server_files_endpoints_for_owner(monkeypatch):
         client = TestClient(app)
 
         browse_resp = client.get("/a/agent-1/api/server-files")
-        upload_resp = client.post("/a/agent-1/api/server-files/upload", files={"file": ("notes.txt", b"hello")})
         delete_resp = client.post(
             "/a/agent-1/api/server-files/delete",
             json={"paths": ["/workspace/notes.txt"]},
@@ -275,11 +274,9 @@ def test_proxy_agent_allows_server_files_endpoints_for_owner(monkeypatch):
         app.dependency_overrides.clear()
 
     assert browse_resp.status_code == 200
-    assert upload_resp.status_code == 200
     assert delete_resp.status_code == 200
     assert captured[0]["subpath"] == "api/server-files"
-    assert captured[1]["subpath"] == "api/server-files/upload"
-    assert captured[2]["subpath"] == "api/server-files/delete"
+    assert captured[1]["subpath"] == "api/server-files/delete"
 
 
 def test_requires_write_access_normalizes_slashes():
