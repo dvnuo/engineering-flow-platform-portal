@@ -201,6 +201,8 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
         trace_id=trace_id,
         span_id=generate_span_id(),
         parent_span_id="-",
+        portal_dispatch_id="-",
+        portal_task_id="-",
         agent_id=agent_id,
         path=f"/a/{agent_id}/api/events",
     )
