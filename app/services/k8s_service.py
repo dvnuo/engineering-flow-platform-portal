@@ -455,7 +455,7 @@ class K8sService:
             "printf '%s\n' "
             "'#!/bin/sh' "
             "'case \"$1\" in' "
-            "'  *Username*) echo \"x-access-token\" ;;' "
+            "'  *Username*|*username*) echo \"x-access-token\" ;;' "
             "'  *) echo \"${GIT_TOKEN}\" ;;' "
             "'esac' > \"${ASKPASS_SCRIPT}\" && "
             "chmod 700 \"${ASKPASS_SCRIPT}\" && "

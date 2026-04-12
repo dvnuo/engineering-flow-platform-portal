@@ -93,6 +93,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("http.sslVerify=false", command)
         self.assertIn("GIT_ASKPASS", command)
         self.assertIn("x-access-token", command)
+        self.assertIn("*Username*", command)
+        self.assertIn("*username*", command)
 
     def test_build_git_clone_env_includes_token_without_username(self):
         self.service.settings.k8s_git_token_key = "GIT_TOKEN"
