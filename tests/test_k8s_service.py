@@ -88,6 +88,8 @@ class K8sServiceNoopTest(unittest.TestCase):
     def test_git_clone_shell_command_uses_askpass_not_credential_url(self):
         command = self.service._git_clone_shell_command()
         self.assertNotIn("https://${GIT_USERNAME}:${GIT_TOKEN}@", command)
+        self.assertNotIn(":443", command)
+        self.assertNotIn("http.sslVerify=false", command)
         self.assertIn("GIT_ASKPASS", command)
         self.assertIn("x-access-token", command)
 
@@ -109,6 +111,22 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(
             normalize_git_repo_url("https://github.com/Acme/Portal.git"),
             "https://github.com/Acme/Portal.git",
+        )
+
+    def test_normalize_git_repo_url_preserves_explicit_port(self):
+        self.assertEqual(
+            normalize_git_repo_url("ssh://git@github.company.com:8443/Acme/Portal.git"),
+            "https://github.company.com:8443/Acme/Portal.git",
+        )
+        self.assertEqual(
+            normalize_git_repo_url("https://github.company.com:8443/Acme/Portal.git"),
+            "https://github.company.com:8443/Acme/Portal.git",
+        )
+
+    def test_normalize_git_repo_url_strips_credentials_and_preserves_port(self):
+        self.assertEqual(
+            normalize_git_repo_url("https://user:token@github.company.com:8443/Acme/Portal.git"),
+            "https://github.company.com:8443/Acme/Portal.git",
         )
 
 

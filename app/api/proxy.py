@@ -51,6 +51,11 @@ def _requires_write_access(method: str, subpath: str) -> bool:
     }
 
 
+def _is_removed_legacy_ssh_path(subpath: str) -> bool:
+    normalized = (subpath or "").strip("/").lower()
+    return normalized == "api/ssh" or normalized.startswith("api/ssh/")
+
+
 def _filter_proxy_query_items(query_items):
     return [(k, v) for k, v in query_items if k.lower() != "token"]
 
@@ -101,6 +106,11 @@ async def proxy_agent(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if not _can_access(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if _is_removed_legacy_ssh_path(subpath):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Legacy SSH runtime endpoints have been removed",
+        )
     if _requires_write_access(request.method, subpath) and not _can_write(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if agent.status != "running":

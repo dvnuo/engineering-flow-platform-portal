@@ -463,7 +463,6 @@ class K8sService:
             "mkdir -p /app && "
             "mkdir -p /tmp/app && cd /tmp/app && "
             "REPO_URL=\"${GIT_REPO_URL}\" && "
-            "REPO_URL=\"$(echo ${REPO_URL} | sed 's#^\\(https://[^/]*\\)\\(/.*\\)#\\1:443\\2#')\" && "
             "if [ -n \"${GIT_TOKEN}\" ]; then "
             "ASKPASS_SCRIPT=/tmp/git-askpass.sh && "
             "printf '%s\n' "
@@ -476,7 +475,7 @@ class K8sService:
             "export GIT_ASKPASS=\"${ASKPASS_SCRIPT}\" && "
             "export GIT_TERMINAL_PROMPT=0; "
             "fi && "
-            "git -c http.sslVerify=false clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
+            "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
             "cp -rf /tmp/app/. /app/ && "
             "rm -f /tmp/git-askpass.sh"
         )

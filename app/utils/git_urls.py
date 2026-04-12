@@ -13,11 +13,13 @@ def normalize_git_repo_url(url: Optional[str]) -> Optional[str]:
 
     parsed = urlparse(value)
     if parsed.scheme in {"http", "https", "ssh"}:
-        host = parsed.hostname or parsed.netloc
+        host = parsed.hostname
+        port = parsed.port
         path = parsed.path or ""
         if not host or not path:
             return value
-        return urlunparse(("https", host, path, "", "", ""))
+        netloc = f"{host}:{port}" if port else host
+        return urlunparse(("https", netloc, path, "", "", ""))
 
     scp_match = _SCP_LIKE_GIT_URL.match(value)
     if scp_match:
