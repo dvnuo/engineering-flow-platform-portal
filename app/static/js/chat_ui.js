@@ -939,7 +939,7 @@ function getDisplayBlockText(block) {
 
 function renderCodeBlock(block) {
   const language = String(block?.lang || block?.language || "").trim().toLowerCase();
-  const code = String(block?.content || "");
+  const code = String(block?.code ?? getDisplayBlockText(block));
   const className = language ? `language-${language}` : "";
   return `
     <section class="message-block message-block-code">

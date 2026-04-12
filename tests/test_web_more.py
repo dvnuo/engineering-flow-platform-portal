@@ -181,14 +181,19 @@ def test_chat_ui_display_block_helpers_behavior():
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     parse_block = _extract_js_function(js_file, "parseDisplayBlocks")
+    text_block = _extract_js_function(js_file, "getDisplayBlockText")
+    code_block = _extract_js_function(js_file, "renderCodeBlock")
     table_block = _extract_js_function(js_file, "renderTableBlock")
     single_block = _extract_js_function(js_file, "renderSingleDisplayBlock")
 
     script = f"""
 const safe = (v) => String(v ?? "");
 const normalizeMarkdownText = (v) => String(v || "");
+const escapeHtmlAttr = (v) => String(v ?? "");
 const md = {{ render: (v) => `<p>${{v}}</p>` }};
 {parse_block}
+{text_block}
+{code_block}
 {table_block}
 {single_block}
 
@@ -201,6 +206,11 @@ const result = {{
     status: "success",
     title: "Bash",
     content: "Done",
+  }}),
+  codeFromText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    text: "print(1)",
   }}),
 }};
 console.log(JSON.stringify(result));
@@ -219,6 +229,8 @@ console.log(JSON.stringify(result));
     assert "<table>" not in data["fallbackOnly"]
     assert "<p>fallback only</p>" in data["fallbackOnly"]
     assert "message-tool-result is-success" in data["toolResult"]
+    assert "print(1)" in data["codeFromText"]
+    assert "language-python" in data["codeFromText"]
 
 
 def test_chat_ui_runtime_event_helpers_behavior():
