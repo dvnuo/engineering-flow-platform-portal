@@ -21,6 +21,12 @@ _TRACE_BLOCK_FIELDS = (
     ("path", "path"),
 )
 
+_NOISY_THIRD_PARTY_LOGGERS = (
+    "websockets",
+    "httpx",
+    "httpcore",
+)
+
 
 def _is_first_party_logger(record_name: str) -> bool:
     return record_name.startswith("app.")
@@ -119,6 +125,14 @@ def _has_redacting_formatter(handler: logging.Handler) -> bool:
     return isinstance(handler.formatter, (RedactingFormatter, FormatterRedactionWrapper))
 
 
+def _clamp_noisy_third_party_loggers(app_level: int) -> None:
+    requested_floor = max(app_level, logging.INFO)
+    for name in _NOISY_THIRD_PARTY_LOGGERS:
+        noisy_logger = logging.getLogger(name)
+        current_level = noisy_logger.level if noisy_logger.level != logging.NOTSET else app_level
+        noisy_logger.setLevel(max(current_level, requested_floor))
+
+
 def setup_logging(level: int = logging.INFO):
     """Setup logging configuration for the application.
 
@@ -146,3 +160,5 @@ def setup_logging(level: int = logging.INFO):
             handler.setFormatter(RedactingFormatter(DEFAULT_FORMAT))
         elif not _has_redacting_formatter(handler):
             handler.setFormatter(FormatterRedactionWrapper(handler.formatter))
+
+    _clamp_noisy_third_party_loggers(level)
