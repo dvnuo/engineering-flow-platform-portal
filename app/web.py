@@ -1419,13 +1419,16 @@ async def app_chat_send(request: Request):
         display_blocks = data.get("display_blocks")
         if not isinstance(display_blocks, list):
             display_blocks = []
+        assistant_message = data.get("response") or data.get("content") or ""
+        if not assistant_message and not display_blocks:
+            assistant_message = "(empty response)"
         
         return templates.TemplateResponse(
             "partials/chat_response.html",
             {
                 "request": request,
                 "user_message": message,
-                "assistant_message": data.get("response") or "(empty response)",
+                "assistant_message": assistant_message,
                 "session_id": data.get("session_id") or session_id or "",
                 "agent_name": agent.name if agent else "Assistant",
                 "user_message_id": data.get("user_message_id") or "",
