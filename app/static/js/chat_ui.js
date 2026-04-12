@@ -932,6 +932,11 @@ function parseDisplayBlocks(raw) {
   }
 }
 
+function getDisplayBlockText(block) {
+  if (!block || typeof block !== "object") return "";
+  return String(block.content ?? block.text ?? "");
+}
+
 function renderCodeBlock(block) {
   const language = String(block?.lang || block?.language || "").trim().toLowerCase();
   const code = String(block?.content || "");
@@ -955,7 +960,7 @@ function renderTableBlock(block) {
     : (Array.isArray(block?.columns) ? block.columns : []);
   const rows = Array.isArray(block?.rows) ? block.rows : [];
   if (!headers.length && !rows.length) {
-    return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(block?.content || ""))}</section>`;
+    return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(getDisplayBlockText(block)))}</section>`;
   }
   const headHtml = headers.length
     ? `<thead><tr>${headers.map((header) => `<th>${safe(header)}</th>`).join("")}</tr></thead>`
@@ -975,8 +980,9 @@ function renderTableBlock(block) {
 function renderSingleDisplayBlock(block) {
   if (!block || typeof block !== "object") return "";
   const type = String(block.type || "").toLowerCase();
+  const blockText = getDisplayBlockText(block);
   if (type === "markdown") {
-    return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(block.content || ""))}</section>`;
+    return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(blockText))}</section>`;
   }
   if (type === "code") return renderCodeBlock(block);
   if (type === "table") return renderTableBlock(block);
@@ -987,7 +993,7 @@ function renderSingleDisplayBlock(block) {
       <section class="message-block">
         <div class="message-callout is-${safe(tone)}">
           ${title ? `<div class="message-callout-title">${safe(title)}</div>` : ""}
-          <div class="message-callout-content">${md.render(normalizeMarkdownText(block.content || ""))}</div>
+          <div class="message-callout-content">${md.render(normalizeMarkdownText(blockText))}</div>
         </div>
       </section>
     `;
@@ -999,12 +1005,12 @@ function renderSingleDisplayBlock(block) {
       <section class="message-block">
         <div class="message-tool-result${status ? ` is-${safe(status)}` : ""}">
           <div class="message-tool-result-title">${safe(title)}</div>
-          <div class="message-tool-result-content">${md.render(normalizeMarkdownText(block.content || ""))}</div>
+          <div class="message-tool-result-content">${md.render(normalizeMarkdownText(blockText))}</div>
         </div>
       </section>
     `;
   }
-  return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(block.content || ""))}</section>`;
+  return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(blockText))}</section>`;
 }
 
 function renderDisplayBlocksToHtml(blocks, fallbackMarkdown = "") {

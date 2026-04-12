@@ -160,6 +160,9 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "renderDisplayBlocksToHtml" in js_source
     assert "enhanceMarkdownBlock" in js_source
     assert "copyText(" in js_source
+    assert "getDisplayBlockText" in js_source
+    assert "block.content ?? block.text ?? \"\"" in js_source
+    assert js_source.count("getDisplayBlockText(") >= 3
     assert "data-display-blocks" in js_source or "dataset.displayBlocks" in js_source
     assert ".message-codeblock" in css_source
     assert ".message-codeblock-toolbar" in css_source
