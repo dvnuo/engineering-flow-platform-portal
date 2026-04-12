@@ -1,6 +1,8 @@
 import unittest
 from types import SimpleNamespace
 
+from app.utils.git_urls import normalize_git_repo_url
+
 
 class K8sServiceNoopTest(unittest.TestCase):
     @classmethod
@@ -82,6 +84,32 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         self.assertIn("EFP_CONFIG_KEY", names)
         self.assertNotIn("PORTAL_INTERNAL_BASE_URL", names)
+
+    def test_git_clone_shell_command_uses_askpass_not_credential_url(self):
+        command = self.service._git_clone_shell_command()
+        self.assertNotIn("https://${GIT_USERNAME}:${GIT_TOKEN}@", command)
+        self.assertIn("GIT_ASKPASS", command)
+        self.assertIn("x-access-token", command)
+
+    def test_normalize_git_repo_url_ssh_to_https(self):
+        self.assertEqual(
+            normalize_git_repo_url("git@github.com:Acme/Portal.git"),
+            "https://github.com/Acme/Portal.git",
+        )
+        self.assertEqual(
+            normalize_git_repo_url("ssh://git@github.com/Acme/Portal.git"),
+            "https://github.com/Acme/Portal.git",
+        )
+
+    def test_normalize_git_repo_url_strips_https_credentials(self):
+        self.assertEqual(
+            normalize_git_repo_url("https://user:token@github.com/Acme/Portal.git"),
+            "https://github.com/Acme/Portal.git",
+        )
+        self.assertEqual(
+            normalize_git_repo_url("https://github.com/Acme/Portal.git"),
+            "https://github.com/Acme/Portal.git",
+        )
 
 
 if __name__ == "__main__":

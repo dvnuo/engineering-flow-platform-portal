@@ -9,9 +9,9 @@ def test_chat_ui_uses_canonical_runtime_proxy_paths():
     assert "/api/agents/${agentId}/usage" not in js
 
 
-def test_settings_panel_uses_canonical_runtime_proxy_paths_for_ssh():
+def test_settings_panel_no_longer_references_ssh_runtime_paths():
     template = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
-    assert "/a/${agentId}/api/ssh/public-key" in template
-    assert "/a/${agentId}/api/ssh/generate" in template
+    assert "/a/${agentId}/api/ssh/public-key" not in template
+    assert "/a/${agentId}/api/ssh/generate" not in template
     assert "/api/agents/${agentId}/ssh/public-key" not in template
     assert "/api/agents/${agentId}/ssh/generate" not in template

@@ -49,10 +49,6 @@ def _setup_web_runtime_test(monkeypatch):
             body = {"ok": True}
         elif subpath == "api/usage":
             body = {}
-        elif subpath == "api/ssh/generate":
-            body = {"public_key": "ssh-rsa AAA"}
-        elif subpath == "api/ssh/public-key":
-            body = {"public_key": "ssh-rsa AAA"}
         else:
             body = {"ok": True}
         return 200, json.dumps(body).encode("utf-8"), "application/json"
@@ -95,6 +91,7 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
             "original_config_json": json.dumps({
                 "llm": {"api_base": "https://custom.example/v1", "api_key": "keep-llm-key"},
                 "github": {"api_token": "keep-github-token"},
+                "ssh": {"enabled": True, "private_key_path": "/root/.ssh/id_rsa"},
                 "proxy": {"url": "http://proxy.local", "username": "proxy-user", "password": "keep-secret"},
                 "jira": {"instances": [{"name": "Jira", "url": "https://jira", "password": "jira-pass", "token": "jira-token"}]},
                 "confluence": {"instances": [{"name": "Conf", "url": "https://conf", "password": "conf-pass", "token": "conf-token"}]},
@@ -143,6 +140,7 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
     assert settings_payload["confluence"]["instances"][0]["username"] == ""
     assert settings_payload["debug"]["log_level"] == "ERROR"
     assert settings_payload["runtime_extra"] == {"keep": True}
+    assert "ssh" not in settings_payload
 
 
 def test_settings_save_preserves_proxy_password_when_field_absent(monkeypatch):

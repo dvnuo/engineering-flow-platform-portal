@@ -70,7 +70,7 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
 
 
-def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch):
+def test_proxy_agent_restricts_config_save_for_non_owner(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module
 
@@ -105,15 +105,13 @@ def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch
         )
 
         async def _fake_forward(**kwargs):
-            if kwargs.get("subpath") in {"api/ssh/public-key", "api/ssh/generate", "api/config/save"}:
-                raise AssertionError("Forward should not be called for forbidden sensitive endpoints")
+            if kwargs.get("subpath") == "api/config/save":
+                raise AssertionError("Forward should not be called for forbidden config save endpoint")
             return 200, b'{"ok": true}', "application/json"
 
         monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
         client = TestClient(app)
 
-        read_resp = client.get("/a/agent-1/api/ssh/public-key")
-        write_resp = client.post("/a/agent-1/api/ssh/generate")
         config_save_resp = client.post("/a/agent-1/api/config/save", content=b"{}")
         normal_resp = client.post(
             "/a/agent-1/api/chat",
@@ -123,13 +121,11 @@ def test_proxy_agent_restricts_sensitive_ssh_endpoints_for_non_owner(monkeypatch
     finally:
         app.dependency_overrides.clear()
 
-    assert read_resp.status_code == 403
-    assert write_resp.status_code == 403
     assert config_save_resp.status_code == 403
     assert normal_resp.status_code == 200
 
 
-def test_proxy_agent_allows_sensitive_ssh_endpoints_for_owner(monkeypatch):
+def test_proxy_agent_allows_config_save_for_owner(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module
 
@@ -165,21 +161,15 @@ def test_proxy_agent_allows_sensitive_ssh_endpoints_for_owner(monkeypatch):
         monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
         client = TestClient(app)
 
-        read_resp = client.get("/a/agent-1/api/ssh/public-key")
-        write_resp = client.post("/a/agent-1/api/ssh/generate")
         config_save_resp = client.post("/a/agent-1/api/config/save", content=b"{}")
         normal_resp = client.get("/a/agent-1/api/usage")
     finally:
         app.dependency_overrides.clear()
 
-    assert read_resp.status_code == 200
-    assert write_resp.status_code == 200
     assert config_save_resp.status_code == 200
     assert normal_resp.status_code == 200
-    assert captured[0]["subpath"] == "api/ssh/public-key"
-    assert captured[1]["subpath"] == "api/ssh/generate"
-    assert captured[2]["subpath"] == "api/config/save"
-    assert captured[3]["subpath"] == "api/usage"
+    assert captured[0]["subpath"] == "api/config/save"
+    assert captured[1]["subpath"] == "api/usage"
 
 
 def test_proxy_agent_blocks_server_files_endpoints_for_non_owner(monkeypatch):
@@ -282,13 +272,8 @@ def test_proxy_agent_allows_server_files_endpoints_for_owner(monkeypatch):
 def test_requires_write_access_normalizes_slashes():
     import app.api.proxy as proxy_module
 
-    assert proxy_module._requires_write_access("GET", "api/ssh/public-key")
-    assert proxy_module._requires_write_access("GET", "/api/ssh/public-key")
-    assert proxy_module._requires_write_access("GET", "api/ssh/public-key/")
-    assert proxy_module._requires_write_access("GET", "/api/ssh/public-key/")
-
-    assert proxy_module._requires_write_access("POST", "api/ssh/generate")
-    assert proxy_module._requires_write_access("POST", "/api/ssh/generate/")
+    assert not proxy_module._requires_write_access("GET", "api/ssh/public-key")
+    assert not proxy_module._requires_write_access("POST", "api/ssh/generate")
     assert proxy_module._requires_write_access("POST", "api/config/save")
     assert proxy_module._requires_write_access("POST", "/api/config/save/")
     assert proxy_module._requires_write_access("GET", "api/server-files")

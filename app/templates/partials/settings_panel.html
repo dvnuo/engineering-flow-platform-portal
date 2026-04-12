@@ -212,41 +212,6 @@
       </div>
     </section>
 
-    <!-- SSH Section -->
-    <section class="portal-panel-section">
-      <div class="portal-settings-section-head">
-        <div class="portal-settings-section-title">
-          <span class="portal-section-accent" aria-hidden="true"></span>
-          <h6>SSH</h6>
-        </div>
-        <div class="portal-checkbox-row">
-          <label class="toggle-switch"><input type="checkbox" name="ssh_enabled" {% if ssh.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
-          <span>Enabled</span>
-        </div>
-      </div>
-      <div id="ssh-existing-key" class="hidden portal-inline-state">
-        <p class="portal-inline-note">✅ Existing SSH key found:</p>
-        <textarea id="ssh-existing-public-key" readonly class="portal-form-textarea" rows="2"></textarea>
-        <p class="portal-inline-note">This key is already configured. Use regenerate to create a new one.</p>
-      </div>
-      <label class="portal-form-label">
-        <span class="portal-form-label">Private Key Path</span>
-        <input type="text" name="ssh_private_key_path" value="{{ ssh.get('private_key_path', '') }}" placeholder="~/.ssh/id_rsa or ~/.efp/.ssh/id_rsa" class="portal-form-input" />
-      </label>
-      <button type="button" class="portal-btn is-primary" data-settings-action="generate-ssh-key">
-        Generate RSA Key
-      </button>
-      <div id="ssh-key-result" class="hidden portal-inline-state">
-        <p class="portal-inline-success">🔐 Public Key (add to GitHub/GitLab):</p>
-        <textarea id="ssh-public-key" readonly class="portal-form-textarea" rows="3"></textarea>
-        <div class="portal-inline-state is-error">
-          <p class="portal-inline-error">⚠️ Important: Add the above public key to your GitHub/GitLab account:</p>
-          <p class="portal-inline-error">GitHub: Settings → SSH and GPG keys → New SSH key</p>
-        </div>
-        <p class="portal-inline-success" id="ssh-key-message"></p>
-      </div>
-    </section>
-
     <!-- Debug Section -->
     <section class="portal-panel-section">
       <div class="portal-settings-section-head">
@@ -278,82 +243,6 @@
   </form>
 
   <script>
-  // Check for existing SSH key on page load
-  async function checkExistingSSHKey(agentId) {
-    try {
-      const response = await fetch(`/a/${agentId}/api/ssh/public-key`);
-      const contentType = response.headers.get('content-type');
-      if (!response.ok || !contentType || !contentType.includes('application/json')) {
-        return; // Ignore errors for existing key check
-      }
-      const data = await response.json();
-      if (data.success && data.public_key) {
-        document.getElementById('ssh-existing-key').classList.remove('hidden');
-        document.getElementById('ssh-existing-public-key').value = data.public_key;
-      }
-    } catch (e) {
-      // No existing key, ignore
-    }
-  }
-  
-  // Generate SSH Key function
-  async function generateSSHKey(agentId) {
-    // Check existing first
-    await checkExistingSSHKey(agentId);
-    
-    const resultDiv = document.getElementById('ssh-key-result');
-    const publicKeyTextarea = document.getElementById('ssh-public-key');
-    const messageDiv = document.getElementById('ssh-key-message');
-    
-    resultDiv.classList.remove('hidden');
-    publicKeyTextarea.value = 'Generating SSH key...';
-    messageDiv.textContent = '';
-    
-    try {
-      const response = await fetch(`/a/${agentId}/api/ssh/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      let data;
-      const contentType = response.headers.get('content-type');
-      if (response.ok && contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        // Handle non-JSON error responses
-        const text = await response.text();
-        publicKeyTextarea.value = '';
-        messageDiv.textContent = '❌ Error: ' + (response.statusText || text || 'Unknown error');
-        return;
-      }
-      
-      if (data.success) {
-        publicKeyTextarea.value = data.public_key;
-        messageDiv.textContent = '✅ ' + data.message;
-        
-        // Update the private key path input (path stored internally)
-        document.querySelector('input[name="ssh_private_key_path"]').value = '/root/.efp/.ssh/id_rsa';
-        
-        // Hide existing key indicator since we generated new one
-        document.getElementById('ssh-existing-key').classList.add('hidden');
-      } else {
-        publicKeyTextarea.value = '';
-        messageDiv.textContent = '❌ Error: ' + (data.detail || data.error);
-      }
-    } catch (err) {
-      publicKeyTextarea.value = '';
-      messageDiv.textContent = '❌ Error: ' + err.message;
-    }
-  }
-  
-  // Initialize: check for existing SSH key when page loads
-  (function() {
-    const agentId = '{{ agent_id }}';
-    if (agentId) {
-      checkExistingSSHKey(agentId);
-    }
-  })();
-  
   (function() {
     // Provider-Model mapping (from EFP) - define only once
     if (typeof window.providerModels === 'undefined') {
