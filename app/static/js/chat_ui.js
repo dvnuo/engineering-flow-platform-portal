@@ -932,7 +932,7 @@ function parseDisplayBlocks(raw) {
     }
 
     if (type === "code") {
-      return !!(getMeaningfulScalar(block.code) || getDisplayBlockText(block));
+      return !!getDisplayBlockText(block, true);
     }
 
     if (type === "table") {
@@ -964,34 +964,22 @@ function parseDisplayBlocks(raw) {
   }
 }
 
-function getMeaningfulScalar(value) {
-  if (value == null) return "";
-  const text = String(value);
-  return text.trim() ? text : "";
-}
-
-function getDisplayBlockText(block) {
+function getDisplayBlockText(block, preferCode = false) {
   if (!block || typeof block !== "object") return "";
-  const textCandidates = [
-    block.content,
-    block.text,
-    block.message,
-    block.output,
-    block.result,
-    block.value,
-  ];
+  const textCandidates = preferCode
+    ? [block.code, block.content, block.text, block.output, block.result, block.value]
+    : [block.content, block.text, block.output, block.result, block.value, block.message];
   for (const value of textCandidates) {
-    if (value == null) continue;
-    const text = String(value);
-    if (!text.trim()) continue;
-    return text;
+    if (typeof value !== "string") continue;
+    if (!value.trim()) continue;
+    return value;
   }
   return "";
 }
 
 function renderCodeBlock(block) {
   const language = String(block?.lang || block?.language || "").trim().toLowerCase();
-  const code = getMeaningfulScalar(block?.code) || getDisplayBlockText(block);
+  const code = getDisplayBlockText(block, true);
   const className = language ? `language-${language}` : "";
   return `
     <section class="message-block message-block-code">

@@ -181,7 +181,6 @@ def test_chat_ui_display_block_helpers_behavior():
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     parse_block = _extract_js_function(js_file, "parseDisplayBlocks")
-    meaningful_block = _extract_js_function(js_file, "getMeaningfulScalar")
     text_block = _extract_js_function(js_file, "getDisplayBlockText")
     code_block = _extract_js_function(js_file, "renderCodeBlock")
     table_block = _extract_js_function(js_file, "renderTableBlock")
@@ -193,7 +192,6 @@ const normalizeMarkdownText = (v) => String(v || "");
 const escapeHtmlAttr = (v) => String(v ?? "");
 const md = {{ render: (v) => `<p>${{v}}</p>` }};
 {parse_block}
-{meaningful_block}
 {text_block}
 {code_block}
 {table_block}
@@ -265,6 +263,17 @@ const result = {{
     code: "   ",
     text: "print(1)",
   }}),
+  renderCodeFromCodeField: renderCodeBlock({{
+    type: "code",
+    code: "print(1)",
+    language: "python",
+  }}),
+  renderCodeBlankContentFallback: renderCodeBlock({{
+    type: "code",
+    content: "   ",
+    text: "x = 1",
+    language: "python",
+  }}),
 }};
 console.log(JSON.stringify(result));
 """
@@ -298,6 +307,10 @@ console.log(JSON.stringify(result));
     assert "hello from value" in data["markdownFromValue"]
     assert "print(1)" in data["blankCodeContentFallsBackToText"]
     assert "print(1)" in data["blankCodeFieldFallsBackToText"]
+    assert "print(1)" in data["renderCodeFromCodeField"]
+    assert "language-python" in data["renderCodeFromCodeField"]
+    assert "Copy" in data["renderCodeFromCodeField"]
+    assert "x = 1" in data["renderCodeBlankContentFallback"]
 
 
 def test_chat_ui_runtime_event_helpers_behavior():
