@@ -180,22 +180,30 @@ def test_chat_ui_display_block_helpers_behavior():
         pytest.skip("node is not installed; skipping display block helper test")
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    meaningful_text_block = _extract_js_function(js_file, "isMeaningfulText")
+    pick_value_block = _extract_js_function(js_file, "pickFirstMeaningfulBlockValue")
+    has_renderable_block = _extract_js_function(js_file, "hasRenderableDisplayBlock")
     parse_block = _extract_js_function(js_file, "parseDisplayBlocks")
     text_block = _extract_js_function(js_file, "getDisplayBlockText")
     code_block = _extract_js_function(js_file, "renderCodeBlock")
     table_block = _extract_js_function(js_file, "renderTableBlock")
     single_block = _extract_js_function(js_file, "renderSingleDisplayBlock")
+    render_blocks_block = _extract_js_function(js_file, "renderDisplayBlocksToHtml")
 
     script = f"""
 const safe = (v) => String(v ?? "");
 const normalizeMarkdownText = (v) => String(v || "");
 const escapeHtmlAttr = (v) => String(v ?? "");
 const md = {{ render: (v) => `<p>${{v}}</p>` }};
+{meaningful_text_block}
+{pick_value_block}
+{has_renderable_block}
 {parse_block}
 {text_block}
 {code_block}
 {table_block}
 {single_block}
+{render_blocks_block}
 
 const result = {{
   invalidParseLength: parseDisplayBlocks("not-json").length,
@@ -279,6 +287,15 @@ const result = {{
     text: "x = 1",
     language: "python",
   }}),
+  calloutFromEnglishMessage: renderSingleDisplayBlock({{
+    type: "callout",
+    tone: "warning",
+    title: "Note",
+    message: "Heads up",
+  }}),
+  bodylessBlocksFallbackPlaceholder: renderDisplayBlocksToHtml([
+    {{ type: "tool_result", title: "Bash", content: "   " }},
+  ], ""),
 }};
 console.log(JSON.stringify(result));
 """
@@ -317,6 +334,8 @@ console.log(JSON.stringify(result));
     assert "language-python" in data["renderCodeFromCodeField"]
     assert "Copy" in data["renderCodeFromCodeField"]
     assert "x = 1" in data["renderCodeBlankContentFallback"]
+    assert "Heads up" in data["calloutFromEnglishMessage"]
+    assert "(empty response)" in data["bodylessBlocksFallbackPlaceholder"]
 
 
 def test_chat_ui_runtime_event_helpers_behavior():

@@ -922,36 +922,46 @@ function normalizeMarkdownText(text) {
   return decodeHtml(String(text || "")).replace(/\r\n?/g, "\n");
 }
 
-function parseDisplayBlocks(raw) {
-  const isRenderableBlock = (block) => {
-    const type = String(block.type || "").trim().toLowerCase();
-    if (!type) return false;
+function isMeaningfulText(value) {
+  return value !== null && value !== undefined && String(value).trim().length > 0;
+}
 
-    if (["markdown", "callout", "tool_result"].includes(type)) {
-      return !!getDisplayBlockText(block);
+function pickFirstMeaningfulBlockValue(block, keys) {
+  if (!block || typeof block !== "object") return "";
+  for (const key of keys) {
+    if (isMeaningfulText(block[key])) {
+      return String(block[key]);
     }
+  }
+  return "";
+}
 
-    if (type === "code") {
-      return !!getDisplayBlockText(block, true);
-    }
-
-    if (type === "table") {
-      const headers = Array.isArray(block.headers) ? block.headers
-        : (Array.isArray(block.columns) ? block.columns : []);
-      const rows = Array.isArray(block.rows) ? block.rows : [];
-      return headers.length > 0 || rows.length > 0 || !!getDisplayBlockText(block);
-    }
-
+function hasRenderableDisplayBlock(block) {
+  if (!block || typeof block !== "object") return false;
+  const type = String(block.type || "").trim().toLowerCase();
+  if (!type) return false;
+  if (["markdown", "callout", "tool_result"].includes(type)) {
     return !!getDisplayBlockText(block);
-  };
+  }
+  if (type === "code") {
+    return !!pickFirstMeaningfulBlockValue(block, ["code", "content", "text", "message", "output", "result", "value"]);
+  }
+  if (type === "table") {
+    const headers = Array.isArray(block.headers) ? block.headers : (Array.isArray(block.columns) ? block.columns : []);
+    const rows = Array.isArray(block.rows) ? block.rows : [];
+    return headers.length > 0 || rows.length > 0 || !!getDisplayBlockText(block);
+  }
+  return !!getDisplayBlockText(block);
+}
 
+function parseDisplayBlocks(raw) {
   const normalizeBlocks = (blocks) => {
     if (!Array.isArray(blocks)) return [];
     return blocks
       .filter((block) => block && typeof block === "object" && typeof block.type === "string")
       .map((block) => ({ ...block, type: String(block.type).trim() }))
       .filter((block) => block.type.length > 0)
-      .filter((block) => isRenderableBlock(block));
+      .filter((block) => hasRenderableDisplayBlock(block));
   };
 
   if (Array.isArray(raw)) return normalizeBlocks(raw);
@@ -964,31 +974,28 @@ function parseDisplayBlocks(raw) {
   }
 }
 
-function getDisplayBlockText(block, preferCode = false) {
+function getDisplayBlockText(block) {
   if (!block || typeof block !== "object") return "";
-  const textCandidates = preferCode
-    ? [block.code, block.content, block.text, block.output, block.result, block.value, block.message]
-    : [block.content, block.text, block.output, block.result, block.value, block.message];
+  const textCandidates = [block.content, block.text, block.message, block.output, block.result, block.value];
   for (const value of textCandidates) {
-    if (typeof value !== "string") continue;
-    if (!value.trim()) continue;
-    return value;
+    if (isMeaningfulText(value)) return String(value);
   }
   return "";
 }
 
 function renderCodeBlock(block) {
   const language = String(block?.lang || block?.language || "").trim().toLowerCase();
-  const code = getDisplayBlockText(block, true);
+  const codeCandidates = [block?.code, block?.content, block?.text, block?.message, block?.output, block?.result, block?.value];
+  const code = codeCandidates.find((value) => isMeaningfulText(value));
   const className = language ? `language-${language}` : "";
   return `
     <section class="message-block message-block-code">
       <div class="message-codeblock">
         <div class="message-codeblock-toolbar">
           <span class="message-codeblock-lang">${safe(language || "text")}</span>
-          <button type="button" class="message-codeblock-copy" data-copy-text="${escapeHtmlAttr(code)}">Copy</button>
+          <button type="button" class="message-codeblock-copy" data-copy-text="${escapeHtmlAttr(code || "")}">Copy</button>
         </div>
-        <pre><code class="${className}">${safe(code)}</code></pre>
+        <pre><code class="${className}">${safe(code || "")}</code></pre>
       </div>
     </section>
   `;
@@ -1054,11 +1061,19 @@ function renderSingleDisplayBlock(block) {
 }
 
 function renderDisplayBlocksToHtml(blocks, fallbackMarkdown = "") {
-  if (!Array.isArray(blocks) || !blocks.length) {
+  const parsedBlocks = Array.isArray(blocks) ? blocks.filter((block) => hasRenderableDisplayBlock(block)) : [];
+  if (!parsedBlocks.length) {
+    if (isMeaningfulText(fallbackMarkdown)) {
+      return md.render(normalizeMarkdownText(fallbackMarkdown));
+    }
+    return md.render(normalizeMarkdownText("(empty response)"));
+  }
+  const html = parsedBlocks.map((block) => renderSingleDisplayBlock(block)).join("");
+  if (html) return html;
+  if (isMeaningfulText(fallbackMarkdown)) {
     return md.render(normalizeMarkdownText(fallbackMarkdown));
   }
-  const html = blocks.map((block) => renderSingleDisplayBlock(block)).join("");
-  return html || md.render(normalizeMarkdownText(fallbackMarkdown));
+  return md.render(normalizeMarkdownText("(empty response)"));
 }
 
 async function copyText(text) {
