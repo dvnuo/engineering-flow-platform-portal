@@ -224,6 +224,8 @@ const state = {
   myTasks: [],
   selectedTaskId: null,
   didAppendAttachmentHistoryForPendingSend: false,
+  serverFilesRootPath: null,
+  serverFilesCurrentPath: null,
 };
 
 const md = window.markdownit({
@@ -2469,31 +2471,58 @@ async function openServerFiles() {
     setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`);
     return;
   }
-  const workspacePath = '/root/.efp/workspace';
-  await loadServerFiles(workspacePath);
+  state.serverFilesRootPath = null;
+  state.serverFilesCurrentPath = null;
+  await loadServerFiles();
+}
+
+function buildServerFilesBreadcrumb(path, rootPath) {
+  const normalizedRoot = String(rootPath || '').replace(/\/+$/, '');
+  const normalizedPath = String(path || normalizedRoot || '').replace(/\/+$/, '');
+  const breadcrumbParts = [
+    `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">Workspace</a>`
+  ];
+
+  if (normalizedPath === normalizedRoot) {
+    return breadcrumbParts.join(' ');
+  }
+
+  const relativePath = normalizedPath.startsWith(`${normalizedRoot}/`)
+    ? normalizedPath.slice(normalizedRoot.length)
+    : normalizedPath;
+  const parts = relativePath.split('/').filter(Boolean);
+  let currentPath = normalizedRoot;
+  const preserveLeadingSlash = normalizedPath.startsWith('/');
+  for (const part of parts) {
+    currentPath = currentPath
+      ? `${currentPath}/${part}`
+      : (preserveLeadingSlash ? `/${part}` : part);
+    breadcrumbParts.push(
+      '<span class="portal-breadcrumb-sep">/</span>' +
+      `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(currentPath)}">${escapeHtml(part)}</a>`
+    );
+  }
+  return breadcrumbParts.join(' ');
 }
 
 async function loadServerFiles(path) {
   setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>');
 
   try {
-    const data = await agentApi(`/api/files?path=${encodeURIComponent(path)}`);
+    const hasPath = typeof path === 'string' && path.length > 0;
+    const endpoint = hasPath
+      ? `/api/server-files?path=${encodeURIComponent(path)}`
+      : '/api/server-files';
+    const data = await agentApi(endpoint);
     const items = data.items || [];
+    const runtimePath = (typeof data.path === 'string' && data.path.length > 0) ? data.path : '';
+    const currentPath = runtimePath || (hasPath ? path : (state.serverFilesRootPath || ''));
+    const runtimeRoot = (typeof data.root_path === 'string' && data.root_path.length > 0) ? data.root_path : '';
+    const rootPath = runtimeRoot || state.serverFilesRootPath || currentPath || '';
+    state.serverFilesRootPath = rootPath;
+    state.serverFilesCurrentPath = currentPath || rootPath || '';
 
-    // Build breadcrumb using the shared portal breadcrumb contract ([data-server-path] delegated in bindEvents)
-    const parts = path.split('/').filter(Boolean);
-    let breadcrumbParts = [
-      '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">/</a>'
-    ];
-    let currentPath = '';
-    for (const part of parts) {
-      currentPath += '/' + part;
-      breadcrumbParts.push(
-        '<span class="portal-breadcrumb-sep">/</span>' +
-        '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="' + escapeHtmlAttr(currentPath) + '">' + escapeHtml(part) + '</a>'
-      );
-    }
-    const breadcrumb = breadcrumbParts.join(' ');
+    const breadcrumb = buildServerFilesBreadcrumb(currentPath, rootPath);
 
     // Build file rows with checkboxes in separate cell
     const rows = items.map((item) => {
@@ -2516,7 +2545,7 @@ async function loadServerFiles(path) {
         `<div class="portal-file-toolbar">` +
           `<div class="portal-file-breadcrumb">${breadcrumb}</div>` +
           `<div class="portal-file-toolbar-actions">` +
-            `<button class="portal-btn is-secondary sf-upload-btn">Upload ZIP</button>` +
+            `<button class="portal-btn is-secondary sf-upload-btn">Upload</button>` +
             `<button class="portal-btn is-secondary sf-download-btn" disabled>Download</button>` +
           `</div>` +
         `</div>` +
@@ -2578,7 +2607,7 @@ async function loadServerFiles(path) {
           if (isDir) {
             loadServerFiles(filePath);
           } else {
-            previewServerFile(filePath, path);
+            previewServerFile(filePath, currentPath, rootPath);
           }
         });
       });
@@ -2590,7 +2619,7 @@ async function loadServerFiles(path) {
 
       // Upload button handler
       panel.querySelector('.sf-upload-btn')?.addEventListener('click', () => {
-        uploadZipToServer(path);
+        uploadToServerFiles(currentPath);
       });
 
       // Download button handler
@@ -2649,10 +2678,9 @@ function updateDownloadButton(panel) {
   }
 }
 
-async function uploadZipToServer(targetPath) {
+async function uploadToServerFiles(targetPath) {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.zip';
   input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2664,7 +2692,7 @@ async function uploadZipToServer(targetPath) {
       formData.append('file', file);
       formData.append('path', targetPath);
 
-      const resp = await fetch(`/a/${state.selectedAgentId}/api/files/upload-zip`, {
+      const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/upload`, {
         method: 'POST',
         body: formData
       });
@@ -2677,8 +2705,25 @@ async function uploadZipToServer(targetPath) {
 
       const data = await resp.json();
       if (data.success) {
-        const safeCount = Number.isFinite(Number(data.count)) ? Number(data.count) : 0;
-        setToolPanel("Server Files", `<div class="portal-inline-state is-success">Uploaded ${safeCount} files</div>`);
+        const mode = typeof data.mode === 'string' ? data.mode : '';
+        const uploadedFilename = String(data.uploaded_filename || file.name || 'file');
+        const extractedCount = Number.isFinite(Number(data.extracted_count))
+          ? Number(data.extracted_count)
+          : null;
+        const targetLabel = data.target_path ? ` to ${escapeHtml(data.target_path)}` : '';
+        let message;
+        if (mode === 'zip_extract') {
+          const countLabel = extractedCount !== null ? extractedCount : 0;
+          message = `Extracted ${countLabel} files${targetLabel}`;
+        } else if (mode === 'file_save') {
+          message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
+        } else if (extractedCount !== null || String(uploadedFilename).toLowerCase().endsWith('.zip')) {
+          const countLabel = extractedCount !== null ? extractedCount : 0;
+          message = `Extracted ${countLabel} files${targetLabel}`;
+        } else {
+          message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
+        }
+        setToolPanel("Server Files", `<div class="portal-inline-state is-success">${message}</div>`);
         loadServerFiles(targetPath);
       } else {
         setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`);
@@ -2694,64 +2739,67 @@ function downloadSelectedFiles(paths) {
   if (paths.length === 0) return;
 
   // Use repeated query params to avoid comma ambiguity
-  const url = new URL(`${window.location.origin}/a/${state.selectedAgentId}/api/files/download`);
+  const url = new URL(`${window.location.origin}/a/${state.selectedAgentId}/api/server-files/download`);
   paths.forEach(p => url.searchParams.append('paths', p));
   window.open(url.toString());
 }
 
-async function previewServerFile(filePath, currentDir) {
+async function previewServerFile(filePath, currentDir, rootPath) {
   try {
     const encodedPath = encodeURIComponent(filePath);
     const dir = currentDir || filePath.substring(0, filePath.lastIndexOf('/'));
-    const resp = await agentApi(`/api/files/read?path=${encodedPath}`);
+    const activeRootPath = rootPath || state.serverFilesRootPath || currentDir || dir || '';
+    const breadcrumb = buildServerFilesBreadcrumb(dir, activeRootPath);
+    const ext = (filePath.split('.').pop() || '').toLowerCase();
+    const contentUrl = `/a/${state.selectedAgentId}/api/server-files/content?path=${encodedPath}`;
+    const fileName = filePath.split('/').pop();
+    const binaryPreviewExtensions = {
+      image: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff'],
+      pdf: ['pdf'],
+      audio: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'],
+      video: ['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'],
+    };
 
-    // Build breadcrumb for navigation
-    const parts = dir.split('/').filter(Boolean);
-    let breadcrumbParts = [
-      '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">/</a>'
-    ];
-    let currentPath = '';
-    for (const part of parts) {
-      currentPath += '/' + part;
-      breadcrumbParts.push(
-        '<span class="portal-breadcrumb-sep">/</span>' +
-        '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="' + escapeHtmlAttr(currentPath) + '">' + escapeHtml(part) + '</a>'
+    if (binaryPreviewExtensions.image.includes(ext)) {
+      setToolPanel("File: " + fileName,
+        `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+        `<div class="portal-preview-image-wrap"><img src="${contentUrl}" class="max-w-full rounded" /></div>`
       );
+      return;
     }
-    const breadcrumb = breadcrumbParts.join(' ');
-
-    if (resp.error) {
-      // Check if it's a binary file error - show file info instead
-      if (resp.error.includes('binary')) {
-        const size = resp.size || 'Unknown';
-        const ext = filePath.split('.').pop().toLowerCase();
-        const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
-
-        if (isImage) {
-          setToolPanel("File: " + filePath.split('/').pop(),
-            `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-            `<div class="portal-preview-image-wrap"><img src="/a/${state.selectedAgentId}/api/files/read?path=${encodedPath}" class="max-w-full rounded" /></div>`
-          );
-        } else {
-          setToolPanel("File: " + filePath.split('/').pop(),
-            `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-            `<div class="portal-file-binary-meta"><div>Binary file (${size} bytes)</div><div>Type: ${ext.toUpperCase()}</div></div>`
-          );
-        }
-      } else {
-        setToolPanel("File Preview", `<div class="portal-inline-state is-error">Error: ${safe(resp.error)}</div>`);
-      }
+    if (binaryPreviewExtensions.pdf.includes(ext)) {
+      setToolPanel("File: " + fileName,
+        `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+        `<iframe src="${contentUrl}" class="w-full" style="min-height: 70vh;" title="${escapeHtmlAttr(fileName)}"></iframe>`
+      );
+      return;
+    }
+    if (binaryPreviewExtensions.audio.includes(ext)) {
+      setToolPanel("File: " + fileName,
+        `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+        `<audio controls src="${contentUrl}" class="w-full"></audio>`
+      );
+      return;
+    }
+    if (binaryPreviewExtensions.video.includes(ext)) {
+      setToolPanel("File: " + fileName,
+        `<div class="portal-file-preview-header">${breadcrumb}</div>` +
+        `<video controls src="${contentUrl}" class="max-w-full rounded"></video>`
+      );
       return;
     }
 
+    const resp = await agentApi(`/api/server-files/read?path=${encodedPath}`);
+    if (resp.error) throw new Error(resp.error);
     const content = resp.content || "(empty file)";
-    const language = resp.language || 'text';
-    setToolPanel("File: " + filePath.split('/').pop(),
+    setToolPanel("File: " + fileName,
       `<div class="portal-file-preview-header">${breadcrumb}</div>` +
       `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`
     );
   } catch (error) {
-    setToolPanel("File Preview", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`);
+    setToolPanel("File Preview",
+      `<div class="portal-inline-state is-error">Unable to preview this file: ${safe(error.message)}</div>`
+    );
   }
 }
 
@@ -3502,7 +3550,7 @@ function bindEvents() {
     const serverPathLink = event.target.closest('[data-server-path]');
     if (serverPathLink) {
       event.preventDefault();
-      await loadServerFiles(serverPathLink.dataset.serverPath || '/');
+      await loadServerFiles(serverPathLink.dataset.serverPath || state.serverFilesRootPath || undefined);
       return;
     }
 
