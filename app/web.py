@@ -1069,6 +1069,45 @@ async def agent_files_upload(agent_id: str, request: Request):
         db.close()
 
 
+@router.post("/a/{agent_id}/api/server-files/upload")
+async def agent_server_files_upload(agent_id: str, request: Request):
+    """Proxy server files upload to EFP agent."""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_write(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        form = await request.form()
+        file_field = form.get("file")
+        target_path = form.get("path") or ""
+        if not file_field:
+            raise HTTPException(status_code=400, detail="No file provided")
+
+        content = await file_field.read()
+        files = {"file": (file_field.filename, content, file_field.content_type)}
+
+        status_code, content_bytes, content_type = await _forward_runtime_multipart(
+            user=user,
+            agent=agent,
+            method="POST",
+            subpath="api/server-files/upload",
+            query_items=[],
+            files=files,
+            data={"path": target_path},
+        )
+
+        return Response(content=content_bytes, media_type=content_type, status_code=status_code)
+    finally:
+        db.close()
+
+
 @router.get("/a/{agent_id}/api/files/{file_id}/preview")
 async def agent_files_preview(request: Request, agent_id: str, file_id: str, max_chars: int = 5000):
     """Proxy file preview to EFP agent"""

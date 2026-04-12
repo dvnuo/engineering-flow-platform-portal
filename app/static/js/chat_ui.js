@@ -2726,8 +2726,8 @@ async function uploadToServerFiles(targetPath) {
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
       formData.append('path', targetPath);
+      formData.append('file', file);
 
       const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/upload`, {
         method: 'POST',
