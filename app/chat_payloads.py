@@ -1,10 +1,9 @@
 def build_markdown_display_blocks(text: str) -> list[dict]:
-    if text is None:
+    if not isinstance(text, str):
         return []
-    raw_text = str(text)
-    if not raw_text.strip():
+    if not text.strip():
         return []
-    return [{"type": "markdown", "content": raw_text}]
+    return [{"type": "markdown", "content": text}]
 
 
 def _first_text_value(block: dict, field_order: tuple[str, ...]) -> str:
