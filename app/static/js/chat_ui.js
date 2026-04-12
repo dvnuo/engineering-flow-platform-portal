@@ -2547,6 +2547,7 @@ async function loadServerFiles(path) {
           `<div class="portal-file-toolbar-actions">` +
             `<button class="portal-btn is-secondary sf-upload-btn">Upload</button>` +
             `<button class="portal-btn is-secondary sf-download-btn" disabled>Download</button>` +
+            `<button class="portal-btn is-secondary sf-delete-btn" disabled>Delete</button>` +
           `</div>` +
         `</div>` +
         `<div class="portal-file-select-row">` +
@@ -2630,6 +2631,14 @@ async function loadServerFiles(path) {
         }
       });
 
+      // Delete button handler
+      panel.querySelector('.sf-delete-btn')?.addEventListener('click', () => {
+        const selected = getSelectedFiles(panel);
+        if (selected.length > 0) {
+          deleteSelectedServerFiles(selected, currentPath);
+        }
+      });
+
       // Initialize button state
       updateDownloadButton(panel);
     }
@@ -2647,16 +2656,44 @@ function getSelectedFiles(panel) {
   return selected;
 }
 
+async function parseRuntimeErrorResponse(resp) {
+  try {
+    const data = await resp.json();
+    if (data && typeof data === 'object') {
+      const errorText = (typeof data.error === 'string' && data.error.trim()) ? data.error.trim() : '';
+      const detailText = (typeof data.detail === 'string' && data.detail.trim()) ? data.detail.trim() : '';
+      if (errorText) {
+        const safeDetail = detailText && detailText.length <= 160 && !/[\r\n\t]/.test(detailText);
+        return safeDetail ? `${errorText} (${detailText})` : errorText;
+      }
+    }
+  } catch (_err) {
+    // Fall through to plain text fallback.
+  }
+
+  try {
+    const errText = await resp.text();
+    return errText || `HTTP ${resp.status}`;
+  } catch (_err) {
+    return `HTTP ${resp.status}`;
+  }
+}
+
 function updateDownloadButton(panel) {
-  const btn = panel.querySelector('.sf-download-btn');
+  const downloadBtn = panel.querySelector('.sf-download-btn');
+  const deleteBtn = panel.querySelector('.sf-delete-btn');
   const selectAll = document.getElementById('sf-select-all');
   const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
   const checkedBoxes = panel.querySelectorAll('.file-checkbox:not([disabled]):checked');
 
   const selected = getSelectedFiles(panel);
-  if (btn) {
-    btn.disabled = selected.length === 0;
-    btn.textContent = selected.length > 0 ? `Download (${selected.length})` : 'Download';
+  if (downloadBtn) {
+    downloadBtn.disabled = selected.length === 0;
+    downloadBtn.textContent = selected.length > 0 ? `Download (${selected.length})` : 'Download';
+  }
+  if (deleteBtn) {
+    deleteBtn.disabled = selected.length === 0;
+    deleteBtn.textContent = selected.length > 0 ? `Delete (${selected.length})` : 'Delete';
   }
 
   // Update select all checkbox state
@@ -2698,8 +2735,8 @@ async function uploadToServerFiles(targetPath) {
       });
 
       if (!resp.ok) {
-        const errText = await resp.text();
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errText)}</div>`);
+        const errMsg = await parseRuntimeErrorResponse(resp);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errMsg)}</div>`);
         return;
       }
 
@@ -2733,6 +2770,34 @@ async function uploadToServerFiles(targetPath) {
     }
   };
   input.click();
+}
+
+async function deleteSelectedServerFiles(paths, currentPath) {
+  if (!Array.isArray(paths) || paths.length === 0) return;
+
+  const confirmed = window.confirm(`Delete ${paths.length} selected item(s)? This cannot be undone.`);
+  if (!confirmed) return;
+
+  setToolPanel("Server Files", `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`);
+
+  try {
+    const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/delete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    });
+
+    if (!resp.ok) {
+      const errMsg = await parseRuntimeErrorResponse(resp);
+      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(errMsg)}</div>`);
+      return;
+    }
+
+    setToolPanel("Server Files", `<div class="portal-inline-state is-success">Deleted ${paths.length} item(s).</div>`);
+    loadServerFiles(currentPath);
+  } catch (err) {
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(err.message)}</div>`);
+  }
 }
 
 function downloadSelectedFiles(paths) {
