@@ -11,47 +11,33 @@ class _StubRequirementBundleService:
                 "title": "Checkout",
                 "domain": "payments",
                 "status": "draft",
-                "bundle_ref": {
-                    "repo": "octo/assets",
-                    "path": "requirement-bundles/payments/checkout",
-                    "branch": "bundle/checkout/abc123",
-                },
-                "manifest_ref": {
-                    "repo": "octo/assets",
-                    "path": "requirement-bundles/payments/checkout",
-                    "branch": "bundle/checkout/abc123",
-                },
+                "template_id": "requirement.v1",
+                "template_label": "Requirement Bundle",
+                "artifacts": None,
+                "bundle_ref": {"repo": "octo/assets", "path": "requirement-bundles/payments/checkout", "branch": "bundle/checkout/abc123"},
+                "manifest_ref": {"repo": "octo/assets", "path": "requirement-bundles/payments/checkout", "branch": "bundle/checkout/abc123"},
                 "requirements_exists": True,
                 "test_cases_exists": False,
                 "last_commit_sha": "abc123",
             }
         ]
 
-    def create_bundle(self, _payload):
-        return SimpleNamespace(
-            repo="octo/assets",
-            path="requirement-bundles/payments/checkout",
-            branch="bundle/checkout/abc123",
-        )
+    def create_bundle(self, payload):
+        assert payload.template_id == "research.v1"
+        return SimpleNamespace(repo="octo/assets", path="requirement-bundles/research/payments/checkout", branch="bundle/research/checkout/abc123")
 
     def inspect_bundle(self, bundle_ref):
         return {
-            "manifest_ref": {
-                "repo": bundle_ref.repo,
-                "path": bundle_ref.path,
-                "branch": bundle_ref.branch,
-            },
-            "bundle_ref": {
-                "repo": bundle_ref.repo,
-                "path": bundle_ref.path,
-                "branch": bundle_ref.branch,
-            },
-            "manifest": {
-                "bundle_id": "RB-checkout",
-                "title": "Checkout",
-                "status": "draft",
-                "scope": {"domain": "payments"},
-            },
+            "manifest_ref": {"repo": bundle_ref.repo, "path": bundle_ref.path, "branch": bundle_ref.branch},
+            "bundle_ref": {"repo": bundle_ref.repo, "path": bundle_ref.path, "branch": bundle_ref.branch},
+            "manifest": {"bundle_id": "RS-checkout", "title": "Checkout", "status": "draft", "scope": {"domain": "payments"}},
+            "template_id": "requirement.v1",
+            "template_label": "Requirement Bundle",
+            "template_version": 1,
+            "artifacts": [
+                {"artifact_key": "requirements", "file_path": "requirements.yaml", "exists": True},
+                {"artifact_key": "test_cases", "file_path": "test-cases.yaml", "exists": False},
+            ],
             "requirements_file": "requirements.yaml",
             "test_cases_file": "test-cases.yaml",
             "requirements_exists": True,
@@ -60,7 +46,7 @@ class _StubRequirementBundleService:
         }
 
 
-def test_requirement_bundles_api_requires_auth_for_get(monkeypatch):
+def test_requirement_bundles_api_requires_auth_for_get():
     from app.main import app
 
     client = TestClient(app)
@@ -68,7 +54,7 @@ def test_requirement_bundles_api_requires_auth_for_get(monkeypatch):
     assert response.status_code == 401
 
 
-def test_requirement_bundles_api_get_returns_list_items(monkeypatch):
+def test_requirement_bundles_api_get_returns_template_fields(monkeypatch):
     from app.main import app
     import app.api.requirement_bundles as requirement_bundles_api
 
@@ -80,14 +66,13 @@ def test_requirement_bundles_api_get_returns_list_items(monkeypatch):
         response = client.get("/api/requirement-bundles")
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["bundle_id"] == "RB-checkout"
-        assert data[0]["bundle_ref"]["path"] == "requirement-bundles/payments/checkout"
+        assert data[0]["template_id"] == "requirement.v1"
+        assert data[0]["template_label"] == "Requirement Bundle"
     finally:
         app.dependency_overrides.clear()
 
 
-def test_requirement_bundles_api_post_creates_and_returns_detail(monkeypatch):
+def test_requirement_bundles_api_post_accepts_template_id(monkeypatch):
     from app.main import app
     import app.api.requirement_bundles as requirement_bundles_api
 
@@ -98,16 +83,14 @@ def test_requirement_bundles_api_post_creates_and_returns_detail(monkeypatch):
         client = TestClient(app)
         response = client.post(
             "/api/requirement-bundles",
-            json={
-                "title": "Checkout",
-                "domain": "payments",
-                "slug": "checkout",
-                "base_branch": "main",
-            },
+            json={"template_id": "research.v1", "title": "Checkout", "domain": "payments", "slug": "checkout", "base_branch": "main"},
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["bundle_ref"]["repo"] == "octo/assets"
-        assert data["manifest"]["bundle_id"] == "RB-checkout"
+        assert data["template_id"] == "requirement.v1"
+        assert data["template_label"] == "Requirement Bundle"
+        assert "artifacts" in data
+        assert "requirements_file" in data
+        assert "test_cases_file" in data
     finally:
         app.dependency_overrides.clear()

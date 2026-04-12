@@ -1,3 +1,4 @@
+const rootBreadcrumbAttr = "data-server-path="/"";
 /**
  * Portal-native chat UI.
  * Runtime remains source-of-truth for chat/session/file APIs under /a/{agent_id}/api/...
@@ -2088,7 +2089,7 @@ function syncMainHeader() {
   if (assistantMode) {
     restoreAssistantHeaderState();
   } else {
-    dom.embedTitle.textContent = state.activeNavSection === "bundles" ? "Requirement Bundles" : "My Tasks";
+    dom.embedTitle.textContent = state.activeNavSection === "bundles" ? "Bundles" : "My Tasks";
     setChatStatus(state.activeNavSection === "bundles" ? "Browse and open bundle detail in the main stage" : "Browse tasks and open task detail in the main stage");
   }
 }
@@ -2238,7 +2239,7 @@ function renderRequirementBundleList(errorMessage = "") {
     row.className = `portal-bundle-row${activeClass}`;
     row.innerHTML = `
       <div class="portal-bundle-title">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
-      <div class="portal-bundle-meta">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
+      <div class="portal-bundle-meta">${safe(item.template_label || item.template_id || "Bundle")} · ${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
     `;
     row.addEventListener("click", async () => {
       state.selectedBundleKey = key;
@@ -2269,7 +2270,7 @@ async function openRequirementBundleInMain(bundleRef = null) {
   if (!dom.workspaceDetailContent) return;
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading requirement bundles…</div>';
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading bundles…</div>';
   try {
     let path = "/app/requirement-bundles/panel";
     if (bundleRef) {
@@ -3780,6 +3781,7 @@ function bindEvents() {
     const form = e.target;
     const formData = new FormData(form);
     const payload = {
+      template_id: String(formData.get("template_id") || "requirement.v1"),
       title: String(formData.get("title") || ""),
       domain: String(formData.get("domain") || ""),
       slug: String(formData.get("slug") || "").trim() || null,
@@ -3807,6 +3809,7 @@ function bindEvents() {
 
       form.reset();
       form.querySelector('[name="base_branch"]').value = payload.base_branch;
+      form.querySelector('[name="template_id"]').value = 'requirement.v1';
       dom.createBundleModal?.classList.add("hidden");
       dom.createBundleModal?.setAttribute("aria-hidden", "true");
       await setActiveNavSection("bundles", { toggleIfSame: false });

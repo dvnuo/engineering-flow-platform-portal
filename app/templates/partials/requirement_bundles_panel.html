@@ -1,7 +1,7 @@
 <div id="requirement-bundles-panel-root" class="portal-panel-stack">
   <div class="portal-panel-header">
     <div>
-      <h1 class="portal-panel-title">Requirement Bundles</h1>
+      <h1 class="portal-panel-title">Bundles</h1>
       <p class="portal-panel-subtitle">Open a bundle from the left sidebar to view details and run actions.</p>
     </div>
   </div>
@@ -26,6 +26,10 @@
   {% set bundle_status = manifest.status or 'unknown' %}
   {% set bundle_domain = manifest.scope.domain if manifest.scope and manifest.scope.domain else 'unknown' %}
   {% set github_url = 'https://github.com/' ~ bundle_detail.bundle_ref.repo ~ '/tree/' ~ bundle_detail.bundle_ref.branch ~ '/' ~ bundle_detail.bundle_ref.path %}
+  {% set artifact_exists_map = {} %}
+  {% for artifact in bundle_detail.artifacts or [] %}
+    {% set _ = artifact_exists_map.update({artifact.artifact_key: artifact.exists}) %}
+  {% endfor %}
   <section class="portal-panel-section">
     <div class="portal-panel-header">
       <h2 class="portal-panel-title">Bundle Detail</h2>
@@ -36,28 +40,49 @@
       <div>bundle_id: <span>{{ bundle_id }}</span></div>
       <div>status: <span>{{ bundle_status }}</span></div>
       <div>domain: <span>{{ bundle_domain }}</span></div>
+      <div>template: <span>{{ bundle_detail.template_label }}{% if bundle_detail.template_id != 'requirement.v1' %} ({{ bundle_detail.template_id }}){% endif %}</span></div>
       <div>repo: <span>{{ bundle_detail.bundle_ref.repo }}</span></div>
       <div>branch: <span>{{ bundle_detail.bundle_ref.branch }}</span></div>
-      <div>{{ bundle_detail.requirements_file }}: <span>{{ 'exists' if bundle_detail.requirements_exists else 'missing' }}</span></div>
-      <div>{{ bundle_detail.test_cases_file }}: <span>{{ 'exists' if bundle_detail.test_cases_exists else 'missing' }}</span></div>
+    </div>
+
+    <div class="portal-panel-section">
+      <h3 class="portal-detail-label">Artifacts</h3>
+      <div class="portal-panel-grid cols-2">
+        {% for artifact in bundle_detail.artifacts or [] %}
+        <div>{{ artifact.file_path }}: <span>{{ 'exists' if artifact.exists else 'missing' }}</span></div>
+        {% endfor %}
+      </div>
     </div>
 
     <div class="portal-panel-grid cols-2">
-      <form method="post" action="/app/requirement-bundles/collect" hx-post="/app/requirement-bundles/collect" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
-        <h3 class="portal-detail-label">Collect Requirements</h3>
+      {% for template in bundle_templates %}
+      {% if template.template_id == bundle_detail.template_id %}
+      {% for action in template.actions %}
+      {% set missing_required = [] %}
+      {% for required_artifact in action.required_artifacts %}
+      {% if not artifact_exists_map.get(required_artifact) %}
+      {% set _ = missing_required.append(required_artifact) %}
+      {% endif %}
+      {% endfor %}
+      <form method="post" action="/app/requirement-bundles/actions/run" hx-post="/app/requirement-bundles/actions/run" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
+        <h3 class="portal-detail-label">{{ action.label }}</h3>
+        <p class="portal-panel-note">{{ action.description }}</p>
+        <input type="hidden" name="template_id" value="{{ bundle_detail.template_id }}" />
+        <input type="hidden" name="action_id" value="{{ action.action_id }}" />
         <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
         <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
         <input type="hidden" name="bundle_branch" value="{{ bundle_detail.bundle_ref.branch }}" />
         <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
         <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
         <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
-        <label class="portal-form-label">Collect Agent</label>
-        <select name="collect_agent_id" required class="portal-form-select">
-          <option value="">-- Select collect agent --</option>
+        <label class="portal-form-label">Action Agent</label>
+        <select name="action_agent_id" required class="portal-form-select">
+          <option value="">-- Select action agent --</option>
           {% for agent in agents %}
           <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
           {% endfor %}
         </select>
+        {% if action.requires_sources %}
         <div>
           <label class="portal-form-label">Jira Sources (issue keys or browse URLs)</label>
           <p class="portal-panel-note">Enter comma or newline separated Jira issue keys or browse links.</p>
@@ -78,29 +103,15 @@
           <p class="portal-panel-note">Figma URLs are stored only; not processed in MVP.</p>
           <textarea name="figma_sources" rows="2" placeholder="https://www.figma.com/file/abc123/... (stored only; not processed in MVP)" class="portal-form-textarea"></textarea>
         </div>
-        <button type="submit" class="portal-btn is-primary">Create + Dispatch</button>
-      </form>
-
-      <form method="post" action="/app/requirement-bundles/design-test-cases" hx-post="/app/requirement-bundles/design-test-cases" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
-        <h3 class="portal-detail-label">Design Test Cases</h3>
-        <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
-        <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
-        <input type="hidden" name="bundle_branch" value="{{ bundle_detail.bundle_ref.branch }}" />
-        <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
-        <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
-        <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
-        <label class="portal-form-label">Design Agent</label>
-        <select name="design_agent_id" required class="portal-form-select">
-          <option value="">-- Select design agent --</option>
-          {% for agent in agents %}
-          <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
-          {% endfor %}
-        </select>
-        {% if not bundle_detail.requirements_exists %}
-        <p class="portal-inline-state is-error">{{ bundle_detail.requirements_file }} not found — run Collect Requirements first</p>
         {% endif %}
-        <button type="submit" {% if not bundle_detail.requirements_exists %}disabled{% endif %} class="portal-btn is-primary">Create + Dispatch</button>
+        {% if missing_required %}
+        <p class="portal-inline-state is-error">{{ action.missing_artifact_message or ('Required artifacts missing: ' ~ (missing_required | join(', '))) }}</p>
+        {% endif %}
+        <button type="submit" {% if missing_required %}disabled{% endif %} class="portal-btn is-primary">Create + Dispatch</button>
       </form>
+      {% endfor %}
+      {% endif %}
+      {% endfor %}
     </div>
 
     {% if task_result %}

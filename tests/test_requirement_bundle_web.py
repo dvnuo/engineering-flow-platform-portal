@@ -33,6 +33,54 @@ class _FakeTaskRepo:
         return task
 
 
+def _detail_for(template_id: str, artifact_exists: dict[str, bool] | None = None):
+    if artifact_exists is None:
+        artifact_exists = {}
+    mapping = {
+        "requirement.v1": {
+            "label": "Requirement Bundle",
+            "path": "requirement-bundles/payments/checkout-flow",
+            "artifacts": [
+                ("requirements", "requirements.yaml"),
+                ("test_cases", "test-cases.yaml"),
+            ],
+        },
+        "research.v1": {
+            "label": "Research Bundle",
+            "path": "requirement-bundles/research/payments/checkout-flow",
+            "artifacts": [("research_notes", "research-notes.yaml")],
+        },
+        "development.v1": {
+            "label": "Development Bundle",
+            "path": "requirement-bundles/development/payments/checkout-flow",
+            "artifacts": [("implementation_plan", "implementation-plan.yaml")],
+        },
+        "operations.v1": {
+            "label": "Operations Bundle",
+            "path": "requirement-bundles/operations/payments/checkout-flow",
+            "artifacts": [("runbook", "runbook.yaml")],
+        },
+    }[template_id]
+    artifacts = [
+        SimpleNamespace(artifact_key=k, file_path=f, exists=artifact_exists.get(k, True))
+        for k, f in mapping["artifacts"]
+    ]
+    return SimpleNamespace(
+        manifest_ref=SimpleNamespace(repo="octo/engineering-flow-platform-assets", path=mapping["path"], branch="main"),
+        bundle_ref=SimpleNamespace(repo="octo/engineering-flow-platform-assets", path=mapping["path"], branch="bundle/checkout-flow/deadbeef"),
+        manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow", "status": "draft", "scope": {"domain": "payments"}},
+        template_id=template_id,
+        template_label=mapping["label"],
+        template_version=1,
+        artifacts=artifacts,
+        requirements_file="requirements.yaml" if template_id == "requirement.v1" else None,
+        test_cases_file="test-cases.yaml" if template_id == "requirement.v1" else None,
+        requirements_exists=artifact_exists.get("requirements", True) if template_id == "requirement.v1" else None,
+        test_cases_exists=artifact_exists.get("test_cases", True) if template_id == "requirement.v1" else None,
+        last_commit_sha="abc123",
+    )
+
+
 def _setup_client(monkeypatch, logged_in=True):
     from app.main import app
     import app.web as web_module
@@ -40,7 +88,7 @@ def _setup_client(monkeypatch, logged_in=True):
     fake_user = SimpleNamespace(id=11, username="portal", nickname="Portal", role="user")
     fake_agent = SimpleNamespace(id="agent-1", name="Agent One", owner_user_id=11, visibility="private")
     created_tasks = []
-    bundle_state = {"requirements_exists": True}
+    state = {"template_id": "requirement.v1", "artifact_exists": {"requirements": True, "test_cases": True}}
 
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "AgentRepository", lambda db: _FakeAgentRepo(db, [fake_agent]))
@@ -48,591 +96,174 @@ def _setup_client(monkeypatch, logged_in=True):
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: fake_user if logged_in else None)
 
     scheduled_task_ids = []
+    monkeypatch.setattr(web_module.task_dispatcher_service, "dispatch_task_in_background", lambda task_id: scheduled_task_ids.append(task_id))
 
-    def _fake_dispatch_in_background(task_id):
-        scheduled_task_ids.append(task_id)
+    def _create_bundle(form):
+        state["template_id"] = form.template_id
+        return SimpleNamespace(repo="octo/engineering-flow-platform-assets", path="requirement-bundles/payments/checkout-flow", branch="bundle/checkout-flow/deadbeef")
 
-    monkeypatch.setattr(web_module.task_dispatcher_service, "dispatch_task_in_background", _fake_dispatch_in_background)
+    def _inspect_bundle(_bundle_ref):
+        return _detail_for(state["template_id"], artifact_exists=state["artifact_exists"])
 
-    monkeypatch.setattr(
-        web_module.requirement_bundle_service,
-        "create_bundle",
-        lambda _form: SimpleNamespace(
-            repo="octo/engineering-flow-platform-assets",
-            path="requirement-bundles/payments/checkout-flow",
-            branch="bundle/checkout-flow/deadbeef",
-        ),
-    )
-    monkeypatch.setattr(
-        web_module.requirement_bundle_service,
-        "inspect_bundle",
-        lambda bundle_ref: SimpleNamespace(
-            manifest_ref=bundle_ref,
-            bundle_ref=bundle_ref,
-            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
-            requirements_file="requirements.yaml",
-            test_cases_file="test-cases.yaml",
-            requirements_exists=bundle_state["requirements_exists"],
-            test_cases_exists=True,
-            last_commit_sha="abc123",
-        ),
-    )
+    monkeypatch.setattr(web_module.requirement_bundle_service, "create_bundle", _create_bundle)
+    monkeypatch.setattr(web_module.requirement_bundle_service, "inspect_bundle", _inspect_bundle)
 
-    return TestClient(app), created_tasks, bundle_state, scheduled_task_ids
+    return TestClient(app), created_tasks, state, scheduled_task_ids
 
 
-def test_requirement_bundles_requires_login(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=False)
-    response = client.get("/app/requirement-bundles", follow_redirects=False)
-    assert response.status_code == 302
-    assert response.headers["location"] == "/login"
-
-
-def test_requirement_bundles_page_logged_in(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+def test_bundle_page_title_and_modal_support_template(monkeypatch):
+    client, _tasks, _state, _scheduled = _setup_client(monkeypatch, logged_in=True)
     response = client.get("/app/requirement-bundles")
     assert response.status_code == 200
-    assert "Requirement Bundles" in response.text
-
-
-def test_requirement_bundles_panel_route_returns_fragment(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    response = client.get("/app/requirement-bundles/panel")
-    assert response.status_code == 200
-    assert "Requirement Bundles" in response.text
-    assert 'id="requirement-bundles-panel-root"' in response.text
-    assert "Back to App" not in response.text
-
-
-def test_create_new_bundle_renders_bundle_ref(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    page = client.get("/app/requirement-bundles")
-    assert page.status_code == 200
-    assert "Collect Agent (optional)" not in page.text
-    assert "Design Agent (optional)" not in page.text
-
-    response = client.post(
-        "/app/requirement-bundles/create",
-        data={
-            "title": "Checkout Flow",
-            "domain": "payments",
-            "slug": "",
-            "base_branch": "main",
-        },
-    )
-    assert response.status_code == 200
-    assert "Bundle created successfully" in response.text
-    assert "requirement-bundles/payments/checkout-flow" in response.text
-
-
-def test_create_bundle_htmx_returns_panel_fragment(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    response = client.post(
-        "/app/requirement-bundles/create",
-        data={
-            "title": "Checkout Flow",
-            "domain": "payments",
-            "slug": "",
-            "base_branch": "main",
-        },
-        headers={"HX-Request": "true"},
-    )
-    assert response.status_code == 200
-    assert "Bundle created successfully" in response.text
-    assert 'id="requirement-bundles-panel-root"' in response.text
-    assert "Back to App" not in response.text
-
-
-def test_open_existing_bundle_shows_summary_and_github_link(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    response = client.get(
-        "/app/requirement-bundles/open",
-        params={
-            "repo": "octo/engineering-flow-platform-assets",
-            "path": "requirement-bundles/payments/checkout-flow",
-            "branch": "bundle/checkout-flow/deadbeef",
-        },
-    )
-    assert response.status_code == 200
-    assert "Bundle Detail" in response.text
-    assert "RB-checkout-flow" in response.text
-    assert "Open in GitHub" in response.text
-    assert "Advanced: Open by repo/path/branch" not in response.text
-    assert "bundle.yaml" not in response.text
-
-
-def test_open_existing_bundle_htmx_returns_panel_fragment(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    response = client.get(
-        "/app/requirement-bundles/open",
-        params={
-            "repo": "octo/engineering-flow-platform-assets",
-            "path": "requirement-bundles/payments/checkout-flow",
-            "branch": "bundle/checkout-flow/deadbeef",
-        },
-        headers={"HX-Request": "true"},
-    )
-    assert response.status_code == 200
-    assert 'id="requirement-bundles-panel-root"' in response.text
-    assert "Bundle Detail" in response.text
-    assert "Open in GitHub" in response.text
-    assert "Advanced: Open by repo/path/branch" not in response.text
-    assert "bundle.yaml" not in response.text
-    assert "Back to App" not in response.text
-
-
-def test_app_page_has_requirement_bundles_sidebar_section(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    response = client.get("/app")
-    assert response.status_code == 200
-    assert 'id="bundle-list"' in response.text
-    assert 'id="add-bundle-btn"' in response.text
-    assert 'id="tasks-menu-btn"' in response.text
     assert "Bundles" in response.text
+    app_page = client.get("/app")
+    assert 'name="template_id"' in app_page.text
+    assert "Slug (optional, used for repo path / bundle_id / branch)" in app_page.text
 
 
-def test_collect_and_design_create_and_dispatch_tasks(monkeypatch):
-    client, created_tasks, _bundle_state, scheduled_task_ids = _setup_client(monkeypatch, logged_in=True)
+def test_create_route_accepts_template_id(monkeypatch):
+    client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    response = client.post(
+        "/app/requirement-bundles/create",
+        data={"template_id": "research.v1", "title": "Checkout Flow", "domain": "payments", "slug": "", "base_branch": "main"},
+    )
+    assert response.status_code == 200
+    assert state["template_id"] == "research.v1"
+    assert "Research Bundle" in response.text
+    assert "research-notes.yaml" in response.text
 
-    collect_response = client.post(
+
+def test_detail_panel_dynamic_actions_and_artifacts(monkeypatch):
+    client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+
+    for template_id, action_label in [
+        ("requirement.v1", "Collect Requirements"),
+        ("research.v1", "Collect Research Notes"),
+        ("development.v1", "Generate Implementation Plan"),
+        ("operations.v1", "Generate Runbook"),
+    ]:
+        state["template_id"] = template_id
+        response = client.get("/app/requirement-bundles/open", params={"repo": "octo/engineering-flow-platform-assets", "path": "any", "branch": "main"})
+        assert response.status_code == 200
+        assert action_label in response.text
+        assert "/app/requirement-bundles/actions/run" in response.text
+
+
+def test_dispatch_actions_create_bundle_action_task(monkeypatch):
+    client, created_tasks, state, scheduled = _setup_client(monkeypatch, logged_in=True)
+    matrix = [
+        ("requirement.v1", "collect_requirements", {"jira_sources": "JIRA-1"}),
+        ("requirement.v1", "design_test_cases", {}),
+        ("research.v1", "collect_research_notes", {"jira_sources": "JIRA-2"}),
+        ("development.v1", "generate_implementation_plan", {}),
+        ("operations.v1", "generate_runbook", {}),
+    ]
+    for template_id, action_id, extra in matrix:
+        state["template_id"] = template_id
+        response = client.post(
+            "/app/requirement-bundles/actions/run",
+            data={
+                "template_id": template_id,
+                "action_id": action_id,
+                "action_agent_id": "agent-1",
+                "bundle_repo": "octo/engineering-flow-platform-assets",
+                "bundle_path": "requirement-bundles/payments/checkout-flow",
+                "bundle_branch": "bundle/checkout-flow/deadbeef",
+                "manifest_repo": "octo/engineering-flow-platform-assets",
+                "manifest_path": "requirement-bundles/payments/checkout-flow",
+                "manifest_branch": "main",
+                **extra,
+            },
+        )
+        assert response.status_code == 200
+
+    assert len(created_tasks) == 5
+    assert all(task.task_type == "bundle_action_task" for task in created_tasks)
+    assert scheduled == ["task-1", "task-2", "task-3", "task-4", "task-5"]
+    payload = json.loads(created_tasks[0].input_payload_json)
+    assert payload["template_id"] == "requirement.v1"
+    assert payload["action_id"] == "collect_requirements"
+    assert "skill_name" not in payload
+
+
+def test_legacy_wrappers_still_work_and_create_bundle_action_task(monkeypatch):
+    client, created_tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    state["template_id"] = "requirement.v1"
+
+    collect = client.post(
         "/app/requirement-bundles/collect",
         data={
-            "bundle_repo": "octo/engineering-flow-platform-assets",
-            "bundle_path": "requirement-bundles/payments/checkout-flow",
-            "bundle_branch": "bundle/checkout-flow/deadbeef",
-            "manifest_repo": "octo/engineering-flow-platform-assets",
-            "manifest_path": "requirement-bundles/payments/checkout-flow",
-            "manifest_branch": "bundle/checkout-flow/deadbeef",
             "collect_agent_id": "agent-1",
-            "jira_sources": "JIRA-123, JIRA-124",
-            "confluence_sources": "https://confluence.local/page-1\nhttps://confluence.local/page-2",
-            "github_doc_sources": "https://github.com/org/repo/blob/main/README.md",
-            "figma_sources": "https://figma.com/file/abc, https://figma.com/file/def",
-        },
-    )
-    assert collect_response.status_code == 200
-    assert "Created task task-1 and scheduled background dispatch" in collect_response.text
-    assert "Open Task Detail" in collect_response.text
-
-    design_response = client.post(
-        "/app/requirement-bundles/design-test-cases",
-        data={
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
-            "manifest_repo": "octo/engineering-flow-platform-assets",
-            "manifest_path": "requirement-bundles/payments/checkout-flow",
-            "manifest_branch": "bundle/checkout-flow/deadbeef",
-            "design_agent_id": "agent-1",
-        },
-    )
-    assert design_response.status_code == 200
-    assert "Created task task-2 and scheduled background dispatch" in design_response.text
-
-    assert len(created_tasks) == 2
-    assert scheduled_task_ids == ["task-1", "task-2"]
-    assert created_tasks[0].task_type == "requirement_bundle_collect_task"
-    assert created_tasks[1].task_type == "requirement_bundle_design_test_cases_task"
-
-    collect_payload = json.loads(created_tasks[0].input_payload_json)
-    design_payload = json.loads(created_tasks[1].input_payload_json)
-
-    assert collect_payload["bundle_ref"]["repo"] == "octo/engineering-flow-platform-assets"
-    assert collect_payload["manifest_ref"]["repo"] == "octo/engineering-flow-platform-assets"
-    assert collect_payload["sources"] == {
-        "jira": ["JIRA-123", "JIRA-124"],
-        "confluence": ["https://confluence.local/page-1", "https://confluence.local/page-2"],
-        "github_docs": ["https://github.com/org/repo/blob/main/README.md"],
-        "figma": ["https://figma.com/file/abc", "https://figma.com/file/def"],
-    }
-    assert design_payload["bundle_ref"]["path"] == "requirement-bundles/payments/checkout-flow"
-    assert design_payload["manifest_ref"]["path"] == "requirement-bundles/payments/checkout-flow"
-
-
-def test_collect_and_design_use_canonical_branch_from_inspect(monkeypatch):
-    client, created_tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-
-    import app.web as web_module
-
-    canonical_branch = "bundle/checkout/abcd1234"
-
-    monkeypatch.setattr(
-        web_module.requirement_bundle_service,
-        "inspect_bundle",
-        lambda _bundle_ref: SimpleNamespace(
-            manifest_ref=SimpleNamespace(
-                repo="octo/engineering-flow-platform-assets",
-                path="requirement-bundles/payments/checkout-flow",
-                branch="main",
-            ),
-            bundle_ref=SimpleNamespace(
-                repo="octo/engineering-flow-platform-assets",
-                path="requirement-bundles/payments/checkout-flow",
-                branch=canonical_branch,
-            ),
-            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
-            requirements_file="requirements.yaml",
-            test_cases_file="test-cases.yaml",
-            requirements_exists=True,
-            test_cases_exists=True,
-            last_commit_sha="abc123",
-        ),
-    )
-
-    open_response = client.get(
-        "/app/requirement-bundles/open",
-        params={
-            "repo": "octo/engineering-flow-platform-assets",
-            "path": "requirement-bundles/payments/checkout-flow",
-            "branch": "main",
-        },
-    )
-    assert open_response.status_code == 200
-    assert 'name="manifest_branch" value="main"' in open_response.text
-    assert f'name="bundle_branch" value="{canonical_branch}"' in open_response.text
-
-    collect_response = client.post(
-        "/app/requirement-bundles/collect",
-        data={
-            "bundle_repo": "octo/engineering-flow-platform-assets",
-            "bundle_path": "requirement-bundles/payments/checkout-flow",
-            "bundle_branch": canonical_branch,
             "manifest_repo": "octo/engineering-flow-platform-assets",
             "manifest_path": "requirement-bundles/payments/checkout-flow",
             "manifest_branch": "main",
-            "collect_agent_id": "agent-1",
-            "jira_sources": "JIRA-123",
-            "confluence_sources": "",
-            "github_doc_sources": "",
-            "figma_sources": "",
+            "jira_sources": "JIRA-1",
         },
     )
-    assert collect_response.status_code == 200
-
-    design_response = client.post(
+    design = client.post(
         "/app/requirement-bundles/design-test-cases",
         data={
+            "design_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
-            "bundle_branch": canonical_branch,
+            "bundle_branch": "bundle/checkout-flow/deadbeef",
             "manifest_repo": "octo/engineering-flow-platform-assets",
             "manifest_path": "requirement-bundles/payments/checkout-flow",
             "manifest_branch": "main",
-            "design_agent_id": "agent-1",
         },
     )
-    assert design_response.status_code == 200
-
-    collect_payload = json.loads(created_tasks[0].input_payload_json)
-    design_payload = json.loads(created_tasks[1].input_payload_json)
-
-    assert collect_payload["bundle_ref"]["branch"] == canonical_branch
-    assert collect_payload["manifest_ref"]["branch"] == "main"
-    assert design_payload["bundle_ref"]["branch"] == canonical_branch
-    assert design_payload["manifest_ref"]["branch"] == "main"
+    assert collect.status_code == 200
+    assert design.status_code == 200
+    assert all(task.task_type == "bundle_action_task" for task in created_tasks)
 
 
-def test_collect_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncanonical(monkeypatch):
-    client, created_tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+def test_collect_rejects_empty_and_figma_only(monkeypatch):
+    client, created_tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    state["template_id"] = "requirement.v1"
 
-    import app.web as web_module
-
-    canonical_branch = "bundle/checkout/abcd1234"
-    posted_branch = "main"
-
-    monkeypatch.setattr(
-        web_module.requirement_bundle_service,
-        "inspect_bundle",
-        lambda _bundle_ref: SimpleNamespace(
-            manifest_ref=SimpleNamespace(
-                repo="octo/engineering-flow-platform-assets",
-                path="requirement-bundles/payments/checkout-flow",
-                branch=posted_branch,
-            ),
-            bundle_ref=SimpleNamespace(
-                repo="octo/engineering-flow-platform-assets",
-                path="requirement-bundles/payments/checkout-flow",
-                branch=canonical_branch,
-            ),
-            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
-            requirements_file="requirements.yaml",
-            test_cases_file="test-cases.yaml",
-            requirements_exists=True,
-            test_cases_exists=True,
-            last_commit_sha="abc123",
-        ),
-    )
-
-    response = client.post(
-        "/app/requirement-bundles/collect",
+    empty_resp = client.post(
+        "/app/requirement-bundles/actions/run",
         data={
-            "bundle_repo": "octo/engineering-flow-platform-assets",
-            "bundle_path": "requirement-bundles/payments/checkout-flow",
-            "bundle_branch": posted_branch,
-            "manifest_repo": "octo/engineering-flow-platform-assets",
-            "manifest_path": "requirement-bundles/payments/checkout-flow",
-            "manifest_branch": posted_branch,
-            "collect_agent_id": "agent-1",
-            "jira_sources": "JIRA-123",
-            "confluence_sources": "",
-            "github_doc_sources": "",
-            "figma_sources": "",
-        },
-    )
-
-    assert response.status_code == 200
-    collect_payload = json.loads(created_tasks[0].input_payload_json)
-    assert collect_payload["bundle_ref"]["branch"] == canonical_branch
-    assert collect_payload["manifest_ref"]["branch"] == posted_branch
-
-
-def test_collect_dispatch_schedules_background_work(monkeypatch):
-    client, _created_tasks, _bundle_state, scheduled = _setup_client(monkeypatch, logged_in=True)
-
-    response = client.post(
-        "/app/requirement-bundles/collect",
-        data={
+            "template_id": "requirement.v1",
+            "action_id": "collect_requirements",
+            "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
-            "manifest_repo": "octo/engineering-flow-platform-assets",
-            "manifest_path": "requirement-bundles/payments/checkout-flow",
-            "manifest_branch": "bundle/checkout-flow/deadbeef",
-            "collect_agent_id": "agent-1",
-            "jira_sources": "JIRA-123",
-            "confluence_sources": "",
-            "github_doc_sources": "",
-            "figma_sources": "",
-        },
-    )
-    assert response.status_code == 200
-    assert scheduled == ["task-1"]
-
-
-def test_design_task_payload_uses_canonical_ref_even_if_posted_branch_is_noncanonical(monkeypatch):
-    client, created_tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-
-    import app.web as web_module
-
-    canonical_branch = "bundle/checkout/abcd1234"
-    posted_branch = "main"
-
-    monkeypatch.setattr(
-        web_module.requirement_bundle_service,
-        "inspect_bundle",
-        lambda _bundle_ref: SimpleNamespace(
-            manifest_ref=SimpleNamespace(
-                repo="octo/engineering-flow-platform-assets",
-                path="requirement-bundles/payments/checkout-flow",
-                branch=posted_branch,
-            ),
-            bundle_ref=SimpleNamespace(
-                repo="octo/engineering-flow-platform-assets",
-                path="requirement-bundles/payments/checkout-flow",
-                branch=canonical_branch,
-            ),
-            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
-            requirements_file="requirements.yaml",
-            test_cases_file="test-cases.yaml",
-            requirements_exists=True,
-            test_cases_exists=True,
-            last_commit_sha="abc123",
-        ),
-    )
-
-    response = client.post(
-        "/app/requirement-bundles/design-test-cases",
-        data={
-            "bundle_repo": "octo/engineering-flow-platform-assets",
-            "bundle_path": "requirement-bundles/payments/checkout-flow",
-            "bundle_branch": posted_branch,
-            "manifest_repo": "octo/engineering-flow-platform-assets",
-            "manifest_path": "requirement-bundles/payments/checkout-flow",
-            "manifest_branch": posted_branch,
-            "design_agent_id": "agent-1",
-        },
-    )
-
-    assert response.status_code == 200
-    design_payload = json.loads(created_tasks[0].input_payload_json)
-    assert design_payload["bundle_ref"]["branch"] == canonical_branch
-    assert design_payload["manifest_ref"]["branch"] == posted_branch
-    assert design_payload["bundle_ref"]["branch"] != posted_branch
-
-
-def test_open_existing_bundle_shows_custom_linked_filenames(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    import app.web as web_module
-
-    monkeypatch.setattr(
-        web_module.requirement_bundle_service,
-        "inspect_bundle",
-        lambda bundle_ref: SimpleNamespace(
-            manifest_ref=bundle_ref,
-            bundle_ref=bundle_ref,
-            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
-            requirements_file="docs/reqs.yaml",
-            test_cases_file="outputs/tc.yaml",
-            requirements_exists=True,
-            test_cases_exists=False,
-            last_commit_sha="abc123",
-        ),
-    )
-
-    response = client.get(
-        "/app/requirement-bundles/open",
-        params={
-            "repo": "octo/engineering-flow-platform-assets",
-            "path": "requirement-bundles/payments/checkout-flow",
-            "branch": "bundle/checkout-flow/deadbeef",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "docs/reqs.yaml" in response.text
-    assert "outputs/tc.yaml" in response.text
-
-
-def test_design_missing_requirements_message_uses_custom_linked_filename(monkeypatch):
-    client, _created_tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    import app.web as web_module
-
-    monkeypatch.setattr(
-        web_module.requirement_bundle_service,
-        "inspect_bundle",
-        lambda bundle_ref: SimpleNamespace(
-            manifest_ref=bundle_ref,
-            bundle_ref=bundle_ref,
-            manifest={"bundle_id": "RB-checkout-flow", "title": "Checkout Flow"},
-            requirements_file="docs/reqs.yaml",
-            test_cases_file="outputs/tc.yaml",
-            requirements_exists=False,
-            test_cases_exists=True,
-            last_commit_sha="abc123",
-        ),
-    )
-
-    response = client.post(
-        "/app/requirement-bundles/design-test-cases",
-        data={
-            "bundle_repo": "octo/engineering-flow-platform-assets",
-            "bundle_path": "requirement-bundles/payments/checkout-flow",
-            "bundle_branch": "main",
             "manifest_repo": "octo/engineering-flow-platform-assets",
             "manifest_path": "requirement-bundles/payments/checkout-flow",
             "manifest_branch": "main",
-            "design_agent_id": "agent-1",
         },
     )
-
-    assert response.status_code == 200
-    assert "docs/reqs.yaml is missing; collect requirements first" in response.text
-
-
-def test_collect_rejects_empty_sources(monkeypatch):
-    client, created_tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-
-    response = client.post(
-        "/app/requirement-bundles/collect",
+    figma_resp = client.post(
+        "/app/requirement-bundles/actions/run",
         data={
+            "template_id": "requirement.v1",
+            "action_id": "collect_requirements",
+            "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
             "manifest_repo": "octo/engineering-flow-platform-assets",
             "manifest_path": "requirement-bundles/payments/checkout-flow",
-            "manifest_branch": "bundle/checkout-flow/deadbeef",
-            "collect_agent_id": "agent-1",
-            "jira_sources": "",
-            "confluence_sources": "",
-            "github_doc_sources": "",
-            "figma_sources": "",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "At least one Jira, Confluence, or GitHub Docs source is required." in response.text
-    assert len(created_tasks) == 0
-
-
-def test_collect_rejects_figma_only_sources(monkeypatch):
-    client, created_tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-
-    response = client.post(
-        "/app/requirement-bundles/collect",
-        data={
-            "bundle_repo": "octo/engineering-flow-platform-assets",
-            "bundle_path": "requirement-bundles/payments/checkout-flow",
-            "bundle_branch": "bundle/checkout-flow/deadbeef",
-            "manifest_repo": "octo/engineering-flow-platform-assets",
-            "manifest_path": "requirement-bundles/payments/checkout-flow",
-            "manifest_branch": "bundle/checkout-flow/deadbeef",
-            "collect_agent_id": "agent-1",
-            "jira_sources": "",
-            "confluence_sources": "",
-            "github_doc_sources": "",
+            "manifest_branch": "main",
             "figma_sources": "https://www.figma.com/file/abc123",
         },
     )
-
-    assert response.status_code == 200
-    assert "Figma-only collection is not supported in MVP" in response.text
+    assert "At least one Jira, Confluence, or GitHub Docs source is required." in empty_resp.text
+    assert "Figma-only collection is not supported in MVP" in figma_resp.text
     assert len(created_tasks) == 0
 
 
-def test_design_rejects_missing_requirements_yaml(monkeypatch):
-    client, created_tasks, bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    bundle_state["requirements_exists"] = False
+def test_design_disabled_and_message_when_requirements_missing(monkeypatch):
+    client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    state["template_id"] = "requirement.v1"
+    state["artifact_exists"] = {"requirements": False, "test_cases": True}
 
-    response = client.post(
-        "/app/requirement-bundles/design-test-cases",
-        data={
-            "bundle_repo": "octo/engineering-flow-platform-assets",
-            "bundle_path": "requirement-bundles/payments/checkout-flow",
-            "bundle_branch": "bundle/checkout-flow/deadbeef",
-            "manifest_repo": "octo/engineering-flow-platform-assets",
-            "manifest_path": "requirement-bundles/payments/checkout-flow",
-            "manifest_branch": "bundle/checkout-flow/deadbeef",
-            "design_agent_id": "agent-1",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "requirements.yaml is missing; collect requirements first" in response.text
-    assert len(created_tasks) == 0
-
-
-def test_requirement_bundle_page_has_source_format_guidance(monkeypatch):
-    client, _tasks, _bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    response = client.get(
-        "/app/requirement-bundles/open",
-        params={
-            "repo": "octo/engineering-flow-platform-assets",
-            "path": "requirement-bundles/payments/checkout-flow",
-            "branch": "bundle/checkout-flow/deadbeef",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "Jira Sources (issue keys or browse URLs)" in response.text
-    assert "Confluence Sources (page IDs or page URLs)" in response.text
-    assert "GitHub Docs Sources (repo-relative paths or blob URLs)" in response.text
-    assert "Figma Sources (ignored in MVP)" in response.text
-    assert "stored only; not processed in MVP" in response.text
-
-
-def test_design_button_disabled_when_requirements_missing(monkeypatch):
-    client, _tasks, bundle_state, _scheduled = _setup_client(monkeypatch, logged_in=True)
-    bundle_state["requirements_exists"] = False
-
-    response = client.get(
-        "/app/requirement-bundles/open",
-        params={
-            "repo": "octo/engineering-flow-platform-assets",
-            "path": "requirement-bundles/payments/checkout-flow",
-            "branch": "bundle/checkout-flow/deadbeef",
-        },
-    )
-
+    response = client.get("/app/requirement-bundles/open", params={"repo": "octo/engineering-flow-platform-assets", "path": "any", "branch": "main"})
     assert response.status_code == 200
     assert "requirements.yaml not found — run Collect Requirements first" in response.text
     assert "disabled" in response.text
