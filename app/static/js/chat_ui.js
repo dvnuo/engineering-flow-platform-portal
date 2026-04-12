@@ -923,12 +923,35 @@ function normalizeMarkdownText(text) {
 }
 
 function parseDisplayBlocks(raw) {
+  const isRenderableBlock = (block) => {
+    const type = String(block.type || "").trim().toLowerCase();
+    if (!type) return false;
+
+    if (["markdown", "callout", "tool_result"].includes(type)) {
+      return !!getDisplayBlockText(block);
+    }
+
+    if (type === "code") {
+      return !!(getMeaningfulScalar(block.code) || getDisplayBlockText(block));
+    }
+
+    if (type === "table") {
+      const headers = Array.isArray(block.headers) ? block.headers
+        : (Array.isArray(block.columns) ? block.columns : []);
+      const rows = Array.isArray(block.rows) ? block.rows : [];
+      return headers.length > 0 || rows.length > 0 || !!getDisplayBlockText(block);
+    }
+
+    return !!getDisplayBlockText(block);
+  };
+
   const normalizeBlocks = (blocks) => {
     if (!Array.isArray(blocks)) return [];
     return blocks
       .filter((block) => block && typeof block === "object" && typeof block.type === "string")
       .map((block) => ({ ...block, type: String(block.type).trim() }))
-      .filter((block) => block.type.length > 0);
+      .filter((block) => block.type.length > 0)
+      .filter((block) => isRenderableBlock(block));
   };
 
   if (Array.isArray(raw)) return normalizeBlocks(raw);
@@ -939,6 +962,12 @@ function parseDisplayBlocks(raw) {
   } catch (error) {
     return [];
   }
+}
+
+function getMeaningfulScalar(value) {
+  if (value == null) return "";
+  const text = String(value);
+  return text.trim() ? text : "";
 }
 
 function getDisplayBlockText(block) {
@@ -962,7 +991,7 @@ function getDisplayBlockText(block) {
 
 function renderCodeBlock(block) {
   const language = String(block?.lang || block?.language || "").trim().toLowerCase();
-  const code = String(block?.code ?? getDisplayBlockText(block));
+  const code = getMeaningfulScalar(block?.code) || getDisplayBlockText(block);
   const className = language ? `language-${language}` : "";
   return `
     <section class="message-block message-block-code">

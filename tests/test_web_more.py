@@ -181,6 +181,7 @@ def test_chat_ui_display_block_helpers_behavior():
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     parse_block = _extract_js_function(js_file, "parseDisplayBlocks")
+    meaningful_block = _extract_js_function(js_file, "getMeaningfulScalar")
     text_block = _extract_js_function(js_file, "getDisplayBlockText")
     code_block = _extract_js_function(js_file, "renderCodeBlock")
     table_block = _extract_js_function(js_file, "renderTableBlock")
@@ -192,6 +193,7 @@ const normalizeMarkdownText = (v) => String(v || "");
 const escapeHtmlAttr = (v) => String(v ?? "");
 const md = {{ render: (v) => `<p>${{v}}</p>` }};
 {parse_block}
+{meaningful_block}
 {text_block}
 {code_block}
 {table_block}
@@ -205,6 +207,10 @@ const result = {{
     {{ type: "   ", content: "x" }},
     {{ type: "markdown", content: "ok" }},
   ])).length,
+  filteredBlankTypedContentLength: parseDisplayBlocks([
+    {{ type: "tool_result", content: "   " }},
+    {{ type: "markdown", content: "ok" }},
+  ]).length,
   columnsTable: renderTableBlock({{ columns: ["A"], rows: [["1"]] }}),
   fallbackOnly: renderTableBlock({{ content: "fallback only" }}),
   toolResult: renderSingleDisplayBlock({{
@@ -253,6 +259,12 @@ const result = {{
     content: "   ",
     text: "print(1)",
   }}),
+  blankCodeFieldFallsBackToText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    code: "   ",
+    text: "print(1)",
+  }}),
 }};
 console.log(JSON.stringify(result));
 """
@@ -269,6 +281,7 @@ console.log(JSON.stringify(result));
     assert data["objectInputLength"] == 0
     assert data["arrayInputLength"] == 1
     assert data["filteredBlankTypeLength"] == 1
+    assert data["filteredBlankTypedContentLength"] == 1
     assert "<th>A</th>" in data["columnsTable"]
     assert "<table>" not in data["fallbackOnly"]
     assert "<p>fallback only</p>" in data["fallbackOnly"]
@@ -284,6 +297,7 @@ console.log(JSON.stringify(result));
     assert "需要确认" in data["calloutFromMessage"]
     assert "hello from value" in data["markdownFromValue"]
     assert "print(1)" in data["blankCodeContentFallsBackToText"]
+    assert "print(1)" in data["blankCodeFieldFallsBackToText"]
 
 
 def test_chat_ui_runtime_event_helpers_behavior():
