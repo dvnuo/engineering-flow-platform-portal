@@ -107,3 +107,16 @@ def test_normalize_assistant_chat_payload_table_columns_alias_to_headers():
     )
     assert payload["display_blocks"][0]["type"] == "table"
     assert payload["display_blocks"][0]["headers"] == ["A"]
+
+
+def test_normalize_assistant_chat_payload_markdown_fallback_preserves_leading_and_trailing_newlines():
+    payload = normalize_assistant_chat_payload({"response": "\n# Title\n\nBody\n"})
+    assert payload["assistant_message"] == "\n# Title\n\nBody\n"
+    assert payload["display_blocks"] == [{"type": "markdown", "content": "\n# Title\n\nBody\n"}]
+
+
+def test_normalize_assistant_chat_payload_markdown_fallback_preserves_indented_code_text():
+    raw = "    indented code line\n    second\n"
+    payload = normalize_assistant_chat_payload({"response": raw})
+    assert payload["assistant_message"] == raw
+    assert payload["display_blocks"] == [{"type": "markdown", "content": raw}]
