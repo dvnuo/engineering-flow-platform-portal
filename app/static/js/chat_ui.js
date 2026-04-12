@@ -2742,8 +2742,8 @@ function downloadSelectedFiles(paths) {
 async function previewServerFile(filePath, currentDir, rootPath) {
   try {
     const encodedPath = encodeURIComponent(filePath);
-    const activeRootPath = rootPath || state.serverFilesRootPath || currentDir || '/';
     const dir = currentDir || filePath.substring(0, filePath.lastIndexOf('/'));
+    const activeRootPath = rootPath || state.serverFilesRootPath || currentDir || dir || '';
     const breadcrumb = buildServerFilesBreadcrumb(dir, activeRootPath);
     const ext = (filePath.split('.').pop() || '').toLowerCase();
     const contentUrl = `/a/${state.selectedAgentId}/api/server-files/content?path=${encodedPath}`;
