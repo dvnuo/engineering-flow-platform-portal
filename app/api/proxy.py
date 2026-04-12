@@ -38,6 +38,8 @@ def _can_write(agent, user) -> bool:
 
 def _requires_write_access(method: str, subpath: str) -> bool:
     normalized = (subpath or "").strip("/").lower()
+    if normalized.startswith("api/server-files"):
+        return True
     return (method.upper(), normalized) in {
         ("GET", "api/ssh/public-key"),
         ("POST", "api/ssh/generate"),

@@ -182,6 +182,95 @@ def test_proxy_agent_allows_sensitive_ssh_endpoints_for_owner(monkeypatch):
     assert captured[3]["subpath"] == "api/usage"
 
 
+def test_proxy_agent_blocks_server_files_endpoints_for_non_owner(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=99, username="viewer", nickname="Viewer", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=55,
+        visibility="public",
+        status="running",
+    )
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
+
+        async def _fake_forward(**kwargs):
+            raise AssertionError(f"Forward should not be called for forbidden server-files endpoint: {kwargs.get('subpath')}")
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        client = TestClient(app)
+
+        browse_resp = client.get("/a/agent-1/api/server-files")
+        read_resp = client.get("/a/agent-1/api/server-files/read?path=/workspace/readme.md")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert browse_resp.status_code == 403
+    assert read_resp.status_code == 403
+
+
+def test_proxy_agent_allows_server_files_endpoints_for_owner(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=55, username="owner", nickname="Owner", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=55,
+        visibility="private",
+        status="running",
+    )
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
+
+        captured = []
+
+        async def _fake_forward(**kwargs):
+            captured.append(kwargs)
+            return 200, b'{"ok": true}', "application/json"
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        client = TestClient(app)
+
+        browse_resp = client.get("/a/agent-1/api/server-files")
+        upload_resp = client.post("/a/agent-1/api/server-files/upload", files={"file": ("notes.txt", b"hello")})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert browse_resp.status_code == 200
+    assert upload_resp.status_code == 200
+    assert captured[0]["subpath"] == "api/server-files"
+    assert captured[1]["subpath"] == "api/server-files/upload"
+
+
 def test_requires_write_access_normalizes_slashes():
     import app.api.proxy as proxy_module
 
@@ -194,6 +283,10 @@ def test_requires_write_access_normalizes_slashes():
     assert proxy_module._requires_write_access("POST", "/api/ssh/generate/")
     assert proxy_module._requires_write_access("POST", "api/config/save")
     assert proxy_module._requires_write_access("POST", "/api/config/save/")
+    assert proxy_module._requires_write_access("GET", "api/server-files")
+    assert proxy_module._requires_write_access("GET", "/api/server-files/read/")
+    assert proxy_module._requires_write_access("POST", "api/server-files/upload")
+    assert not proxy_module._requires_write_access("POST", "api/files/upload")
     assert not proxy_module._requires_write_access("POST", "api/chat")
 
 
