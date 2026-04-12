@@ -16,6 +16,7 @@ from app.log_context import (
     generate_trace_id,
     get_log_context,
     reset_log_context,
+    snapshot_log_context,
 )
 from app.redaction import safe_preview, sanitize_exception_message
 from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRepository
@@ -1016,11 +1017,18 @@ class TaskDispatcherService:
             reset_log_context(dispatch_context_token)
 
     def dispatch_task_in_background(self, task_id: str) -> None:
+        parent_context = snapshot_log_context()
+
         def _runner() -> None:
+            inherited_context_token = None
             db_session = SessionLocal()
             try:
+                if parent_context:
+                    inherited_context_token = bind_log_context(**parent_context)
                 asyncio.run(self.dispatch_task(task_id, db_session))
             finally:
+                if inherited_context_token is not None:
+                    reset_log_context(inherited_context_token)
                 db_session.close()
 
         thread = threading.Thread(target=_runner, daemon=True)

@@ -8,8 +8,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, AgentTask, User
+from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.services.auth_service import hash_password
 from app.services.task_dispatcher import TaskDispatcherService
+import app.services.task_dispatcher as task_dispatcher_module
 
 
 @pytest.fixture()
@@ -350,3 +352,94 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
     assert result.task_status == "stale"
     db.refresh(task)
     assert task.status == "stale"
+
+
+def test_dispatch_task_inherits_parent_span_in_same_thread(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "ok"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
+
+    async def fake_post(_url, body):
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    token = bind_log_context(trace_id="trace-parent", span_id="span-parent", path="/app/requirement-bundles")
+    try:
+        result = asyncio.run(service.dispatch_task(task.id, db))
+    finally:
+        reset_log_context(token)
+
+    assert result.task_status == "done"
+    metadata = captured["body"]["metadata"]
+    assert metadata["trace_id"] == "trace-parent"
+    assert metadata["parent_span_id"] == "span-parent"
+    assert metadata["span_id"] != "span-parent"
+    assert metadata["portal_dispatch_id"] != "-"
+
+
+def test_dispatch_task_in_background_rebinds_parent_context(monkeypatch):
+    service = TaskDispatcherService()
+    seen = {}
+
+    async def fake_dispatch_task(task_id, db_session):
+        _ = task_id, db_session
+        seen["context"] = get_log_context().copy()
+
+    monkeypatch.setattr(service, "dispatch_task", fake_dispatch_task)
+
+    class DummySession:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(task_dispatcher_module, "SessionLocal", lambda: DummySession())
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            token = bind_log_context(
+                trace_id="-",
+                span_id="-",
+                parent_span_id="-",
+                portal_dispatch_id="-",
+                portal_task_id="-",
+                agent_id="-",
+                path="-",
+            )
+            try:
+                self._target()
+            finally:
+                reset_log_context(token)
+
+    monkeypatch.setattr(task_dispatcher_module.threading, "Thread", FakeThread)
+
+    parent_token = bind_log_context(
+        trace_id="trace-bg-1",
+        span_id="span-bg-1",
+        path="/app/requirement-bundles",
+        agent_id="agent-9",
+    )
+    try:
+        service.dispatch_task_in_background("task-bg-1")
+    finally:
+        reset_log_context(parent_token)
+
+    assert seen["context"]["trace_id"] == "trace-bg-1"
+    assert seen["context"]["span_id"] == "span-bg-1"
+    assert seen["context"]["path"] == "/app/requirement-bundles"
+    assert seen["context"]["agent_id"] == "agent-9"

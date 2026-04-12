@@ -818,3 +818,4 @@ def test_build_runtime_trace_headers_only_includes_non_empty_sanitized_values():
 
 def test_build_runtime_trace_headers_skips_empty_values():
     assert build_runtime_trace_headers({"trace_id": "", "portal_task_id": "  "}) == {}
+    assert build_runtime_trace_headers({"trace_id": "-", "portal_task_id": "-"}) == {}
