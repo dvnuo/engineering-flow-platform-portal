@@ -950,8 +950,13 @@ function renderCodeBlock(block) {
 }
 
 function renderTableBlock(block) {
-  const headers = Array.isArray(block?.headers) ? block.headers : [];
+  const headers = Array.isArray(block?.headers)
+    ? block.headers
+    : (Array.isArray(block?.columns) ? block.columns : []);
   const rows = Array.isArray(block?.rows) ? block.rows : [];
+  if (!headers.length && !rows.length) {
+    return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(block?.content || ""))}</section>`;
+  }
   const headHtml = headers.length
     ? `<thead><tr>${headers.map((header) => `<th>${safe(header)}</th>`).join("")}</tr></thead>`
     : "";

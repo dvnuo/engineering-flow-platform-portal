@@ -70,7 +70,8 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
   grid-template-columns: 68px 296px minmax(0,1fr);
   gap: 0;
   padding: 0;
-  min-width: 1180px;
+  min-width: 0;
+  width: 100%;
   transition: grid-template-columns var(--portal-transition);
   border-radius: 24px;
   overflow: hidden;
@@ -316,6 +317,17 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 }
 
 @media (max-width: 768px) {
+  .portal-shell {
+    min-width: 0;
+    width: 100%;
+    grid-template-columns: 68px minmax(0, 1fr);
+    grid-template-areas: "rail main";
+  }
+
+  .portal-secondary-pane {
+    display: none;
+  }
+
   .portal-composer-wrap {
     left: 0;
     right: 0;
@@ -461,6 +473,23 @@ html[data-theme="dark"] .message-surface-error {
 .message-callout.is-error { border-color: #cb7a7a; }
 .message-tool-result { border: 1px dashed var(--portal-border-strong); border-radius: 12px; padding: .65rem .8rem; background: color-mix(in srgb, var(--portal-surface), var(--portal-border) 16%); }
 .message-tool-result-title { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--portal-text-muted); margin-bottom: .35rem; }
+.message-tool-result.is-success {
+  border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-success), transparent 92%);
+}
+.message-tool-result.is-warning {
+  border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-warning), transparent 92%);
+}
+.message-tool-result.is-error {
+  border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-danger), transparent 92%);
+}
+.message-tool-result.is-running,
+.message-tool-result.is-info {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-accent), transparent 94%);
+}
 .tool-message { border-left: 3px solid var(--portal-accent); background: #f8fafc; border-color: #dce4f2; }
 html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #233149; }
 
@@ -1593,5 +1622,11 @@ html[data-theme="dark"] .portal-thinking-block {
     animation: none !important;
     transition: none !important;
     transform: none !important;
+  }
+}
+@media (max-width: 1024px) {
+  .portal-shell {
+    min-width: 0;
+    grid-template-columns: 68px 260px minmax(0, 1fr);
   }
 }

@@ -174,6 +174,53 @@ def _extract_js_function(js_text: str, function_name: str) -> str:
     raise AssertionError(f"Unable to parse function {function_name} body end")
 
 
+def test_chat_ui_display_block_helpers_behavior():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping display block helper test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    parse_block = _extract_js_function(js_file, "parseDisplayBlocks")
+    table_block = _extract_js_function(js_file, "renderTableBlock")
+    single_block = _extract_js_function(js_file, "renderSingleDisplayBlock")
+
+    script = f"""
+const safe = (v) => String(v ?? "");
+const normalizeMarkdownText = (v) => String(v || "");
+const md = {{ render: (v) => `<p>${{v}}</p>` }};
+{parse_block}
+{table_block}
+{single_block}
+
+const result = {{
+  invalidParseLength: parseDisplayBlocks("not-json").length,
+  columnsTable: renderTableBlock({{ columns: ["A"], rows: [["1"]] }}),
+  fallbackOnly: renderTableBlock({{ content: "fallback only" }}),
+  toolResult: renderSingleDisplayBlock({{
+    type: "tool_result",
+    status: "success",
+    title: "Bash",
+    content: "Done",
+  }}),
+}};
+console.log(JSON.stringify(result));
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert data["invalidParseLength"] == 0
+    assert "<th>A</th>" in data["columnsTable"]
+    assert "<table>" not in data["fallbackOnly"]
+    assert "<p>fallback only</p>" in data["fallbackOnly"]
+    assert "message-tool-result is-success" in data["toolResult"]
+
+
 def test_chat_ui_runtime_event_helpers_behavior():
     """Behavior-level coverage for runtime event normalization and completion states."""
     node_bin = shutil.which("node")

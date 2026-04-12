@@ -166,6 +166,11 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".message-table-wrap" in css_source
     assert ".message-callout" in css_source
     assert ".message-tool-result" in css_source
+    assert ".message-tool-result.is-success" in css_source
+    assert ".message-tool-result.is-error" in css_source
+    assert ".message-tool-result.is-warning" in css_source
+    assert "min-width: 1180px;" not in css_source
+    assert "block?.columns" in js_source
 
     assert '"timestamp": datetime.now().strftime("%H:%M")' in web_source
 
