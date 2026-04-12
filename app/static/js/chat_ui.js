@@ -2480,7 +2480,7 @@ function buildServerFilesBreadcrumb(path, rootPath) {
   const normalizedRoot = (rootPath || '/').replace(/\/+$/, '') || '/';
   const normalizedPath = (path || normalizedRoot).replace(/\/+$/, '') || '/';
   const breadcrumbParts = [
-    `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">/</a>`
+    `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">Workspace</a>`
   ];
 
   if (normalizedPath === normalizedRoot) {
@@ -2700,14 +2700,24 @@ async function uploadToServerFiles(targetPath) {
 
       const data = await resp.json();
       if (data.success) {
+        const mode = typeof data.mode === 'string' ? data.mode : '';
+        const uploadedFilename = String(data.uploaded_filename || file.name || 'file');
         const extractedCount = Number.isFinite(Number(data.extracted_count))
           ? Number(data.extracted_count)
-          : (Number.isFinite(Number(data.count)) && (data.extracted || String(file.name || "").toLowerCase().endsWith('.zip'))
-            ? Number(data.count)
-            : null);
-        const message = extractedCount !== null
-          ? `Extracted ${extractedCount} files`
-          : `Uploaded ${escapeHtml(data.filename || file.name)}`;
+          : null;
+        const targetLabel = data.target_path ? ` to ${escapeHtml(data.target_path)}` : '';
+        let message;
+        if (mode === 'zip_extract') {
+          const countLabel = extractedCount !== null ? extractedCount : 0;
+          message = `Extracted ${countLabel} files${targetLabel}`;
+        } else if (mode === 'file_save') {
+          message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
+        } else if (extractedCount !== null || String(uploadedFilename).toLowerCase().endsWith('.zip')) {
+          const countLabel = extractedCount !== null ? extractedCount : 0;
+          message = `Extracted ${countLabel} files${targetLabel}`;
+        } else {
+          message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
+        }
         setToolPanel("Server Files", `<div class="portal-inline-state is-success">${message}</div>`);
         loadServerFiles(targetPath);
       } else {
