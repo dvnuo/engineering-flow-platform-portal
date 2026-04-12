@@ -16,6 +16,13 @@ def _first_text_value(block: dict, field_order: tuple[str, ...]) -> str:
     return ""
 
 
+def _meaningful_text(value) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if text.strip() else ""
+
+
 def _text_value(block: dict) -> str:
     return _first_text_value(block, ("content", "text", "message", "output", "result", "value"))
 
@@ -114,7 +121,9 @@ def normalize_assistant_chat_payload(data: dict, fallback_session_id: str = "") 
     if not isinstance(data, dict):
         data = {}
 
-    assistant_message = data.get("response") or data.get("content") or ""
+    response_text = _meaningful_text(data.get("response"))
+    content_text = _meaningful_text(data.get("content"))
+    assistant_message = response_text or content_text or ""
     display_blocks = normalize_display_blocks(data.get("display_blocks"), assistant_message)
 
     if not assistant_message and not display_blocks:

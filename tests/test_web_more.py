@@ -224,6 +224,13 @@ const result = {{
     status: "success",
     output: "done from output",
   }}),
+  blankContentFallsBackToOutput: renderSingleDisplayBlock({{
+    type: "tool_result",
+    title: "Bash",
+    status: "success",
+    content: "   ",
+    output: "done from output",
+  }}),
   toolResultFromResult: renderSingleDisplayBlock({{
     type: "tool_result",
     title: "Bash",
@@ -239,6 +246,12 @@ const result = {{
   markdownFromValue: renderSingleDisplayBlock({{
     type: "markdown",
     value: "hello from value",
+  }}),
+  blankCodeContentFallsBackToText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    content: "   ",
+    text: "print(1)",
   }}),
 }};
 console.log(JSON.stringify(result));
@@ -264,11 +277,13 @@ console.log(JSON.stringify(result));
     assert "language-python" in data["codeFromText"]
     assert "message-tool-result is-success" in data["toolResultFromOutput"]
     assert "done from output" in data["toolResultFromOutput"]
+    assert "done from output" in data["blankContentFallsBackToOutput"]
     assert "done from result" in data["toolResultFromResult"]
     assert "message-callout is-warning" in data["calloutFromMessage"]
     assert "注意" in data["calloutFromMessage"]
     assert "需要确认" in data["calloutFromMessage"]
     assert "hello from value" in data["markdownFromValue"]
+    assert "print(1)" in data["blankCodeContentFallsBackToText"]
 
 
 def test_chat_ui_runtime_event_helpers_behavior():

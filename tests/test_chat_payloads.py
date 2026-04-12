@@ -54,7 +54,7 @@ def test_normalize_assistant_chat_payload_field_fallbacks_and_type_safety():
 def test_normalize_assistant_chat_payload_invalid_block_only_uses_placeholder():
     payload = normalize_assistant_chat_payload(
         {
-            "response": "",
+            "response": "   ",
             "display_blocks": [None, {"type": "   "}],
         }
     )
@@ -65,7 +65,7 @@ def test_normalize_assistant_chat_payload_invalid_block_only_uses_placeholder():
 def test_normalize_assistant_chat_payload_tool_result_output_alias_to_content():
     payload = normalize_assistant_chat_payload(
         {
-            "response": "",
+            "response": "   ",
             "display_blocks": [
                 {"type": "tool_result", "title": "Bash", "status": "success", "output": "done"}
             ],
@@ -74,6 +74,12 @@ def test_normalize_assistant_chat_payload_tool_result_output_alias_to_content():
     assert payload["assistant_message"] == ""
     assert payload["display_blocks"][0]["type"] == "tool_result"
     assert payload["display_blocks"][0]["content"] == "done"
+
+
+def test_normalize_assistant_chat_payload_whitespace_content_is_treated_as_empty():
+    payload = normalize_assistant_chat_payload({"content": "   "})
+    assert payload["assistant_message"] == "(empty response)"
+    assert payload["display_blocks"] == []
 
 
 def test_normalize_assistant_chat_payload_code_text_and_language_aliases():

@@ -943,15 +943,21 @@ function parseDisplayBlocks(raw) {
 
 function getDisplayBlockText(block) {
   if (!block || typeof block !== "object") return "";
-  return String(
-    block.content
-    ?? block.text
-    ?? block.message
-    ?? block.output
-    ?? block.result
-    ?? block.value
-    ?? ""
-  );
+  const textCandidates = [
+    block.content,
+    block.text,
+    block.message,
+    block.output,
+    block.result,
+    block.value,
+  ];
+  for (const value of textCandidates) {
+    if (value == null) continue;
+    const text = String(value);
+    if (!text.trim()) continue;
+    return text;
+  }
+  return "";
 }
 
 function renderCodeBlock(block) {
