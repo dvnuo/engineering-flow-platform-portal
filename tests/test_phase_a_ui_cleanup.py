@@ -161,7 +161,10 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "enhanceMarkdownBlock" in js_source
     assert "copyText(" in js_source
     assert "getDisplayBlockText" in js_source
-    assert "block.content ?? block.text ?? \"\"" in js_source
+    assert "block.content" in js_source
+    assert "block.text" in js_source
+    assert "block.message" in js_source
+    assert ("block.output" in js_source) or ("block.result" in js_source)
     assert js_source.count("getDisplayBlockText(") >= 3
     assert "data-display-blocks" in js_source or "dataset.displayBlocks" in js_source
     assert ".message-codeblock" in css_source
