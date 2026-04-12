@@ -199,6 +199,12 @@ const md = {{ render: (v) => `<p>${{v}}</p>` }};
 
 const result = {{
   invalidParseLength: parseDisplayBlocks("not-json").length,
+  objectInputLength: parseDisplayBlocks({{}}).length,
+  arrayInputLength: parseDisplayBlocks([{{ type: "markdown", content: "ok" }}]).length,
+  filteredBlankTypeLength: parseDisplayBlocks(JSON.stringify([
+    {{ type: "   ", content: "x" }},
+    {{ type: "markdown", content: "ok" }},
+  ])).length,
   columnsTable: renderTableBlock({{ columns: ["A"], rows: [["1"]] }}),
   fallbackOnly: renderTableBlock({{ content: "fallback only" }}),
   toolResult: renderSingleDisplayBlock({{
@@ -247,6 +253,9 @@ console.log(JSON.stringify(result));
     data = json.loads(completed.stdout)
 
     assert data["invalidParseLength"] == 0
+    assert data["objectInputLength"] == 0
+    assert data["arrayInputLength"] == 1
+    assert data["filteredBlankTypeLength"] == 1
     assert "<th>A</th>" in data["columnsTable"]
     assert "<table>" not in data["fallbackOnly"]
     assert "<p>fallback only</p>" in data["fallbackOnly"]

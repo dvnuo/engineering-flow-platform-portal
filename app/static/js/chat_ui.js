@@ -923,10 +923,19 @@ function normalizeMarkdownText(text) {
 }
 
 function parseDisplayBlocks(raw) {
-  if (!raw) return [];
+  const normalizeBlocks = (blocks) => {
+    if (!Array.isArray(blocks)) return [];
+    return blocks
+      .filter((block) => block && typeof block === "object" && typeof block.type === "string")
+      .map((block) => ({ ...block, type: String(block.type).trim() }))
+      .filter((block) => block.type.length > 0);
+  };
+
+  if (Array.isArray(raw)) return normalizeBlocks(raw);
+  if (typeof raw !== "string" || !raw) return [];
+
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return normalizeBlocks(JSON.parse(raw));
   } catch (error) {
     return [];
   }

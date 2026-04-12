@@ -26,6 +26,7 @@ from app.services.runtime_execution_context_service import RuntimeExecutionConte
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 from app.log_context import bind_log_context, get_log_context, reset_log_context
+from app.chat_payloads import normalize_assistant_chat_payload
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -1414,26 +1415,22 @@ async def app_chat_send(request: Request):
 
         data = json.loads(content.decode("utf-8"))
         
-        # Forward events to frontend for Thinking Process
-        events = data.get("events", [])
-        display_blocks = data.get("display_blocks")
-        if not isinstance(display_blocks, list):
-            display_blocks = []
-        assistant_message = data.get("response") or data.get("content") or ""
-        if not assistant_message and not display_blocks:
-            assistant_message = "(empty response)"
+        normalized_payload = normalize_assistant_chat_payload(
+            data,
+            fallback_session_id=session_id or "",
+        )
         
         return templates.TemplateResponse(
             "partials/chat_response.html",
             {
                 "request": request,
                 "user_message": message,
-                "assistant_message": assistant_message,
-                "session_id": data.get("session_id") or session_id or "",
+                "assistant_message": normalized_payload["assistant_message"],
+                "session_id": normalized_payload["session_id"],
                 "agent_name": agent.name if agent else "Assistant",
-                "user_message_id": data.get("user_message_id") or "",
-                "events": events,
-                "display_blocks": display_blocks,
+                "user_message_id": normalized_payload["user_message_id"],
+                "events": normalized_payload["events"],
+                "display_blocks": normalized_payload["display_blocks"],
                 "timestamp": datetime.now().strftime("%H:%M"),
             },
         )
