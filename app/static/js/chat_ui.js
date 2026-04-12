@@ -2477,8 +2477,8 @@ async function openServerFiles() {
 }
 
 function buildServerFilesBreadcrumb(path, rootPath) {
-  const normalizedRoot = (rootPath || '/').replace(/\/+$/, '') || '/';
-  const normalizedPath = (path || normalizedRoot).replace(/\/+$/, '') || '/';
+  const normalizedRoot = String(rootPath || '').replace(/\/+$/, '');
+  const normalizedPath = String(path || normalizedRoot || '').replace(/\/+$/, '');
   const breadcrumbParts = [
     `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">Workspace</a>`
   ];
@@ -2491,9 +2491,12 @@ function buildServerFilesBreadcrumb(path, rootPath) {
     ? normalizedPath.slice(normalizedRoot.length)
     : normalizedPath;
   const parts = relativePath.split('/').filter(Boolean);
-  let currentPath = normalizedRoot === '/' ? '' : normalizedRoot;
+  let currentPath = normalizedRoot;
+  const preserveLeadingSlash = normalizedPath.startsWith('/');
   for (const part of parts) {
-    currentPath += `/${part}`;
+    currentPath = currentPath
+      ? `${currentPath}/${part}`
+      : (preserveLeadingSlash ? `/${part}` : part);
     breadcrumbParts.push(
       '<span class="portal-breadcrumb-sep">/</span>' +
       `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(currentPath)}">${escapeHtml(part)}</a>`
@@ -2512,10 +2515,12 @@ async function loadServerFiles(path) {
       : '/api/server-files';
     const data = await agentApi(endpoint);
     const items = data.items || [];
-    const currentPath = typeof data.path === 'string' ? data.path : (hasPath ? path : '/');
-    const rootPath = typeof data.root_path === 'string' && data.root_path ? data.root_path : (state.serverFilesRootPath || currentPath || '/');
+    const runtimePath = (typeof data.path === 'string' && data.path.length > 0) ? data.path : '';
+    const currentPath = runtimePath || (hasPath ? path : (state.serverFilesRootPath || ''));
+    const runtimeRoot = (typeof data.root_path === 'string' && data.root_path.length > 0) ? data.root_path : '';
+    const rootPath = runtimeRoot || state.serverFilesRootPath || currentPath || '';
     state.serverFilesRootPath = rootPath;
-    state.serverFilesCurrentPath = currentPath;
+    state.serverFilesCurrentPath = currentPath || rootPath || '';
 
     const breadcrumb = buildServerFilesBreadcrumb(currentPath, rootPath);
 
