@@ -36,9 +36,11 @@ class _FakeConnect:
     def __init__(self, upstream):
         self.upstream = upstream
         self.url = None
+        self.kwargs = {}
 
     def __call__(self, url, *args, **kwargs):
         self.url = url
+        self.kwargs = kwargs
         return self
 
     async def __aenter__(self):
@@ -180,3 +182,33 @@ def test_ws_proxy_runtime_base_url_resolution_failure_closes_cleanly(monkeypatch
         ) as ws:
             ws.receive_text()
     assert exc_info.value.code == 1011
+
+
+def test_ws_proxy_events_forwards_trace_headers_to_runtime(monkeypatch):
+    monkeypatch.setattr(
+        proxy_module.proxy_service,
+        "build_agent_base_url",
+        lambda _agent: "http://runtime.local:8000",
+    )
+    monkeypatch.setattr(proxy_module, "generate_span_id", lambda: "span-ws-1")
+
+    upstream = _FakeUpstream(['{"type":"connected"}'])
+    fake_connect = _FakeConnect(upstream)
+    monkeypatch.setattr(proxy_module.websockets, "connect", fake_connect)
+
+    client = TestClient(app)
+    user_id = _create_active_user()
+    agent_id = _create_running_agent(user_id)
+    token = issue_session_token(user_id)
+
+    with client.websocket_connect(
+        f"/a/{agent_id}/api/events",
+        cookies={"portal_session": token},
+        headers={"X-Trace-Id": "trace-ws-1"},
+    ) as ws:
+        assert ws.receive_text() == '{"type":"connected"}'
+
+    assert fake_connect.url == "ws://runtime.local:8000/api/events"
+    assert fake_connect.kwargs["additional_headers"]["X-Trace-Id"] == "trace-ws-1"
+    assert fake_connect.kwargs["additional_headers"]["X-Span-Id"] == "span-ws-1"
+    assert "-" not in fake_connect.kwargs["additional_headers"].values()

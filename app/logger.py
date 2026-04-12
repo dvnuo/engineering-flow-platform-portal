@@ -8,10 +8,36 @@ from app.redaction import redact_text, redact_value
 
 # Detailed format with module/function/line info
 DEFAULT_FORMAT = (
-    "%(asctime)s | %(levelname)-8s | trace=%(trace_id)s span=%(span_id)s parent=%(parent_span_id)s "
-    "dispatch=%(portal_dispatch_id)s task=%(portal_task_id)s agent=%(agent_id)s path=%(path)s | "
-    "%(name)s.%(funcName)s:%(lineno)d | %(message)s"
+    "%(asctime)s | %(levelname)-8s | %(trace_block)s%(name)s.%(funcName)s:%(lineno)d | %(message)s"
 )
+
+_TRACE_BLOCK_FIELDS = (
+    ("trace_id", "trace"),
+    ("span_id", "span"),
+    ("parent_span_id", "parent"),
+    ("portal_dispatch_id", "dispatch"),
+    ("portal_task_id", "task"),
+    ("agent_id", "agent"),
+    ("path", "path"),
+)
+
+
+def _is_first_party_logger(record_name: str) -> bool:
+    return record_name.startswith("app.")
+
+
+def _build_trace_block(record_name: str, context: dict[str, str]) -> str:
+    if not _is_first_party_logger(record_name):
+        return ""
+
+    pieces: list[str] = []
+    for context_key, label in _TRACE_BLOCK_FIELDS:
+        value = (context.get(context_key) or "").strip()
+        if value and value != "-":
+            pieces.append(f"{label}={value}")
+    if not pieces:
+        return ""
+    return f"{' '.join(pieces)} | "
 
 
 class RedactingFormatter(logging.Formatter):
@@ -63,6 +89,7 @@ class RedactingFilter(logging.Filter):
         context = get_log_context()
         for field in self._CONTEXT_FIELDS:
             setattr(record, field, context.get(field, "-") or "-")
+        record.trace_block = _build_trace_block(record.name, context)
         try:
             if record.args:
                 record.args = self._redact_args(record.args)

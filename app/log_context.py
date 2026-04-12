@@ -25,6 +25,15 @@ def get_log_context() -> dict[str, str]:
     return merged
 
 
+def snapshot_log_context() -> dict[str, str]:
+    context = get_log_context()
+    return {
+        key: value
+        for key, value in context.items()
+        if value is not None and str(value).strip() and str(value).strip() != "-"
+    }
+
+
 def bind_log_context(**kwargs) -> Token:
     current = get_log_context()
     updates = {
