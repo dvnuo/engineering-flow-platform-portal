@@ -124,7 +124,7 @@ def resolve_bundle_template_from_manifest(manifest: dict[str, Any]) -> BundleTem
     if isinstance(links, dict) and links:
         return require_bundle_template("requirement.v1")
 
-    return require_bundle_template("requirement.v1")
+    raise ValueError("bundle.yaml requires 'template_id' or legacy 'links'")
 
 
 def artifact_file_for_template(template_id: str, artifact_key: str) -> str | None:

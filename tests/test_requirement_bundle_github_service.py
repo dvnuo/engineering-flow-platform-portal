@@ -4,6 +4,8 @@ import pytest
 import yaml
 
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm, RequirementBundleInspectResponse
+
+from app.services.bundle_template_registry import resolve_bundle_template_from_manifest
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
@@ -206,3 +208,16 @@ def test_invalid_manifest_raises_error(monkeypatch):
     monkeypatch.setattr(service, "_get_file", lambda *_: _manifest_payload(invalid_manifest_text))
     with pytest.raises(RequirementBundleGithubServiceError):
         service.inspect_bundle(BundleRef(repo="octo/assets", path="requirement-bundles/a/b", branch="main"))
+
+
+def test_registry_resolve_template_requires_template_id_or_links():
+    with pytest.raises(ValueError) as exc_info:
+        resolve_bundle_template_from_manifest({"bundle_id": "RB-missing"})
+    assert "bundle.yaml requires 'template_id' or legacy 'links'" in str(exc_info.value)
+
+
+def test_service_resolve_template_wraps_registry_value_error():
+    service = RequirementBundleGithubService()
+    with pytest.raises(RequirementBundleGithubServiceError) as exc_info:
+        service._resolve_template_from_manifest({"bundle_id": "RB-missing"})
+    assert "bundle.yaml requires 'template_id' or legacy 'links'" in str(exc_info.value)
