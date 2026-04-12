@@ -248,6 +248,8 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert 'data-settings-action="generate-ssh-key"' not in settings_html
     assert "ssh_private_key_path" not in settings_html
     assert "Generate RSA Key" not in settings_html
+    assert "GitHub API Base URL" in settings_html
+    assert "Leave blank for https://api.github.com" in settings_html
     assert 'data-settings-action="copy-config"' in settings_html
     assert 'data-settings-action="paste-config"' in settings_html
     assert 'data-agent-id="{{ agent_id }}"' in settings_html

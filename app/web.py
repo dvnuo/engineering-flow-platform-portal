@@ -288,8 +288,11 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     github_base_url_value = (form.get("github_base_url") or "").strip()
     if github_token_value:
         github_cfg["api_token"] = github_token_value
-    if github_base_url_value:
-        github_cfg["base_url"] = github_base_url_value
+    if "github_base_url" in form:
+        if github_base_url_value:
+            github_cfg["base_url"] = github_base_url_value
+        else:
+            github_cfg.pop("base_url", None)
 
     git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
     git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()

@@ -90,7 +90,10 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
         data={
             "original_config_json": json.dumps({
                 "llm": {"api_base": "https://custom.example/v1", "api_key": "keep-llm-key"},
-                "github": {"api_token": "keep-github-token"},
+                "github": {
+                    "api_token": "keep-github-token",
+                    "base_url": "https://github.company.com/api/v3",
+                },
                 "ssh": {"enabled": True, "private_key_path": "/root/.ssh/id_rsa"},
                 "proxy": {"url": "http://proxy.local", "username": "proxy-user", "password": "keep-secret"},
                 "jira": {"instances": [{"name": "Jira", "url": "https://jira", "password": "jira-pass", "token": "jira-token"}]},
@@ -101,6 +104,7 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
             "llm_provider": "openai",
             "llm_api_key": "",
             "github_api_token": "",
+            "github_base_url": "",
             "proxy_url": "",
             "proxy_username": "",
             "proxy_password": "",
@@ -129,6 +133,7 @@ def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypat
     assert settings_payload["llm"]["api_base"] == "https://custom.example/v1"
     assert settings_payload["llm"]["api_key"] == "keep-llm-key"
     assert settings_payload["github"]["api_token"] == "keep-github-token"
+    assert "base_url" not in settings_payload["github"]
     assert settings_payload["proxy"]["url"] == ""
     assert settings_payload["proxy"]["username"] == ""
     assert "password" not in settings_payload["proxy"]
