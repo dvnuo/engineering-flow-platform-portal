@@ -23,11 +23,11 @@ kubectl apply -f efp-agents-secret.yaml
 
 `efp-portal-secret` should include:
 - `BOOTSTRAP_ADMIN_PASSWORD`
-- (optional) `GIT_USERNAME`, `GIT_TOKEN` for init clone
+- (optional) `GIT_TOKEN` for init clone
 
 `efp-agents-secret` should include:
 - `EFP_CONFIG_KEY`
-- (optional) `GIT_USERNAME`, `GIT_TOKEN`
+- (optional) `GIT_TOKEN`
 
 ### Create Deployment
 ```
@@ -50,10 +50,11 @@ Add ENV `BOOTSTRAP_ADMIN_PASSWORD` for portal admin
 kubectl edit deploy efp-portal-deployment
 ```
 
-Optional: customize git credential key names used in `efp-agents-secret`:
+Optional: customize git token key name used in `efp-agents-secret`:
 
-- `K8S_GIT_USERNAME_KEY` (default `GIT_USERNAME`)
 - `K8S_GIT_TOKEN_KEY` (default `GIT_TOKEN`)
+
+K8s clone uses HTTPS + `GIT_ASKPASS` + token-only auth. The askpass username response is fixed to `x-access-token`, and Portal does not rewrite clone URLs to authenticated URL forms.
 
 `PORTAL_INTERNAL_BASE_URL` should point to Portal internal DNS (example: `http://efp-portal-service.default.svc.cluster.local`).
 

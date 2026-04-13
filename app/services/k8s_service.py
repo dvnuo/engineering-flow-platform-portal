@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from app.config import get_settings
 from app.redaction import sanitize_exception_message
+from app.utils.git_urls import normalize_git_repo_url
 
 
 @dataclass
@@ -71,14 +72,14 @@ class K8sService:
         from kubernetes import client
         labels = self._agent_common_labels(agent)
         annotations = self._agent_patch_annotations(agent)
-        
-        env = self._build_git_clone_env(agent)
-        
+        normalized_repo_url = normalize_git_repo_url(agent.repo_url)
+
         # Build the init container spec
         init_containers = []
         code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
         
-        if agent.repo_url:
+        if normalized_repo_url:
+            env = self._build_git_clone_env(agent, normalized_repo_url)
             init_containers.append(
                 client.V1Container(
                     name="git-clone",
@@ -94,7 +95,7 @@ class K8sService:
         
         # Build volume mounts
         volume_mounts = []
-        if agent.repo_url:
+        if normalized_repo_url:
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{code_sub_path}/src"))
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{code_sub_path}/.git"))
@@ -234,7 +235,7 @@ class K8sService:
         return normalized
 
     def _repo_metadata(self, agent) -> dict[str, str]:
-        repo_url = (agent.repo_url or "").strip()
+        repo_url = normalize_git_repo_url(agent.repo_url) or ""
         branch = agent.branch or getattr(self.settings, "default_agent_branch", "master")
 
         if not repo_url:
@@ -246,13 +247,8 @@ class K8sService:
                 "raw_repo_url": "",
             }
 
-        repo_path = ""
-        if repo_url.startswith("git@"):
-            if ":" in repo_url:
-                repo_path = repo_url.split(":", 1)[1]
-        else:
-            parsed = urlparse(repo_url)
-            repo_path = parsed.path.lstrip("/")
+        parsed = urlparse(repo_url)
+        repo_path = parsed.path.lstrip("/")
         repo_path = repo_path.removesuffix(".git")
         if repo_path:
             parts = [part for part in repo_path.split("/") if part]
@@ -331,10 +327,11 @@ class K8sService:
         init_containers = []
         volume_mounts = []
         
-        if agent.repo_url:
+        normalized_repo_url = normalize_git_repo_url(agent.repo_url)
+        if normalized_repo_url:
             git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
             code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
-            env = self._build_git_clone_env(agent)
+            env = self._build_git_clone_env(agent, normalized_repo_url)
             
             init_containers.append(
                 client.V1Container(
@@ -398,40 +395,31 @@ class K8sService:
             if not self._is_already_exists(exc):
                 raise
 
-    def _build_git_clone_env(self, agent):
+    def _build_git_clone_env(self, agent, repo_url: Optional[str] = None):
         from kubernetes import client
 
         default_branch = getattr(self.settings, "default_agent_branch", "master")
+        normalized_repo_url = repo_url if repo_url is not None else normalize_git_repo_url(agent.repo_url)
+        if not normalized_repo_url:
+            return []
         env = [
-            client.V1EnvVar(name="GIT_REPO_URL", value=agent.repo_url),
+            client.V1EnvVar(name="GIT_REPO_URL", value=normalized_repo_url),
             client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or default_branch),
         ]
-        if not (self.settings.k8s_git_username_key and self.settings.k8s_git_token_key):
+        if not self.settings.k8s_git_token_key:
             return env
 
-        env.extend(
-            [
-                client.V1EnvVar(
-                    name="GIT_USERNAME",
-                    value_from=client.V1EnvVarSource(
-                        secret_key_ref=client.V1SecretKeySelector(
-                            name="efp-agents-secret",
-                            key=self.settings.k8s_git_username_key,
-                            optional=True,
-                        )
-                    ),
+        env.append(
+            client.V1EnvVar(
+                name="GIT_TOKEN",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="efp-agents-secret",
+                        key=self.settings.k8s_git_token_key,
+                        optional=True,
+                    )
                 ),
-                client.V1EnvVar(
-                    name="GIT_TOKEN",
-                    value_from=client.V1EnvVarSource(
-                        secret_key_ref=client.V1SecretKeySelector(
-                            name="efp-agents-secret",
-                            key=self.settings.k8s_git_token_key,
-                            optional=True,
-                        )
-                    ),
-                ),
-            ]
+            )
         )
         return env
 
@@ -460,12 +448,21 @@ class K8sService:
             "mkdir -p /app && "
             "mkdir -p /tmp/app && cd /tmp/app && "
             "REPO_URL=\"${GIT_REPO_URL}\" && "
-            "REPO_URL=\"$(echo ${REPO_URL} | sed 's#^\\(https://[^/]*\\)\\(/.*\\)#\\1:443\\2#')\" && "
-            "if [ -n \"${GIT_USERNAME}\" ] && [ -n \"${GIT_TOKEN}\" ]; then "
-            "REPO_URL=\"https://${GIT_USERNAME}:${GIT_TOKEN}@${REPO_URL#https://}\"; "
+            "if [ -n \"${GIT_TOKEN}\" ]; then "
+            "ASKPASS_SCRIPT=/tmp/git-askpass.sh && "
+            "printf '%s\n' "
+            "'#!/bin/sh' "
+            "'case \"$1\" in' "
+            "'  *Username*|*username*) echo \"x-access-token\" ;;' "
+            "'  *) echo \"${GIT_TOKEN}\" ;;' "
+            "'esac' > \"${ASKPASS_SCRIPT}\" && "
+            "chmod 700 \"${ASKPASS_SCRIPT}\" && "
+            "export GIT_ASKPASS=\"${ASKPASS_SCRIPT}\" && "
+            "export GIT_TERMINAL_PROMPT=0; "
             "fi && "
-            "git -c http.sslVerify=false clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
-            "cp -rf /tmp/app/. /app/ "
+            "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
+            "cp -rf /tmp/app/. /app/ && "
+            "rm -f /tmp/git-askpass.sh"
         )
 
     def _ensure_service(self, agent) -> None:

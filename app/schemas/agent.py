@@ -3,6 +3,8 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
+from app.utils.git_urls import normalize_git_repo_url
+
 ALLOWED_AGENT_TYPES = {"workspace", "specialist", "task"}
 
 
@@ -28,6 +30,11 @@ class AgentCreateRequest(BaseModel):
             raise ValueError("agent_type must be one of: workspace, specialist, task")
         return normalized
 
+    @field_validator("repo_url")
+    @classmethod
+    def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_git_repo_url(value)
+
 
 class AgentUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -51,6 +58,11 @@ class AgentUpdateRequest(BaseModel):
         if normalized not in ALLOWED_AGENT_TYPES:
             raise ValueError("agent_type must be one of: workspace, specialist, task")
         return normalized
+
+    @field_validator("repo_url")
+    @classmethod
+    def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_git_repo_url(value)
 
 
 class AgentDeleteResponse(BaseModel):
@@ -85,6 +97,11 @@ class AgentResponse(BaseModel):
     last_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("repo_url", mode="before")
+    @classmethod
+    def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_git_repo_url(value)
 
     class Config:
         from_attributes = True

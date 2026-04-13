@@ -146,24 +146,26 @@ async def _forward_runtime_multipart(
 
 
 def _settings_view_payload(config_data: dict) -> dict:
-    llm = config_data.get("llm") if isinstance(config_data.get("llm"), dict) else {}
-    jira = config_data.get("jira") if isinstance(config_data.get("jira"), dict) else {}
-    confluence = config_data.get("confluence") if isinstance(config_data.get("confluence"), dict) else {}
+    clean_config = dict(config_data or {})
+    clean_config.pop("ssh", None)
+
+    llm = clean_config.get("llm") if isinstance(clean_config.get("llm"), dict) else {}
+    jira = clean_config.get("jira") if isinstance(clean_config.get("jira"), dict) else {}
+    confluence = clean_config.get("confluence") if isinstance(clean_config.get("confluence"), dict) else {}
     jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []
     confluence_instances = confluence.get("instances") if isinstance(confluence.get("instances"), list) else []
 
     return {
-        "config": config_data,
+        "config": clean_config,
         "llm": llm,
         "jira": jira,
         "jira_instances": jira_instances,
         "confluence": confluence,
         "confluence_instances": confluence_instances,
-        "github": config_data.get("github") if isinstance(config_data.get("github"), dict) else {},
-        "git": config_data.get("git") if isinstance(config_data.get("git"), dict) else {},
-        "ssh": config_data.get("ssh") if isinstance(config_data.get("ssh"), dict) else {},
-        "proxy": config_data.get("proxy") if isinstance(config_data.get("proxy"), dict) else {},
-        "debug": config_data.get("debug") if isinstance(config_data.get("debug"), dict) else {},
+        "github": clean_config.get("github") if isinstance(clean_config.get("github"), dict) else {},
+        "git": clean_config.get("git") if isinstance(clean_config.get("git"), dict) else {},
+        "proxy": clean_config.get("proxy") if isinstance(clean_config.get("proxy"), dict) else {},
+        "debug": clean_config.get("debug") if isinstance(clean_config.get("debug"), dict) else {},
     }
 
 
@@ -215,6 +217,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         return str(value or "").lower() in {"1", "true", "on", "yes"}
 
     config_payload = config_payload if isinstance(config_payload, dict) else {}
+    config_payload.pop("ssh", None)
 
     existing_proxy_password = None
     if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
@@ -287,8 +290,11 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     github_base_url_value = (form.get("github_base_url") or "").strip()
     if github_token_value:
         github_cfg["api_token"] = github_token_value
-    if github_base_url_value:
-        github_cfg["base_url"] = github_base_url_value
+    if "github_base_url" in form:
+        if github_base_url_value:
+            github_cfg["base_url"] = github_base_url_value
+        else:
+            github_cfg.pop("base_url", None)
 
     git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
     git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
@@ -299,12 +305,6 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     if git_email_value:
         git_user["email"] = git_email_value
     git_cfg["user"] = git_user
-
-    ssh_cfg = (config_payload.get("ssh") if isinstance(config_payload.get("ssh"), dict) else {}).copy()
-    ssh_cfg["enabled"] = as_bool(form.get("ssh_enabled"))
-    ssh_key_path_value = (form.get("ssh_private_key_path") or "").strip()
-    if ssh_key_path_value:
-        ssh_cfg["private_key_path"] = ssh_key_path_value
 
     proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
     proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
@@ -335,9 +335,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     config_payload["confluence"] = confluence
     config_payload["github"] = github_cfg
     config_payload["git"] = git_cfg
-    config_payload["ssh"] = ssh_cfg
     config_payload["proxy"] = proxy_cfg
     config_payload["debug"] = debug_cfg
+    config_payload.pop("ssh", None)
     return config_payload, None
 
 

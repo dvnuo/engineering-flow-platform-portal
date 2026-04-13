@@ -2723,7 +2723,7 @@ async function openServerFiles() {
 }
 
 function buildServerFilesBreadcrumb(path, rootPath) {
-  const normalizedRoot = String(rootPath || '').replace(/\/+$/, '');
+  const normalizedRoot = String(rootPath || '/').replace(/\/+$/, '') || '/';
   const normalizedPath = String(path || normalizedRoot || '').replace(/\/+$/, '');
   const workspaceCrumb = normalizedRoot
     ? `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">Workspace</a>`
@@ -3248,13 +3248,6 @@ function initializeSettingsPanel() {
     }
 
     const action = btn.dataset.settingsAction;
-    if (action === "generate-ssh-key") {
-      if (typeof window.generateSSHKey === "function") {
-        await window.generateSSHKey(agentId);
-      }
-      return;
-    }
-
     if (action === "copy-config") {
       await copyAgentConfig(agentId);
       return;
