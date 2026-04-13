@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from pathlib import Path
 
 from app.utils.git_urls import normalize_git_repo_url
 
@@ -127,6 +128,15 @@ class K8sServiceNoopTest(unittest.TestCase):
         env = self.service._build_git_clone_env(agent)
 
         self.assertEqual(env, [])
+
+    def test_checked_in_k8s_manifests_include_lowercase_username_prompt_match(self):
+        manifest_paths = [
+            "k8s/efp-portal-deployment.yaml",
+            "k8s/portal-git-clone/efp-portal-deployment.yaml",
+        ]
+        for path in manifest_paths:
+            content = Path(path).read_text(encoding="utf-8")
+            self.assertIn("*Username*|*username*)", content)
 
     def test_normalize_git_repo_url_ssh_to_https(self):
         self.assertEqual(
