@@ -1,6 +1,5 @@
 <div class="portal-panel-stack" id="settings-panel-root" data-agent-id="{{ agent_id }}">
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
-    <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
     {% if status_message %}
       <div
         id="settings-status"

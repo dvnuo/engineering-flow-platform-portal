@@ -1433,18 +1433,26 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         runtime_profile.revision = (runtime_profile.revision or 0) + 1
         runtime_profile = profile_repo.save(runtime_profile)
 
-        sync_result = await runtime_profile_sync_service.sync_profile_to_bound_agents(db, runtime_profile)
-        if sync_result.get("failed_agent_ids"):
+        try:
+            sync_result = await runtime_profile_sync_service.sync_profile_to_bound_agents(db, runtime_profile)
+            if sync_result.get("failed_agent_ids"):
+                status_type = "error"
+                status_message = (
+                    "Runtime profile saved, but some running agents failed to sync: "
+                    + ", ".join(sync_result["failed_agent_ids"])
+                )
+            else:
+                status_message = (
+                    "Runtime profile updated. "
+                    f"Updated running agents: {sync_result['updated_running_count']}, "
+                    f"skipped (not running): {sync_result['skipped_not_running_count']}."
+                )
+        except Exception:
+            logger.exception("runtime profile fan-out sync failed after settings save profile_id=%s", runtime_profile.id)
             status_type = "error"
             status_message = (
-                "Runtime profile saved, but some running agents failed to sync: "
-                + ", ".join(sync_result["failed_agent_ids"])
-            )
-        else:
-            status_message = (
-                "Runtime profile updated. "
-                f"Updated running agents: {sync_result['updated_running_count']}, "
-                f"skipped (not running): {sync_result['skipped_not_running_count']}."
+                "Runtime profile was saved, but sync fan-out failed this time. "
+                "Running agents may need retry; newly started agents will still pull from Portal on startup."
             )
 
         view_data = _settings_view_payload(sanitized_config)

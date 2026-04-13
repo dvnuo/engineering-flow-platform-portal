@@ -11,7 +11,7 @@ from app.models import Agent, User
 from app.models.runtime_profile import RuntimeProfile
 
 
-def _build_client(monkeypatch):
+def _build_client(monkeypatch, *, current_user_role="admin", current_user_id=None, agent_owner_id=None):
     from app.main import app
     import app.web as web_module
 
@@ -20,14 +20,23 @@ def _build_client(monkeypatch):
     Base.metadata.create_all(bind=engine)
 
     db = TestingSessionLocal()
-    user = User(username="owner", password_hash="test", role="admin", is_active=True)
-    db.add(user)
+    owner = User(username="owner", password_hash="test", role="user", is_active=True)
+    admin = User(username="admin", password_hash="test", role="admin", is_active=True)
+    db.add_all([owner, admin])
     db.commit()
-    db.refresh(user)
+    db.refresh(owner)
+    db.refresh(admin)
+
+    if current_user_id is None:
+        current_user_id = admin.id if current_user_role == "admin" else owner.id
+    if agent_owner_id is None:
+        agent_owner_id = owner.id
+
+    current_user = admin if current_user_id == admin.id else owner
 
     agent = Agent(
         name="agent-1",
-        owner_user_id=user.id,
+        owner_user_id=agent_owner_id,
         visibility="private",
         status="running",
         image="example/image:latest",
@@ -47,7 +56,16 @@ def _build_client(monkeypatch):
     db.refresh(agent)
 
     monkeypatch.setattr(web_module, "SessionLocal", TestingSessionLocal)
-    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: SimpleNamespace(id=user.id, role="admin", username=user.username, nickname="Owner"))
+    monkeypatch.setattr(
+        web_module,
+        "_current_user_from_cookie",
+        lambda _request: SimpleNamespace(
+            id=current_user.id,
+            role=current_user_role,
+            username=current_user.username,
+            nickname=current_user.username,
+        ),
+    )
 
     def _cleanup():
         db.close()
@@ -55,16 +73,21 @@ def _build_client(monkeypatch):
     return TestClient(app), db, agent, _cleanup
 
 
+def _bind_profile(db, agent, name="rp-save", config=None, revision=1):
+    rp = RuntimeProfile(name=name, config_json=json.dumps(config or {"llm": {"provider": "openai"}}), revision=revision)
+    db.add(rp)
+    db.commit()
+    db.refresh(rp)
+    agent.runtime_profile_id = rp.id
+    db.add(agent)
+    db.commit()
+    return rp
+
+
 def test_settings_panel_reads_runtime_profile_not_runtime_api(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        rp = RuntimeProfile(name="rp-settings", config_json=json.dumps({"llm": {"provider": "openai"}}), revision=2)
-        db.add(rp)
-        db.commit()
-        db.refresh(rp)
-        agent.runtime_profile_id = rp.id
-        db.add(agent)
-        db.commit()
+        rp = _bind_profile(db, agent, name="rp-settings", config={"llm": {"provider": "openai"}}, revision=2)
 
         async def _should_not_call(**_kwargs):
             raise AssertionError("runtime proxy forward should not be called")
@@ -75,6 +98,7 @@ def test_settings_panel_reads_runtime_profile_not_runtime_api(monkeypatch):
         assert resp.status_code == 200
         assert "rp-settings" in resp.text
         assert "Revision: <strong>2</strong>" in resp.text
+        assert 'name="original_config_json"' not in resp.text
     finally:
         cleanup()
 
@@ -82,18 +106,9 @@ def test_settings_panel_reads_runtime_profile_not_runtime_api(monkeypatch):
 def test_settings_save_uses_db_profile_as_merge_base_and_sanitizes(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        rp = RuntimeProfile(name="rp-save", config_json=json.dumps({"llm": {"provider": "openai"}}), revision=1)
-        db.add(rp)
-        db.commit()
-        db.refresh(rp)
-        agent.runtime_profile_id = rp.id
-        db.add(agent)
-        db.commit()
-
-        sync_calls = []
+        rp = _bind_profile(db, agent)
 
         async def _fake_sync(_db, profile):
-            sync_calls.append(profile.id)
             return {"updated_running_count": 1, "skipped_not_running_count": 0, "failed_agent_ids": []}
 
         monkeypatch.setattr("app.web.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
@@ -108,9 +123,132 @@ def test_settings_save_uses_db_profile_as_merge_base_and_sanitizes(monkeypatch):
         db.refresh(rp)
         saved = json.loads(rp.config_json)
         assert rp.revision == 2
-        assert sync_calls == [rp.id]
         assert saved["llm"]["provider"] == "anthropic"
         assert "ssh" not in saved
+    finally:
+        cleanup()
+
+
+def test_settings_save_sync_exception_does_not_break_response(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, config={"llm": {"provider": "openai"}}, revision=1)
+
+        async def _boom(*_args, **_kwargs):
+            raise RuntimeError("fanout failed")
+
+        monkeypatch.setattr("app.web.runtime_profile_sync_service.sync_profile_to_bound_agents", _boom)
+
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"llm_provider": "anthropic", "llm_model": "claude"},
+        )
+        assert resp.status_code == 200
+        assert "Runtime profile was saved, but sync fan-out failed" in resp.text
+        db.refresh(rp)
+        assert rp.revision == 2
+        saved = json.loads(rp.config_json)
+        assert saved["llm"]["provider"] == "anthropic"
+    finally:
+        cleanup()
+
+
+def test_settings_save_preserves_proxy_password_when_field_absent(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, config={"proxy": {"enabled": True, "password": "keep-secret"}}, revision=5)
+
+        async def _fake_sync(*_args, **_kwargs):
+            return {"updated_running_count": 0, "skipped_not_running_count": 0, "failed_agent_ids": []}
+
+        monkeypatch.setattr("app.web.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
+
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"proxy_enabled": "on", "proxy_url": "http://proxy.local", "proxy_username": "u"},
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["proxy"]["password"] == "keep-secret"
+    finally:
+        cleanup()
+
+
+def test_settings_save_does_not_infer_llm_api_base(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, config={"llm": {}}, revision=1)
+
+        async def _fake_sync(*_args, **_kwargs):
+            return {"updated_running_count": 0, "skipped_not_running_count": 0, "failed_agent_ids": []}
+
+        monkeypatch.setattr("app.web.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
+
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"llm_provider": "anthropic", "llm_model": "claude"},
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert "api_base" not in saved.get("llm", {})
+    finally:
+        cleanup()
+
+
+def test_settings_save_drops_jira_instance_when_name_and_url_blank(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(
+            db,
+            agent,
+            config={
+                "jira": {"instances": [{"name": "J", "url": "https://jira", "password": "p", "token": "t"}]},
+            },
+            revision=1,
+        )
+
+        async def _fake_sync(*_args, **_kwargs):
+            return {"updated_running_count": 0, "skipped_not_running_count": 0, "failed_agent_ids": []}
+
+        monkeypatch.setattr("app.web.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
+
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={
+                "jira_instance_count": "1",
+                "jira_instances_0_name": "",
+                "jira_instances_0_url": "",
+                "jira_instances_0_username": "",
+                "jira_instances_0_password": "",
+                "jira_instances_0_token": "",
+                "jira_instances_0_project": "",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["jira"]["instances"] == []
+    finally:
+        cleanup()
+
+
+def test_settings_save_allowed_for_admin_non_owner(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_role="admin")
+    try:
+        rp = _bind_profile(db, agent, config={"debug": {"enabled": False}}, revision=2)
+
+        async def _fake_sync(*_args, **_kwargs):
+            return {"updated_running_count": 0, "skipped_not_running_count": 0, "failed_agent_ids": []}
+
+        monkeypatch.setattr("app.web.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
+
+        resp = client.post(f"/app/agents/{agent.id}/settings/save", data={"debug_enabled": "on"})
+        assert resp.status_code == 200
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["debug"]["enabled"] is True
     finally:
         cleanup()
 

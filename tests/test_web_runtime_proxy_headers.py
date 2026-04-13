@@ -43,10 +43,6 @@ def _setup_web_runtime_test(monkeypatch):
             body = {"files": []}
         elif subpath and subpath.endswith("/chatlog"):
             body = {"messages": []}
-        elif subpath == "api/config":
-            body = {"config": {}}
-        elif subpath == "api/config/save":
-            body = {"ok": True}
         elif subpath == "api/usage":
             body = {}
         else:
@@ -65,7 +61,6 @@ def test_runtime_panel_routes_include_identity_headers(monkeypatch):
         ("/app/agents/agent-1/sessions/panel?limit=5", "api/sessions"),
         ("/app/agents/agent-1/files/panel", "api/files/list"),
         ("/app/agents/agent-1/thinking/panel?session_id=s-1", "api/sessions/s-1/chatlog"),
-        ("/app/agents/agent-1/settings/panel", "api/config"),
         ("/app/agents/agent-1/usage/panel?days=14", "api/usage"),
     ]
 
@@ -81,89 +76,6 @@ def test_runtime_panel_routes_include_identity_headers(monkeypatch):
         }
 
 
-def test_runtime_post_routes_include_identity_headers_and_content_type(monkeypatch):
-    client, captured_calls = _setup_web_runtime_test(monkeypatch)
-
-    captured_calls.clear()
-    settings_save = client.post(
-        "/app/agents/agent-1/settings/save",
-        data={
-            "original_config_json": json.dumps({
-                "llm": {"api_base": "https://custom.example/v1", "api_key": "keep-llm-key"},
-                "github": {
-                    "api_token": "keep-github-token",
-                    "base_url": "https://github.company.com/api/v3",
-                },
-                "ssh": {"enabled": True, "private_key_path": "/root/.ssh/id_rsa"},
-                "proxy": {"url": "http://proxy.local", "username": "proxy-user", "password": "keep-secret"},
-                "jira": {"instances": [{"name": "Jira", "url": "https://jira", "password": "jira-pass", "token": "jira-token"}]},
-                "confluence": {"instances": [{"name": "Conf", "url": "https://conf", "password": "conf-pass", "token": "conf-token"}]},
-                "debug": {"log_level": "ERROR"},
-                "runtime_extra": {"keep": True},
-            }),
-            "llm_provider": "openai",
-            "llm_api_key": "",
-            "github_api_token": "",
-            "github_base_url": "",
-            "proxy_url": "",
-            "proxy_username": "",
-            "proxy_password": "",
-            "debug_log_level": "NOPE",
-            "jira_instance_count": "1",
-            "jira_instances_0_name": "Jira",
-            "jira_instances_0_url": "https://jira",
-            "jira_instances_0_username": "",
-            "jira_instances_0_password": "",
-            "jira_instances_0_token": "",
-            "jira_instances_0_project": "",
-            "confluence_instance_count": "1",
-            "confluence_instances_0_name": "Conf",
-            "confluence_instances_0_url": "https://conf",
-            "confluence_instances_0_username": "",
-            "confluence_instances_0_password": "",
-            "confluence_instances_0_token": "",
-            "confluence_instances_0_space": "",
-        },
-    )
-    assert settings_save.status_code == 200
-    assert captured_calls[0]["subpath"] == "api/config/save"
-    assert captured_calls[0]["headers"] == {"content-type": "application/json"}
-    assert captured_calls[0]["extra_headers"]["X-Portal-User-Id"] == "321"
-    settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
-    assert settings_payload["llm"]["api_base"] == "https://custom.example/v1"
-    assert settings_payload["llm"]["api_key"] == "keep-llm-key"
-    assert settings_payload["github"]["api_token"] == "keep-github-token"
-    assert "base_url" not in settings_payload["github"]
-    assert settings_payload["proxy"]["url"] == ""
-    assert settings_payload["proxy"]["username"] == ""
-    assert "password" not in settings_payload["proxy"]
-    assert settings_payload["jira"]["instances"][0]["password"] == "jira-pass"
-    assert settings_payload["jira"]["instances"][0]["token"] == "jira-token"
-    assert settings_payload["jira"]["instances"][0]["username"] == ""
-    assert settings_payload["confluence"]["instances"][0]["password"] == "conf-pass"
-    assert settings_payload["confluence"]["instances"][0]["token"] == "conf-token"
-    assert settings_payload["confluence"]["instances"][0]["username"] == ""
-    assert settings_payload["debug"]["log_level"] == "ERROR"
-    assert settings_payload["runtime_extra"] == {"keep": True}
-    assert "ssh" not in settings_payload
-
-
-def test_settings_save_preserves_proxy_password_when_field_absent(monkeypatch):
-    client, captured_calls = _setup_web_runtime_test(monkeypatch)
-    captured_calls.clear()
-    response = client.post(
-        "/app/agents/agent-1/settings/save",
-        data={
-            "original_config_json": json.dumps({
-                "proxy": {"password": "keep-secret"},
-            }),
-        },
-    )
-    assert response.status_code == 200
-    settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
-    assert settings_payload["proxy"]["password"] == "keep-secret"
-
-
 def test_settings_save_forbidden_for_public_non_owner(monkeypatch):
     from app.main import app
     import app.web as web_module
@@ -176,6 +88,7 @@ def test_settings_save_forbidden_for_public_non_owner(monkeypatch):
         status="running",
         name="Agent One",
         repo_url="https://example.com/repo.git",
+        runtime_profile_id="rp-1",
     )
 
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
@@ -185,102 +98,16 @@ def test_settings_save_forbidden_for_public_non_owner(monkeypatch):
         "AgentRepository",
         lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
     )
-    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
 
-    async def _should_not_forward(**kwargs):
-        raise AssertionError("forward should not be called for forbidden settings save")
+    async def _should_not_sync(*_args, **_kwargs):
+        raise AssertionError("sync should not be called for forbidden settings save")
 
-    monkeypatch.setattr(web_module.proxy_service, "forward", _should_not_forward)
+    monkeypatch.setattr(web_module.runtime_profile_sync_service, "sync_profile_to_bound_agents", _should_not_sync)
 
     client = TestClient(app)
-    response = client.post(
-        "/app/agents/agent-1/settings/save",
-        data={"original_config_json": json.dumps({})},
-    )
+    response = client.post("/app/agents/agent-1/settings/save", data={})
 
     assert response.status_code == 403
-
-
-def test_settings_save_allowed_for_admin_non_owner(monkeypatch):
-    from app.main import app
-    import app.web as web_module
-
-    fake_user = SimpleNamespace(id=1, username="admin", nickname="Admin", role="admin")
-    fake_agent = SimpleNamespace(
-        id="agent-1",
-        owner_user_id=999,
-        visibility="public",
-        status="running",
-        name="Agent One",
-        repo_url="https://example.com/repo.git",
-    )
-
-    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
-    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
-    monkeypatch.setattr(
-        web_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
-    )
-    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
-
-    captured_calls = []
-
-    async def _fake_forward(**kwargs):
-        captured_calls.append(kwargs)
-        if kwargs.get("subpath") == "api/config":
-            return 200, json.dumps({"config": {}}).encode("utf-8"), "application/json"
-        return 200, json.dumps({"ok": True}).encode("utf-8"), "application/json"
-
-    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
-
-    client = TestClient(app)
-    response = client.post(
-        "/app/agents/agent-1/settings/save",
-        data={"original_config_json": json.dumps({})},
-    )
-
-    assert response.status_code == 200
-    assert captured_calls[0]["subpath"] == "api/config/save"
-
-
-def test_settings_save_does_not_infer_llm_api_base(monkeypatch):
-    client, captured_calls = _setup_web_runtime_test(monkeypatch)
-    captured_calls.clear()
-    response = client.post(
-        "/app/agents/agent-1/settings/save",
-        data={
-            "original_config_json": json.dumps({"llm": {}}),
-            "llm_provider": "anthropic",
-            "llm_model": "claude",
-        },
-    )
-    assert response.status_code == 200
-    settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
-    assert "api_base" not in settings_payload.get("llm", {})
-
-
-def test_settings_save_drops_instance_when_name_and_url_are_blank(monkeypatch):
-    client, captured_calls = _setup_web_runtime_test(monkeypatch)
-    captured_calls.clear()
-    response = client.post(
-        "/app/agents/agent-1/settings/save",
-        data={
-            "original_config_json": json.dumps({
-                "jira": {"instances": [{"name": "Jira", "url": "https://jira", "password": "jira-pass", "token": "jira-token"}]},
-            }),
-            "jira_instance_count": "1",
-            "jira_instances_0_name": "",
-            "jira_instances_0_url": "",
-            "jira_instances_0_username": "",
-            "jira_instances_0_password": "",
-            "jira_instances_0_token": "",
-            "jira_instances_0_project": "",
-        },
-    )
-    assert response.status_code == 200
-    settings_payload = json.loads(captured_calls[0]["body"].decode("utf-8"))
-    assert settings_payload["jira"]["instances"] == []
 
 
 def test_file_upload_uses_forward_multipart_with_identity_headers(monkeypatch):
