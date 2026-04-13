@@ -572,6 +572,7 @@ def test_background_success_does_not_render_into_current_dom():
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
     mark_unread = _extract_js_function(js_file, "markAgentUnread")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
     handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
 
     script = f"""
@@ -602,16 +603,19 @@ function notifyAgentCompletion() {{}}
 {ensure_state}
 {update_session}
 {mark_unread}
+{merge_events}
 {handle_success}
 const aState = ensureChatState("agent-A");
 aState.activeRequest = {{ clientRequestId: "req-a" }};
-handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{ session_id: "s-a2", response: "ok" }});
-console.log(JSON.stringify({{
-  unread: ensureChatState("agent-A").unreadCount,
-  needsReload: ensureChatState("agent-A").needsReload,
-  bSession: state.agentSessionIds.get("agent-B"),
-  renderAgentListCalls: rendered
-}}));
+(async () => {{
+  await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{ session_id: "s-a2", response: "ok" }});
+  console.log(JSON.stringify({{
+    unread: ensureChatState("agent-A").unreadCount,
+    needsReload: ensureChatState("agent-A").needsReload,
+    bSession: state.agentSessionIds.get("agent-B"),
+    renderAgentListCalls: rendered
+  }}));
+}})();
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
@@ -619,15 +623,209 @@ console.log(JSON.stringify({{
     assert data["needsReload"] is True
     assert data["bSession"] == "s-b"
     assert data["renderAgentListCalls"] == 1
+
+
+def test_selected_agent_hidden_success_notifies_and_merges_events():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    update_session = _extract_js_function(js_file, "updateAgentSession")
+    set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  mineAgents: [{{id: "agent-A", name: "Agent A"}}],
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const dom = {{ messageList: {{ insertAdjacentHTML() {{}} }} }};
+const document = {{ hidden: true }};
+let notifyCalls = 0;
+let editCalls = 0;
+let attachedEvents = [];
+function setLastSessionId() {{}}
+function syncHiddenSessionInputFromState() {{}}
+function ensureEventSocketForSelectedAgent() {{}}
+function removeTemporaryAssistantRows() {{}}
+function getLatestOptimisticUserArticle() {{ return {{ dataset: {{ optimisticUser: "1" }} }}; }}
+function buildAssistantMessageArticle() {{ return ""; }}
+function attachThinkingToLatestAssistant(events) {{ attachedEvents = events; }}
+function setChatStatus() {{}}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function renderIcons() {{}}
+function scrollToBottom() {{}}
+function addEditButtonsToMessages() {{ editCalls += 1; }}
+function markAgentUnread() {{}}
+function renderAgentList() {{}}
+function notifyAgentCompletion() {{ notifyCalls += 1; }}
+function loadSessionForAgent() {{ throw new Error("should not reload"); }}
+{create_state}
+{ensure_state}
+{update_session}
+{set_submitting}
+{merge_events}
+{handle_success}
+const chatState = ensureChatState("agent-A");
+chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.inflightThinking = {{ events: [{{type: "execution.started", request_id: "req-a", session_id: "s-a", data: {{ message: "ws" }} }}] }};
+(async () => {{
+  await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{
+    session_id: "s-a2",
+    response: "done",
+    events: [{{type: "tool_result", request_id: "req-a", session_id: "s-a2", data: {{ message: "payload" }} }}]
+  }});
+  console.log(JSON.stringify({{
+    notifyCalls,
+    editCalls,
+    mergedCount: attachedEvents.length,
+  }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["notifyCalls"] == 1
+    assert data["editCalls"] == 1
+    assert data["mergedCount"] == 2
+
+
+def test_success_without_optimistic_row_reloads_session():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    update_session = _extract_js_function(js_file, "updateAgentSession")
+    set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  mineAgents: [{{id: "agent-A", name: "Agent A"}}],
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const dom = {{ messageList: {{ insertAdjacentHTML() {{ throw new Error("must not append"); }} }} }};
+const document = {{ hidden: false }};
+let reloadCalls = [];
+function setLastSessionId() {{}}
+function syncHiddenSessionInputFromState() {{}}
+function ensureEventSocketForSelectedAgent() {{}}
+function removeTemporaryAssistantRows() {{}}
+function getLatestOptimisticUserArticle() {{ return null; }}
+function attachThinkingToLatestAssistant() {{}}
+function setChatStatus() {{}}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function renderIcons() {{}}
+function scrollToBottom() {{}}
+function addEditButtonsToMessages() {{}}
+function markAgentUnread() {{}}
+function renderAgentList() {{}}
+function notifyAgentCompletion() {{}}
+async function loadSessionForAgent(agentId, sessionId, options) {{ reloadCalls.push([agentId, sessionId, options?.render]); }}
+{create_state}
+{ensure_state}
+{update_session}
+{set_submitting}
+{merge_events}
+{handle_success}
+const chatState = ensureChatState("agent-A");
+chatState.activeRequest = {{ clientRequestId: "req-a" }};
+(async () => {{
+  await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{ session_id: "s-a2", response: "done" }});
+  console.log(JSON.stringify({{ reloadCalls }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["reloadCalls"] == [["agent-A", "s-a2", True]]
+
+
+def test_failure_restores_hidden_attachments_and_hidden_tab_notifies():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
+    handle_failure = _extract_js_function(js_file, "handleAgentChatFailure")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  mineAgents: [{{id: "agent-A", name: "Agent A"}}],
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const dom = {{
+  chatInput: {{ value: "" }},
+  messageList: {{ insertAdjacentHTML() {{}} }},
+}};
+const attachmentNode = {{ value: "" }};
+const document = {{
+  hidden: true,
+  getElementById(id) {{ return id === "chat-attachments" ? attachmentNode : null; }},
+}};
+let notifyCalls = 0;
+function removeTemporaryAssistantRows() {{}}
+function removeLatestOptimisticUserRow() {{}}
+function renderInputPreview() {{}}
+function syncChatInputHeight() {{}}
+function setChatStatus() {{}}
+function safe(v) {{ return String(v); }}
+function scrollToBottom() {{}}
+function renderIcons() {{}}
+function markAgentUnread() {{}}
+function renderAgentList() {{}}
+function notifyAgentCompletion() {{ notifyCalls += 1; }}
+{create_state}
+{ensure_state}
+{set_submitting}
+{handle_failure}
+const chatState = ensureChatState("agent-A");
+chatState.activeRequest = {{ clientRequestId: "req-a" }};
+handleAgentChatFailure("agent-A", {{
+  clientRequestId: "req-a",
+  attachments: ["file-1", "file-2"],
+  backupFiles: [],
+  backupMessage: "msg"
+}}, new Error("boom"));
+console.log(JSON.stringify({{
+  attachmentsValue: attachmentNode.value,
+  draftAttachmentsValue: ensureChatState("agent-A").draftAttachmentsValue,
+  notifyCalls
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["attachmentsValue"] == '["file-1","file-2"]'
+    assert data["draftAttachmentsValue"] == '["file-1","file-2"]'
+    assert data["notifyCalls"] == 1
 def test_chat_ui_event_socket_replaces_stale_connecting_session():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    ensure_socket_for_agent_fn = _extract_js_function(js_file, "ensureEventSocketForAgent")
     ensure_socket_fn = _extract_js_function(js_file, "ensureEventSocketForSelectedAgent")
 
     script = f"""
+{ensure_socket_for_agent_fn}
 {ensure_socket_fn}
 
 const events = [];
@@ -655,7 +853,10 @@ const state = {{
   }},
   eventWsAgentId: "agent-A",
   eventWsSessionId: "old-session",
+  eventWsRequestId: "old-req",
 }};
+
+function ensureChatState() {{ return {{ sessionId: currentSession }}; }}
 
 function currentSessionIdForSelectedAgent() {{
   return currentSession;
@@ -666,6 +867,7 @@ function disconnectEventSocket() {{
   state.eventWs = null;
   state.eventWsAgentId = null;
   state.eventWsSessionId = null;
+  state.eventWsRequestId = null;
 }}
 
 class FakeWebSocket {{
@@ -675,10 +877,17 @@ class FakeWebSocket {{
     websocketCreated += 1;
     events.push("opened:" + url);
   }}
+  close() {{
+    this.readyState = CLOSED;
+    events.push("closed:new");
+  }}
 }}
 FakeWebSocket.CONNECTING = CONNECTING;
 FakeWebSocket.OPEN = OPEN;
 globalThis.WebSocket = FakeWebSocket;
+
+ensureEventSocketForAgent("agent-A", "s-1", "req-1");
+const directUrl = state.eventWs?.url || null;
 
 ensureEventSocketForSelectedAgent();
 const firstSocket = state.eventWs;
@@ -701,6 +910,7 @@ console.log(JSON.stringify({{
   secondSession,
   secondCreated,
   sameSocketOnSecondCall: firstSocket === secondSocket,
+  directUrl,
 }}));
 """
 
@@ -713,10 +923,11 @@ console.log(JSON.stringify({{
     data = json.loads(completed.stdout)
 
     assert "closed:old" in data["events"]
+    assert data["directUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=s-1&request_id=req-1"
     assert data["firstUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=new-session"
     assert data["firstSession"] == "new-session"
-    assert data["firstCreated"] == 1
-    assert data["secondCreated"] == 1
+    assert data["firstCreated"] == 2
+    assert data["secondCreated"] == 2
     assert data["secondUrl"] == data["firstUrl"]
     assert data["secondSession"] == "new-session"
     assert data["sameSocketOnSecondCall"] is True

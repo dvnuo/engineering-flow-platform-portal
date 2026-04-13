@@ -29,6 +29,12 @@ def test_app_template_contains_new_portal_shell():
     assert 'hx-post="/app/chat/send"' not in chat_form_block
 
 
+def test_chat_submit_primary_path_is_fetch_runtime():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "async function submitChatForSelectedAgent()" in js
+    assert 'fetch(`/a/${agentIdAtSend}/api/chat`' in js
+
+
 def test_chat_response_partial_contract():
     partial = Path("app/templates/partials/chat_response.html").read_text(encoding="utf-8")
     assert "message-row" in partial

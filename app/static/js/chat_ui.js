@@ -828,6 +828,26 @@ function attachThinkingToLatestAssistant(events) {
   return true;
 }
 
+function mergeThinkingEvents(primaryEvents, secondaryEvents) {
+  const first = Array.isArray(primaryEvents) ? primaryEvents : [];
+  const second = Array.isArray(secondaryEvents) ? secondaryEvents : [];
+  const merged = [];
+  const seen = new Set();
+  const add = (event) => {
+    if (!event || typeof event !== "object") return;
+    const data = (event.data && typeof event.data === "object") ? event.data : {};
+    const requestId = event.request_id || data.request_id || "";
+    const sessionId = event.session_id || data.session_id || "";
+    const key = `${event.type || ""}|${requestId}|${sessionId}|${JSON.stringify(data)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(event);
+  };
+  first.forEach(add);
+  second.forEach(add);
+  return merged;
+}
+
 // Render thinking events from chat response (non-WebSocket)
 function escapeHtml(str) {
   if (str == null) return '';
@@ -853,6 +873,8 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
+  const currentRequestId = socketCtx.requestId || chatState.activeRequest?.clientRequestId || "";
+  if (entry.request_id && currentRequestId && entry.request_id !== currentRequestId) return;
 
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
@@ -932,8 +954,12 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
     disconnectEventSocket();
   }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const sessionQuery = session ? `?session_id=${encodeURIComponent(session)}` : "";
-  const ws = new WebSocket(`${protocol}//${window.location.host}/a/${agentId}/api/events${sessionQuery}`);
+  const params = new URLSearchParams();
+  if (session) params.set("session_id", session);
+  if (requestId) params.set("request_id", requestId);
+  const query = params.toString();
+  const wsUrl = `${protocol}//${window.location.host}/a/${agentId}/api/events${query ? `?${query}` : ""}`;
+  const ws = new WebSocket(wsUrl);
   state.eventWs = ws;
   state.eventWsAgentId = agentId;
   state.eventWsSessionId = session || "";
@@ -946,6 +972,7 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
 }
 
 function ensureEventSocketForSelectedAgent() {
+  if (typeof ensureEventSocketForAgent !== "function") return;
   const agentId = state.selectedAgentId;
   if (!agentId) return;
   ensureEventSocketForAgent(agentId, currentSessionIdForSelectedAgent(), null);
@@ -1941,15 +1968,16 @@ async function submitChatForSelectedAgent() {
     });
     if (!resp.ok) throw new Error(await handleErrorResponse(resp));
     const payload = await resp.json();
-    handleAgentChatSuccess(agentIdAtSend, requestCtx, payload);
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, payload);
   } catch (error) {
     handleAgentChatFailure(agentIdAtSend, requestCtx, error);
   }
 }
 
-function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
+async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  const mergedThinkingEvents = mergeThinkingEvents(chatState.inflightThinking?.events || [], payload?.events || []);
   updateAgentSession(agentIdAtSend, payload.session_id || requestCtx.sessionIdAtSend || "");
   setChatSubmittingForAgent(agentIdAtSend, false);
   chatState.activeRequest = null;
@@ -1966,20 +1994,41 @@ function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
 
   removeTemporaryAssistantRows();
   const optimisticUserArticle = getLatestOptimisticUserArticle();
+  if (!optimisticUserArticle) {
+    const resolvedSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
+    if (resolvedSessionId) {
+      await loadSessionForAgent(agentIdAtSend, resolvedSessionId, { render: true });
+    }
+    if (mergedThinkingEvents.length) attachThinkingToLatestAssistant(mergedThinkingEvents);
+    addEditButtonsToMessages();
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
+    setChatStatus("Ready");
+    if (document.hidden) {
+      const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
+      notifyAgentCompletion(agentIdAtSend, agentName, "completed", (payload.response || "").slice(0, 80));
+    }
+    return;
+  }
   if (optimisticUserArticle && payload.user_message_id) {
     optimisticUserArticle.dataset.messageId = payload.user_message_id;
     delete optimisticUserArticle.dataset.optimisticUser;
   }
   const assistantHtml = buildAssistantMessageArticle(payload.response || "", payload.display_blocks || [], state.selectedAgentName || "Assistant");
   dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
-  if (chatState.inflightThinking?.events?.length) attachThinkingToLatestAssistant(chatState.inflightThinking.events);
+  if (mergedThinkingEvents.length) attachThinkingToLatestAssistant(mergedThinkingEvents);
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
   setChatStatus("Ready");
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
   renderIcons();
+  addEditButtonsToMessages();
   scrollToBottom();
+  if (document.hidden) {
+    const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
+    notifyAgentCompletion(agentIdAtSend, agentName, "completed", (payload.response || "").slice(0, 80));
+  }
 }
 
 function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
@@ -2002,10 +2051,34 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   if (chatState.attachmentHistory.length) chatState.attachmentHistory.pop();
   chatState.pendingFiles = requestCtx.backupFiles || [];
   if (dom.chatInput) dom.chatInput.value = requestCtx.backupMessage || "";
+  const attachmentsInput = document.getElementById("chat-attachments");
+  const attachmentsValue = JSON.stringify(requestCtx.attachments || []);
+  if (attachmentsInput) attachmentsInput.value = attachmentsValue;
+  chatState.draftAttachmentsValue = attachmentsValue;
   renderInputPreview();
   syncChatInputHeight();
   chatState.inflightThinking = null;
   setChatStatus(errorMsg, true);
+  if (dom.messageList) {
+    const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    dom.messageList.insertAdjacentHTML("beforeend", `
+      <div class="message-row message-row-assistant message-row-error">
+        <div class="message-meta">
+          <span class="message-author">System</span>
+          <span class="message-timestamp">${now}</span>
+        </div>
+        <article class="message-surface message-surface-assistant message-surface-error">
+          <div class="message-body whitespace-pre-wrap text-sm">${safe(errorMsg)}</div>
+        </article>
+      </div>
+    `);
+    scrollToBottom();
+    renderIcons();
+  }
+  if (document.hidden) {
+    const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
+    notifyAgentCompletion(agentIdAtSend, agentName, "failed", errorMsg);
+  }
 }
 
 function handleChatBeforeRequest(event) {
@@ -2256,40 +2329,44 @@ function decodeHtml(text) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
-  document.addEventListener("htmx:configRequest", (event) => {
-    // This fires right before HTMX makes the request - perfect time to set attachments
-    const elt = event.detail.requestConfig?.elt || event.target;
-    if (elt?.id === "chat-form") {
-      // Check if attachments already set (e.g., from Edit flow)
-      const chatAttachmentsInput = document.getElementById("chat-attachments");
-      const existingAttachments = chatAttachmentsInput?.value;
-      
-      // If already set (from Edit), don't overwrite
-      if (existingAttachments && existingAttachments !== '') {
-        event.detail.parameters.attachments = existingAttachments;
-      } else {
-        // Normal send - use pendingFiles
-        const uploadedFileIds = state.pendingFiles
-          .filter(pf => pf.file_id && pf.status === 'uploaded')
-          .map(pf => pf.file_id);
-        event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
-        
-        // Store attachments in history (always record, even empty arrays for indexing)
-        addToAttachmentHistory(uploadedFileIds);
-        state.didAppendAttachmentHistoryForPendingSend = true;
-      }
-    }
-  });
+  const chatFormUsesHtmx = !!document.getElementById("chat-form")?.getAttribute("hx-post");
+  if (chatFormUsesHtmx) {
+    document.addEventListener("htmx:configRequest", (event) => {
+      // This fires right before HTMX makes the request - perfect time to set attachments
+      const elt = event.detail.requestConfig?.elt || event.target;
+      if (elt?.id === "chat-form") {
+        // Check if attachments already set (e.g., from Edit flow)
+        const chatAttachmentsInput = document.getElementById("chat-attachments");
+        const existingAttachments = chatAttachmentsInput?.value;
 
-  document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
-  document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
+        // If already set (from Edit), don't overwrite
+        if (existingAttachments && existingAttachments !== '') {
+          event.detail.parameters.attachments = existingAttachments;
+        } else {
+          // Normal send - use pendingFiles
+          const uploadedFileIds = state.pendingFiles
+            .filter(pf => pf.file_id && pf.status === 'uploaded')
+            .map(pf => pf.file_id);
+          event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
+
+          // Store attachments in history (always record, even empty arrays for indexing)
+          addToAttachmentHistory(uploadedFileIds);
+          state.didAppendAttachmentHistoryForPendingSend = true;
+        }
+      }
+    });
+
+    document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
+    document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
+    document.addEventListener("htmx:responseError", handleChatResponseError);
+  }
+
   document.addEventListener("htmx:afterSwap", (event) => {
-    handleChatAfterSwap(event.target);
+    if (chatFormUsesHtmx) handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
-    if (event.target?.id === "message-list") addEditButtonsToMessages();
+    if (event.target?.id === "message-list" && chatFormUsesHtmx) addEditButtonsToMessages();
     renderIcons();
   });
-  document.addEventListener("htmx:responseError", handleChatResponseError);
 }
 
 // ===== suggestion popup hooks =====
