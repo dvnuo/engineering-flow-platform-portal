@@ -3247,16 +3247,6 @@ function initializeSettingsPanel() {
       showToast("Please select an assistant first");
       return;
     }
-
-    const action = btn.dataset.settingsAction;
-    if (action === "copy-config") {
-      await copyAgentConfig(agentId);
-      return;
-    }
-
-    if (action === "paste-config") {
-      await pasteAgentConfig(agentId);
-    }
   });
 }
 
@@ -3384,75 +3374,6 @@ async function openEditDialog(agent) {
     editModal.classList.remove("hidden");
     editModal.setAttribute("aria-hidden", "false");
   }
-}
-
-// Copy agent config to clipboard
-async function copyAgentConfig(_agentId) {
-  showToast('Use Runtime Profile instead');
-}
-
-// Paste agent config from clipboard - shows modal
-let pasteModalAgentId = null;
-
-async function pasteAgentConfig(_agentId) {
-  showToast('Use Runtime Profile instead');
-}
-
-// Setup paste modal event listeners (call once on load)
-function setupPasteModal() {
-  const modal = document.getElementById('paste-modal');
-  const closeBtn = document.getElementById('close-paste-modal');
-  const cancelBtn = document.getElementById('cancel-paste-btn');
-  const confirmBtn = document.getElementById('confirm-paste-btn');
-  const textarea = document.getElementById('paste-config-text');
-
-  if (!modal) return;
-
-  function closePasteModal() {
-    const successMsg = document.getElementById('paste-success-msg');
-    if (successMsg) {
-      successMsg.classList.add('hidden');
-      successMsg.textContent = '';
-    }
-    modal.classList.add('hidden');
-    modal.setAttribute('aria-hidden', 'true');
-    pasteModalAgentId = null;
-  }
-
-  if (closeBtn) closeBtn.addEventListener('click', closePasteModal);
-  if (cancelBtn) cancelBtn.addEventListener('click', closePasteModal);
-  if (modal) {
-    modal.addEventListener('click', function(e) {
-      if (e.target === modal) closePasteModal();
-    });
-  }
-
-  if (confirmBtn) {
-    confirmBtn.addEventListener('click', async function() {
-      if (!pasteModalAgentId) return;
-
-      const text = textarea.value.trim();
-      if (!text) {
-        showToast('Please paste configuration JSON');
-        return;
-      }
-
-      try {
-        JSON.parse(text);
-        showToast('Use Runtime Profile instead');
-        closePasteModal();
-      } catch (e) {
-        showToast('Failed to apply: ' + e.message);
-      }
-    });
-  }
-}
-
-// Initialize paste modal on load
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', setupPasteModal);
-} else {
-  setupPasteModal();
 }
 
 // Open message edit modal

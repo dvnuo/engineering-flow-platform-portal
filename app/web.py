@@ -173,7 +173,16 @@ def _settings_view_payload(config_data: dict) -> dict:
     }
 
 
-def _settings_error_response(request: Request, agent_id: str, config_payload: dict, message: str):
+def _settings_error_response(
+    request: Request,
+    agent_id: str,
+    config_payload: dict,
+    message: str,
+    *,
+    profile_name: str | None = None,
+    profile_revision: int | None = None,
+    profile_bound_agent_count: int = 0,
+):
     view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
     return templates.TemplateResponse(
         "partials/settings_panel.html",
@@ -183,9 +192,9 @@ def _settings_error_response(request: Request, agent_id: str, config_payload: di
             "status_type": "error",
             "status_message": message,
             "profile_missing_message": "",
-            "profile_name": None,
-            "profile_revision": None,
-            "profile_bound_agent_count": 0,
+            "profile_name": profile_name,
+            "profile_revision": profile_revision,
+            "profile_bound_agent_count": profile_bound_agent_count,
             **view_data,
         },
     )
@@ -1423,10 +1432,19 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 },
             )
 
+        profile_bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
         config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
-            return _settings_error_response(request, agent_id, config_payload, merge_error)
+            return _settings_error_response(
+                request,
+                agent_id,
+                config_payload,
+                merge_error,
+                profile_name=runtime_profile.name,
+                profile_revision=runtime_profile.revision,
+                profile_bound_agent_count=profile_bound_agent_count,
+            )
 
         sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
         runtime_profile.config_json = dump_runtime_profile_config_json(sanitized_config)
@@ -1466,7 +1484,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "profile_missing_message": "",
                 "profile_name": runtime_profile.name,
                 "profile_revision": runtime_profile.revision,
-                "profile_bound_agent_count": profile_repo.count_bound_agents(runtime_profile.id),
+                "profile_bound_agent_count": profile_bound_agent_count,
                 **view_data,
             },
         )
