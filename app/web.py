@@ -17,6 +17,7 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
+from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json, sanitize_runtime_profile_config_dict
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
@@ -1350,12 +1351,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 },
             )
 
-        try:
-            config_data = json.loads(runtime_profile.config_json or "{}")
-            if not isinstance(config_data, dict):
-                config_data = {}
-        except Exception:
-            config_data = {}
+        config_data = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         view_data = _settings_view_payload(config_data)
         return templates.TemplateResponse(
             "partials/settings_panel.html",
@@ -1382,18 +1378,6 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
     form = await request.form()
-
-    original_config_json = (form.get("original_config_json") or "").strip()
-    try:
-        config_payload = json.loads(original_config_json) if original_config_json else {}
-    except Exception:
-        config_payload = {}
-    if not isinstance(config_payload, dict):
-        config_payload = {}
-
-    config_payload, merge_error = _settings_merge_payload(config_payload, form)
-    if merge_error:
-        return _settings_error_response(request, agent_id, config_payload, merge_error)
 
     db = SessionLocal()
     status_type = "success"
@@ -1439,7 +1423,13 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 },
             )
 
-        runtime_profile.config_json = json.dumps(config_payload)
+        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        if merge_error:
+            return _settings_error_response(request, agent_id, config_payload, merge_error)
+
+        sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
+        runtime_profile.config_json = dump_runtime_profile_config_json(sanitized_config)
         runtime_profile.revision = (runtime_profile.revision or 0) + 1
         runtime_profile = profile_repo.save(runtime_profile)
 
@@ -1457,7 +1447,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 f"skipped (not running): {sync_result['skipped_not_running_count']}."
             )
 
-        view_data = _settings_view_payload(config_payload)
+        view_data = _settings_view_payload(sanitized_config)
         return templates.TemplateResponse(
             "partials/settings_panel.html",
             {

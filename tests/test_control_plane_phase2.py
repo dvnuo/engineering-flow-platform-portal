@@ -861,7 +861,7 @@ def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
 
         db_gen = app.dependency_overrides[internal_agents_api.get_db]()
         db = next(db_gen)
-        rp = RuntimeProfile(name="rp-ctx", config_json='{"llm": {"provider": "openai"}}', revision=3)
+        rp = RuntimeProfile(name="rp-ctx", config_json='{"llm": {"provider": "openai"}, "ssh": {"hack": true}}', revision=3)
         db.add(rp)
         db.commit()
         db.refresh(rp)
@@ -879,6 +879,8 @@ def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
         assert body["runtime_profile_context"]["revision"] == 3
         assert body["runtime_profile_context"]["managed_sections"] == ["llm", "proxy", "jira", "confluence", "github", "git", "debug"]
         assert body["runtime_profile_context"]["source"] == "portal.runtime_profile"
+        assert "config" in body["runtime_profile_context"]
+        assert "ssh" not in body["runtime_profile_context"]["config"]
         assert "capability_context" in body
         assert "policy_context" in body
     finally:

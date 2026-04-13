@@ -204,29 +204,12 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
 
     if "runtime_profile_id" in changes and (agent.status or "").lower() == "running":
         runtime_profile_id = changes.get("runtime_profile_id")
+        payload_data = runtime_profile_sync_service.build_clear_payload()
         if runtime_profile_id:
             profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
-            payload_data = {"runtime_profile_id": None, "revision": None, "config": {}}
             if profile:
-                import json
-
-                try:
-                    config = json.loads(profile.config_json or "{}")
-                    if not isinstance(config, dict):
-                        config = {}
-                except Exception:
-                    config = {}
-                payload_data = {
-                    "runtime_profile_id": profile.id,
-                    "revision": profile.revision,
-                    "config": config,
-                }
-            await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
-        else:
-            await runtime_profile_sync_service.push_payload_to_agent(
-                agent,
-                {"runtime_profile_id": None, "revision": None, "config": {}},
-            )
+                payload_data = runtime_profile_sync_service.build_apply_payload_from_profile(profile)
+        await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
 
     # Update K8s runtime if repo_url or branch changed
     if "repo_url" in changes or "branch" in changes:

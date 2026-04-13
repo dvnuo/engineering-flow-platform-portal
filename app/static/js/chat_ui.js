@@ -3335,7 +3335,7 @@ async function loadRuntimeProfiles(force = false) {
     return state.runtimeProfiles;
   }
   try {
-    const profiles = await api('/api/runtime-profiles');
+    const profiles = await api('/api/runtime-profiles/options');
     state.runtimeProfiles = Array.isArray(profiles) ? profiles : [];
     return state.runtimeProfiles;
   } catch (_err) {

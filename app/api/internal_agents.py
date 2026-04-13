@@ -3,10 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_internal_api_key
-import json
-
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
+from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.schemas.runtime_router import AgentRuntimeContextResponse, RuntimeCapabilityContextResponse, RuntimePolicyContextResponse, RuntimeProfileContextResponse
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_router import RuntimeRouterService
@@ -28,12 +27,7 @@ def get_agent_runtime_context(agent_id: str, _: bool = Depends(require_internal_
     if agent.runtime_profile_id:
         runtime_profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
         if runtime_profile:
-            try:
-                config = json.loads(runtime_profile.config_json or "{}")
-                if not isinstance(config, dict):
-                    config = {}
-            except Exception:
-                config = {}
+            config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
             runtime_profile_context = RuntimeProfileContextResponse(
                 runtime_profile_id=runtime_profile.id,
                 name=runtime_profile.name,

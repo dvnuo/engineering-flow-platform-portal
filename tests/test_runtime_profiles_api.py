@@ -8,7 +8,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import User
-from app.services.auth_service import hash_password
 
 
 def _build_client(monkeypatch):
@@ -22,15 +21,20 @@ def _build_client(monkeypatch):
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
 
-    admin = User(username="admin", password_hash=hash_password("pw"), role="admin", is_active=True)
-    db.add(admin)
+    admin = User(username="admin", password_hash="test", role="admin", is_active=True)
+    viewer = User(username="viewer", password_hash="test", role="viewer", is_active=True)
+    db.add_all([admin, viewer])
     db.commit()
     db.refresh(admin)
+    db.refresh(viewer)
 
     monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
 
+    state = {"user": admin}
+
     def _override_user():
-        return SimpleNamespace(id=admin.id, role="admin", username=admin.username, nickname="Admin")
+        user = state["user"]
+        return SimpleNamespace(id=user.id, role=user.role, username=user.username, nickname=user.username)
 
     def _override_db():
         yield db
@@ -44,11 +48,14 @@ def _build_client(monkeypatch):
         app.dependency_overrides.clear()
         db.close()
 
-    return TestClient(app), _cleanup
+    def _set_user(user):
+        state["user"] = user
+
+    return TestClient(app), _set_user, admin, viewer, _cleanup
 
 
 def test_runtime_profiles_crud_and_validation(monkeypatch):
-    client, cleanup = _build_client(monkeypatch)
+    client, _set_user, _admin, _viewer, cleanup = _build_client(monkeypatch)
     try:
         bad_json = client.post("/api/runtime-profiles", json={"name": "rp1", "config_json": "{"})
         assert bad_json.status_code == 422
@@ -86,7 +93,7 @@ def test_runtime_profiles_crud_and_validation(monkeypatch):
 
 
 def test_runtime_profile_delete_conflict_when_referenced(monkeypatch):
-    client, cleanup = _build_client(monkeypatch)
+    client, _set_user, _admin, _viewer, cleanup = _build_client(monkeypatch)
     try:
         rp = client.post("/api/runtime-profiles", json={"name": "InUse", "config_json": "{}"}).json()
         create_agent = client.post(
@@ -97,5 +104,77 @@ def test_runtime_profile_delete_conflict_when_referenced(monkeypatch):
 
         delete_resp = client.delete(f"/api/runtime-profiles/{rp['id']}")
         assert delete_resp.status_code == 409
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_options_endpoint_for_non_admin(monkeypatch):
+    client, set_user, _admin, viewer, cleanup = _build_client(monkeypatch)
+    try:
+        create = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Option Runtime", "description": "d", "config_json": json.dumps({"llm": {"provider": "openai"}})},
+        )
+        assert create.status_code == 200
+
+        set_user(viewer)
+        resp = client.get("/api/runtime-profiles/options")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert set(body[0].keys()) == {"id", "name", "description", "revision"}
+        assert "config_json" not in body[0]
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_patch_triggers_fanout_sync(monkeypatch):
+    client, _set_user, _admin, _viewer, cleanup = _build_client(monkeypatch)
+    try:
+        create = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Sync Runtime", "config_json": json.dumps({"llm": {"provider": "openai"}})},
+        )
+        assert create.status_code == 200
+        profile = create.json()
+
+        calls = []
+
+        async def _fake_sync(db, runtime_profile):
+            calls.append(runtime_profile.id)
+            return {"updated_running_count": 0, "skipped_not_running_count": 0, "failed_agent_ids": []}
+
+        monkeypatch.setattr("app.api.runtime_profiles.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
+
+        patch_resp = client.patch(
+            f"/api/runtime-profiles/{profile['id']}",
+            json={"config_json": json.dumps({"llm": {"provider": "anthropic"}})},
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["id"] == profile["id"]
+        assert calls == [profile["id"]]
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_patch_sync_exception_does_not_break_response(monkeypatch):
+    client, _set_user, _admin, _viewer, cleanup = _build_client(monkeypatch)
+    try:
+        create = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Sync Exception Runtime", "config_json": json.dumps({"llm": {"provider": "openai"}})},
+        )
+        profile = create.json()
+
+        async def _boom(_db, _runtime_profile):
+            raise RuntimeError("sync failed")
+
+        monkeypatch.setattr("app.api.runtime_profiles.runtime_profile_sync_service.sync_profile_to_bound_agents", _boom)
+        patch_resp = client.patch(
+            f"/api/runtime-profiles/{profile['id']}",
+            json={"config_json": json.dumps({"llm": {"provider": "anthropic"}})},
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["id"] == profile["id"]
     finally:
         cleanup()

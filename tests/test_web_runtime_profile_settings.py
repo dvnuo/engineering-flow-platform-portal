@@ -9,7 +9,6 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.models import Agent, User
 from app.models.runtime_profile import RuntimeProfile
-from app.services.auth_service import hash_password
 
 
 def _build_client(monkeypatch):
@@ -21,7 +20,7 @@ def _build_client(monkeypatch):
     Base.metadata.create_all(bind=engine)
 
     db = TestingSessionLocal()
-    user = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+    user = User(username="owner", password_hash="test", role="admin", is_active=True)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -80,7 +79,7 @@ def test_settings_panel_reads_runtime_profile_not_runtime_api(monkeypatch):
         cleanup()
 
 
-def test_settings_save_updates_profile_revision_and_triggers_sync(monkeypatch):
+def test_settings_save_uses_db_profile_as_merge_base_and_sanitizes(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = RuntimeProfile(name="rp-save", config_json=json.dumps({"llm": {"provider": "openai"}}), revision=1)
@@ -100,16 +99,18 @@ def test_settings_save_updates_profile_revision_and_triggers_sync(monkeypatch):
         monkeypatch.setattr("app.web.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
 
         payload = {
-            "original_config_json": rp.config_json,
+            "original_config_json": json.dumps({"ssh": {"hacked": True}}),
             "llm_provider": "anthropic",
             "llm_model": "claude-sonnet-4",
         }
         resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
         assert resp.status_code == 200
         db.refresh(rp)
+        saved = json.loads(rp.config_json)
         assert rp.revision == 2
         assert sync_calls == [rp.id]
-        assert "Runtime profile updated" in resp.text
+        assert saved["llm"]["provider"] == "anthropic"
+        assert "ssh" not in saved
     finally:
         cleanup()
 

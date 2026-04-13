@@ -7,7 +7,6 @@ from app.models.agent import Agent
 from app.schemas.agent import AgentResponse
 from app.db import Base
 from app.models import User
-from app.services.auth_service import hash_password
 from sqlalchemy import create_engine
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session, sessionmaker
@@ -88,7 +87,7 @@ def _build_agents_client_with_overrides():
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
-    user = User(username="owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+    user = User(username="owner", password_hash="test", role="admin", is_active=True)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -237,5 +236,39 @@ def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch
         clear_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": None})
         assert clear_resp.status_code == 200
         assert pushed[-1] == {"runtime_profile_id": None, "revision": None, "config": {}}
+    finally:
+        cleanup()
+
+
+def test_update_running_agent_runtime_profile_push_failure_still_returns_200(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+
+        from app.models.runtime_profile import RuntimeProfile
+
+        rp = RuntimeProfile(name="rp-sync-fail", config_json='{"llm": {"provider": "openai"}}', revision=3)
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        create_ok = client.post(
+            "/api/agents",
+            json={"name": "sync-fail-agent", "image": "example/image:latest"},
+        )
+        assert create_ok.status_code == 200
+        agent_id = create_ok.json()["id"]
+
+        pushed = []
+
+        async def _fake_push(agent, payload):
+            pushed.append((agent.id, payload))
+            return False
+
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _fake_push)
+
+        patch_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
+        assert patch_resp.status_code == 200
+        assert pushed
     finally:
         cleanup()

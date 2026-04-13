@@ -15,6 +15,33 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
 }
 
 
+def sanitize_runtime_profile_config_dict(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return {}
+    return {key: value for key, value in data.items() if key in ALLOWED_RUNTIME_PROFILE_SECTIONS}
+
+
+def parse_runtime_profile_config_json(raw: str | None, *, fallback_to_empty: bool = False) -> dict:
+    text = (raw or "").strip() or "{}"
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        if fallback_to_empty:
+            return {}
+        raise ValueError("config_json must be valid JSON")
+
+    if not isinstance(decoded, dict):
+        if fallback_to_empty:
+            return {}
+        raise ValueError("config_json must decode to a JSON object")
+
+    return sanitize_runtime_profile_config_dict(decoded)
+
+
+def dump_runtime_profile_config_json(data: dict) -> str:
+    return json.dumps(sanitize_runtime_profile_config_dict(data))
+
+
 def validate_runtime_profile_config_json(value: str | None) -> str:
     raw = (value or "{}").strip() or "{}"
     try:
@@ -29,7 +56,7 @@ def validate_runtime_profile_config_json(value: str | None) -> str:
     if invalid_keys:
         raise ValueError(f"config_json has unsupported top-level sections: {', '.join(invalid_keys)}")
 
-    return json.dumps(decoded)
+    return dump_runtime_profile_config_json(decoded)
 
 
 class RuntimeProfileCreateRequest(BaseModel):
@@ -64,3 +91,10 @@ class RuntimeProfileResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RuntimeProfileOptionResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    revision: int
