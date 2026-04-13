@@ -132,6 +132,16 @@ def test_proxy_api_chat_stream():
     assert response.status_code in [400, 401, 403, 404, 500, 502]
 
 
+def test_chat_ui_includes_display_block_renderer_helpers():
+    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "function parseDisplayBlocks(" in js_source
+    assert "function renderDisplayBlocksToHtml(" in js_source
+    assert "function renderSingleDisplayBlock(" in js_source
+    assert "function renderCodeBlock(" in js_source
+    assert "function renderTableBlock(" in js_source
+    assert "function enhanceMarkdownBlock(" in js_source
+
+
 def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
     start_marker = f"// RUNTIME_EVENT_HELPER_START: {helper_name}"
     end_marker = f"// RUNTIME_EVENT_HELPER_END: {helper_name}"
@@ -162,6 +172,170 @@ def _extract_js_function(js_text: str, function_name: str) -> str:
             if depth == 0:
                 return js_text[start:index + 1]
     raise AssertionError(f"Unable to parse function {function_name} body end")
+
+
+def test_chat_ui_display_block_helpers_behavior():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping display block helper test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    meaningful_text_block = _extract_js_function(js_file, "isMeaningfulText")
+    pick_value_block = _extract_js_function(js_file, "pickFirstMeaningfulBlockValue")
+    has_renderable_block = _extract_js_function(js_file, "hasRenderableDisplayBlock")
+    parse_block = _extract_js_function(js_file, "parseDisplayBlocks")
+    text_block = _extract_js_function(js_file, "getDisplayBlockText")
+    code_block = _extract_js_function(js_file, "renderCodeBlock")
+    table_block = _extract_js_function(js_file, "renderTableBlock")
+    single_block = _extract_js_function(js_file, "renderSingleDisplayBlock")
+    render_blocks_block = _extract_js_function(js_file, "renderDisplayBlocksToHtml")
+
+    script = f"""
+const safe = (v) => String(v ?? "");
+const normalizeMarkdownText = (v) => String(v || "");
+const escapeHtmlAttr = (v) => String(v ?? "");
+const md = {{ render: (v) => `<p>${{v}}</p>` }};
+{meaningful_text_block}
+{pick_value_block}
+{has_renderable_block}
+{parse_block}
+{text_block}
+{code_block}
+{table_block}
+{single_block}
+{render_blocks_block}
+
+const result = {{
+  invalidParseLength: parseDisplayBlocks("not-json").length,
+  objectInputLength: parseDisplayBlocks({{}}).length,
+  arrayInputLength: parseDisplayBlocks([{{ type: "markdown", content: "ok" }}]).length,
+  filteredBlankTypeLength: parseDisplayBlocks(JSON.stringify([
+    {{ type: "   ", content: "x" }},
+    {{ type: "markdown", content: "ok" }},
+  ])).length,
+  filteredBlankTypedContentLength: parseDisplayBlocks([
+    {{ type: "tool_result", content: "   " }},
+    {{ type: "markdown", content: "ok" }},
+  ]).length,
+  columnsTable: renderTableBlock({{ columns: ["A"], rows: [["1"]] }}),
+  fallbackOnly: renderTableBlock({{ content: "fallback only" }}),
+  toolResult: renderSingleDisplayBlock({{
+    type: "tool_result",
+    status: "success",
+    title: "Bash",
+    content: "Done",
+  }}),
+  codeFromText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    text: "print(1)",
+  }}),
+  toolResultFromOutput: renderSingleDisplayBlock({{
+    type: "tool_result",
+    title: "Bash",
+    status: "success",
+    output: "done from output",
+  }}),
+  blankContentFallsBackToOutput: renderSingleDisplayBlock({{
+    type: "tool_result",
+    title: "Bash",
+    status: "success",
+    content: "   ",
+    output: "done from output",
+  }}),
+  toolResultFromResult: renderSingleDisplayBlock({{
+    type: "tool_result",
+    title: "Bash",
+    status: "success",
+    result: "done from result",
+  }}),
+  calloutFromMessage: renderSingleDisplayBlock({{
+    type: "callout",
+    tone: "warning",
+    title: "注意",
+    message: "需要确认",
+  }}),
+  markdownFromValue: renderSingleDisplayBlock({{
+    type: "markdown",
+    value: "hello from value",
+  }}),
+  blankCodeContentFallsBackToText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    content: "   ",
+    text: "print(1)",
+  }}),
+  blankCodeFieldFallsBackToText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    code: "   ",
+    text: "print(1)",
+  }}),
+  codeOnly: renderCodeBlock({{
+    type: "code",
+    code: "print(1)",
+    language: "python",
+  }}),
+  renderCodeFromCodeField: renderCodeBlock({{
+    type: "code",
+    code: "print(1)",
+    language: "python",
+  }}),
+  renderCodeBlankContentFallback: renderCodeBlock({{
+    type: "code",
+    content: "   ",
+    text: "x = 1",
+    language: "python",
+  }}),
+  calloutFromEnglishMessage: renderSingleDisplayBlock({{
+    type: "callout",
+    tone: "warning",
+    title: "Note",
+    message: "Heads up",
+  }}),
+  bodylessBlocksFallbackPlaceholder: renderDisplayBlocksToHtml([
+    {{ type: "tool_result", title: "Bash", content: "   " }},
+  ], ""),
+}};
+console.log(JSON.stringify(result));
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert data["invalidParseLength"] == 0
+    assert data["objectInputLength"] == 0
+    assert data["arrayInputLength"] == 1
+    assert data["filteredBlankTypeLength"] == 1
+    assert data["filteredBlankTypedContentLength"] == 1
+    assert "<th>A</th>" in data["columnsTable"]
+    assert "<table>" not in data["fallbackOnly"]
+    assert "<p>fallback only</p>" in data["fallbackOnly"]
+    assert "message-tool-result is-success" in data["toolResult"]
+    assert "print(1)" in data["codeFromText"]
+    assert "language-python" in data["codeFromText"]
+    assert "message-tool-result is-success" in data["toolResultFromOutput"]
+    assert "done from output" in data["toolResultFromOutput"]
+    assert "done from output" in data["blankContentFallsBackToOutput"]
+    assert "done from result" in data["toolResultFromResult"]
+    assert "message-callout is-warning" in data["calloutFromMessage"]
+    assert "注意" in data["calloutFromMessage"]
+    assert "需要确认" in data["calloutFromMessage"]
+    assert "hello from value" in data["markdownFromValue"]
+    assert "print(1)" in data["blankCodeContentFallsBackToText"]
+    assert "print(1)" in data["blankCodeFieldFallsBackToText"]
+    assert "print(1)" in data["codeOnly"]
+    assert "print(1)" in data["renderCodeFromCodeField"]
+    assert "language-python" in data["renderCodeFromCodeField"]
+    assert "Copy" in data["renderCodeFromCodeField"]
+    assert "x = 1" in data["renderCodeBlankContentFallback"]
+    assert "Heads up" in data["calloutFromEnglishMessage"]
+    assert "(empty response)" in data["bodylessBlocksFallbackPlaceholder"]
 
 
 def test_chat_ui_runtime_event_helpers_behavior():

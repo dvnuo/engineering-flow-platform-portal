@@ -70,7 +70,8 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
   grid-template-columns: 68px 296px minmax(0,1fr);
   gap: 0;
   padding: 0;
-  min-width: 1180px;
+  min-width: 0;
+  width: 100%;
   transition: grid-template-columns var(--portal-transition);
   border-radius: 24px;
   overflow: hidden;
@@ -202,15 +203,15 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .portal-conversation { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .portal-conversation-main { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .portal-message-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: 200px; min-width: 920px; max-width: 60%; width: 100%; margin: 0 auto; min-height: 100%; }
+.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: 200px; min-width: 0; width: min(100%, 980px); max-width: 980px; margin: 0 auto; min-height: 100%; }
 .portal-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 0 24px 24px; display: flex; justify-content: center; background: transparent; pointer-events: none; }
 .portal-composer {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 960px;
-  max-width: 60%;
-  width: 100%;
+  min-width: 0;
+  width: min(100%, 980px);
+  max-width: 980px;
   padding: 12px 16px 14px;
   border-radius: var(--portal-radius-xl);
   border: 1px solid var(--portal-border);
@@ -316,6 +317,17 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 }
 
 @media (max-width: 768px) {
+  .portal-shell {
+    min-width: 0;
+    width: 100%;
+    grid-template-columns: 68px minmax(0, 1fr);
+    grid-template-areas: "rail main";
+  }
+
+  .portal-secondary-pane {
+    display: none;
+  }
+
   .portal-composer-wrap {
     left: 0;
     right: 0;
@@ -360,11 +372,13 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .message-meta { display: flex; align-items: center; gap: 8px; color: var(--portal-text-muted); font-size: 12px; }
 .message-meta-user { justify-content: flex-end; }
 .message-author { font-weight: 600; color: var(--portal-text-secondary); }
-.message-surface { max-width: 760px; padding: 14px 16px; border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); }
+.message-surface { max-width: 920px; padding: 14px 16px; border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); }
 .message-surface-user { background: rgba(91,140,255,.12); border-color: rgba(91,140,255,.28); color: var(--portal-text); }
 html[data-theme="dark"] .message-surface-user { background: rgba(126,162,255,.16); border-color: rgba(126,162,255,.28); color: #eaf1ff; }
 .message-surface-assistant { background: var(--portal-surface); border-color: #e7ebf3; color: var(--portal-text); }
 html[data-theme="dark"] .message-surface-assistant { background: #131c2f; border-color: #273552; color: var(--portal-text); }
+.message-surface-assistant { width: min(100%, 920px); }
+.message-surface-user { width: fit-content; max-width: min(100%, 760px); }
 .message-row-error .message-author {
   color: var(--portal-danger);
 }
@@ -379,8 +393,103 @@ html[data-theme="dark"] .message-surface-error {
   background: color-mix(in srgb, var(--portal-danger), #131c2f 88%);
 }
 .message-body { white-space: pre-wrap; }
-.message-markdown { line-height: 1.5; }
-.message-markdown p { margin: .4rem 0; }
+.message-markdown { line-height: 1.65; font-size: 14px; color: inherit; }
+.message-markdown > :first-child { margin-top: 0; }
+.message-markdown > :last-child { margin-bottom: 0; }
+.message-markdown h1,
+.message-markdown h2,
+.message-markdown h3,
+.message-markdown h4 { line-height: 1.3; font-weight: 700; margin: 1rem 0 .55rem; color: var(--portal-text); }
+.message-markdown h1 { font-size: 1.35rem; }
+.message-markdown h2 { font-size: 1.2rem; }
+.message-markdown h3 { font-size: 1.08rem; }
+.message-markdown p { margin: .55rem 0; }
+.message-markdown ul,
+.message-markdown ol { margin: .55rem 0 .75rem 1.2rem; padding-left: .35rem; }
+.message-markdown li + li { margin-top: .25rem; }
+.message-markdown blockquote {
+  margin: .75rem 0;
+  padding: .3rem .9rem;
+  border-left: 3px solid color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%);
+  color: var(--portal-text-secondary);
+  background: color-mix(in srgb, var(--portal-accent-soft), transparent 72%);
+}
+.message-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: .92em;
+  padding: .12rem .35rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--portal-border), transparent 35%);
+}
+.message-markdown pre code {
+  display: block;
+  padding: 0;
+  background: transparent;
+}
+.message-markdown table { width: 100%; border-collapse: collapse; min-width: 320px; }
+.message-markdown th,
+.message-markdown td { border: 1px solid var(--portal-border); padding: .45rem .6rem; text-align: left; vertical-align: top; }
+.message-markdown th { background: color-mix(in srgb, var(--portal-surface-soft), var(--portal-border) 22%); font-weight: 600; }
+.message-markdown hr { border: 0; border-top: 1px solid var(--portal-border); margin: .9rem 0; }
+.message-markdown img { max-width: 100%; height: auto; border-radius: 10px; margin: .45rem 0; }
+.message-link { color: var(--portal-link, #3366ff); text-decoration: underline; text-underline-offset: 2px; }
+.message-link:hover { opacity: .9; }
+.message-block + .message-block { margin-top: .85rem; }
+.message-codeblock {
+  border: 1px solid var(--portal-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--portal-surface-soft), #000 10%);
+}
+.message-codeblock-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: .45rem .65rem;
+  border-bottom: 1px solid var(--portal-border);
+  background: color-mix(in srgb, var(--portal-surface), var(--portal-border) 30%);
+}
+.message-codeblock-lang { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--portal-text-muted); }
+.message-codeblock-copy {
+  border: 1px solid var(--portal-border);
+  background: var(--portal-surface);
+  border-radius: 8px;
+  padding: .2rem .55rem;
+  font-size: 12px;
+  color: var(--portal-text-secondary);
+  cursor: pointer;
+}
+.message-codeblock-copy.is-copied { border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 40%); color: var(--portal-success); }
+.message-codeblock pre { margin: 0; overflow-x: auto; padding: .8rem .95rem; }
+.message-table-wrap { overflow-x: auto; border: 1px solid var(--portal-border); border-radius: 10px; }
+.message-table-wrap table { margin: 0; border: 0; min-width: 420px; }
+.message-callout { border: 1px solid var(--portal-border); border-radius: 12px; padding: .7rem .85rem; background: var(--portal-surface-soft); }
+.message-callout-title { font-weight: 600; margin-bottom: .35rem; }
+.message-callout p { margin: 0; }
+.message-callout.is-info { border-color: #88aee8; }
+.message-callout.is-success { border-color: #66b68a; }
+.message-callout.is-warning { border-color: #d2a54b; }
+.message-callout.is-error { border-color: #cb7a7a; }
+.message-tool-result { border: 1px dashed var(--portal-border-strong); border-radius: 12px; padding: .65rem .8rem; background: color-mix(in srgb, var(--portal-surface), var(--portal-border) 16%); }
+.message-tool-result-title { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--portal-text-muted); margin-bottom: .35rem; }
+.message-tool-result.is-success {
+  border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-success), transparent 92%);
+}
+.message-tool-result.is-warning {
+  border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-warning), transparent 92%);
+}
+.message-tool-result.is-error {
+  border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-danger), transparent 92%);
+}
+.message-tool-result.is-running,
+.message-tool-result.is-info {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-accent), transparent 94%);
+}
 .tool-message { border-left: 3px solid var(--portal-accent); background: #f8fafc; border-color: #dce4f2; }
 html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #233149; }
 
@@ -1513,5 +1622,11 @@ html[data-theme="dark"] .portal-thinking-block {
     animation: none !important;
     transition: none !important;
     transform: none !important;
+  }
+}
+@media (max-width: 1024px) {
+  .portal-shell {
+    min-width: 0;
+    grid-template-columns: 68px 260px minmax(0, 1fr);
   }
 }
