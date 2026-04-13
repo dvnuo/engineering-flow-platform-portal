@@ -631,7 +631,7 @@ console.log(JSON.stringify({{
     assert data["sameSocketOnSecondCall"] is True
 
 
-def test_chat_ui_set_active_nav_section_avoids_reloading_visible_lists():
+def test_chat_ui_set_active_nav_section_loads_cached_bundles_without_refreshing():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -666,7 +666,10 @@ const dom = {{
 }};
 
 let bundleRefreshCount = 0;
+let bundleCacheLoadCount = 0;
 let taskRefreshCount = 0;
+let bundleCacheResult = {{ hasCache: true, hasItems: true }};
+let placeholderMessages = [];
 const state = {{}};
 
 function applySecondaryPaneState() {{}}
@@ -684,11 +687,26 @@ function showTasksLoadingMainView() {{
 function showBundlesDefaultMainView() {{
   dom.workspaceDetailContent.dataset.workspaceState = "bundles-default";
 }}
+function showBundlesEmptyMainView() {{
+  renderWorkspaceDetailPlaceholder(
+    "No bundles found. Click refresh to check again or create a bundle.",
+    "bundles-placeholder"
+  );
+}}
 function showTasksDefaultMainView() {{
   dom.workspaceDetailContent.dataset.workspaceState = "tasks-default";
 }}
 async function refreshRequirementBundles() {{
   bundleRefreshCount += 1;
+}}
+function renderRequirementBundleList() {{}}
+function renderWorkspaceDetailPlaceholder(message, workspaceState) {{
+  placeholderMessages.push(message);
+  dom.workspaceDetailContent.dataset.workspaceState = workspaceState || "bundles-placeholder";
+}}
+function loadRequirementBundlesFromCache() {{
+  bundleCacheLoadCount += 1;
+  return bundleCacheResult;
 }}
 async function refreshMyTasks() {{
   taskRefreshCount += 1;
@@ -696,7 +714,10 @@ async function refreshMyTasks() {{
 
 async function runScenarioA() {{
   bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
   taskRefreshCount = 0;
+  placeholderMessages = [];
+  bundleCacheResult = {{ hasCache: true, hasItems: true }};
   Object.assign(state, {{
     activeNavSection: "bundles",
     secondaryPaneCollapsed: false,
@@ -707,6 +728,7 @@ async function runScenarioA() {{
   await setActiveNavSection("bundles", {{ toggleIfSame: false }});
   return {{
     bundleRefreshCount,
+    bundleCacheLoadCount,
     activeNavSection: state.activeNavSection,
     workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
   }};
@@ -714,7 +736,10 @@ async function runScenarioA() {{
 
 async function runScenarioB() {{
   bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
   taskRefreshCount = 0;
+  placeholderMessages = [];
+  bundleCacheResult = {{ hasCache: true, hasItems: true }};
   Object.assign(state, {{
     activeNavSection: "assistants",
     secondaryPaneCollapsed: false,
@@ -725,13 +750,17 @@ async function runScenarioB() {{
   await setActiveNavSection("bundles", {{ toggleIfSame: false }});
   return {{
     bundleRefreshCount,
+    bundleCacheLoadCount,
     activeNavSection: state.activeNavSection,
   }};
 }}
 
 async function runScenarioC() {{
   bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
   taskRefreshCount = 0;
+  placeholderMessages = [];
+  bundleCacheResult = {{ hasCache: true, hasItems: true }};
   Object.assign(state, {{
     activeNavSection: "bundles",
     secondaryPaneCollapsed: true,
@@ -742,13 +771,17 @@ async function runScenarioC() {{
   await setActiveNavSection("bundles");
   return {{
     bundleRefreshCount,
+    bundleCacheLoadCount,
     secondaryPaneCollapsed: state.secondaryPaneCollapsed,
   }};
 }}
 
 async function runScenarioD() {{
   bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
   taskRefreshCount = 0;
+  placeholderMessages = [];
+  bundleCacheResult = {{ hasCache: true, hasItems: true }};
   Object.assign(state, {{
     activeNavSection: "tasks",
     secondaryPaneCollapsed: false,
@@ -759,8 +792,31 @@ async function runScenarioD() {{
   await setActiveNavSection("tasks", {{ toggleIfSame: false }});
   return {{
     taskRefreshCount,
+    bundleCacheLoadCount,
     activeNavSection: state.activeNavSection,
     workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
+  }};
+}}
+
+async function runScenarioE() {{
+  bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
+  taskRefreshCount = 0;
+  placeholderMessages = [];
+  bundleCacheResult = {{ hasCache: true, hasItems: false }};
+  Object.assign(state, {{
+    activeNavSection: "assistants",
+    secondaryPaneCollapsed: false,
+    selectedBundleKey: null,
+    selectedTaskId: null,
+  }});
+  dom.workspaceDetailContent.dataset.workspaceState = "assistant-default";
+  await setActiveNavSection("bundles", {{ toggleIfSame: false }});
+  return {{
+    bundleRefreshCount,
+    bundleCacheLoadCount,
+    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
+    lastPlaceholder: placeholderMessages[placeholderMessages.length - 1] || "",
   }};
 }}
 
@@ -770,6 +826,7 @@ async function runScenarioD() {{
     scenarioB: await runScenarioB(),
     scenarioC: await runScenarioC(),
     scenarioD: await runScenarioD(),
+    scenarioE: await runScenarioE(),
   }};
   console.log(JSON.stringify(result));
 }})().catch((error) => {{
@@ -787,18 +844,177 @@ async function runScenarioD() {{
     data = json.loads(completed.stdout)
 
     assert data["scenarioA"]["bundleRefreshCount"] == 0
+    assert data["scenarioA"]["bundleCacheLoadCount"] == 0
     assert data["scenarioA"]["activeNavSection"] == "bundles"
     assert data["scenarioA"]["workspaceState"] == "bundle-detail"
 
-    assert data["scenarioB"]["bundleRefreshCount"] == 1
+    assert data["scenarioB"]["bundleRefreshCount"] == 0
+    assert data["scenarioB"]["bundleCacheLoadCount"] == 1
     assert data["scenarioB"]["activeNavSection"] == "bundles"
 
-    assert data["scenarioC"]["bundleRefreshCount"] == 1
+    assert data["scenarioC"]["bundleRefreshCount"] == 0
+    assert data["scenarioC"]["bundleCacheLoadCount"] == 1
     assert data["scenarioC"]["secondaryPaneCollapsed"] is False
 
     assert data["scenarioD"]["taskRefreshCount"] == 0
+    assert data["scenarioD"]["bundleCacheLoadCount"] == 0
     assert data["scenarioD"]["activeNavSection"] == "tasks"
     assert data["scenarioD"]["workspaceState"] == "task-detail"
+
+    assert data["scenarioE"]["bundleRefreshCount"] == 0
+    assert data["scenarioE"]["bundleCacheLoadCount"] == 1
+    assert data["scenarioE"]["workspaceState"] == "bundles-placeholder"
+    assert "No bundles found" in data["scenarioE"]["lastPlaceholder"]
+    assert "No cached bundles yet" not in data["scenarioE"]["lastPlaceholder"]
+
+
+def test_chat_ui_refresh_requirement_bundles_treats_empty_cached_list_as_cache():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    show_bundles_empty_main_view_fn = _extract_js_function(js_file, "showBundlesEmptyMainView")
+    refresh_requirement_bundles_fn = _extract_js_function(js_file, "refreshRequirementBundles")
+
+    script = f"""
+{show_bundles_empty_main_view_fn}
+{refresh_requirement_bundles_fn}
+
+const dom = {{
+  bundleNavList: {{ innerHTML: '<div class="portal-bundle-list-state">No bundles found</div>' }},
+  refreshBundlesBtn: {{ id: "refresh-bundles-btn" }},
+}};
+
+const state = {{
+  requirementBundles: [],
+  hasRequirementBundlesCache: true,
+  activeNavSection: "bundles",
+  secondaryPaneCollapsed: false,
+  selectedBundleKey: null,
+}};
+
+let apiMode = "fail";
+let buttonCalls = [];
+let toastMessages = [];
+let renderCalls = [];
+let placeholderMessages = [];
+let setRequirementBundlesCalls = [];
+
+function setButtonDisabled(_button, disabled, label = null) {{
+  buttonCalls.push({{ disabled, label }});
+}}
+
+async function api() {{
+  if (apiMode === "fail") {{
+    throw new Error("network down");
+  }}
+  return [];
+}}
+
+function setRequirementBundles(items, {{ persist = true, hasCache = true }} = {{}}) {{
+  setRequirementBundlesCalls.push({{ items, persist, hasCache }});
+  state.requirementBundles = Array.isArray(items) ? items : [];
+  state.hasRequirementBundlesCache = !!hasCache;
+}}
+
+function renderRequirementBundleList(errorMessage = "") {{
+  renderCalls.push(errorMessage);
+}}
+
+function showBundlesDefaultMainView() {{
+  placeholderMessages.push("DEFAULT");
+}}
+
+function renderWorkspaceDetailPlaceholder(message, workspaceState) {{
+  placeholderMessages.push(message);
+}}
+
+function syncMainHeader() {{}}
+
+function showToast(message) {{
+  toastMessages.push(message);
+}}
+
+async function runFailureScenario() {{
+  buttonCalls = [];
+  toastMessages = [];
+  renderCalls = [];
+  placeholderMessages = [];
+  setRequirementBundlesCalls = [];
+  state.requirementBundles = [];
+  state.hasRequirementBundlesCache = true;
+  dom.bundleNavList.innerHTML = '<div class="portal-bundle-list-state">No bundles found</div>';
+  apiMode = "fail";
+
+  await refreshRequirementBundles({{ showLoadingState: true, force: true, notifyOnSuccess: false }});
+
+  return {{
+    listHtml: dom.bundleNavList.innerHTML,
+    renderCalls,
+    toastMessages,
+    buttonCalls,
+    placeholderMessages,
+  }};
+}}
+
+async function runSuccessScenario() {{
+  buttonCalls = [];
+  toastMessages = [];
+  renderCalls = [];
+  placeholderMessages = [];
+  setRequirementBundlesCalls = [];
+  state.requirementBundles = [];
+  state.hasRequirementBundlesCache = true;
+  apiMode = "success-empty";
+
+  await refreshRequirementBundles({{ showLoadingState: true, force: true, notifyOnSuccess: true }});
+
+  return {{
+    hasRequirementBundlesCache: state.hasRequirementBundlesCache,
+    requirementBundlesLength: state.requirementBundles.length,
+    renderCalls,
+    toastMessages,
+    buttonCalls,
+    placeholderMessages,
+    setRequirementBundlesCalls,
+  }};
+}}
+
+(async () => {{
+  const result = {{
+    failure: await runFailureScenario(),
+    success: await runSuccessScenario(),
+  }};
+  console.log(JSON.stringify(result));
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert "Loading bundles…" not in data["failure"]["listHtml"]
+    assert all(not call.startswith("Failed to load bundles:") for call in data["failure"]["renderCalls"] if isinstance(call, str))
+    assert any(msg == "Failed to refresh bundles: network down" for msg in data["failure"]["toastMessages"])
+    assert data["failure"]["buttonCalls"] == [
+        {"disabled": True, "label": "Refreshing bundles..."},
+        {"disabled": False, "label": None},
+    ]
+
+    assert data["success"]["hasRequirementBundlesCache"] is True
+    assert data["success"]["requirementBundlesLength"] == 0
+    assert data["success"]["setRequirementBundlesCalls"][0]["hasCache"] is True
+    assert "No bundles found. Click refresh to check again or create a bundle." in data["success"]["placeholderMessages"]
+    assert all("No cached bundles yet" not in msg for msg in data["success"]["placeholderMessages"])
+    assert "Bundles refreshed" in data["success"]["toastMessages"]
 
 
 def test_thinking_process_template_prefers_normalized_fields():

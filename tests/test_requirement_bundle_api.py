@@ -4,7 +4,11 @@ from fastapi.testclient import TestClient
 
 
 class _StubRequirementBundleService:
-    def list_bundles(self):
+    def __init__(self):
+        self.force_refresh_calls = []
+
+    def list_bundles(self, *, force_refresh: bool = False):
+        self.force_refresh_calls.append(force_refresh)
         return [
             {
                 "bundle_id": "RB-checkout",
@@ -58,7 +62,8 @@ def test_requirement_bundles_api_get_returns_template_fields(monkeypatch):
     from app.main import app
     import app.api.requirement_bundles as requirement_bundles_api
 
-    monkeypatch.setattr(requirement_bundles_api, "requirement_bundle_service", _StubRequirementBundleService())
+    stub = _StubRequirementBundleService()
+    monkeypatch.setattr(requirement_bundles_api, "requirement_bundle_service", stub)
     app.dependency_overrides[requirement_bundles_api.get_current_user] = lambda: SimpleNamespace(id=7, role="user")
 
     try:
@@ -68,6 +73,24 @@ def test_requirement_bundles_api_get_returns_template_fields(monkeypatch):
         data = response.json()
         assert data[0]["template_id"] == "requirement.v1"
         assert data[0]["template_label"] == "Requirement Bundle"
+        assert stub.force_refresh_calls == [False]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_requirement_bundles_api_get_refresh_forces_service_refresh(monkeypatch):
+    from app.main import app
+    import app.api.requirement_bundles as requirement_bundles_api
+
+    stub = _StubRequirementBundleService()
+    monkeypatch.setattr(requirement_bundles_api, "requirement_bundle_service", stub)
+    app.dependency_overrides[requirement_bundles_api.get_current_user] = lambda: SimpleNamespace(id=7, role="user")
+
+    try:
+        client = TestClient(app)
+        response = client.get("/api/requirement-bundles?refresh=1")
+        assert response.status_code == 200
+        assert stub.force_refresh_calls == [True]
     finally:
         app.dependency_overrides.clear()
 
