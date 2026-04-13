@@ -2422,6 +2422,8 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   if (state.secondaryPaneCollapsed) return;
 
   const didSwitchSection = section !== previousSection;
+  const didRevealPane = sidebarWasCollapsed && !state.secondaryPaneCollapsed;
+  const shouldRefreshVisibleSection = didSwitchSection || didRevealPane;
 
   if (didSwitchSection) {
     if (section === "assistants") {
@@ -2433,7 +2435,7 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
     }
   }
 
-  if (state.activeNavSection === "bundles") {
+  if (state.activeNavSection === "bundles" && shouldRefreshVisibleSection) {
     await refreshRequirementBundles();
     if (
       state.activeNavSection === "bundles" &&
@@ -2445,7 +2447,7 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
     }
   }
 
-  if (state.activeNavSection === "tasks") {
+  if (state.activeNavSection === "tasks" && shouldRefreshVisibleSection) {
     await refreshMyTasks();
     if (
       state.activeNavSection === "tasks" &&
@@ -2455,10 +2457,6 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
     ) {
       showTasksDefaultMainView();
     }
-  }
-
-  if (sidebarWasCollapsed && !state.secondaryPaneCollapsed) {
-    return;
   }
 }
 
