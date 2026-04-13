@@ -815,6 +815,123 @@ console.log(JSON.stringify({{
     assert data["attachmentsValue"] == '["file-1","file-2"]'
     assert data["draftAttachmentsValue"] == '["file-1","file-2"]'
     assert data["notifyCalls"] == 1
+
+
+def test_background_failure_restores_original_agent_draft_state_only():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
+    mark_unread = _extract_js_function(js_file, "markAgentUnread")
+    handle_failure = _extract_js_function(js_file, "handleAgentChatFailure")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-B",
+  mineAgents: [{{id: "agent-A", name: "Agent A"}}, {{id: "agent-B", name: "Agent B"}}],
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const dom = {{
+  chatInput: {{ value: "" }},
+  messageList: {{ insertAdjacentHTML() {{ throw new Error("must not touch current DOM"); }} }},
+}};
+const document = {{
+  hidden: false,
+  getElementById() {{ throw new Error("must not read selected DOM attachments in background branch"); }},
+}};
+let renderCalls = 0;
+function removeTemporaryAssistantRows() {{}}
+function removeLatestOptimisticUserRow() {{}}
+function renderInputPreview() {{}}
+function syncChatInputHeight() {{}}
+function setChatStatus() {{}}
+function safe(v) {{ return String(v); }}
+function scrollToBottom() {{}}
+function renderIcons() {{}}
+function markAgentUnread(agentId, status) {{
+  const chatState = ensureChatState(agentId);
+  chatState.unreadCount += 1;
+  chatState.backgroundStatus = status;
+}}
+function renderAgentList() {{ renderCalls += 1; }}
+function notifyAgentCompletion() {{}}
+{create_state}
+{ensure_state}
+{set_submitting}
+{mark_unread}
+{handle_failure}
+const chatStateA = ensureChatState("agent-A");
+chatStateA.activeRequest = {{ clientRequestId: "req-a" }};
+handleAgentChatFailure("agent-A", {{
+  clientRequestId: "req-a",
+  backupMessage: "fix this",
+  backupFiles: [{{id: "pf-1"}}],
+  attachments: ["file-1", "file-2"],
+}}, new Error("failed"));
+console.log(JSON.stringify({{
+  draftText: ensureChatState("agent-A").draftText,
+  draftAttachmentsValue: ensureChatState("agent-A").draftAttachmentsValue,
+  pendingFilesLen: ensureChatState("agent-A").pendingFiles.length,
+  backgroundStatus: ensureChatState("agent-A").backgroundStatus,
+  needsReload: ensureChatState("agent-A").needsReload,
+  renderCalls
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["draftText"] == "fix this"
+    assert data["draftAttachmentsValue"] == '["file-1","file-2"]'
+    assert data["pendingFilesLen"] == 1
+    assert data["backgroundStatus"] == "error"
+    assert data["needsReload"] is False
+    assert data["renderCalls"] == 1
+
+
+def test_ensure_event_socket_for_selected_agent_uses_active_request_id():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    ensure_socket_for_agent_fn = _extract_js_function(js_file, "ensureEventSocketForAgent")
+    ensure_socket_fn = _extract_js_function(js_file, "ensureEventSocketForSelectedAgent")
+
+    script = f"""
+{ensure_socket_for_agent_fn}
+{ensure_socket_fn}
+const CONNECTING = 0;
+const OPEN = 1;
+const window = {{ location: {{ protocol: "https:", host: "portal.test" }} }};
+let createdUrl = "";
+const state = {{
+  selectedAgentId: "agent-A",
+  eventWs: null,
+  eventWsAgentId: null,
+  eventWsSessionId: null,
+  eventWsRequestId: null,
+}};
+function currentSessionIdForSelectedAgent() {{ return "s-1"; }}
+function ensureChatState() {{ return {{ activeRequest: {{ clientRequestId: "req-live-1" }} }}; }}
+function disconnectEventSocket() {{}}
+function handleAgentEventMessage() {{}}
+class FakeWebSocket {{
+  constructor(url) {{ this.url = url; this.readyState = CONNECTING; createdUrl = url; }}
+}}
+FakeWebSocket.CONNECTING = CONNECTING;
+FakeWebSocket.OPEN = OPEN;
+globalThis.WebSocket = FakeWebSocket;
+ensureEventSocketForSelectedAgent();
+console.log(JSON.stringify({{ createdUrl }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert "session_id=s-1" in data["createdUrl"]
+    assert "request_id=req-live-1" in data["createdUrl"]
 def test_chat_ui_event_socket_replaces_stale_connecting_session():
     node_bin = shutil.which("node")
     if not node_bin:

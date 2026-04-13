@@ -33,6 +33,8 @@ def test_chat_submit_primary_path_is_fetch_runtime():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert "async function submitChatForSelectedAgent()" in js
     assert 'fetch(`/a/${agentIdAtSend}/api/chat`' in js
+    assert 'let messageBackup = ""' not in js
+    assert "let pendingFilesBackup = []" not in js
 
 
 def test_chat_response_partial_contract():

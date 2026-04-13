@@ -859,7 +859,7 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Note: Event rendering is handled by attachThinkingToLatestAssistant in handleChatAfterSwap
+// Note: Event rendering is handled by attachThinkingToLatestAssistant in fetch success path.
 
 function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
@@ -975,7 +975,9 @@ function ensureEventSocketForSelectedAgent() {
   if (typeof ensureEventSocketForAgent !== "function") return;
   const agentId = state.selectedAgentId;
   if (!agentId) return;
-  ensureEventSocketForAgent(agentId, currentSessionIdForSelectedAgent(), null);
+  const chatState = ensureChatState(agentId);
+  const requestId = chatState?.activeRequest?.clientRequestId || "";
+  ensureEventSocketForAgent(agentId, currentSessionIdForSelectedAgent(), requestId || null);
 }
 
 function applyTheme(theme) {
@@ -1860,8 +1862,6 @@ async function refreshAll() {
 }
 
 // ===== chat submit lifecycle =====
-let messageBackup = "";
-let pendingFilesBackup = [];
 
 function maybeRequestNotificationPermission() {
   if (!("Notification" in window)) return;
@@ -2034,11 +2034,20 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
 function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  const restoredMessage = requestCtx.backupMessage || "";
+  const restoredFiles = Array.isArray(requestCtx.backupFiles) ? requestCtx.backupFiles : [];
+  const restoredAttachmentsValue = JSON.stringify(requestCtx.attachments || []);
   setChatSubmittingForAgent(agentIdAtSend, false);
   chatState.activeRequest = null;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   const errorMsg = error?.message || "Send failed";
   if (state.selectedAgentId !== agentIdAtSend) {
+    chatState.draftText = restoredMessage;
+    chatState.pendingFiles = restoredFiles;
+    chatState.draftAttachmentsValue = restoredAttachmentsValue;
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
+    chatState.backgroundStatus = "error";
     chatState.needsReload = false;
     markAgentUnread(agentIdAtSend, "error");
     renderAgentList();
@@ -2049,12 +2058,11 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   removeTemporaryAssistantRows();
   removeLatestOptimisticUserRow();
   if (chatState.attachmentHistory.length) chatState.attachmentHistory.pop();
-  chatState.pendingFiles = requestCtx.backupFiles || [];
-  if (dom.chatInput) dom.chatInput.value = requestCtx.backupMessage || "";
+  chatState.pendingFiles = restoredFiles;
+  if (dom.chatInput) dom.chatInput.value = restoredMessage;
   const attachmentsInput = document.getElementById("chat-attachments");
-  const attachmentsValue = JSON.stringify(requestCtx.attachments || []);
-  if (attachmentsInput) attachmentsInput.value = attachmentsValue;
-  chatState.draftAttachmentsValue = attachmentsValue;
+  if (attachmentsInput) attachmentsInput.value = restoredAttachmentsValue;
+  chatState.draftAttachmentsValue = restoredAttachmentsValue;
   renderInputPreview();
   syncChatInputHeight();
   chatState.inflightThinking = null;
@@ -2081,244 +2089,6 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
 }
 
-function handleChatBeforeRequest(event) {
-  if (event.target?.id !== "chat-form") return;
-  if (state.isSubmittingChat) {
-    event.preventDefault();
-    return;
-  }
-
-  // Block submission if any files are still uploading
-  const uploadingFiles = state.pendingFiles.filter(pf => pf.status === 'uploading');
-  if (uploadingFiles.length > 0) {
-    event.preventDefault();
-    showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
-    return;
-  }
-
-  // Get the message
-  const message = dom.chatInput?.value?.trim() || "";
-  if (!message) {
-    event.preventDefault();
-    return;
-  }
-
-  // Backup message and files for potential restore on error
-  messageBackup = message;
-  pendingFilesBackup = [...state.pendingFiles];
-  state.didAppendAttachmentHistoryForPendingSend = false;
-
-  // Build attachments from pendingFiles for display
-  setChatSubmitting(true);
-  removeWelcomeMessageIfPresent();
-  removeTemporaryAssistantRows();
-  hideSuggest();
-
-  // Build attachments from pending files for display
-  let displayAttachments = [];
-  
-  // First try to get from pendingFiles
-  displayAttachments = state.pendingFiles.map(pf => ({
-    name: pf.file.name,
-    type: pf.isImage ? 'image' : 'file',
-    previewUrl: pf.previewUrl,
-    url: pf.uploadedData?.url
-  }));
-  
-  // If no pending files, check chat-attachments (for Edit flow)
-  if (displayAttachments.length === 0) {
-    const chatAttachmentsInput = document.getElementById("chat-attachments");
-    if (chatAttachmentsInput && chatAttachmentsInput.value) {
-      try {
-        const attachmentIds = JSON.parse(chatAttachmentsInput.value);
-        displayAttachments = attachmentIds.map(id => ({
-          name: id,
-          type: 'image',
-          previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`,
-          url: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`
-        }));
-      } catch (e) {
-        // console.error('Failed to parse attachments:', e);
-      }
-    }
-  }
-
-  if (dom.messageList && message) {
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
-    const thinkingId = 'thinking-' + Date.now();
-    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
-    if (pending) pending.dataset.thinkingId = thinkingId;
-    state.inflightThinking = { id: thinkingId, events: [], completed: false };
-    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
-    ensureEventSocketForSelectedAgent();
-    scrollToBottom();
-  }
-
-  // Clear pending files and input (message is already captured in 'message' variable)
-  clearPendingFiles();
-  if (dom.chatInput) dom.chatInput.value = "";
-  resetChatInputHeight();
-  setChatStatus("Sending...");
-
-  // Note: attachments is now set via htmx:configRequest event
-  // HTMX will submit the form with attachments in the payload
-}
-
-function handleChatResponseError(event) {
-  if (event.target?.id !== "chat-form") return;
-
-  removeTemporaryAssistantRows();
-  removeLatestOptimisticUserRow();
-  if (state.didAppendAttachmentHistoryForPendingSend && Array.isArray(state.attachmentHistory) && state.attachmentHistory.length) {
-    state.attachmentHistory.pop();
-  }
-  state.didAppendAttachmentHistoryForPendingSend = false;
-  setChatSubmitting(false);
-  state.inflightThinking = null;
-
-  // Restore message and files from backup
-  if (messageBackup || pendingFilesBackup.length > 0) {
-    if (dom.chatInput) dom.chatInput.value = messageBackup;
-    syncChatInputHeight();
-    state.pendingFiles = pendingFilesBackup;
-    renderInputPreview();
-    pendingFilesBackup = [];
-    messageBackup = "";
-  }
-
-  // Extract error message from response
-  let errorMsg = "Send failed";
-  const xhr = event.detail?.xhr;
-  if (xhr) {
-    try {
-      const response = JSON.parse(xhr.responseText);
-      errorMsg = response.detail || response.message || `Error: ${xhr.status} ${xhr.statusText}`;
-    } catch (e) {
-      errorMsg = xhr.responseText || `Error: ${xhr.status} ${xhr.statusText}`;
-    }
-  }
-  setChatStatus(errorMsg, true);
-
-  // Also show error in message list
-  if (dom.messageList) {
-    const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    dom.messageList.insertAdjacentHTML("beforeend", `
-      <div class="message-row message-row-assistant message-row-error">
-        <div class="message-meta">
-          <span class="message-author">System</span>
-          <span class="message-timestamp">${now}</span>
-        </div>
-        <article class="message-surface message-surface-assistant message-surface-error">
-          <div class="message-body whitespace-pre-wrap text-sm">${safe(errorMsg)}</div>
-        </article>
-      </div>
-    `);
-    scrollToBottom();
-    renderIcons();
-  }
-}
-
-function handleChatAfterRequest(event) {
-  if (event.target?.id !== "chat-form") return;
-  if (!event.detail?.successful) return;
-
-  setChatSubmitting(false);
-  state.didAppendAttachmentHistoryForPendingSend = false;
-  state.pendingMessage = "";
-  state.messagePrepared = false;
-
-  // Extract events from response for later rendering (after HTMX swap)
-  try {
-    const xhr = event.detail.xhr;
-    if (xhr && xhr.responseText) {
-      // Parse once and extract both events and user message ID
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xhr.responseText, "text/html");
-      const oobInput = doc.querySelector('#chat-user-message-id');
-      if (oobInput && oobInput.value) {
-        const userMessageId = oobInput.value;
-        const optimisticUserArticle = getLatestOptimisticUserArticle();
-        if (optimisticUserArticle) {
-          optimisticUserArticle.dataset.messageId = userMessageId;
-          delete optimisticUserArticle.dataset.optimisticUser;
-
-          const parentContainer = optimisticUserArticle.parentElement;
-          const editBtn = optimisticUserArticle.querySelector('.edit-msg-btn') ||
-            parentContainer?.querySelector?.('.edit-msg-btn');
-          if (editBtn) {
-            const contentEl = optimisticUserArticle.querySelector('.message-body, .whitespace-pre-wrap');
-            const content = contentEl ? contentEl.textContent : '';
-            const attachments = state.attachmentHistory.length > 0
-              ? (state.attachmentHistory[state.attachmentHistory.length - 1] || [])
-              : [];
-            editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
-          }
-        }
-      }
-
-      // Extract events
-      const assistantArticle = doc.querySelector('article.assistant-message');
-      if (assistantArticle) {
-        const eventsData = assistantArticle.querySelector('[data-events]');
-        if (eventsData) {
-          try {
-            const events = JSON.parse(eventsData.dataset.events);
-            // Validate events is an array before storing
-            if (Array.isArray(events) && events.length > 0) {
-              state.pendingThinkingEvents = events;
-            }
-          } catch (e) {
-            console.error('Failed to parse events:', e);
-          }
-        }
-      }
-      
-    }
-  } catch (e) {
-    // Ignore errors
-  }
-  
-  // Add edit buttons to the newly sent message
-  addEditButtonsToMessages();
-}
-
-function handleChatAfterSwap(target) {
-  if (target?.id !== "message-list") return;
-
-  // Merge both WebSocket events and HTMX response events
-  const wsEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
-  const htmxEvents = state.pendingThinkingEvents || [];
-  
-  // Combine and dedupe events (HTMX events are usually skill mode, WS are regular)
-  const allEvents = [...wsEvents];
-  htmxEvents.forEach(e => {
-    if (!allEvents.some(ex => ex.type === e.type && JSON.stringify(ex.data) === JSON.stringify(e.data))) {
-      allEvents.push(e);
-    }
-  });
-  
-  removeTemporaryAssistantRows();
-  if (allEvents.length) attachThinkingToLatestAssistant(allEvents);
-  
-  // Clear states
-  state.pendingThinkingEvents = null;
-  state.inflightThinking = null;
-  state.didAppendAttachmentHistoryForPendingSend = false;
-
-  // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
-  // Re-query the element each time since OOB swap replaces the DOM element
-  const sessionFromInput = document.getElementById("chat-session-id")?.value || "";
-  updateSelectedAgentSession(sessionFromInput);
-
-  renderMarkdown(dom.messageList);
-  decorateToolMessages(dom.messageList);
-  renderIcons();
-  scrollToBottom();
-
-  setChatStatus("Ready");
-}
-
 // ===== HTML decode helper =====
 function decodeHtml(text) {
   if (!text) return '';
@@ -2329,42 +2099,8 @@ function decodeHtml(text) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
-  const chatFormUsesHtmx = !!document.getElementById("chat-form")?.getAttribute("hx-post");
-  if (chatFormUsesHtmx) {
-    document.addEventListener("htmx:configRequest", (event) => {
-      // This fires right before HTMX makes the request - perfect time to set attachments
-      const elt = event.detail.requestConfig?.elt || event.target;
-      if (elt?.id === "chat-form") {
-        // Check if attachments already set (e.g., from Edit flow)
-        const chatAttachmentsInput = document.getElementById("chat-attachments");
-        const existingAttachments = chatAttachmentsInput?.value;
-
-        // If already set (from Edit), don't overwrite
-        if (existingAttachments && existingAttachments !== '') {
-          event.detail.parameters.attachments = existingAttachments;
-        } else {
-          // Normal send - use pendingFiles
-          const uploadedFileIds = state.pendingFiles
-            .filter(pf => pf.file_id && pf.status === 'uploaded')
-            .map(pf => pf.file_id);
-          event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
-
-          // Store attachments in history (always record, even empty arrays for indexing)
-          addToAttachmentHistory(uploadedFileIds);
-          state.didAppendAttachmentHistoryForPendingSend = true;
-        }
-      }
-    });
-
-    document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
-    document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
-    document.addEventListener("htmx:responseError", handleChatResponseError);
-  }
-
   document.addEventListener("htmx:afterSwap", (event) => {
-    if (chatFormUsesHtmx) handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
-    if (event.target?.id === "message-list" && chatFormUsesHtmx) addEditButtonsToMessages();
     renderIcons();
   });
 }
