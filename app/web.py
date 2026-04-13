@@ -15,6 +15,7 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
+from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
 from app.services.requirement_bundle_github_service import (
@@ -26,6 +27,7 @@ from app.services.proxy_service import ProxyService, build_portal_execution_head
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 
@@ -45,6 +47,7 @@ proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
 task_dispatcher_service = TaskDispatcherService()
 requirement_bundle_service = RequirementBundleGithubService()
+runtime_profile_sync_service = RuntimeProfileSyncService(proxy_service=proxy_service)
 base_uri = settings.base_uri
 
 
@@ -178,6 +181,10 @@ def _settings_error_response(request: Request, agent_id: str, config_payload: di
             "agent_id": agent_id,
             "status_type": "error",
             "status_message": message,
+            "profile_missing_message": "",
+            "profile_name": None,
+            "profile_revision": None,
+            "profile_bound_agent_count": 0,
             **view_data,
         },
     )
@@ -1319,10 +1326,15 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        # When K8s is disabled, return empty config
-        if not settings.k8s_enabled:
-            # Return empty config for agents without runtime
-            view_data = _settings_view_payload({})
+        runtime_profile = None
+        bound_agent_count = 0
+        if agent.runtime_profile_id:
+            profile_repo = RuntimeProfileRepository(db)
+            runtime_profile = profile_repo.get_by_id(agent.runtime_profile_id)
+            if runtime_profile:
+                bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
+
+        if not runtime_profile:
             return templates.TemplateResponse(
                 "partials/settings_panel.html",
                 {
@@ -1330,24 +1342,20 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "",
                     "status_message": "",
-                    **view_data,
+                    "profile_missing_message": "This agent has no runtime profile. Assign one from Edit Assistant first.",
+                    "profile_name": None,
+                    "profile_revision": None,
+                    "profile_bound_agent_count": 0,
+                    "config": {},
                 },
             )
 
-        status_code, content, _ = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="GET",
-            subpath="api/config",
-            query_items=[],
-            body=None,
-        )
-
-        if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
-
-        payload = json.loads(content.decode("utf-8"))
-        config_data = payload.get("config") or {}
+        try:
+            config_data = json.loads(runtime_profile.config_json or "{}")
+            if not isinstance(config_data, dict):
+                config_data = {}
+        except Exception:
+            config_data = {}
         view_data = _settings_view_payload(config_data)
         return templates.TemplateResponse(
             "partials/settings_panel.html",
@@ -1356,6 +1364,10 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 "agent_id": agent_id,
                 "status_type": "",
                 "status_message": "",
+                "profile_missing_message": "",
+                "profile_name": runtime_profile.name,
+                "profile_revision": runtime_profile.revision,
+                "profile_bound_agent_count": bound_agent_count,
                 **view_data,
             },
         )
@@ -1368,10 +1380,6 @@ async def app_agent_settings_save(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-    
-    # Check if K8s is enabled before saving settings
-    if not settings.k8s_enabled:
-        raise HTTPException(status_code=400, detail="Settings cannot be saved: Kubernetes integration is disabled")
 
     form = await request.form()
 
@@ -1389,7 +1397,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
 
     db = SessionLocal()
     status_type = "success"
-    status_message = "Settings saved. Runtime configuration reloaded."
+    status_message = "Runtime profile updated. Changes are shared across bound agents."
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
@@ -1397,38 +1405,59 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        status_code, content, _ = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="POST",
-            subpath="api/config/save",
-            query_items=[],
-            body=json.dumps(config_payload).encode("utf-8"),
-            headers={"content-type": "application/json"},
-        )
+        if not agent.runtime_profile_id:
+            return templates.TemplateResponse(
+                "partials/settings_panel.html",
+                {
+                    "request": request,
+                    "agent_id": agent_id,
+                    "status_type": "error",
+                    "status_message": "This agent has no runtime profile. Assign one from Edit Assistant first.",
+                    "profile_missing_message": "This agent has no runtime profile. Assign one from Edit Assistant first.",
+                    "profile_name": None,
+                    "profile_revision": None,
+                    "profile_bound_agent_count": 0,
+                    "config": {},
+                },
+            )
 
-        if status_code >= 400:
+        profile_repo = RuntimeProfileRepository(db)
+        runtime_profile = profile_repo.get_by_id(agent.runtime_profile_id)
+        if not runtime_profile:
+            return templates.TemplateResponse(
+                "partials/settings_panel.html",
+                {
+                    "request": request,
+                    "agent_id": agent_id,
+                    "status_type": "error",
+                    "status_message": "Assigned runtime profile was not found.",
+                    "profile_missing_message": "This agent has no runtime profile. Assign one from Edit Assistant first.",
+                    "profile_name": None,
+                    "profile_revision": None,
+                    "profile_bound_agent_count": 0,
+                    "config": {},
+                },
+            )
+
+        runtime_profile.config_json = json.dumps(config_payload)
+        runtime_profile.revision = (runtime_profile.revision or 0) + 1
+        runtime_profile = profile_repo.save(runtime_profile)
+
+        sync_result = await runtime_profile_sync_service.sync_profile_to_bound_agents(db, runtime_profile)
+        if sync_result.get("failed_agent_ids"):
             status_type = "error"
-            status_message = f"Save failed: {content.decode('utf-8', errors='ignore')}"
+            status_message = (
+                "Runtime profile saved, but some running agents failed to sync: "
+                + ", ".join(sync_result["failed_agent_ids"])
+            )
+        else:
+            status_message = (
+                "Runtime profile updated. "
+                f"Updated running agents: {sync_result['updated_running_count']}, "
+                f"skipped (not running): {sync_result['skipped_not_running_count']}."
+            )
 
-        read_status, read_content, _ = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="GET",
-            subpath="api/config",
-            query_items=[],
-            body=None,
-        )
-
-        config_data = config_payload
-        if read_status < 400:
-            payload = json.loads(read_content.decode("utf-8"))
-            config_data = payload.get("config") or config_payload
-        elif status_type != "error":
-            status_type = "error"
-            status_message = f"Saved but failed to reload panel: {read_content.decode('utf-8', errors='ignore')}"
-
-        view_data = _settings_view_payload(config_data)
+        view_data = _settings_view_payload(config_payload)
         return templates.TemplateResponse(
             "partials/settings_panel.html",
             {
@@ -1436,6 +1465,10 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "agent_id": agent_id,
                 "status_type": status_type,
                 "status_message": status_message,
+                "profile_missing_message": "",
+                "profile_name": runtime_profile.name,
+                "profile_revision": runtime_profile.revision,
+                "profile_bound_agent_count": profile_repo.count_bound_agents(runtime_profile.id),
                 **view_data,
             },
         )

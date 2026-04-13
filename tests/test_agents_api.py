@@ -28,6 +28,7 @@ def test_agent_model_fields():
     assert "agent_type" in columns
     assert "capability_profile_id" in columns
     assert "policy_profile_id" in columns
+    assert "runtime_profile_id" in columns
 
 
 def test_agent_response_schema():
@@ -160,5 +161,81 @@ def test_null_agent_type_on_update_returns_422_and_does_not_mutate_agent(monkeyp
         get_resp = client.get(f"/api/agents/{agent_id}")
         assert get_resp.status_code == 200
         assert get_resp.json()["agent_type"] == "workspace"
+    finally:
+        cleanup()
+
+
+def test_agent_response_schema_includes_runtime_profile_id():
+    fields = AgentResponse.model_fields.keys()
+    assert "runtime_profile_id" in fields
+
+
+def test_create_and_update_agent_runtime_profile_validation_and_response(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+
+        create_missing = client.post(
+            "/api/agents",
+            json={"name": "bad", "image": "example/image:latest", "runtime_profile_id": "missing-rp"},
+        )
+        assert create_missing.status_code == 404
+
+        from app.models.runtime_profile import RuntimeProfile
+
+        rp = RuntimeProfile(name="rp", config_json="{}", revision=1)
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        create_ok = client.post(
+            "/api/agents",
+            json={"name": "ok", "image": "example/image:latest", "runtime_profile_id": rp.id},
+        )
+        assert create_ok.status_code == 200
+        agent = create_ok.json()
+        assert agent["runtime_profile_id"] == rp.id
+
+        patch_missing = client.patch(f"/api/agents/{agent['id']}", json={"runtime_profile_id": "missing-rp"})
+        assert patch_missing.status_code == 404
+    finally:
+        cleanup()
+
+
+def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+
+        from app.models.runtime_profile import RuntimeProfile
+
+        rp = RuntimeProfile(name="rp-sync", config_json='{"llm": {"provider": "openai"}}', revision=3)
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        create_ok = client.post(
+            "/api/agents",
+            json={"name": "sync-agent", "image": "example/image:latest"},
+        )
+        assert create_ok.status_code == 200
+        agent_id = create_ok.json()["id"]
+
+        pushed = []
+
+        async def _fake_push(agent, payload):
+            pushed.append(payload)
+            return True
+
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _fake_push)
+
+        apply_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
+        assert apply_resp.status_code == 200
+        assert pushed[-1]["runtime_profile_id"] == rp.id
+        assert pushed[-1]["revision"] == 3
+
+        clear_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": None})
+        assert clear_resp.status_code == 200
+        assert pushed[-1] == {"runtime_profile_id": None, "revision": None, "config": {}}
     finally:
         cleanup()

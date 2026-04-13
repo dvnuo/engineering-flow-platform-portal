@@ -268,6 +268,12 @@
         <label>Branch</label>
         <input name="branch" placeholder="master" value="master" />
       </div>
+      <div>
+        <label>Runtime Profile</label>
+        <select name="runtime_profile_id" id="create-runtime-profile-select">
+          <option value="">None</option>
+        </select>
+      </div>
       <button type="submit">Create Assistant</button>
       <p id="create-msg" class="portal-modal-feedback"></p>
     </form>
@@ -294,6 +300,12 @@
       <div>
         <label>Branch</label>
         <input name="branch" placeholder="master" />
+      </div>
+      <div>
+        <label>Runtime Profile</label>
+        <select name="runtime_profile_id" id="edit-runtime-profile-select">
+          <option value="">None</option>
+        </select>
       </div>
       <button type="submit">Save Changes</button>
       <p id="edit-msg" class="portal-modal-feedback"></p>

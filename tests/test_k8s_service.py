@@ -80,19 +80,22 @@ class K8sServiceNoopTest(unittest.TestCase):
     def test_agent_container_env_includes_config_key_and_optional_portal_base_url(self):
         self.service.settings.portal_internal_base_url = "http://portal.internal.svc"
 
-        env = self.service._build_agent_container_env()
+        env = self.service._build_agent_container_env(SimpleNamespace(id="agent-123"))
         names = [item.name for item in env]
 
         self.assertIn("EFP_CONFIG_KEY", names)
         self.assertIn("PORTAL_INTERNAL_BASE_URL", names)
+        self.assertIn("PORTAL_AGENT_ID", names)
 
         portal_base = next(item for item in env if item.name == "PORTAL_INTERNAL_BASE_URL")
         self.assertEqual(portal_base.value, "http://portal.internal.svc")
+        portal_agent_id = next(item for item in env if item.name == "PORTAL_AGENT_ID")
+        self.assertEqual(portal_agent_id.value, "agent-123")
 
     def test_agent_container_env_omits_empty_portal_internal_base_url(self):
         self.service.settings.portal_internal_base_url = "   "
 
-        env = self.service._build_agent_container_env()
+        env = self.service._build_agent_container_env(SimpleNamespace(id="agent-123"))
         names = [item.name for item in env]
 
         self.assertIn("EFP_CONFIG_KEY", names)

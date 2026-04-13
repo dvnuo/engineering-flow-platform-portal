@@ -227,6 +227,7 @@ const state = {
   didAppendAttachmentHistoryForPendingSend: false,
   serverFilesRootPath: null,
   serverFilesCurrentPath: null,
+  runtimeProfiles: [],
 };
 
 const md = window.markdownit({
@@ -3329,7 +3330,34 @@ async function action(path, method = "POST", needsConfirm = false) {
   await refreshAll();
 }
 
+async function loadRuntimeProfiles(force = false) {
+  if (!force && state.runtimeProfiles && state.runtimeProfiles.length > 0) {
+    return state.runtimeProfiles;
+  }
+  try {
+    const profiles = await api('/api/runtime-profiles');
+    state.runtimeProfiles = Array.isArray(profiles) ? profiles : [];
+    return state.runtimeProfiles;
+  } catch (_err) {
+    state.runtimeProfiles = [];
+    return [];
+  }
+}
+
+function populateRuntimeProfileSelect(selectEl, selectedId = '') {
+  if (!selectEl) return;
+  const profiles = state.runtimeProfiles || [];
+  selectEl.innerHTML = '<option value="">None</option>' + profiles.map((profile) => {
+    const selected = selectedId && selectedId === profile.id ? ' selected' : '';
+    return `<option value="${escapeHtmlAttr(profile.id)}"${selected}>${safe(profile.name)}</option>`;
+  }).join('');
+  if (!selectedId && profiles.length === 1) {
+    selectEl.value = profiles[0].id;
+  }
+}
+
 async function openEditDialog(agent) {
+  await loadRuntimeProfiles(true);
   // Populate the edit form by setting input values directly
   const form = document.getElementById("edit-form");
   if (form && form.elements) {
@@ -3345,6 +3373,9 @@ async function openEditDialog(agent) {
     if (form.elements["branch"]) {
       form.elements["branch"].value = agent.branch || "master";
     }
+    if (form.elements["runtime_profile_id"]) {
+      populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
+    }
   }
 
   // Show the modal
@@ -3356,53 +3387,15 @@ async function openEditDialog(agent) {
 }
 
 // Copy agent config to clipboard
-async function copyAgentConfig(agentId) {
-  try {
-    // Fetch config from agent
-    const resp = await fetch(`/a/${agentId}/api/config`);
-    if (!resp.ok) throw new Error('Failed to fetch config');
-    const data = await resp.json();
-
-    const configStr = JSON.stringify(data.config, null, 2);
-
-    // Use clipboard API or fallback
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(configStr);
-    } else {
-      // Fallback for non-secure context
-      const textarea = document.createElement('textarea');
-      textarea.value = configStr;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
-
-    // Show global toast
-    showToast('Configuration copied to clipboard!');
-  } catch (e) {
-    // console.error('Failed to copy config:', e);
-    showToast('Failed to copy: ' + e.message);
-  }
+async function copyAgentConfig(_agentId) {
+  showToast('Use Runtime Profile instead');
 }
 
 // Paste agent config from clipboard - shows modal
 let pasteModalAgentId = null;
 
-async function pasteAgentConfig(agentId) {
-  pasteModalAgentId = agentId;
-  const modal = document.getElementById('paste-modal');
-  const textarea = document.getElementById('paste-config-text');
-  if (!modal || !textarea) {
-    showToast('Paste modal not available');
-    return;
-  }
-  textarea.value = '';
-  modal.classList.remove('hidden');
-  modal.setAttribute('aria-hidden', 'false');
-  textarea.focus();
+async function pasteAgentConfig(_agentId) {
+  showToast('Use Runtime Profile instead');
 }
 
 // Setup paste modal event listeners (call once on load)
@@ -3445,22 +3438,9 @@ function setupPasteModal() {
       }
 
       try {
-        const config = JSON.parse(text);
-
-        const resp = await fetch(`/a/${pasteModalAgentId}/api/config/save`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(config),
-        });
-
-        if (!resp.ok) {
-          const err = await resp.json();
-          throw new Error(err.error || 'Failed to save config');
-        }
-
-        // Show global toast and close modal
-        showToast('Configuration applied successfully!');
-        setTimeout(closePasteModal, 1500);
+        JSON.parse(text);
+        showToast('Use Runtime Profile instead');
+        closePasteModal();
       } catch (e) {
         showToast('Failed to apply: ' + e.message);
       }
@@ -3593,10 +3573,12 @@ function bindEvents() {
     const updates = { name: formData.get("name")?.trim() };
     const repoUrl = formData.get("repo_url")?.trim();
     const branch = formData.get("branch")?.trim();
+    const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
 
     // Always include repo_url and branch (empty string to clear)
     if (repoUrl !== undefined) updates.repo_url = repoUrl || null;
     if (branch !== undefined) updates.branch = branch || null;
+    updates.runtime_profile_id = runtimeProfileId || null;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
@@ -3948,7 +3930,10 @@ function bindEvents() {
     dom.createBundleModal?.setAttribute("aria-hidden", "true");
   });
 
-  dom.addAgentBtn?.addEventListener("click", () => {
+  dom.addAgentBtn?.addEventListener("click", async () => {
+    await loadRuntimeProfiles(true);
+    const createSelect = document.getElementById("create-runtime-profile-select");
+    populateRuntimeProfileSelect(createSelect, "");
     document.getElementById("create-modal")?.classList.remove("hidden");
     document.getElementById("create-modal")?.setAttribute("aria-hidden", "false");
   });
@@ -3965,6 +3950,7 @@ function bindEvents() {
     const name = formData.get("name");
     const repoUrl = formData.get("repo_url");
     const branch = formData.get("branch");
+    const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
 
     const msgEl = document.getElementById("create-msg");
 
@@ -3990,6 +3976,7 @@ function bindEvents() {
         cpu: defaults.cpu,
         memory: defaults.memory,
         mount_path: defaults.mount_path,
+        runtime_profile_id: runtimeProfileId || null,
       };
 
       msgEl.textContent = "Creating...";

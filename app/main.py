@@ -7,6 +7,7 @@ from app.api.auth import router as auth_router
 from app.api.proxy import router as proxy_router
 from app.api.capability_profiles import router as capability_profiles_router
 from app.api.policy_profiles import router as policy_profiles_router
+from app.api.runtime_profiles import router as runtime_profiles_router
 from app.api.agent_identity_bindings import router as agent_identity_bindings_router
 from app.api.runtime_router import router as runtime_router
 from app.api.external_event_subscriptions import router as external_event_subscriptions_router
@@ -96,6 +97,7 @@ app.include_router(agents_router)
 app.include_router(internal_agents_router)
 app.include_router(capability_profiles_router)
 app.include_router(policy_profiles_router)
+app.include_router(runtime_profiles_router)
 app.include_router(agent_identity_bindings_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)

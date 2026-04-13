@@ -393,6 +393,13 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
 
+        from app.models.runtime_profile import RuntimeProfile
+
+        runtime_profile = RuntimeProfile(name="group-task-rp", config_json="{}", revision=1)
+        db.add(runtime_profile)
+        db.commit()
+        db.refresh(runtime_profile)
+
         specialist_template = Agent(
             name="Template Specialist",
             description="template",
@@ -412,6 +419,7 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
             pvc_name="pvc-template",
             endpoint_path="/",
             agent_type="specialist",
+            runtime_profile_id=runtime_profile.id,
         )
         db.add(specialist_template)
         db.commit()
@@ -446,6 +454,7 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
         assert create_task_agent.status_code == 200
         created = create_task_agent.json()
         assert created["agent_type"] == "task"
+        assert created["runtime_profile_id"] == runtime_profile.id
         create_audit = db.query(AuditLog).filter(AuditLog.action == "create_group_task_agent", AuditLog.target_id == created["id"]).first()
         assert create_audit is not None
         assert json.loads(create_audit.details_json)["group_id"] == group["id"]

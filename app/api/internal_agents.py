@@ -3,8 +3,11 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_internal_api_key
+import json
+
 from app.repositories.agent_repo import AgentRepository
-from app.schemas.runtime_router import AgentRuntimeContextResponse, RuntimeCapabilityContextResponse, RuntimePolicyContextResponse
+from app.repositories.runtime_profile_repo import RuntimeProfileRepository
+from app.schemas.runtime_router import AgentRuntimeContextResponse, RuntimeCapabilityContextResponse, RuntimePolicyContextResponse, RuntimeProfileContextResponse
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_router import RuntimeRouterService
 
@@ -21,6 +24,25 @@ def get_agent_runtime_context(agent_id: str, _: bool = Depends(require_internal_
 
     execution_context = runtime_execution_context_service.build_for_agent(db, agent)
 
+    runtime_profile_context = None
+    if agent.runtime_profile_id:
+        runtime_profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
+        if runtime_profile:
+            try:
+                config = json.loads(runtime_profile.config_json or "{}")
+                if not isinstance(config, dict):
+                    config = {}
+            except Exception:
+                config = {}
+            runtime_profile_context = RuntimeProfileContextResponse(
+                runtime_profile_id=runtime_profile.id,
+                name=runtime_profile.name,
+                revision=runtime_profile.revision,
+                managed_sections=["llm", "proxy", "jira", "confluence", "github", "git", "debug"],
+                config=config,
+                source="portal.runtime_profile",
+            )
+
     return AgentRuntimeContextResponse(
         agent_id=agent.id,
         agent_type=agent.agent_type,
@@ -28,5 +50,7 @@ def get_agent_runtime_context(agent_id: str, _: bool = Depends(require_internal_
         policy_profile_id=execution_context.get("policy_profile_id"),
         capability_context=RuntimeCapabilityContextResponse.model_validate(execution_context.get("capability_context") or {}),
         policy_context=RuntimePolicyContextResponse.model_validate(execution_context.get("policy_context") or {}),
+        runtime_profile_id=agent.runtime_profile_id,
+        runtime_profile_context=runtime_profile_context,
         runtime_target=service.resolve_agent_runtime(agent),
     )

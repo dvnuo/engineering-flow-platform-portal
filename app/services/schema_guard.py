@@ -6,6 +6,7 @@ REQUIRED_AGENT_COLUMNS = (
     "template_agent_id",
     "task_scope_label",
     "task_cleanup_policy",
+    "runtime_profile_id",
 )
 REQUIRED_PORTAL_TABLES = (
     "alembic_version",
@@ -17,6 +18,7 @@ REQUIRED_PORTAL_TABLES = (
     "agent_session_metadata",
     "capability_profiles",
     "policy_profiles",
+    "runtime_profiles",
     "agent_identity_bindings",
     "workflow_transition_rules",
     "external_event_subscriptions",
