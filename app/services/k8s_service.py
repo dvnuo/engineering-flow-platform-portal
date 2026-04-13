@@ -72,14 +72,14 @@ class K8sService:
         from kubernetes import client
         labels = self._agent_common_labels(agent)
         annotations = self._agent_patch_annotations(agent)
-        
-        env = self._build_git_clone_env(agent)
-        
+        normalized_repo_url = normalize_git_repo_url(agent.repo_url)
+
         # Build the init container spec
         init_containers = []
         code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
         
-        if agent.repo_url:
+        if normalized_repo_url:
+            env = self._build_git_clone_env(agent, normalized_repo_url)
             init_containers.append(
                 client.V1Container(
                     name="git-clone",
@@ -95,7 +95,7 @@ class K8sService:
         
         # Build volume mounts
         volume_mounts = []
-        if agent.repo_url:
+        if normalized_repo_url:
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{code_sub_path}/src"))
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{code_sub_path}/.git"))
@@ -327,10 +327,11 @@ class K8sService:
         init_containers = []
         volume_mounts = []
         
-        if agent.repo_url:
+        normalized_repo_url = normalize_git_repo_url(agent.repo_url)
+        if normalized_repo_url:
             git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
             code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
-            env = self._build_git_clone_env(agent)
+            env = self._build_git_clone_env(agent, normalized_repo_url)
             
             init_containers.append(
                 client.V1Container(
@@ -394,13 +395,15 @@ class K8sService:
             if not self._is_already_exists(exc):
                 raise
 
-    def _build_git_clone_env(self, agent):
+    def _build_git_clone_env(self, agent, repo_url: Optional[str] = None):
         from kubernetes import client
 
         default_branch = getattr(self.settings, "default_agent_branch", "master")
-        repo_url = normalize_git_repo_url(agent.repo_url)
+        normalized_repo_url = repo_url if repo_url is not None else normalize_git_repo_url(agent.repo_url)
+        if not normalized_repo_url:
+            return []
         env = [
-            client.V1EnvVar(name="GIT_REPO_URL", value=repo_url),
+            client.V1EnvVar(name="GIT_REPO_URL", value=normalized_repo_url),
             client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or default_branch),
         ]
         if not self.settings.k8s_git_token_key:

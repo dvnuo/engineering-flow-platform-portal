@@ -120,6 +120,14 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("GIT_TOKEN", names)
         self.assertNotIn("GIT_USERNAME", names)
 
+    def test_build_git_clone_env_returns_empty_for_blank_repo_url(self):
+        self.service.settings.k8s_git_token_key = "GIT_TOKEN"
+        agent = SimpleNamespace(repo_url="   ", branch="main")
+
+        env = self.service._build_git_clone_env(agent)
+
+        self.assertEqual(env, [])
+
     def test_normalize_git_repo_url_ssh_to_https(self):
         self.assertEqual(
             normalize_git_repo_url("git@github.com:Acme/Portal.git"),

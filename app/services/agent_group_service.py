@@ -24,6 +24,7 @@ from app.schemas.agent_group import (
 )
 from app.services.agent_delegation_service import AgentDelegationService
 from app.services.k8s_service import K8sService
+from app.utils.git_urls import normalize_git_repo_url
 from app.utils.naming import runtime_names
 
 
@@ -477,6 +478,7 @@ class AgentGroupService:
         if getattr(payload, "visibility", None):
             visibility = payload.visibility
 
+        normalized_template_repo_url = normalize_git_repo_url(template_agent.repo_url)
         created = self.agent_repo.create(
             name=payload.name,
             description=f"ephemeral-task-agent:{payload.scope_label or group_id}",
@@ -484,7 +486,7 @@ class AgentGroupService:
             visibility=visibility,
             status="creating",
             image=template_agent.image,
-            repo_url=template_agent.repo_url,
+            repo_url=normalized_template_repo_url,
             branch=template_agent.branch,
             cpu=template_agent.cpu,
             memory=template_agent.memory,

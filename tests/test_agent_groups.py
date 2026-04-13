@@ -585,7 +585,7 @@ def test_internal_task_agent_create_delete_without_key_enforcement_preserves_saf
             visibility="private",
             status="running",
             image="example/image:latest",
-            repo_url="https://example.com/repo-template-internal.git",
+            repo_url="git@github.com:Acme/Portal.git",
             branch="main",
             cpu="500m",
             memory="1Gi",
@@ -671,8 +671,12 @@ def test_internal_task_agent_create_delete_without_key_enforcement_preserves_saf
         assert created["agent_type"] == "task"
         assert created["capability_profile_id"] == capability_profile.id
         assert created["policy_profile_id"] == policy_profile.id
+        agent_detail = client.get(f"/api/agents/{created['id']}")
+        assert agent_detail.status_code == 200
+        assert agent_detail.json()["repo_url"] == "https://github.com/Acme/Portal.git"
         persisted_agent = db.get(Agent, created["id"])
         assert persisted_agent is not None
+        assert persisted_agent.repo_url == "https://github.com/Acme/Portal.git"
         assert persisted_agent.template_agent_id == specialist_template.id
         assert persisted_agent.task_scope_label == "runtime-scope"
         assert persisted_agent.task_cleanup_policy == "delete_on_done"
