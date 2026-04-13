@@ -2360,6 +2360,14 @@ function showBundlesDefaultMainView() {
   syncMainHeader();
 }
 
+function showBundlesEmptyMainView() {
+  renderWorkspaceDetailPlaceholder(
+    "No bundles found. Click refresh to check again or create a bundle.",
+    "bundles-placeholder"
+  );
+  syncMainHeader();
+}
+
 function showTasksDefaultMainView() {
   renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.", "tasks-placeholder");
   syncMainHeader();
@@ -2423,19 +2431,19 @@ function loadRequirementBundlesFromCache() {
     const raw = localStorage.getItem(REQUIREMENT_BUNDLES_CACHE_KEY);
     if (!raw) {
       setRequirementBundles([], { persist: false, hasCache: false });
-      return false;
+      return { hasCache: false, hasItems: false };
     }
     const parsed = JSON.parse(raw);
     const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.items) ? parsed.items : null);
     if (!Array.isArray(items)) {
       setRequirementBundles([], { persist: false, hasCache: false });
-      return false;
+      return { hasCache: false, hasItems: false };
     }
     setRequirementBundles(items, { persist: false, hasCache: true });
-    return items.length > 0;
+    return { hasCache: true, hasItems: items.length > 0 };
   } catch (_error) {
     setRequirementBundles([], { persist: false, hasCache: false });
-    return false;
+    return { hasCache: false, hasItems: false };
   }
 }
 
@@ -2522,7 +2530,7 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   }
 
   if (state.activeNavSection === "bundles" && shouldRefreshVisibleSection) {
-    const hasCachedBundles = loadRequirementBundlesFromCache();
+    const cacheState = loadRequirementBundlesFromCache();
     renderRequirementBundleList();
     if (
       state.activeNavSection === "bundles" &&
@@ -2530,14 +2538,16 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
       !state.selectedBundleKey &&
       dom.workspaceDetailContent?.dataset.workspaceState === "bundles-loading"
     ) {
-      if (hasCachedBundles) {
-        showBundlesDefaultMainView();
-      } else {
+      if (!cacheState.hasCache) {
         renderWorkspaceDetailPlaceholder(
           "No cached bundles yet. Click refresh to load the latest bundles.",
           "bundles-placeholder"
         );
         syncMainHeader();
+      } else if (cacheState.hasItems) {
+        showBundlesDefaultMainView();
+      } else {
+        showBundlesEmptyMainView();
       }
     }
   }
@@ -2591,8 +2601,8 @@ function renderRequirementBundleList(errorMessage = "") {
 
 async function refreshRequirementBundles({ showLoadingState = true, force = true, notifyOnSuccess = false } = {}) {
   if (!dom.bundleNavList) return;
-  const hadCachedItems = state.requirementBundles.length > 0;
-  if (!hadCachedItems && showLoadingState) {
+  const hadBundleCache = state.hasRequirementBundlesCache;
+  if (!hadBundleCache && showLoadingState) {
     dom.bundleNavList.innerHTML = '<div class="portal-bundle-list-state">Loading bundles…</div>';
   }
   setButtonDisabled(dom.refreshBundlesBtn, true, "Refreshing bundles...");
@@ -2601,9 +2611,20 @@ async function refreshRequirementBundles({ showLoadingState = true, force = true
     const bundles = await api(endpoint);
     setRequirementBundles(Array.isArray(bundles) ? bundles : [], { persist: true, hasCache: true });
     renderRequirementBundleList();
+    if (
+      state.activeNavSection === "bundles" &&
+      !state.secondaryPaneCollapsed &&
+      !state.selectedBundleKey
+    ) {
+      if (state.requirementBundles.length > 0) {
+        showBundlesDefaultMainView();
+      } else {
+        showBundlesEmptyMainView();
+      }
+    }
     if (notifyOnSuccess) showToast("Bundles refreshed");
   } catch (error) {
-    if (!hadCachedItems) {
+    if (!hadBundleCache) {
       renderRequirementBundleList(`Failed to load bundles: ${error.message}`);
     } else {
       showToast(`Failed to refresh bundles: ${error.message}`);
