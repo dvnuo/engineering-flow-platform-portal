@@ -123,10 +123,16 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .portal-agent-row-head, .portal-agent-row-foot { display: flex; align-items: center; justify-content: space-between; }
 .portal-agent-name { font-weight: 600; }
 .portal-agent-shared { font-size: 11px; padding: 2px 8px; border: 1px solid var(--portal-border); border-radius: 999px; color: var(--portal-text-muted); }
+.portal-agent-row-badges { display: inline-flex; align-items: center; gap: 6px; }
 .portal-agent-status-dot { width: 8px; height: 8px; border-radius: 999px; background: #64748b; }
 .portal-agent-status-dot.status-running { background: var(--portal-success); }
 .portal-agent-status-dot.status-failed { background: var(--portal-danger); }
 .portal-agent-status-text { font-size: 12px; color: var(--portal-text-muted); text-transform: lowercase; }
+.portal-agent-unread { min-width: 18px; height: 18px; border-radius: 999px; background: var(--portal-accent); color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; }
+.portal-agent-chat-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border: 1px solid var(--portal-border); border-radius: 999px; padding: 1px 6px; color: var(--portal-text-muted); }
+.portal-agent-chat-badge.is-running { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); color: var(--portal-accent); }
+.portal-agent-chat-badge.is-completed { border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%); color: var(--portal-success); }
+.portal-agent-chat-badge.is-error { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%); color: var(--portal-danger); }
 .portal-empty-note { color: var(--portal-text-muted); font-size: 13px; }
 
 .portal-main {
