@@ -1,16 +1,23 @@
 import base64
 import re
 import secrets
+from typing import Any
+
 import httpx
 import yaml
-from typing import Any
 
 from app.config import get_settings
 from app.schemas.requirement_bundle import (
+    BundleArtifactStatus,
     BundleRef,
     RequirementBundleCreateForm,
     RequirementBundleInspectResponse,
     RequirementBundleListItem,
+)
+from app.services.bundle_template_registry import (
+    BundleTemplateDefinition,
+    require_bundle_template,
+    resolve_bundle_template_from_manifest,
 )
 
 
@@ -168,6 +175,9 @@ class RequirementBundleGithubService:
             title=str(manifest.get("title") or "").strip(),
             domain=str(scope.get("domain") or "").strip(),
             status=str(manifest.get("status") or "").strip(),
+            template_id=detail.template_id,
+            template_label=detail.template_label,
+            artifacts=None,
             bundle_ref=detail.bundle_ref,
             manifest_ref=detail.manifest_ref,
             requirements_exists=detail.requirements_exists,
@@ -200,35 +210,41 @@ class RequirementBundleGithubService:
                 seen.add(key)
                 items.append(self._build_list_item_from_detail(detail))
 
-        return sorted(items, key=lambda item: (item.domain, item.title, item.bundle_ref.path))
+        return sorted(items, key=lambda item: (item.template_id, item.domain, item.title, item.bundle_ref.path))
 
     @staticmethod
     def _render_bundle_yaml(
         *,
         bundle_id: str,
+        template_id: str,
         title: str,
         domain: str,
         repo: str,
         path: str,
         base_branch: str,
         working_branch: str,
+        artifacts: dict[str, str],
     ) -> str:
-        return (
-            f"bundle_id: {bundle_id}\n"
-            f"title: {title}\n"
-            "status: draft\n\n"
-            "scope:\n"
-            f"  domain: {domain}\n"
-            f"  summary: {title}\n\n"
-            "storage:\n"
-            f"  repo: {repo}\n"
-            f"  path: {path}\n"
-            f"  base_branch: {base_branch}\n"
-            f"  working_branch: {working_branch}\n\n"
-            "links:\n"
-            "  requirements_file: requirements.yaml\n"
-            "  test_cases_file: test-cases.yaml\n"
-        )
+        payload = {
+            "bundle_id": bundle_id,
+            "template_id": template_id,
+            "template_version": 1,
+            "title": title,
+            "status": "draft",
+            "scope": {
+                "domain": domain,
+                "summary": title,
+            },
+            "storage": {
+                "repo": repo,
+                "path": path,
+                "base_branch": base_branch,
+                "working_branch": working_branch,
+            },
+            "artifacts": artifacts,
+            "metadata": {},
+        }
+        return yaml.safe_dump(payload, sort_keys=False)
 
     @staticmethod
     def _render_requirements_yaml(bundle_id: str) -> str:
@@ -259,6 +275,58 @@ class RequirementBundleGithubService:
         )
 
     @staticmethod
+    def _render_research_notes_yaml(bundle_id: str) -> str:
+        payload = {
+            "bundle_id": bundle_id,
+            "sources": {"jira": [], "confluence": [], "github_docs": [], "figma": []},
+            "summary": {},
+            "findings": [],
+            "open_questions": [],
+            "references": [],
+        }
+        return yaml.safe_dump(payload, sort_keys=False)
+
+    @staticmethod
+    def _render_implementation_plan_yaml(bundle_id: str) -> str:
+        payload = {
+            "bundle_id": bundle_id,
+            "generated_from_bundle_commit": "",
+            "summary": {},
+            "workstreams": [],
+            "tasks": [],
+            "risks": [],
+            "validation_checks": [],
+        }
+        return yaml.safe_dump(payload, sort_keys=False)
+
+    @staticmethod
+    def _render_runbook_yaml(bundle_id: str) -> str:
+        payload = {
+            "bundle_id": bundle_id,
+            "generated_from_bundle_commit": "",
+            "service_summary": {},
+            "rollout_steps": [],
+            "rollback_steps": [],
+            "monitoring_checks": [],
+            "alerts": [],
+            "operational_risks": [],
+        }
+        return yaml.safe_dump(payload, sort_keys=False)
+
+    def _render_artifact_content(self, template_id: str, artifact_key: str, bundle_id: str) -> str:
+        if template_id == "requirement.v1" and artifact_key == "requirements":
+            return self._render_requirements_yaml(bundle_id)
+        if template_id == "requirement.v1" and artifact_key == "test_cases":
+            return self._render_test_cases_yaml(bundle_id)
+        if template_id == "research.v1" and artifact_key == "research_notes":
+            return self._render_research_notes_yaml(bundle_id)
+        if template_id == "development.v1" and artifact_key == "implementation_plan":
+            return self._render_implementation_plan_yaml(bundle_id)
+        if template_id == "operations.v1" and artifact_key == "runbook":
+            return self._render_runbook_yaml(bundle_id)
+        return f"bundle_id: {bundle_id}\n"
+
+    @staticmethod
     def _decode_content(payload: dict) -> str:
         encoded = (payload.get("content") or "").replace("\n", "")
         if not encoded:
@@ -286,20 +354,21 @@ class RequirementBundleGithubService:
                 )
             return value.strip()
 
-        required_keys = ["bundle_id", "title", "status", "scope", "storage", "links"]
+        required_keys = ["bundle_id", "title", "status", "scope", "storage"]
         for key in required_keys:
             if key not in manifest:
                 raise RequirementBundleGithubServiceError(f"bundle.yaml missing required field: {key}")
 
         scope = manifest.get("scope")
         storage = manifest.get("storage")
+        artifacts = manifest.get("artifacts")
         links = manifest.get("links")
+        template_id = str(manifest.get("template_id") or "").strip()
+
         if not isinstance(scope, dict):
             raise RequirementBundleGithubServiceError("bundle.yaml field 'scope' must be an object")
         if not isinstance(storage, dict):
             raise RequirementBundleGithubServiceError("bundle.yaml field 'storage' must be an object")
-        if not isinstance(links, dict):
-            raise RequirementBundleGithubServiceError("bundle.yaml field 'links' must be an object")
 
         for required in ["domain", "summary"]:
             if required not in scope:
@@ -307,14 +376,10 @@ class RequirementBundleGithubService:
         for required in ["repo", "path", "base_branch", "working_branch"]:
             if required not in storage:
                 raise RequirementBundleGithubServiceError(f"bundle.yaml storage missing required field: {required}")
-        for required in ["requirements_file", "test_cases_file"]:
-            if required not in links:
-                raise RequirementBundleGithubServiceError(f"bundle.yaml links missing required field: {required}")
 
         _require_non_empty_string(manifest.get("bundle_id"), "bundle_id")
         _require_non_empty_string(manifest.get("title"), "title")
         _require_non_empty_string(manifest.get("status"), "status")
-
         _require_non_empty_string(scope.get("domain"), "scope.domain")
         _require_non_empty_string(scope.get("summary"), "scope.summary")
 
@@ -324,8 +389,60 @@ class RequirementBundleGithubService:
         _require_non_empty_string(storage.get("working_branch"), "storage.working_branch")
         RequirementBundleGithubService.parse_repo_full_name(storage_repo)
 
-        _require_non_empty_string(links.get("requirements_file"), "links.requirements_file")
-        _require_non_empty_string(links.get("test_cases_file"), "links.test_cases_file")
+        if "template_version" in manifest and not isinstance(manifest.get("template_version"), int):
+            raise RequirementBundleGithubServiceError("bundle.yaml field 'template_version' must be an integer")
+
+        if template_id:
+            require_bundle_template(template_id)
+            if not isinstance(artifacts, dict):
+                raise RequirementBundleGithubServiceError("bundle.yaml field 'artifacts' must be an object")
+            for key, value in artifacts.items():
+                _require_non_empty_string(key, "artifacts key")
+                _require_non_empty_string(value, f"artifacts.{key}")
+            if not artifacts:
+                raise RequirementBundleGithubServiceError("bundle.yaml field 'artifacts' cannot be empty")
+            return
+
+        if isinstance(links, dict):
+            _require_non_empty_string(links.get("requirements_file"), "links.requirements_file")
+            _require_non_empty_string(links.get("test_cases_file"), "links.test_cases_file")
+            return
+
+        raise RequirementBundleGithubServiceError("bundle.yaml requires either 'artifacts' or legacy 'links'")
+
+    @staticmethod
+    def _resolve_template_from_manifest(manifest: dict) -> BundleTemplateDefinition:
+        try:
+            return resolve_bundle_template_from_manifest(manifest)
+        except ValueError as exc:
+            raise RequirementBundleGithubServiceError(str(exc)) from exc
+
+    @staticmethod
+    def _resolve_artifacts_from_manifest(manifest: dict) -> dict[str, str]:
+        artifacts = manifest.get("artifacts")
+        if isinstance(artifacts, dict) and artifacts:
+            result: dict[str, str] = {}
+            for key, value in artifacts.items():
+                normalized_key = str(key or "").strip()
+                normalized_value = str(value or "").strip().strip("/")
+                if normalized_key and normalized_value:
+                    result[normalized_key] = normalized_value
+            if result:
+                return result
+
+        links = manifest.get("links")
+        if isinstance(links, dict):
+            req_file = str(links.get("requirements_file") or "").strip().strip("/")
+            tc_file = str(links.get("test_cases_file") or "").strip().strip("/")
+            legacy: dict[str, str] = {}
+            if req_file:
+                legacy["requirements"] = req_file
+            if tc_file:
+                legacy["test_cases"] = tc_file
+            if legacy:
+                return legacy
+
+        raise RequirementBundleGithubServiceError("bundle.yaml missing artifact mappings")
 
     def _canonical_bundle_ref_from_manifest(
         self,
@@ -339,7 +456,6 @@ class RequirementBundleGithubService:
         path = str(storage.get("path") or normalized_input_path).strip()
         branch = str(storage.get("working_branch") or input_ref.branch).strip()
 
-        # Reuse existing validation/normalization behavior and surface errors when malformed.
         self.parse_repo_full_name(repo)
         normalized_path = self.normalize_bundle_path(path)
 
@@ -348,47 +464,54 @@ class RequirementBundleGithubService:
     def create_bundle(self, form: RequirementBundleCreateForm) -> BundleRef:
         slug = self.normalize_slug(form.slug if form.slug else form.title)
         domain = self.normalize_slug(form.domain)
-        bundle_path = f"{self.bundle_root_dir}/{domain}/{slug}"
-        bundle_id = f"RB-{slug}"
+        try:
+            template = require_bundle_template(form.template_id)
+        except ValueError as exc:
+            raise RequirementBundleGithubServiceError(str(exc)) from exc
+
+        if template.path_segment:
+            bundle_path = f"{self.bundle_root_dir}/{template.path_segment}/{domain}/{slug}"
+        else:
+            bundle_path = f"{self.bundle_root_dir}/{domain}/{slug}"
+        bundle_id = f"{template.bundle_id_prefix}-{slug}"
         suffix = secrets.token_hex(4)
-        working_branch = f"bundle/{slug}/{suffix}"
+        if template.branch_segment:
+            working_branch = f"bundle/{template.branch_segment}/{slug}/{suffix}"
+        else:
+            working_branch = f"bundle/{slug}/{suffix}"
 
         base_sha = self._get_branch_head_sha(self.default_repo, form.base_branch)
         self._create_branch(self.default_repo, working_branch, base_sha)
 
         bundle_yaml = self._render_bundle_yaml(
             bundle_id=bundle_id,
+            template_id=template.template_id,
             title=form.title,
             domain=domain,
             repo=self.default_repo,
             path=bundle_path,
             base_branch=form.base_branch,
             working_branch=working_branch,
+            artifacts=template.artifact_files,
         )
-        requirements_yaml = self._render_requirements_yaml(bundle_id)
-        test_cases_yaml = self._render_test_cases_yaml(bundle_id)
 
         self._put_file(
             self.default_repo,
             f"{bundle_path}/bundle.yaml",
             working_branch,
             bundle_yaml,
-            f"Initialize requirement bundle {bundle_id}",
+            f"Initialize bundle {bundle_id}",
         )
-        self._put_file(
-            self.default_repo,
-            f"{bundle_path}/requirements.yaml",
-            working_branch,
-            requirements_yaml,
-            f"Initialize requirement skeleton for {bundle_id}",
-        )
-        self._put_file(
-            self.default_repo,
-            f"{bundle_path}/test-cases.yaml",
-            working_branch,
-            test_cases_yaml,
-            f"Initialize test case skeleton for {bundle_id}",
-        )
+
+        for artifact_key, artifact_file in template.artifact_files.items():
+            content = self._render_artifact_content(template.template_id, artifact_key, bundle_id)
+            self._put_file(
+                self.default_repo,
+                f"{bundle_path}/{artifact_file}",
+                working_branch,
+                content,
+                f"Initialize {artifact_key} skeleton for {bundle_id}",
+            )
 
         return BundleRef(repo=self.default_repo, path=bundle_path, branch=working_branch)
 
@@ -399,25 +522,34 @@ class RequirementBundleGithubService:
         manifest_yaml = self._decode_content(manifest_payload)
         manifest = self._parse_manifest_yaml(manifest_yaml)
         self.validate_bundle_manifest(manifest)
+
+        template = self._resolve_template_from_manifest(manifest)
+        template_version = manifest.get("template_version") if isinstance(manifest.get("template_version"), int) else 1
+        artifact_map = self._resolve_artifacts_from_manifest(manifest)
+
         canonical_bundle_ref = self._canonical_bundle_ref_from_manifest(
             input_ref=bundle_ref,
             normalized_input_path=input_path,
             manifest=manifest,
         )
-        links = manifest.get("links") or {}
-        requirements_file = str(links.get("requirements_file") or "").strip().strip("/")
-        test_cases_file = str(links.get("test_cases_file") or "").strip().strip("/")
 
-        requirements_exists = self._file_exists(
-            canonical_bundle_ref.repo,
-            f"{canonical_bundle_ref.path}/{requirements_file}",
-            canonical_bundle_ref.branch,
-        )
-        test_cases_exists = self._file_exists(
-            canonical_bundle_ref.repo,
-            f"{canonical_bundle_ref.path}/{test_cases_file}",
-            canonical_bundle_ref.branch,
-        )
+        artifact_statuses: list[BundleArtifactStatus] = []
+        for artifact_key, file_path in artifact_map.items():
+            exists = self._file_exists(
+                canonical_bundle_ref.repo,
+                f"{canonical_bundle_ref.path}/{file_path}",
+                canonical_bundle_ref.branch,
+            )
+            artifact_statuses.append(BundleArtifactStatus(artifact_key=artifact_key, file_path=file_path, exists=exists))
+
+        requirements_file = artifact_map.get("requirements")
+        test_cases_file = artifact_map.get("test_cases")
+        requirements_exists = None
+        test_cases_exists = None
+        if template.template_id == "requirement.v1":
+            requirements_exists = next((item.exists for item in artifact_statuses if item.artifact_key == "requirements"), None)
+            test_cases_exists = next((item.exists for item in artifact_statuses if item.artifact_key == "test_cases"), None)
+
         last_commit_sha = self._latest_commit_sha_for_path(
             canonical_bundle_ref.repo,
             canonical_bundle_ref.path,
@@ -428,6 +560,10 @@ class RequirementBundleGithubService:
             manifest_ref=manifest_ref,
             bundle_ref=canonical_bundle_ref,
             manifest=manifest,
+            template_id=template.template_id,
+            template_label=template.display_name,
+            template_version=template_version,
+            artifacts=artifact_statuses,
             requirements_file=requirements_file,
             test_cases_file=test_cases_file,
             requirements_exists=requirements_exists,

@@ -201,7 +201,7 @@ def test_redaction_filter_fallback_sanitizes_and_clears_args():
 
 
 def test_logger_injects_trace_fields_from_context():
-    logger = logging.getLogger("tests.trace.context")
+    logger = logging.getLogger("app.api.proxy")
     logger.handlers = []
     logger.propagate = False
     logger.setLevel(logging.INFO)
@@ -235,8 +235,8 @@ def test_logger_injects_trace_fields_from_context():
     assert "path=/api/test" in output
 
 
-def test_logger_defaults_trace_fields_to_dash_when_unbound():
-    logger = logging.getLogger("tests.trace.unbound")
+def test_logger_omits_trace_block_when_unbound():
+    logger = logging.getLogger("app.api.proxy")
     logger.handlers = []
     logger.propagate = False
     logger.setLevel(logging.INFO)
@@ -249,7 +249,74 @@ def test_logger_defaults_trace_fields_to_dash_when_unbound():
 
     logger.info("hello")
     output = stream.getvalue()
-    assert "trace=-" in output
-    assert "span=-" in output
-    assert "parent=-" in output
-    assert "dispatch=-" in output
+    assert "trace=" not in output
+    assert "span=" not in output
+    assert "parent=" not in output
+    assert "dispatch=" not in output
+
+
+def test_third_party_logger_omits_trace_block_even_with_context():
+    logger = logging.getLogger("websockets.client")
+    logger.handlers = []
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter(DEFAULT_FORMAT))
+    handler.addFilter(RedactingFilter())
+    logger.addHandler(handler)
+
+    token = bind_log_context(trace_id="trace-3", span_id="span-3", path="/a/agent-1/api/events")
+    try:
+        logger.info("hello")
+    finally:
+        reset_log_context(token)
+
+    output = stream.getvalue()
+    assert "trace=" not in output
+
+
+def test_setup_logging_clamps_noisy_third_party_loggers_to_info_when_app_debug():
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    logger_names = ("websockets", "httpx", "httpcore")
+    original_third_party_levels = {name: logging.getLogger(name).level for name in logger_names}
+    try:
+        for name in logger_names:
+            logging.getLogger(name).setLevel(logging.NOTSET)
+
+        setup_logging(logging.DEBUG)
+
+        assert logging.getLogger("websockets").level == logging.INFO
+        assert logging.getLogger("httpx").level == logging.INFO
+        assert logging.getLogger("httpcore").level == logging.INFO
+    finally:
+        root.handlers = original_handlers
+        root.setLevel(original_level)
+        for name, level in original_third_party_levels.items():
+            logging.getLogger(name).setLevel(level)
+
+
+def test_setup_logging_does_not_lower_preconfigured_stricter_third_party_logger_levels():
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    logger_names = ("websockets", "httpx", "httpcore")
+    original_third_party_levels = {name: logging.getLogger(name).level for name in logger_names}
+    try:
+        logging.getLogger("websockets").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.ERROR)
+        logging.getLogger("httpcore").setLevel(logging.CRITICAL)
+
+        setup_logging(logging.DEBUG)
+
+        assert logging.getLogger("websockets").level == logging.WARNING
+        assert logging.getLogger("httpx").level == logging.ERROR
+        assert logging.getLogger("httpcore").level == logging.CRITICAL
+    finally:
+        root.handlers = original_handlers
+        root.setLevel(original_level)
+        for name, level in original_third_party_levels.items():
+            logging.getLogger(name).setLevel(level)

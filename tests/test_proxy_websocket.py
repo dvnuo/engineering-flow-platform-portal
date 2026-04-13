@@ -8,6 +8,7 @@ from app.db import Base, SessionLocal, engine
 from app.models.agent import Agent
 from app.models.user import User
 from app.services.auth_service import issue_session_token
+import app.log_context as log_context_module
 import app.api.proxy as proxy_module
 
 
@@ -36,9 +37,11 @@ class _FakeConnect:
     def __init__(self, upstream):
         self.upstream = upstream
         self.url = None
+        self.kwargs = {}
 
     def __call__(self, url, *args, **kwargs):
         self.url = url
+        self.kwargs = kwargs
         return self
 
     async def __aenter__(self):
@@ -180,3 +183,78 @@ def test_ws_proxy_runtime_base_url_resolution_failure_closes_cleanly(monkeypatch
         ) as ws:
             ws.receive_text()
     assert exc_info.value.code == 1011
+
+
+def test_ws_proxy_events_forwards_trace_headers_to_runtime(monkeypatch):
+    monkeypatch.setattr(
+        proxy_module.proxy_service,
+        "build_agent_base_url",
+        lambda _agent: "http://runtime.local:8000",
+    )
+    monkeypatch.setattr(proxy_module, "generate_span_id", lambda: "span-ws-1")
+
+    upstream = _FakeUpstream(['{"type":"connected"}'])
+    fake_connect = _FakeConnect(upstream)
+    monkeypatch.setattr(proxy_module.websockets, "connect", fake_connect)
+
+    client = TestClient(app)
+    user_id = _create_active_user()
+    agent_id = _create_running_agent(user_id)
+    token = issue_session_token(user_id)
+
+    with client.websocket_connect(
+        f"/a/{agent_id}/api/events",
+        cookies={"portal_session": token},
+        headers={"X-Trace-Id": "trace-ws-1"},
+    ) as ws:
+        assert ws.receive_text() == '{"type":"connected"}'
+
+    assert fake_connect.url == "ws://runtime.local:8000/api/events"
+    assert fake_connect.kwargs["additional_headers"]["X-Trace-Id"] == "trace-ws-1"
+    assert fake_connect.kwargs["additional_headers"]["X-Span-Id"] == "span-ws-1"
+    assert "-" not in fake_connect.kwargs["additional_headers"].values()
+
+
+def test_ws_proxy_events_clears_portal_task_and_dispatch_fields_for_entry_context(monkeypatch):
+    monkeypatch.setattr(
+        proxy_module.proxy_service,
+        "build_agent_base_url",
+        lambda _agent: "http://runtime.local:8000",
+    )
+    monkeypatch.setattr(proxy_module, "generate_span_id", lambda: "span-ws-clean-1")
+
+    captured_bind_kwargs = {}
+    original_bind_log_context = log_context_module.bind_log_context
+
+    def _bind_log_context_wrapper(**kwargs):
+        captured_bind_kwargs.update(kwargs)
+        return original_bind_log_context(**kwargs)
+
+    monkeypatch.setattr(proxy_module, "bind_log_context", _bind_log_context_wrapper)
+
+    upstream = _FakeUpstream(['{"type":"connected"}'])
+    fake_connect = _FakeConnect(upstream)
+    monkeypatch.setattr(proxy_module.websockets, "connect", fake_connect)
+
+    client = TestClient(app)
+    user_id = _create_active_user()
+    agent_id = _create_running_agent(user_id)
+    token = issue_session_token(user_id)
+
+    with client.websocket_connect(
+        f"/a/{agent_id}/api/events",
+        cookies={"portal_session": token},
+        headers={"X-Trace-Id": "trace-ws-clean-1"},
+    ) as ws:
+        assert ws.receive_text() == '{"type":"connected"}'
+
+    assert captured_bind_kwargs["portal_task_id"] == "-"
+    assert captured_bind_kwargs["portal_dispatch_id"] == "-"
+    assert captured_bind_kwargs["trace_id"] == "trace-ws-clean-1"
+    assert captured_bind_kwargs["span_id"] == "span-ws-clean-1"
+
+    assert fake_connect.kwargs["additional_headers"]["X-Trace-Id"] == "trace-ws-clean-1"
+    assert fake_connect.kwargs["additional_headers"]["X-Span-Id"] == "span-ws-clean-1"
+    assert "X-Parent-Span-Id" not in fake_connect.kwargs["additional_headers"]
+    assert "X-Portal-Task-Id" not in fake_connect.kwargs["additional_headers"]
+    assert "X-Portal-Dispatch-Id" not in fake_connect.kwargs["additional_headers"]

@@ -217,11 +217,16 @@ def test_proxy_agent_blocks_server_files_endpoints_for_non_owner(monkeypatch):
 
         browse_resp = client.get("/a/agent-1/api/server-files")
         read_resp = client.get("/a/agent-1/api/server-files/read?path=/workspace/readme.md")
+        delete_resp = client.post(
+            "/a/agent-1/api/server-files/delete",
+            json={"paths": ["/workspace/readme.md"]},
+        )
     finally:
         app.dependency_overrides.clear()
 
     assert browse_resp.status_code == 403
     assert read_resp.status_code == 403
+    assert delete_resp.status_code == 403
 
 
 def test_proxy_agent_allows_server_files_endpoints_for_owner(monkeypatch):
@@ -261,14 +266,17 @@ def test_proxy_agent_allows_server_files_endpoints_for_owner(monkeypatch):
         client = TestClient(app)
 
         browse_resp = client.get("/a/agent-1/api/server-files")
-        upload_resp = client.post("/a/agent-1/api/server-files/upload", files={"file": ("notes.txt", b"hello")})
+        delete_resp = client.post(
+            "/a/agent-1/api/server-files/delete",
+            json={"paths": ["/workspace/notes.txt"]},
+        )
     finally:
         app.dependency_overrides.clear()
 
     assert browse_resp.status_code == 200
-    assert upload_resp.status_code == 200
+    assert delete_resp.status_code == 200
     assert captured[0]["subpath"] == "api/server-files"
-    assert captured[1]["subpath"] == "api/server-files/upload"
+    assert captured[1]["subpath"] == "api/server-files/delete"
 
 
 def test_requires_write_access_normalizes_slashes():
@@ -286,6 +294,7 @@ def test_requires_write_access_normalizes_slashes():
     assert proxy_module._requires_write_access("GET", "api/server-files")
     assert proxy_module._requires_write_access("GET", "/api/server-files/read/")
     assert proxy_module._requires_write_access("POST", "api/server-files/upload")
+    assert proxy_module._requires_write_access("POST", "/api/server-files/delete/")
     assert not proxy_module._requires_write_access("POST", "api/files/upload")
     assert not proxy_module._requires_write_access("POST", "api/chat")
 
@@ -809,3 +818,4 @@ def test_build_runtime_trace_headers_only_includes_non_empty_sanitized_values():
 
 def test_build_runtime_trace_headers_skips_empty_values():
     assert build_runtime_trace_headers({"trace_id": "", "portal_task_id": "  "}) == {}
+    assert build_runtime_trace_headers({"trace_id": "-", "portal_task_id": "-"}) == {}

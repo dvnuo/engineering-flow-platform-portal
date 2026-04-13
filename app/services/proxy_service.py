@@ -75,7 +75,7 @@ def build_runtime_trace_headers(trace_context: dict[str, str] | None) -> dict[st
     headers: dict[str, str] = {}
     for source_key, header_name in mapping.items():
         sanitized_value = sanitize_header_value(trace_context.get(source_key))
-        if sanitized_value:
+        if sanitized_value and sanitized_value != "-":
             headers[header_name] = sanitized_value
     return headers
 
