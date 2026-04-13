@@ -8,12 +8,13 @@ class BundleRef(BaseModel):
 
 
 class RequirementBundleCreateForm(BaseModel):
+    template_id: str = "requirement.v1"
     title: str
     domain: str
     slug: str | None = None
     base_branch: str
 
-    @field_validator("title", "domain", "base_branch")
+    @field_validator("title", "domain", "base_branch", "template_id")
     @classmethod
     def _validate_required(cls, value: str) -> str:
         cleaned = value.strip()
@@ -22,14 +23,24 @@ class RequirementBundleCreateForm(BaseModel):
         return cleaned
 
 
+class BundleArtifactStatus(BaseModel):
+    artifact_key: str
+    file_path: str
+    exists: bool
+
+
 class RequirementBundleInspectResponse(BaseModel):
     manifest_ref: BundleRef
     bundle_ref: BundleRef
     manifest: dict
-    requirements_file: str
-    test_cases_file: str
-    requirements_exists: bool
-    test_cases_exists: bool
+    template_id: str
+    template_label: str
+    template_version: int
+    artifacts: list[BundleArtifactStatus]
+    requirements_file: str | None = None
+    test_cases_file: str | None = None
+    requirements_exists: bool | None = None
+    test_cases_exists: bool | None = None
     last_commit_sha: str | None = None
 
 
@@ -38,20 +49,24 @@ class RequirementBundleListItem(BaseModel):
     title: str
     domain: str
     status: str
+    template_id: str
+    template_label: str
+    artifacts: list[BundleArtifactStatus] | None = None
     bundle_ref: BundleRef
     manifest_ref: BundleRef
-    requirements_exists: bool
-    test_cases_exists: bool
+    requirements_exists: bool | None = None
+    test_cases_exists: bool | None = None
     last_commit_sha: str | None = None
 
 
 class RequirementBundleCreateRequest(BaseModel):
+    template_id: str = "requirement.v1"
     title: str
     domain: str
     slug: str | None = None
     base_branch: str
 
-    @field_validator("title", "domain", "base_branch")
+    @field_validator("title", "domain", "base_branch", "template_id")
     @classmethod
     def _validate_required(cls, value: str) -> str:
         cleaned = value.strip()

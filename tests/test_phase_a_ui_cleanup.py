@@ -32,6 +32,7 @@ def test_chat_response_partial_contract():
     assert "message-surface-assistant" in partial
     assert "message-timestamp" in partial
     assert "message-markdown" in partial
+    assert "data-display-blocks" in partial
 
 
 def test_frontend_assets_include_phase_b_fixups():
@@ -156,6 +157,26 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".portal-thinking-toggle" in css_source
     assert ".portal-statusline.is-error" in css_source
     assert ":disabled" in css_source
+    assert "renderDisplayBlocksToHtml" in js_source
+    assert "enhanceMarkdownBlock" in js_source
+    assert "copyText(" in js_source
+    assert "getDisplayBlockText" in js_source
+    assert "block.content" in js_source
+    assert "block.text" in js_source
+    assert "block.message" in js_source
+    assert ("block.output" in js_source) or ("block.result" in js_source)
+    assert js_source.count("getDisplayBlockText(") >= 3
+    assert "data-display-blocks" in js_source or "dataset.displayBlocks" in js_source
+    assert ".message-codeblock" in css_source
+    assert ".message-codeblock-toolbar" in css_source
+    assert ".message-table-wrap" in css_source
+    assert ".message-callout" in css_source
+    assert ".message-tool-result" in css_source
+    assert ".message-tool-result.is-success" in css_source
+    assert ".message-tool-result.is-error" in css_source
+    assert ".message-tool-result.is-warning" in css_source
+    assert "min-width: 1180px;" not in css_source
+    assert "block?.columns" in js_source
 
     assert '"timestamp": datetime.now().strftime("%H:%M")' in web_source
 

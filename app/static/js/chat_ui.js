@@ -1,3 +1,4 @@
+const rootBreadcrumbAttr = "data-server-path="/"";
 /**
  * Portal-native chat UI.
  * Runtime remains source-of-truth for chat/session/file APIs under /a/{agent_id}/api/...
@@ -231,6 +232,8 @@ const state = {
 const md = window.markdownit({
   html: false,
   linkify: true,
+  breaks: true,
+  typographer: true,
   highlight: (str, lang) => {
     if (lang && hljs.getLanguage(lang)) {
       const highlighted = hljs.highlight(str, { language: lang }).value;
@@ -916,17 +919,259 @@ function scrollToBottom() {
   if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
 }
 
+function normalizeMarkdownText(text) {
+  return decodeHtml(String(text || "")).replace(/\r\n?/g, "\n");
+}
+
+function isMeaningfulText(value) {
+  return value !== null && value !== undefined && String(value).trim().length > 0;
+}
+
+function pickFirstMeaningfulBlockValue(block, keys) {
+  if (!block || typeof block !== "object") return "";
+  for (const key of keys) {
+    if (isMeaningfulText(block[key])) {
+      return String(block[key]);
+    }
+  }
+  return "";
+}
+
+function hasRenderableDisplayBlock(block) {
+  if (!block || typeof block !== "object") return false;
+  const type = String(block.type || "").trim().toLowerCase();
+  if (!type) return false;
+  if (["markdown", "callout", "tool_result"].includes(type)) {
+    return !!getDisplayBlockText(block);
+  }
+  if (type === "code") {
+    return !!pickFirstMeaningfulBlockValue(block, ["code", "content", "text", "message", "output", "result", "value"]);
+  }
+  if (type === "table") {
+    const headers = Array.isArray(block.headers) ? block.headers : (Array.isArray(block.columns) ? block.columns : []);
+    const rows = Array.isArray(block.rows) ? block.rows : [];
+    return headers.length > 0 || rows.length > 0 || !!getDisplayBlockText(block);
+  }
+  return !!getDisplayBlockText(block);
+}
+
+function parseDisplayBlocks(raw) {
+  const normalizeBlocks = (blocks) => {
+    if (!Array.isArray(blocks)) return [];
+    return blocks
+      .filter((block) => block && typeof block === "object" && typeof block.type === "string")
+      .map((block) => ({ ...block, type: String(block.type).trim() }))
+      .filter((block) => block.type.length > 0)
+      .filter((block) => hasRenderableDisplayBlock(block));
+  };
+
+  if (Array.isArray(raw)) return normalizeBlocks(raw);
+  if (typeof raw !== "string" || !raw) return [];
+
+  try {
+    return normalizeBlocks(JSON.parse(raw));
+  } catch (error) {
+    return [];
+  }
+}
+
+function getDisplayBlockText(block) {
+  if (!block || typeof block !== "object") return "";
+  const textCandidates = [block.content, block.text, block.message, block.output, block.result, block.value];
+  for (const value of textCandidates) {
+    if (isMeaningfulText(value)) return String(value);
+  }
+  return "";
+}
+
+function renderCodeBlock(block) {
+  const language = String(block?.lang || block?.language || "").trim().toLowerCase();
+  const codeCandidates = [block?.code, block?.content, block?.text, block?.message, block?.output, block?.result, block?.value];
+  const code = codeCandidates.find((value) => isMeaningfulText(value));
+  const className = language ? `language-${language}` : "";
+  return `
+    <section class="message-block message-block-code">
+      <div class="message-codeblock">
+        <div class="message-codeblock-toolbar">
+          <span class="message-codeblock-lang">${safe(language || "text")}</span>
+          <button type="button" class="message-codeblock-copy" data-copy-text="${escapeHtmlAttr(code || "")}">Copy</button>
+        </div>
+        <pre><code class="${className}">${safe(code || "")}</code></pre>
+      </div>
+    </section>
+  `;
+}
+
+function renderTableBlock(block) {
+  const headers = Array.isArray(block?.headers)
+    ? block.headers
+    : (Array.isArray(block?.columns) ? block.columns : []);
+  const rows = Array.isArray(block?.rows) ? block.rows : [];
+  if (!headers.length && !rows.length) {
+    return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(getDisplayBlockText(block)))}</section>`;
+  }
+  const headHtml = headers.length
+    ? `<thead><tr>${headers.map((header) => `<th>${safe(header)}</th>`).join("")}</tr></thead>`
+    : "";
+  const bodyHtml = rows.length
+    ? `<tbody>${rows.map((row) => `<tr>${(Array.isArray(row) ? row : []).map((cell) => `<td>${safe(cell)}</td>`).join("")}</tr>`).join("")}</tbody>`
+    : "";
+  return `
+    <section class="message-block message-block-table">
+      <div class="message-table-wrap">
+        <table>${headHtml}${bodyHtml}</table>
+      </div>
+    </section>
+  `;
+}
+
+function renderSingleDisplayBlock(block) {
+  if (!block || typeof block !== "object") return "";
+  const type = String(block.type || "").toLowerCase();
+  const blockText = getDisplayBlockText(block);
+  if (type === "markdown") {
+    return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(blockText))}</section>`;
+  }
+  if (type === "code") return renderCodeBlock(block);
+  if (type === "table") return renderTableBlock(block);
+  if (type === "callout") {
+    const tone = String(block.tone || "info").toLowerCase();
+    const title = String(block.title || "").trim();
+    return `
+      <section class="message-block">
+        <div class="message-callout is-${safe(tone)}">
+          ${title ? `<div class="message-callout-title">${safe(title)}</div>` : ""}
+          <div class="message-callout-content">${md.render(normalizeMarkdownText(blockText))}</div>
+        </div>
+      </section>
+    `;
+  }
+  if (type === "tool_result") {
+    const title = String(block.title || "Tool result");
+    const status = String(block.status || "").toLowerCase();
+    return `
+      <section class="message-block">
+        <div class="message-tool-result${status ? ` is-${safe(status)}` : ""}">
+          <div class="message-tool-result-title">${safe(title)}</div>
+          <div class="message-tool-result-content">${md.render(normalizeMarkdownText(blockText))}</div>
+        </div>
+      </section>
+    `;
+  }
+  return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(blockText))}</section>`;
+}
+
+function renderDisplayBlocksToHtml(blocks, fallbackMarkdown = "") {
+  const parsedBlocks = Array.isArray(blocks) ? blocks.filter((block) => hasRenderableDisplayBlock(block)) : [];
+  if (!parsedBlocks.length) {
+    if (isMeaningfulText(fallbackMarkdown)) {
+      return md.render(normalizeMarkdownText(fallbackMarkdown));
+    }
+    return md.render(normalizeMarkdownText("(empty response)"));
+  }
+  const html = parsedBlocks.map((block) => renderSingleDisplayBlock(block)).join("");
+  if (html) return html;
+  if (isMeaningfulText(fallbackMarkdown)) {
+    return md.render(normalizeMarkdownText(fallbackMarkdown));
+  }
+  return md.render(normalizeMarkdownText("(empty response)"));
+}
+
+async function copyText(text) {
+  const value = String(text || "");
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (error) {}
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "readonly");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  return copied;
+}
+
+function enhanceMarkdownBlock(root) {
+  if (!root) return;
+  root.querySelectorAll("a").forEach((anchor) => {
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.classList.add("message-link");
+  });
+
+  root.querySelectorAll("table").forEach((table) => {
+    if (table.closest(".message-table-wrap")) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "message-table-wrap";
+    table.parentNode.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  });
+
+  root.querySelectorAll("pre > code").forEach((code) => {
+    if (code.closest(".message-codeblock")) return;
+    const pre = code.parentElement;
+    if (!pre) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "message-codeblock";
+    const toolbar = document.createElement("div");
+    toolbar.className = "message-codeblock-toolbar";
+    const lang = document.createElement("span");
+    lang.className = "message-codeblock-lang";
+    const rawClass = Array.from(code.classList).find((item) => item.startsWith("language-")) || "";
+    lang.textContent = rawClass.replace("language-", "") || "text";
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "message-codeblock-copy";
+    copyButton.textContent = "Copy";
+    copyButton.addEventListener("click", async () => {
+      const copied = await copyText(code.textContent || "");
+      if (!copied) return;
+      copyButton.textContent = "Copied";
+      copyButton.classList.add("is-copied");
+      window.setTimeout(() => {
+        copyButton.textContent = "Copy";
+        copyButton.classList.remove("is-copied");
+      }, 1400);
+    });
+    toolbar.append(lang, copyButton);
+    pre.parentNode.insertBefore(wrapper, pre);
+    wrapper.append(toolbar, pre);
+  });
+
+  root.querySelectorAll(".message-codeblock-copy[data-copy-text]").forEach((button) => {
+    if (button.dataset.boundCopy === "1") return;
+    button.dataset.boundCopy = "1";
+    button.addEventListener("click", async () => {
+      const copied = await copyText(button.dataset.copyText || "");
+      if (!copied) return;
+      button.textContent = "Copied";
+      button.classList.add("is-copied");
+      window.setTimeout(() => {
+        button.textContent = "Copy";
+        button.classList.remove("is-copied");
+      }, 1400);
+    });
+  });
+}
+
 function renderMarkdown(scope = document) {
   scope.querySelectorAll(".md-render").forEach((el) => {
-    let html = md.render(decodeHtml(el.dataset.md) || "");
-      el.innerHTML = html;
-      // Add target="_blank" to all links via DOM
-      el.querySelectorAll('a').forEach(a => {
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-      });
+    const markdown = normalizeMarkdownText(el.dataset.md || "");
+    const blocks = parseDisplayBlocks(el.dataset.displayBlocks || "");
+    el.innerHTML = renderDisplayBlocksToHtml(blocks, markdown);
+    enhanceMarkdownBlock(el);
+    el.querySelectorAll("pre code").forEach((code) => {
+      if (code.dataset.highlighted === "1" || code.classList.contains("hljs")) return;
+      hljs.highlightElement(code);
+      code.dataset.highlighted = "1";
+    });
   });
-  scope.querySelectorAll("pre code").forEach((el) => hljs.highlightElement(el));
 }
 
 function decorateToolMessages(scope = document) {
@@ -2088,7 +2333,7 @@ function syncMainHeader() {
   if (assistantMode) {
     restoreAssistantHeaderState();
   } else {
-    dom.embedTitle.textContent = state.activeNavSection === "bundles" ? "Requirement Bundles" : "My Tasks";
+    dom.embedTitle.textContent = state.activeNavSection === "bundles" ? "Bundles" : "My Tasks";
     setChatStatus(state.activeNavSection === "bundles" ? "Browse and open bundle detail in the main stage" : "Browse tasks and open task detail in the main stage");
   }
 }
@@ -2177,6 +2422,8 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   if (state.secondaryPaneCollapsed) return;
 
   const didSwitchSection = section !== previousSection;
+  const didRevealPane = sidebarWasCollapsed && !state.secondaryPaneCollapsed;
+  const shouldRefreshVisibleSection = didSwitchSection || didRevealPane;
 
   if (didSwitchSection) {
     if (section === "assistants") {
@@ -2188,7 +2435,7 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
     }
   }
 
-  if (state.activeNavSection === "bundles") {
+  if (state.activeNavSection === "bundles" && shouldRefreshVisibleSection) {
     await refreshRequirementBundles();
     if (
       state.activeNavSection === "bundles" &&
@@ -2200,7 +2447,7 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
     }
   }
 
-  if (state.activeNavSection === "tasks") {
+  if (state.activeNavSection === "tasks" && shouldRefreshVisibleSection) {
     await refreshMyTasks();
     if (
       state.activeNavSection === "tasks" &&
@@ -2210,10 +2457,6 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
     ) {
       showTasksDefaultMainView();
     }
-  }
-
-  if (sidebarWasCollapsed && !state.secondaryPaneCollapsed) {
-    return;
   }
 }
 
@@ -2238,7 +2481,7 @@ function renderRequirementBundleList(errorMessage = "") {
     row.className = `portal-bundle-row${activeClass}`;
     row.innerHTML = `
       <div class="portal-bundle-title">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
-      <div class="portal-bundle-meta">${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
+      <div class="portal-bundle-meta">${safe(item.template_label || item.template_id || "Bundle")} · ${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
     `;
     row.addEventListener("click", async () => {
       state.selectedBundleKey = key;
@@ -2269,7 +2512,7 @@ async function openRequirementBundleInMain(bundleRef = null) {
   if (!dom.workspaceDetailContent) return;
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading requirement bundles…</div>';
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading bundles…</div>';
   try {
     let path = "/app/requirement-bundles/panel";
     if (bundleRef) {
@@ -2428,6 +2671,9 @@ function renderChatHistory(messages, metadata = {}) {
     } else {
       const content = document.createElement("div");
       content.className = "message-markdown md-render max-w-none text-sm";
+      if (Array.isArray(message.display_blocks) && message.display_blocks.length) {
+        content.dataset.displayBlocks = JSON.stringify(message.display_blocks);
+      }
       content.dataset.md = message.content || "";
       article.appendChild(content);
     }
@@ -2479,8 +2725,11 @@ async function openServerFiles() {
 function buildServerFilesBreadcrumb(path, rootPath) {
   const normalizedRoot = String(rootPath || '/').replace(/\/+$/, '') || '/';
   const normalizedPath = String(path || normalizedRoot || '').replace(/\/+$/, '');
+  const workspaceCrumb = normalizedRoot
+    ? `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">Workspace</a>`
+    : '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">Workspace</a>';
   const breadcrumbParts = [
-    `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">Workspace</a>`
+    workspaceCrumb
   ];
 
   if (normalizedPath === normalizedRoot) {
@@ -3773,6 +4022,7 @@ function bindEvents() {
     const form = e.target;
     const formData = new FormData(form);
     const payload = {
+      template_id: String(formData.get("template_id") || "requirement.v1"),
       title: String(formData.get("title") || ""),
       domain: String(formData.get("domain") || ""),
       slug: String(formData.get("slug") || "").trim() || null,
@@ -3800,6 +4050,7 @@ function bindEvents() {
 
       form.reset();
       form.querySelector('[name="base_branch"]').value = payload.base_branch;
+      form.querySelector('[name="template_id"]').value = 'requirement.v1';
       dom.createBundleModal?.classList.add("hidden");
       dom.createBundleModal?.setAttribute("aria-hidden", "true");
       await setActiveNavSection("bundles", { toggleIfSame: false });

@@ -217,6 +217,15 @@
 
     <form id="create-bundle-form" class="stack">
       <div>
+        <label>Template</label>
+        <select name="template_id" required>
+          <option value="requirement.v1" selected>Requirement Bundle</option>
+          <option value="research.v1">Research Bundle</option>
+          <option value="development.v1">Development Bundle</option>
+          <option value="operations.v1">Operations Bundle</option>
+        </select>
+      </div>
+      <div>
         <label>Title</label>
         <input name="title" placeholder="Checkout Flow" required />
       </div>
@@ -225,8 +234,9 @@
         <input name="domain" placeholder="payments" required />
       </div>
       <div>
-        <label>Slug (optional)</label>
+        <label>Slug (optional, used for repo path / bundle_id / branch)</label>
         <input name="slug" placeholder="checkout-flow" />
+        <p class="portal-panel-note">Leave blank to auto-generate from Title. For non-English titles, fill this manually. This is a machine name, not the display title.</p>
       </div>
       <div>
         <label>Base Branch</label>

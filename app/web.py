@@ -16,6 +16,7 @@ from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
+from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
@@ -26,6 +27,7 @@ from app.services.runtime_execution_context_service import RuntimeExecutionConte
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 from app.log_context import bind_log_context, get_log_context, reset_log_context
+from app.chat_payloads import normalize_assistant_chat_payload
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -420,7 +422,7 @@ def _is_htmx_request(request: Request) -> bool:
 def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
     context = {
         "request": request,
-        "title": "Requirement Bundles",
+        "title": "Bundles",
         "username": user.username,
         "nickname": user.nickname or user.username,
         "bundle_defaults": {
@@ -428,6 +430,7 @@ def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
             "base_branch": settings.assets_default_base_branch,
             "root_dir": settings.assets_bundle_root_dir,
         },
+        "bundle_templates": list_bundle_templates(),
         "agents": _list_writable_agents(db, user),
         "bundle_result": None,
         "bundle_detail": None,
@@ -514,6 +517,7 @@ async def requirement_bundle_create(request: Request):
     try:
         form_data = await request.form()
         create_form = RequirementBundleCreateForm(
+            template_id=str(form_data.get("template_id") or "requirement.v1"),
             title=str(form_data.get("title") or ""),
             domain=str(form_data.get("domain") or ""),
             slug=(str(form_data.get("slug") or "").strip() or None),
@@ -584,11 +588,16 @@ def requirement_bundle_open(request: Request, repo: str = Query(""), path: str =
 
 def _create_bundle_task_payload(
     task_type: str,
+    template_id: str,
+    action_id: str,
     bundle_ref: BundleRef,
     manifest_ref: BundleRef,
     sources: dict | None = None,
 ) -> dict:
+    _ = task_type
     payload = {
+        "template_id": template_id,
+        "action_id": action_id,
         "bundle_ref": {
             "repo": bundle_ref.repo,
             "path": bundle_ref.path,
@@ -598,10 +607,10 @@ def _create_bundle_task_payload(
             "repo": manifest_ref.repo,
             "path": manifest_ref.path,
             "branch": manifest_ref.branch,
-        }
+        },
     }
-    if task_type == "requirement_bundle_collect_task":
-        payload["sources"] = sources or {"jira": [], "confluence": [], "github_docs": [], "figma": []}
+    if sources is not None:
+        payload["sources"] = sources
     return payload
 
 
@@ -609,6 +618,8 @@ async def _create_and_dispatch_bundle_task(
     request: Request,
     *,
     task_type: str,
+    template_id: str,
+    action_id: str,
     assignee_agent_id: str,
     manifest_ref: BundleRef,
     bundle_ref: BundleRef,
@@ -622,30 +633,71 @@ async def _create_and_dispatch_bundle_task(
     db = SessionLocal()
     dispatch_context_token = None
     try:
+        template = require_bundle_template(template_id)
+        action_def = next((action for action in template.actions if action.action_id == action_id), None)
+        if action_def is None:
+            raise HTTPException(status_code=400, detail=f"Unsupported action_id '{action_id}' for template '{template_id}'")
+
         assignee = AgentRepository(db).get_by_id(assignee_agent_id)
         if not assignee:
             raise HTTPException(status_code=404, detail="Assignee agent not found")
         if not _can_write(assignee, user):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        inspect_ref = (
-            manifest_ref
-            if manifest_ref.repo and manifest_ref.path and manifest_ref.branch
-            else bundle_ref
-        )
+        inspect_ref = manifest_ref if manifest_ref.repo and manifest_ref.path and manifest_ref.branch else bundle_ref
         bundle_detail = requirement_bundle_service.inspect_bundle(inspect_ref)
         effective_bundle_ref = bundle_detail.bundle_ref
         effective_manifest_ref = bundle_detail.manifest_ref
+
+        if action_def.requires_sources:
+            normalized_sources = sources or {"jira": [], "confluence": [], "github_docs": [], "figma": []}
+            if not _has_supported_collect_sources(normalized_sources):
+                status_message = (
+                    "Figma-only collection is not supported in MVP"
+                    if normalized_sources.get("figma")
+                    else "At least one Jira, Confluence, or GitHub Docs source is required."
+                )
+                return _render_requirement_bundles_view(
+                    request,
+                    user,
+                    db,
+                    panel_mode=panel_mode,
+                    bundle_detail=bundle_detail,
+                    status_type="error",
+                    status_message=status_message,
+                )
+            sources = normalized_sources
+        else:
+            sources = None
+
+        artifact_exists = {item.artifact_key: item.exists for item in (bundle_detail.artifacts or [])}
+        missing_required = [key for key in action_def.required_artifacts if not artifact_exists.get(key)]
+        if missing_required:
+            hint = action_def.missing_artifact_message or f"Required artifacts missing: {', '.join(missing_required)}"
+            return _render_requirement_bundles_view(
+                request,
+                user,
+                db,
+                panel_mode=panel_mode,
+                bundle_detail=bundle_detail,
+                status_type="error",
+                status_message=hint,
+            )
+
         task_payload = _create_bundle_task_payload(
             task_type,
+            template_id,
+            action_id,
             effective_bundle_ref,
             effective_manifest_ref,
             sources=sources,
         )
         source_counts = sources or {}
         logger.info(
-            "action=create_dispatch_bundle_task task_type=%s selected_agent_id=%s bundle_ref=%s/%s@%s manifest_ref=%s/%s@%s jira_count=%s confluence_count=%s github_docs_count=%s figma_count=%s trace_id=%s",
+            "action=create_dispatch_bundle_task task_type=%s template_id=%s action_id=%s selected_agent_id=%s bundle_ref=%s/%s@%s manifest_ref=%s/%s@%s jira_count=%s confluence_count=%s github_docs_count=%s figma_count=%s trace_id=%s",
             task_type,
+            template_id,
+            action_id,
             assignee_agent_id,
             effective_bundle_ref.repo,
             effective_bundle_ref.path,
@@ -670,9 +722,11 @@ async def _create_and_dispatch_bundle_task(
         )
         dispatch_context_token = bind_log_context(portal_task_id=task.id, agent_id=assignee_agent_id)
         logger.info(
-            "Created requirement bundle task task_id=%s task_type=%s selected_agent_id=%s",
+            "Created bundle action task task_id=%s task_type=%s template_id=%s action_id=%s selected_agent_id=%s",
             task.id,
             task_type,
+            template_id,
+            action_id,
             assignee_agent_id,
         )
         logger.debug("Requirement bundle background dispatch scheduled task_id=%s", task.id)
@@ -706,14 +760,17 @@ async def _create_and_dispatch_bundle_task(
         db.close()
 
 
-@router.post("/app/requirement-bundles/collect")
-async def requirement_bundle_collect(request: Request):
+@router.post("/app/requirement-bundles/actions/run")
+async def requirement_bundle_action_run(request: Request):
     user = _current_user_from_cookie(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
     form = await request.form()
-    assignee_agent_id = str(form.get("collect_agent_id") or "").strip()
+    assignee_agent_id = str(form.get("action_agent_id") or "").strip()
+    template_id = str(form.get("template_id") or "").strip()
+    action_id = str(form.get("action_id") or "").strip()
+
     sources = {
         "jira": _parse_multivalue_text_field(str(form.get("jira_sources") or "")),
         "confluence": _parse_multivalue_text_field(str(form.get("confluence_sources") or "")),
@@ -731,31 +788,17 @@ async def requirement_bundle_collect(request: Request):
         branch=str(form.get("manifest_branch") or form.get("bundle_branch") or "").strip(),
     )
     if not assignee_agent_id:
-        raise HTTPException(status_code=400, detail="collect_agent_id is required")
-    if not _has_supported_collect_sources(sources):
-        bundle_detail = requirement_bundle_service.inspect_bundle(manifest_ref)
-        status_message = (
-            "Figma-only collection is not supported in MVP"
-            if sources.get("figma")
-            else "At least one Jira, Confluence, or GitHub Docs source is required."
-        )
-        panel_mode = _is_htmx_request(request)
-        db = SessionLocal()
-        try:
-            return _render_requirement_bundles_view(
-                request,
-                user,
-                db,
-                panel_mode=panel_mode,
-                bundle_detail=bundle_detail,
-                status_type="error",
-                status_message=status_message,
-            )
-        finally:
-            db.close()
+        raise HTTPException(status_code=400, detail="action_agent_id is required")
+    if not template_id:
+        raise HTTPException(status_code=400, detail="template_id is required")
+    if not action_id:
+        raise HTTPException(status_code=400, detail="action_id is required")
+
     return await _create_and_dispatch_bundle_task(
         request,
-        task_type="requirement_bundle_collect_task",
+        task_type="bundle_action_task",
+        template_id=template_id,
+        action_id=action_id,
         assignee_agent_id=assignee_agent_id,
         manifest_ref=manifest_ref,
         bundle_ref=bundle_ref,
@@ -763,49 +806,60 @@ async def requirement_bundle_collect(request: Request):
     )
 
 
+@router.post("/app/requirement-bundles/collect")
+async def requirement_bundle_collect(request: Request):
+    form = await request.form()
+    remapped_form = {
+        "template_id": "requirement.v1",
+        "action_id": "collect_requirements",
+        "action_agent_id": str(form.get("collect_agent_id") or "").strip(),
+        "bundle_repo": form.get("bundle_repo"),
+        "bundle_path": form.get("bundle_path"),
+        "bundle_branch": form.get("bundle_branch"),
+        "manifest_repo": form.get("manifest_repo"),
+        "manifest_path": form.get("manifest_path"),
+        "manifest_branch": form.get("manifest_branch"),
+        "jira_sources": form.get("jira_sources"),
+        "confluence_sources": form.get("confluence_sources"),
+        "github_doc_sources": form.get("github_doc_sources"),
+        "figma_sources": form.get("figma_sources"),
+    }
+
+    class _LegacyForm:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def get(self, key):
+            return self._payload.get(key)
+
+    request._form = _LegacyForm(remapped_form)
+    return await requirement_bundle_action_run(request)
+
+
 @router.post("/app/requirement-bundles/design-test-cases")
 async def requirement_bundle_design_test_cases(request: Request):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
     form = await request.form()
-    assignee_agent_id = str(form.get("design_agent_id") or "").strip()
-    bundle_ref = BundleRef(
-        repo=str(form.get("bundle_repo") or "").strip(),
-        path=str(form.get("bundle_path") or "").strip(),
-        branch=str(form.get("bundle_branch") or "").strip(),
-    )
-    manifest_ref = BundleRef(
-        repo=str(form.get("manifest_repo") or form.get("bundle_repo") or "").strip(),
-        path=str(form.get("manifest_path") or form.get("bundle_path") or "").strip(),
-        branch=str(form.get("manifest_branch") or form.get("bundle_branch") or "").strip(),
-    )
-    if not assignee_agent_id:
-        raise HTTPException(status_code=400, detail="design_agent_id is required")
-    bundle_detail = requirement_bundle_service.inspect_bundle(manifest_ref)
-    if not bundle_detail.requirements_exists:
-        panel_mode = _is_htmx_request(request)
-        db = SessionLocal()
-        try:
-            return _render_requirement_bundles_view(
-                request,
-                user,
-                db,
-                panel_mode=panel_mode,
-                bundle_detail=bundle_detail,
-                status_type="error",
-                status_message=f"{bundle_detail.requirements_file} is missing; collect requirements first",
-            )
-        finally:
-            db.close()
-    return await _create_and_dispatch_bundle_task(
-        request,
-        task_type="requirement_bundle_design_test_cases_task",
-        assignee_agent_id=assignee_agent_id,
-        manifest_ref=manifest_ref,
-        bundle_ref=bundle_ref,
-    )
+    remapped_form = {
+        "template_id": "requirement.v1",
+        "action_id": "design_test_cases",
+        "action_agent_id": str(form.get("design_agent_id") or "").strip(),
+        "bundle_repo": form.get("bundle_repo"),
+        "bundle_path": form.get("bundle_path"),
+        "bundle_branch": form.get("bundle_branch"),
+        "manifest_repo": form.get("manifest_repo"),
+        "manifest_path": form.get("manifest_path"),
+        "manifest_branch": form.get("manifest_branch"),
+    }
+
+    class _LegacyForm:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def get(self, key):
+            return self._payload.get(key)
+
+    request._form = _LegacyForm(remapped_form)
+    return await requirement_bundle_action_run(request)
 
 
 @router.get("/app/users/panel")
@@ -1453,19 +1507,22 @@ async def app_chat_send(request: Request):
 
         data = json.loads(content.decode("utf-8"))
         
-        # Forward events to frontend for Thinking Process
-        events = data.get("events", [])
+        normalized_payload = normalize_assistant_chat_payload(
+            data,
+            fallback_session_id=session_id or "",
+        )
         
         return templates.TemplateResponse(
             "partials/chat_response.html",
             {
                 "request": request,
                 "user_message": message,
-                "assistant_message": data.get("response") or "(empty response)",
-                "session_id": data.get("session_id") or session_id or "",
+                "assistant_message": normalized_payload["assistant_message"],
+                "session_id": normalized_payload["session_id"],
                 "agent_name": agent.name if agent else "Assistant",
-                "user_message_id": data.get("user_message_id") or "",
-                "events": events,
+                "user_message_id": normalized_payload["user_message_id"],
+                "events": normalized_payload["events"],
+                "display_blocks": normalized_payload["display_blocks"],
                 "timestamp": datetime.now().strftime("%H:%M"),
             },
         )

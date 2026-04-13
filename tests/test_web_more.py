@@ -132,6 +132,16 @@ def test_proxy_api_chat_stream():
     assert response.status_code in [400, 401, 403, 404, 500, 502]
 
 
+def test_chat_ui_includes_display_block_renderer_helpers():
+    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "function parseDisplayBlocks(" in js_source
+    assert "function renderDisplayBlocksToHtml(" in js_source
+    assert "function renderSingleDisplayBlock(" in js_source
+    assert "function renderCodeBlock(" in js_source
+    assert "function renderTableBlock(" in js_source
+    assert "function enhanceMarkdownBlock(" in js_source
+
+
 def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
     start_marker = f"// RUNTIME_EVENT_HELPER_START: {helper_name}"
     end_marker = f"// RUNTIME_EVENT_HELPER_END: {helper_name}"
@@ -145,23 +155,259 @@ def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
 
 
 def _extract_js_function(js_text: str, function_name: str) -> str:
-    marker = f"function {function_name}("
-    start = js_text.find(marker)
+    markers = [f"async function {function_name}(", f"function {function_name}("]
+    start = -1
+    for marker in markers:
+        start = js_text.find(marker)
+        if start >= 0:
+            break
     if start < 0:
         raise AssertionError(f"Unable to find function {function_name} in chat_ui.js")
-    brace_start = js_text.find("{", start)
-    if brace_start < 0:
+
+    def _scan_to_matching(text: str, index: int, open_char: str, close_char: str) -> int:
+        depth = 0
+        i = index
+        in_single = False
+        in_double = False
+        in_template = False
+        while i < len(text):
+            char = text[i]
+            nxt = text[i + 1] if i + 1 < len(text) else ""
+            if in_single:
+                if char == "\\":
+                    i += 2
+                    continue
+                if char == "'":
+                    in_single = False
+                i += 1
+                continue
+            if in_double:
+                if char == "\\":
+                    i += 2
+                    continue
+                if char == '"':
+                    in_double = False
+                i += 1
+                continue
+            if in_template:
+                if char == "\\":
+                    i += 2
+                    continue
+                if char == "`":
+                    in_template = False
+                i += 1
+                continue
+            if char == "/" and nxt == "/":
+                nl = text.find("\n", i + 2)
+                i = len(text) if nl == -1 else nl + 1
+                continue
+            if char == "/" and nxt == "*":
+                end = text.find("*/", i + 2)
+                if end == -1:
+                    raise AssertionError(f"Unable to parse function {function_name}; unterminated block comment")
+                i = end + 2
+                continue
+            if char == "'":
+                in_single = True
+                i += 1
+                continue
+            if char == '"':
+                in_double = True
+                i += 1
+                continue
+            if char == "`":
+                in_template = True
+                i += 1
+                continue
+            if char == open_char:
+                depth += 1
+            elif char == close_char:
+                depth -= 1
+                if depth == 0:
+                    return i
+            i += 1
+        raise AssertionError(f"Unable to parse function {function_name}; unmatched {open_char}{close_char}")
+
+    signature_paren_start = js_text.find("(", start)
+    if signature_paren_start < 0:
+        raise AssertionError(f"Unable to parse function {function_name} signature start")
+    signature_paren_end = _scan_to_matching(js_text, signature_paren_start, "(", ")")
+
+    body_start = -1
+    for index in range(signature_paren_end + 1, len(js_text)):
+        if js_text[index].isspace():
+            continue
+        body_start = index
+        break
+    if body_start < 0 or js_text[body_start] != "{":
         raise AssertionError(f"Unable to parse function {function_name} body start")
-    depth = 0
-    for index in range(brace_start, len(js_text)):
-        char = js_text[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return js_text[start:index + 1]
-    raise AssertionError(f"Unable to parse function {function_name} body end")
+
+    body_end = _scan_to_matching(js_text, body_start, "{", "}")
+    return js_text[start:body_end + 1]
+
+
+def test_chat_ui_display_block_helpers_behavior():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping display block helper test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    meaningful_text_block = _extract_js_function(js_file, "isMeaningfulText")
+    pick_value_block = _extract_js_function(js_file, "pickFirstMeaningfulBlockValue")
+    has_renderable_block = _extract_js_function(js_file, "hasRenderableDisplayBlock")
+    parse_block = _extract_js_function(js_file, "parseDisplayBlocks")
+    text_block = _extract_js_function(js_file, "getDisplayBlockText")
+    code_block = _extract_js_function(js_file, "renderCodeBlock")
+    table_block = _extract_js_function(js_file, "renderTableBlock")
+    single_block = _extract_js_function(js_file, "renderSingleDisplayBlock")
+    render_blocks_block = _extract_js_function(js_file, "renderDisplayBlocksToHtml")
+
+    script = f"""
+const safe = (v) => String(v ?? "");
+const normalizeMarkdownText = (v) => String(v || "");
+const escapeHtmlAttr = (v) => String(v ?? "");
+const md = {{ render: (v) => `<p>${{v}}</p>` }};
+{meaningful_text_block}
+{pick_value_block}
+{has_renderable_block}
+{parse_block}
+{text_block}
+{code_block}
+{table_block}
+{single_block}
+{render_blocks_block}
+
+const result = {{
+  invalidParseLength: parseDisplayBlocks("not-json").length,
+  objectInputLength: parseDisplayBlocks({{}}).length,
+  arrayInputLength: parseDisplayBlocks([{{ type: "markdown", content: "ok" }}]).length,
+  filteredBlankTypeLength: parseDisplayBlocks(JSON.stringify([
+    {{ type: "   ", content: "x" }},
+    {{ type: "markdown", content: "ok" }},
+  ])).length,
+  filteredBlankTypedContentLength: parseDisplayBlocks([
+    {{ type: "tool_result", content: "   " }},
+    {{ type: "markdown", content: "ok" }},
+  ]).length,
+  columnsTable: renderTableBlock({{ columns: ["A"], rows: [["1"]] }}),
+  fallbackOnly: renderTableBlock({{ content: "fallback only" }}),
+  toolResult: renderSingleDisplayBlock({{
+    type: "tool_result",
+    status: "success",
+    title: "Bash",
+    content: "Done",
+  }}),
+  codeFromText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    text: "print(1)",
+  }}),
+  toolResultFromOutput: renderSingleDisplayBlock({{
+    type: "tool_result",
+    title: "Bash",
+    status: "success",
+    output: "done from output",
+  }}),
+  blankContentFallsBackToOutput: renderSingleDisplayBlock({{
+    type: "tool_result",
+    title: "Bash",
+    status: "success",
+    content: "   ",
+    output: "done from output",
+  }}),
+  toolResultFromResult: renderSingleDisplayBlock({{
+    type: "tool_result",
+    title: "Bash",
+    status: "success",
+    result: "done from result",
+  }}),
+  calloutFromMessage: renderSingleDisplayBlock({{
+    type: "callout",
+    tone: "warning",
+    title: "注意",
+    message: "需要确认",
+  }}),
+  markdownFromValue: renderSingleDisplayBlock({{
+    type: "markdown",
+    value: "hello from value",
+  }}),
+  blankCodeContentFallsBackToText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    content: "   ",
+    text: "print(1)",
+  }}),
+  blankCodeFieldFallsBackToText: renderSingleDisplayBlock({{
+    type: "code",
+    lang: "python",
+    code: "   ",
+    text: "print(1)",
+  }}),
+  codeOnly: renderCodeBlock({{
+    type: "code",
+    code: "print(1)",
+    language: "python",
+  }}),
+  renderCodeFromCodeField: renderCodeBlock({{
+    type: "code",
+    code: "print(1)",
+    language: "python",
+  }}),
+  renderCodeBlankContentFallback: renderCodeBlock({{
+    type: "code",
+    content: "   ",
+    text: "x = 1",
+    language: "python",
+  }}),
+  calloutFromEnglishMessage: renderSingleDisplayBlock({{
+    type: "callout",
+    tone: "warning",
+    title: "Note",
+    message: "Heads up",
+  }}),
+  bodylessBlocksFallbackPlaceholder: renderDisplayBlocksToHtml([
+    {{ type: "tool_result", title: "Bash", content: "   " }},
+  ], ""),
+}};
+console.log(JSON.stringify(result));
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert data["invalidParseLength"] == 0
+    assert data["objectInputLength"] == 0
+    assert data["arrayInputLength"] == 1
+    assert data["filteredBlankTypeLength"] == 1
+    assert data["filteredBlankTypedContentLength"] == 1
+    assert "<th>A</th>" in data["columnsTable"]
+    assert "<table>" not in data["fallbackOnly"]
+    assert "<p>fallback only</p>" in data["fallbackOnly"]
+    assert "message-tool-result is-success" in data["toolResult"]
+    assert "print(1)" in data["codeFromText"]
+    assert "language-python" in data["codeFromText"]
+    assert "message-tool-result is-success" in data["toolResultFromOutput"]
+    assert "done from output" in data["toolResultFromOutput"]
+    assert "done from output" in data["blankContentFallsBackToOutput"]
+    assert "done from result" in data["toolResultFromResult"]
+    assert "message-callout is-warning" in data["calloutFromMessage"]
+    assert "注意" in data["calloutFromMessage"]
+    assert "需要确认" in data["calloutFromMessage"]
+    assert "hello from value" in data["markdownFromValue"]
+    assert "print(1)" in data["blankCodeContentFallsBackToText"]
+    assert "print(1)" in data["blankCodeFieldFallsBackToText"]
+    assert "print(1)" in data["codeOnly"]
+    assert "print(1)" in data["renderCodeFromCodeField"]
+    assert "language-python" in data["renderCodeFromCodeField"]
+    assert "Copy" in data["renderCodeFromCodeField"]
+    assert "x = 1" in data["renderCodeBlankContentFallback"]
+    assert "Heads up" in data["calloutFromEnglishMessage"]
+    assert "(empty response)" in data["bodylessBlocksFallbackPlaceholder"]
 
 
 def test_chat_ui_runtime_event_helpers_behavior():
@@ -383,6 +629,176 @@ console.log(JSON.stringify({{
     assert data["secondUrl"] == data["firstUrl"]
     assert data["secondSession"] == "new-session"
     assert data["sameSocketOnSecondCall"] is True
+
+
+def test_chat_ui_set_active_nav_section_avoids_reloading_visible_lists():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
+
+    script = f"""
+{set_active_nav_section_fn}
+
+function noop() {{}}
+function makeToggleObj() {{
+  return {{
+    classList: {{
+      toggle: noop,
+    }},
+  }};
+}}
+
+const dom = {{
+  railAssistantsBtn: makeToggleObj(),
+  bundlesMenuBtn: makeToggleObj(),
+  tasksMenuBtn: makeToggleObj(),
+  assistantsNavSection: makeToggleObj(),
+  bundlesNavSection: makeToggleObj(),
+  tasksNavSection: makeToggleObj(),
+  workspaceDetailContent: {{
+    dataset: {{
+      workspaceState: "idle",
+    }},
+  }},
+}};
+
+let bundleRefreshCount = 0;
+let taskRefreshCount = 0;
+const state = {{}};
+
+function applySecondaryPaneState() {{}}
+function renderSecondaryPaneHeader() {{}}
+function syncMainHeader() {{}}
+function showAssistantDefaultMainView() {{
+  dom.workspaceDetailContent.dataset.workspaceState = "assistant-default";
+}}
+function showBundlesLoadingMainView() {{
+  dom.workspaceDetailContent.dataset.workspaceState = "bundles-loading";
+}}
+function showTasksLoadingMainView() {{
+  dom.workspaceDetailContent.dataset.workspaceState = "tasks-loading";
+}}
+function showBundlesDefaultMainView() {{
+  dom.workspaceDetailContent.dataset.workspaceState = "bundles-default";
+}}
+function showTasksDefaultMainView() {{
+  dom.workspaceDetailContent.dataset.workspaceState = "tasks-default";
+}}
+async function refreshRequirementBundles() {{
+  bundleRefreshCount += 1;
+}}
+async function refreshMyTasks() {{
+  taskRefreshCount += 1;
+}}
+
+async function runScenarioA() {{
+  bundleRefreshCount = 0;
+  taskRefreshCount = 0;
+  Object.assign(state, {{
+    activeNavSection: "bundles",
+    secondaryPaneCollapsed: false,
+    selectedBundleKey: "bundle-1",
+    selectedTaskId: null,
+  }});
+  dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
+  await setActiveNavSection("bundles", {{ toggleIfSame: false }});
+  return {{
+    bundleRefreshCount,
+    activeNavSection: state.activeNavSection,
+    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
+  }};
+}}
+
+async function runScenarioB() {{
+  bundleRefreshCount = 0;
+  taskRefreshCount = 0;
+  Object.assign(state, {{
+    activeNavSection: "assistants",
+    secondaryPaneCollapsed: false,
+    selectedBundleKey: null,
+    selectedTaskId: null,
+  }});
+  dom.workspaceDetailContent.dataset.workspaceState = "assistant-default";
+  await setActiveNavSection("bundles", {{ toggleIfSame: false }});
+  return {{
+    bundleRefreshCount,
+    activeNavSection: state.activeNavSection,
+  }};
+}}
+
+async function runScenarioC() {{
+  bundleRefreshCount = 0;
+  taskRefreshCount = 0;
+  Object.assign(state, {{
+    activeNavSection: "bundles",
+    secondaryPaneCollapsed: true,
+    selectedBundleKey: null,
+    selectedTaskId: null,
+  }});
+  dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
+  await setActiveNavSection("bundles");
+  return {{
+    bundleRefreshCount,
+    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
+  }};
+}}
+
+async function runScenarioD() {{
+  bundleRefreshCount = 0;
+  taskRefreshCount = 0;
+  Object.assign(state, {{
+    activeNavSection: "tasks",
+    secondaryPaneCollapsed: false,
+    selectedBundleKey: null,
+    selectedTaskId: "task-1",
+  }});
+  dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
+  await setActiveNavSection("tasks", {{ toggleIfSame: false }});
+  return {{
+    taskRefreshCount,
+    activeNavSection: state.activeNavSection,
+    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
+  }};
+}}
+
+(async () => {{
+  const result = {{
+    scenarioA: await runScenarioA(),
+    scenarioB: await runScenarioB(),
+    scenarioC: await runScenarioC(),
+    scenarioD: await runScenarioD(),
+  }};
+  console.log(JSON.stringify(result));
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert data["scenarioA"]["bundleRefreshCount"] == 0
+    assert data["scenarioA"]["activeNavSection"] == "bundles"
+    assert data["scenarioA"]["workspaceState"] == "bundle-detail"
+
+    assert data["scenarioB"]["bundleRefreshCount"] == 1
+    assert data["scenarioB"]["activeNavSection"] == "bundles"
+
+    assert data["scenarioC"]["bundleRefreshCount"] == 1
+    assert data["scenarioC"]["secondaryPaneCollapsed"] is False
+
+    assert data["scenarioD"]["taskRefreshCount"] == 0
+    assert data["scenarioD"]["activeNavSection"] == "tasks"
+    assert data["scenarioD"]["workspaceState"] == "task-detail"
 
 
 def test_thinking_process_template_prefers_normalized_fields():
