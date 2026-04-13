@@ -631,7 +631,7 @@ console.log(JSON.stringify({{
     assert data["sameSocketOnSecondCall"] is True
 
 
-def test_chat_ui_set_active_nav_section_avoids_reloading_visible_lists():
+def test_chat_ui_set_active_nav_section_loads_cached_bundles_without_refreshing():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -666,6 +666,7 @@ const dom = {{
 }};
 
 let bundleRefreshCount = 0;
+let bundleCacheLoadCount = 0;
 let taskRefreshCount = 0;
 const state = {{}};
 
@@ -690,12 +691,21 @@ function showTasksDefaultMainView() {{
 async function refreshRequirementBundles() {{
   bundleRefreshCount += 1;
 }}
+function renderRequirementBundleList() {{}}
+function renderWorkspaceDetailPlaceholder(_message, workspaceState) {{
+  dom.workspaceDetailContent.dataset.workspaceState = workspaceState || "bundles-placeholder";
+}}
+function loadRequirementBundlesFromCache() {{
+  bundleCacheLoadCount += 1;
+  return true;
+}}
 async function refreshMyTasks() {{
   taskRefreshCount += 1;
 }}
 
 async function runScenarioA() {{
   bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
   taskRefreshCount = 0;
   Object.assign(state, {{
     activeNavSection: "bundles",
@@ -707,6 +717,7 @@ async function runScenarioA() {{
   await setActiveNavSection("bundles", {{ toggleIfSame: false }});
   return {{
     bundleRefreshCount,
+    bundleCacheLoadCount,
     activeNavSection: state.activeNavSection,
     workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
   }};
@@ -714,6 +725,7 @@ async function runScenarioA() {{
 
 async function runScenarioB() {{
   bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
   taskRefreshCount = 0;
   Object.assign(state, {{
     activeNavSection: "assistants",
@@ -725,12 +737,14 @@ async function runScenarioB() {{
   await setActiveNavSection("bundles", {{ toggleIfSame: false }});
   return {{
     bundleRefreshCount,
+    bundleCacheLoadCount,
     activeNavSection: state.activeNavSection,
   }};
 }}
 
 async function runScenarioC() {{
   bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
   taskRefreshCount = 0;
   Object.assign(state, {{
     activeNavSection: "bundles",
@@ -742,12 +756,14 @@ async function runScenarioC() {{
   await setActiveNavSection("bundles");
   return {{
     bundleRefreshCount,
+    bundleCacheLoadCount,
     secondaryPaneCollapsed: state.secondaryPaneCollapsed,
   }};
 }}
 
 async function runScenarioD() {{
   bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
   taskRefreshCount = 0;
   Object.assign(state, {{
     activeNavSection: "tasks",
@@ -759,6 +775,7 @@ async function runScenarioD() {{
   await setActiveNavSection("tasks", {{ toggleIfSame: false }});
   return {{
     taskRefreshCount,
+    bundleCacheLoadCount,
     activeNavSection: state.activeNavSection,
     workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
   }};
@@ -787,16 +804,20 @@ async function runScenarioD() {{
     data = json.loads(completed.stdout)
 
     assert data["scenarioA"]["bundleRefreshCount"] == 0
+    assert data["scenarioA"]["bundleCacheLoadCount"] == 0
     assert data["scenarioA"]["activeNavSection"] == "bundles"
     assert data["scenarioA"]["workspaceState"] == "bundle-detail"
 
-    assert data["scenarioB"]["bundleRefreshCount"] == 1
+    assert data["scenarioB"]["bundleRefreshCount"] == 0
+    assert data["scenarioB"]["bundleCacheLoadCount"] == 1
     assert data["scenarioB"]["activeNavSection"] == "bundles"
 
-    assert data["scenarioC"]["bundleRefreshCount"] == 1
+    assert data["scenarioC"]["bundleRefreshCount"] == 0
+    assert data["scenarioC"]["bundleCacheLoadCount"] == 1
     assert data["scenarioC"]["secondaryPaneCollapsed"] is False
 
     assert data["scenarioD"]["taskRefreshCount"] == 0
+    assert data["scenarioD"]["bundleCacheLoadCount"] == 0
     assert data["scenarioD"]["activeNavSection"] == "tasks"
     assert data["scenarioD"]["workspaceState"] == "task-detail"
 

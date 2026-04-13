@@ -202,6 +202,55 @@ def test_list_bundles_includes_template_fields(monkeypatch):
     assert results[0].template_label == "Requirement Bundle"
 
 
+def test_list_bundles_uses_cache_until_force_refresh(monkeypatch):
+    service = RequirementBundleGithubService()
+    monkeypatch.setattr(service, "default_repo", "octo/assets")
+    monkeypatch.setattr(service, "bundle_root_dir", "requirement-bundles")
+    monkeypatch.setattr(service, "bundle_list_cache_ttl_seconds", 60)
+
+    request_calls = []
+    inspect_calls = []
+
+    def _fake_request(method: str, path: str, *, json_body=None):
+        request_calls.append((method, path))
+        assert method == "GET"
+        if "matching-refs/heads/bundle/" in path:
+            return [{"ref": "refs/heads/bundle/checkout/aaa111"}]
+        if "trees/bundle/checkout/aaa111?recursive=1" in path:
+            return {"tree": [{"path": "requirement-bundles/payments/checkout/bundle.yaml", "type": "blob"}]}
+        raise AssertionError(path)
+
+    def _fake_inspect(bundle_ref):
+        inspect_calls.append(bundle_ref.path)
+        return RequirementBundleInspectResponse(
+            manifest_ref=bundle_ref,
+            bundle_ref=bundle_ref,
+            manifest={"bundle_id": "RB-checkout", "title": "Checkout", "status": "draft", "scope": {"domain": "payments"}},
+            template_id="requirement.v1",
+            template_label="Requirement Bundle",
+            template_version=1,
+            artifacts=[],
+            requirements_file="requirements.yaml",
+            test_cases_file="test-cases.yaml",
+            requirements_exists=True,
+            test_cases_exists=False,
+            last_commit_sha="abc123",
+        )
+
+    monkeypatch.setattr(service, "_request", _fake_request)
+    monkeypatch.setattr(service, "inspect_bundle", _fake_inspect)
+
+    first = service.list_bundles()
+    second = service.list_bundles()
+    third = service.list_bundles(force_refresh=True)
+
+    assert first is not second
+    assert first[0] is not second[0]
+    assert len(request_calls) == 4
+    assert len(inspect_calls) == 2
+    assert len(third) == 1
+
+
 def test_invalid_manifest_raises_error(monkeypatch):
     service = RequirementBundleGithubService()
     invalid_manifest_text = "bundle_id: RB-1\ntitle: Missing Scope\n"

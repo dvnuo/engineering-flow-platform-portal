@@ -13,6 +13,7 @@ def test_app_template_contains_new_portal_shell():
     assert "btn-sessions" in html
     assert "header-new-chat-btn" in html
     assert "bundles-menu-btn" in html
+    assert "refresh-bundles-btn" in html
     assert "home-open-bundles-btn" in html
     assert "Ask me anything..." in html
     assert "portal-modal-feedback" in html

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.deps import get_current_user
 from app.schemas.requirement_bundle import (
@@ -16,10 +16,10 @@ requirement_bundle_service = RequirementBundleGithubService()
 
 
 @router.get("", response_model=list[RequirementBundleListItem])
-def list_requirement_bundles(user=Depends(get_current_user)):
+def list_requirement_bundles(refresh: bool = Query(default=False), user=Depends(get_current_user)):
     _ = user
     try:
-        return requirement_bundle_service.list_bundles()
+        return requirement_bundle_service.list_bundles(force_refresh=refresh)
     except RequirementBundleGithubServiceError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

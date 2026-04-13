@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     )
     assets_default_base_branch: str = Field(default="main", validation_alias="ASSETS_DEFAULT_BASE_BRANCH")
     assets_bundle_root_dir: str = Field(default="requirement-bundles", validation_alias="ASSETS_BUNDLE_ROOT_DIR")
+    assets_bundle_list_cache_ttl_seconds: int = Field(
+        default=60,
+        validation_alias="ASSETS_BUNDLE_LIST_CACHE_TTL_SECONDS",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

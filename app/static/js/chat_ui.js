@@ -54,6 +54,7 @@ const dom = {
   tasksNavSection: document.getElementById("tasks-nav-section"),
   bundleNavList: document.getElementById("bundle-nav-list"),
   taskNavList: document.getElementById("task-nav-list"),
+  refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   composerAttachBtn: document.getElementById("composer-attach-btn"),
@@ -146,6 +147,7 @@ if (dom.chatInput) {
 }
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
+const REQUIREMENT_BUNDLES_CACHE_KEY = "portal-requirement-bundles-cache-v1";
 
 // Global mapping from blob URL to file ID
 const blobUrlToFileId = {};
@@ -219,6 +221,7 @@ const state = {
   pendingFilesBackup: [],
   messageBackup: "",
   requirementBundles: [],
+  hasRequirementBundlesCache: false,
   selectedBundleKey: null,
   activeNavSection: "assistants",
   secondaryPaneCollapsed: false,
@@ -2303,8 +2306,10 @@ function renderSecondaryPaneHeader() {
   if (!dom.secondaryPaneEyebrow || !dom.secondaryPaneTitle || !dom.secondaryPaneActions) return;
   const addAgentBtn = dom.addAgentBtn;
   const addBundleBtn = dom.addBundleBtn;
+  const refreshBundlesBtn = dom.refreshBundlesBtn;
   if (addAgentBtn) addAgentBtn.classList.add("hidden");
   if (addBundleBtn) addBundleBtn.classList.add("hidden");
+  if (refreshBundlesBtn) refreshBundlesBtn.classList.add("hidden");
 
   if (state.activeNavSection === "assistants") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
@@ -2313,6 +2318,7 @@ function renderSecondaryPaneHeader() {
   } else if (state.activeNavSection === "bundles") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Bundles";
+    if (refreshBundlesBtn) refreshBundlesBtn.classList.remove("hidden");
     if (addBundleBtn) addBundleBtn.classList.remove("hidden");
   } else {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
@@ -2394,6 +2400,86 @@ function bundleKey(item) {
   return bundleKeyFromRef(item?.bundle_ref);
 }
 
+function setRequirementBundles(items, { persist = true, hasCache = true } = {}) {
+  state.requirementBundles = Array.isArray(items) ? items : [];
+  state.hasRequirementBundlesCache = Boolean(hasCache);
+  if (state.selectedBundleKey && !state.requirementBundles.some((item) => bundleKey(item) === state.selectedBundleKey)) {
+    state.selectedBundleKey = null;
+  }
+  if (!persist) return;
+  try {
+    localStorage.setItem(
+      REQUIREMENT_BUNDLES_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        items: state.requirementBundles,
+      }),
+    );
+  } catch (_error) {}
+}
+
+function loadRequirementBundlesFromCache() {
+  try {
+    const raw = localStorage.getItem(REQUIREMENT_BUNDLES_CACHE_KEY);
+    if (!raw) {
+      setRequirementBundles([], { persist: false, hasCache: false });
+      return false;
+    }
+    const parsed = JSON.parse(raw);
+    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.items) ? parsed.items : null);
+    if (!Array.isArray(items)) {
+      setRequirementBundles([], { persist: false, hasCache: false });
+      return false;
+    }
+    setRequirementBundles(items, { persist: false, hasCache: true });
+    return items.length > 0;
+  } catch (_error) {
+    setRequirementBundles([], { persist: false, hasCache: false });
+    return false;
+  }
+}
+
+function bundleListItemFromDetail(detail) {
+  const manifest = detail?.manifest || {};
+  const scope = manifest?.scope || {};
+  return {
+    bundle_id: manifest?.bundle_id || "",
+    title: manifest?.title || "",
+    domain: scope?.domain || "",
+    status: manifest?.status || "",
+    template_id: detail?.template_id || "",
+    template_label: detail?.template_label || "",
+    artifacts: detail?.artifacts ?? null,
+    bundle_ref: detail?.bundle_ref || null,
+    manifest_ref: detail?.manifest_ref || null,
+    requirements_exists: detail?.requirements_exists ?? null,
+    test_cases_exists: detail?.test_cases_exists ?? null,
+    last_commit_sha: detail?.last_commit_sha || null,
+  };
+}
+
+function upsertRequirementBundleListItem(item, { persist = true } = {}) {
+  const itemKey = bundleKey(item);
+  if (!itemKey) return;
+  const nextItems = [...state.requirementBundles];
+  const existingIndex = nextItems.findIndex((candidate) => bundleKey(candidate) === itemKey);
+  if (existingIndex >= 0) {
+    nextItems[existingIndex] = item;
+  } else {
+    nextItems.push(item);
+  }
+  nextItems.sort((left, right) => {
+    const leftTuple = [left?.template_id || "", left?.domain || "", left?.title || "", left?.bundle_ref?.path || ""];
+    const rightTuple = [right?.template_id || "", right?.domain || "", right?.title || "", right?.bundle_ref?.path || ""];
+    for (let i = 0; i < leftTuple.length; i += 1) {
+      const cmp = String(leftTuple[i]).localeCompare(String(rightTuple[i]));
+      if (cmp !== 0) return cmp;
+    }
+    return 0;
+  });
+  setRequirementBundles(nextItems, { persist });
+}
+
 async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   const previousSection = state.activeNavSection;
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
@@ -2436,14 +2522,23 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   }
 
   if (state.activeNavSection === "bundles" && shouldRefreshVisibleSection) {
-    await refreshRequirementBundles();
+    const hasCachedBundles = loadRequirementBundlesFromCache();
+    renderRequirementBundleList();
     if (
       state.activeNavSection === "bundles" &&
       !state.secondaryPaneCollapsed &&
       !state.selectedBundleKey &&
       dom.workspaceDetailContent?.dataset.workspaceState === "bundles-loading"
     ) {
-      showBundlesDefaultMainView();
+      if (hasCachedBundles) {
+        showBundlesDefaultMainView();
+      } else {
+        renderWorkspaceDetailPlaceholder(
+          "No cached bundles yet. Click refresh to load the latest bundles.",
+          "bundles-placeholder"
+        );
+        syncMainHeader();
+      }
     }
   }
 
@@ -2468,7 +2563,8 @@ function renderRequirementBundleList(errorMessage = "") {
   }
 
   if (!state.requirementBundles.length) {
-    dom.bundleNavList.innerHTML = '<div class="portal-bundle-list-state">No bundles found</div>';
+    const emptyMessage = state.hasRequirementBundlesCache ? "No bundles found" : "No cached bundles yet";
+    dom.bundleNavList.innerHTML = `<div class="portal-bundle-list-state">${safe(emptyMessage)}</div>`;
     return;
   }
 
@@ -2493,18 +2589,27 @@ function renderRequirementBundleList(errorMessage = "") {
   });
 }
 
-async function refreshRequirementBundles() {
+async function refreshRequirementBundles({ showLoadingState = true, force = true, notifyOnSuccess = false } = {}) {
   if (!dom.bundleNavList) return;
-  dom.bundleNavList.innerHTML = '<div class="portal-bundle-list-state">Loading bundles…</div>';
+  const hadCachedItems = state.requirementBundles.length > 0;
+  if (!hadCachedItems && showLoadingState) {
+    dom.bundleNavList.innerHTML = '<div class="portal-bundle-list-state">Loading bundles…</div>';
+  }
+  setButtonDisabled(dom.refreshBundlesBtn, true, "Refreshing bundles...");
   try {
-    const bundles = await api("/api/requirement-bundles");
-    state.requirementBundles = Array.isArray(bundles) ? bundles : [];
-    if (state.selectedBundleKey && !state.requirementBundles.some((item) => bundleKey(item) === state.selectedBundleKey)) {
-      state.selectedBundleKey = null;
-    }
+    const endpoint = force ? "/api/requirement-bundles?refresh=1" : "/api/requirement-bundles";
+    const bundles = await api(endpoint);
+    setRequirementBundles(Array.isArray(bundles) ? bundles : [], { persist: true, hasCache: true });
     renderRequirementBundleList();
+    if (notifyOnSuccess) showToast("Bundles refreshed");
   } catch (error) {
-    renderRequirementBundleList(`Failed to load bundles: ${error.message}`);
+    if (!hadCachedItems) {
+      renderRequirementBundleList(`Failed to load bundles: ${error.message}`);
+    } else {
+      showToast(`Failed to refresh bundles: ${error.message}`);
+    }
+  } finally {
+    setButtonDisabled(dom.refreshBundlesBtn, false);
   }
 }
 
@@ -3942,6 +4047,9 @@ function bindEvents() {
       setModalFeedback(dom.createBundleMsg, "", dom.createBundleMsg.textContent);
     }
   });
+  dom.refreshBundlesBtn?.addEventListener("click", async () => {
+    await refreshRequirementBundles({ showLoadingState: true, force: true, notifyOnSuccess: true });
+  });
 
   dom.closeCreateBundleModal?.addEventListener("click", () => {
     dom.createBundleModal?.classList.add("hidden");
@@ -4053,8 +4161,8 @@ function bindEvents() {
       form.querySelector('[name="template_id"]').value = 'requirement.v1';
       dom.createBundleModal?.classList.add("hidden");
       dom.createBundleModal?.setAttribute("aria-hidden", "true");
+      upsertRequirementBundleListItem(bundleListItemFromDetail(detail));
       await setActiveNavSection("bundles", { toggleIfSame: false });
-      await refreshRequirementBundles();
       state.selectedBundleKey = bundleKeyFromRef(detail.bundle_ref);
       renderRequirementBundleList();
       await openRequirementBundleInMain(detail.bundle_ref);

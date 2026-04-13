@@ -1,6 +1,7 @@
 import base64
 import re
 import secrets
+from time import monotonic
 from typing import Any
 
 import httpx
@@ -33,6 +34,9 @@ class RequirementBundleGithubService:
         self.default_repo = settings.assets_repo_full_name
         self.default_base_branch = settings.assets_default_base_branch
         self.bundle_root_dir = settings.assets_bundle_root_dir.strip("/")
+        self.bundle_list_cache_ttl_seconds = max(int(settings.assets_bundle_list_cache_ttl_seconds), 0)
+        self._bundle_list_cache: list[RequirementBundleListItem] | None = None
+        self._bundle_list_cache_expires_at = 0.0
 
     @staticmethod
     def normalize_slug(slug: str) -> str:
@@ -185,7 +189,25 @@ class RequirementBundleGithubService:
             last_commit_sha=detail.last_commit_sha,
         )
 
-    def list_bundles(self) -> list[RequirementBundleListItem]:
+    @staticmethod
+    def _clone_list_items(items: list[RequirementBundleListItem]) -> list[RequirementBundleListItem]:
+        return [item.model_copy(deep=True) for item in items]
+
+    def invalidate_list_bundles_cache(self) -> None:
+        self._bundle_list_cache = None
+        self._bundle_list_cache_expires_at = 0.0
+
+    def list_bundles(self, *, force_refresh: bool = False) -> list[RequirementBundleListItem]:
+        ttl = self.bundle_list_cache_ttl_seconds
+        if ttl <= 0:
+            self.invalidate_list_bundles_cache()
+        elif (
+            not force_refresh
+            and self._bundle_list_cache is not None
+            and monotonic() < self._bundle_list_cache_expires_at
+        ):
+            return self._clone_list_items(self._bundle_list_cache)
+
         branches = self._list_matching_branches(self.default_repo)
         seen: set[tuple[str, str, str]] = set()
         items: list[RequirementBundleListItem] = []
@@ -210,7 +232,13 @@ class RequirementBundleGithubService:
                 seen.add(key)
                 items.append(self._build_list_item_from_detail(detail))
 
-        return sorted(items, key=lambda item: (item.template_id, item.domain, item.title, item.bundle_ref.path))
+        sorted_items = sorted(items, key=lambda item: (item.template_id, item.domain, item.title, item.bundle_ref.path))
+        if ttl > 0:
+            self._bundle_list_cache = sorted_items
+            self._bundle_list_cache_expires_at = monotonic() + ttl
+            return self._clone_list_items(sorted_items)
+        self.invalidate_list_bundles_cache()
+        return sorted_items
 
     @staticmethod
     def _render_bundle_yaml(
@@ -513,6 +541,7 @@ class RequirementBundleGithubService:
                 f"Initialize {artifact_key} skeleton for {bundle_id}",
             )
 
+        self.invalidate_list_bundles_cache()
         return BundleRef(repo=self.default_repo, path=bundle_path, branch=working_branch)
 
     def inspect_bundle(self, bundle_ref: BundleRef) -> RequirementBundleInspectResponse:
