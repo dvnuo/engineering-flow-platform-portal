@@ -98,5 +98,10 @@ class AgentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("repo_url")
+    @classmethod
+    def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_git_repo_url(value)
+
     class Config:
         from_attributes = True

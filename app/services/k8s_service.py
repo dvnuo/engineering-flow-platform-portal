@@ -235,7 +235,7 @@ class K8sService:
         return normalized
 
     def _repo_metadata(self, agent) -> dict[str, str]:
-        repo_url = (agent.repo_url or "").strip()
+        repo_url = normalize_git_repo_url(agent.repo_url) or ""
         branch = agent.branch or getattr(self.settings, "default_agent_branch", "master")
 
         if not repo_url:
@@ -247,13 +247,8 @@ class K8sService:
                 "raw_repo_url": "",
             }
 
-        repo_path = ""
-        if repo_url.startswith("git@"):
-            if ":" in repo_url:
-                repo_path = repo_url.split(":", 1)[1]
-        else:
-            parsed = urlparse(repo_url)
-            repo_path = parsed.path.lstrip("/")
+        parsed = urlparse(repo_url)
+        repo_path = parsed.path.lstrip("/")
         repo_path = repo_path.removesuffix(".git")
         if repo_path:
             parts = [part for part in repo_path.split("/") if part]

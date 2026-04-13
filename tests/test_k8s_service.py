@@ -41,8 +41,20 @@ class K8sServiceNoopTest(unittest.TestCase):
         agent = SimpleNamespace(repo_url="git@github.com:Acme/Portal.git", branch="Feature/ABC")
         metadata = self.service._repo_metadata(agent)
         self.assertEqual(metadata["repo_slug"], "acme-portal")
-        self.assertEqual(metadata["repo_hash"], "db405ee23bb4")
+        self.assertEqual(metadata["repo_hash"], "4ddc9d751723")
         self.assertEqual(metadata["branch"], "feature-abc")
+        self.assertEqual(metadata["raw_repo_url"], "https://github.com/Acme/Portal.git")
+
+    def test_repo_metadata_from_enterprise_ssh_url_is_canonicalized(self):
+        agent = SimpleNamespace(repo_url="ssh://git@github.company.com:8443/Acme/Portal.git", branch="main")
+        metadata = self.service._repo_metadata(agent)
+        self.assertEqual(metadata["repo_slug"], "acme-portal")
+        self.assertEqual(metadata["raw_repo_url"], "https://github.company.com:8443/Acme/Portal.git")
+
+    def test_agent_metadata_annotations_use_canonical_repo_url(self):
+        agent = SimpleNamespace(repo_url="git@github.com:Acme/Portal.git", branch="main")
+        annotations = self.service._agent_metadata_annotations(agent)
+        self.assertEqual(annotations["efp/git-repo-url"], "https://github.com/Acme/Portal.git")
 
     def test_agent_common_labels_include_git_fields(self):
         agent = SimpleNamespace(

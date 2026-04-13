@@ -1,4 +1,5 @@
 """Tests for agents API module."""
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -41,6 +42,31 @@ def test_agent_response_schema():
     assert "agent_type" in fields
     assert "capability_profile_id" in fields
     assert "policy_profile_id" in fields
+
+
+def test_agent_response_normalizes_legacy_repo_url():
+    obj = SimpleNamespace(
+        id="agent-1",
+        name="Agent One",
+        status="running",
+        visibility="private",
+        image="example/image:latest",
+        repo_url="git@github.com:Acme/Portal.git",
+        branch="main",
+        owner_user_id=1,
+        cpu="250m",
+        memory="512Mi",
+        agent_type="workspace",
+        capability_profile_id=None,
+        policy_profile_id=None,
+        disk_size_gi=20,
+        description=None,
+        last_error=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    response = AgentResponse.model_validate(obj)
+    assert response.repo_url == "https://github.com/Acme/Portal.git"
 
 
 def test_agent_status_values():
