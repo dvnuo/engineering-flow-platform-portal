@@ -82,7 +82,7 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 ### Phase 5 control-plane contract
 
 - Portal remains the only user-facing entry point and forwards Portal identity headers to Runtime.
-- Portal runtime requests no longer require or emit internal API-key headers in the current in-VPC topology.
+- Portal runtime requests use the current trusted Portal source/header contract in the in-VPC topology.
 - EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
 
 ### Internal control-plane export contract
