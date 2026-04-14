@@ -116,3 +116,48 @@ class TestAgentStatus:
         """Test failed status."""
         status = "failed"
         assert status in ["creating", "running", "stopped", "failed", "stopping"]
+
+
+def test_validate_profile_references_rejects_other_owner():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.api.agents import _validate_profile_references
+    from app.db import Base
+    from app.models import RuntimeProfile, User
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    owner = User(username="owner", password_hash="test", role="user", is_active=True)
+    other = User(username="other", password_hash="test", role="user", is_active=True)
+    db.add_all([owner, other]); db.commit(); db.refresh(owner); db.refresh(other)
+    rp = RuntimeProfile(owner_user_id=other.id, name="rp", config_json="{}", is_default=True, revision=1)
+    db.add(rp); db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        _validate_profile_references(db, None, None, rp.id, current_user_id=owner.id)
+    assert exc.value.status_code == 404
+
+
+def test_validate_profile_references_accepts_owner():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.api.agents import _validate_profile_references
+    from app.db import Base
+    from app.models import RuntimeProfile, User
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    owner = User(username="owner2", password_hash="test", role="user", is_active=True)
+    db.add(owner); db.commit(); db.refresh(owner)
+    rp = RuntimeProfile(owner_user_id=owner.id, name="rp2", config_json="{}", is_default=True, revision=1)
+    db.add(rp); db.commit()
+
+    _validate_profile_references(db, None, None, rp.id, current_user_id=owner.id)

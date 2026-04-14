@@ -74,7 +74,13 @@ def _build_client(monkeypatch, *, current_user_role="admin", current_user_id=Non
 
 
 def _bind_profile(db, agent, name="rp-save", config=None, revision=1):
-    rp = RuntimeProfile(name=name, config_json=json.dumps(config or {"llm": {"provider": "openai"}}), revision=revision)
+    rp = RuntimeProfile(
+        owner_user_id=agent.owner_user_id,
+        name=name,
+        config_json=json.dumps(config or {"llm": {"provider": "openai"}}),
+        revision=revision,
+        is_default=True,
+    )
     db.add(rp)
     db.commit()
     db.refresh(rp)

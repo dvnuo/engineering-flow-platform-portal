@@ -182,7 +182,7 @@ def test_create_and_update_agent_runtime_profile_validation_and_response(monkeyp
 
         from app.models.runtime_profile import RuntimeProfile
 
-        rp = RuntimeProfile(name="rp", config_json="{}", revision=1)
+        rp = RuntimeProfile(owner_user_id=1, name="rp", config_json="{}", revision=1, is_default=True)
         db.add(rp)
         db.commit()
         db.refresh(rp)
@@ -208,7 +208,7 @@ def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch
 
         from app.models.runtime_profile import RuntimeProfile
 
-        rp = RuntimeProfile(name="rp-sync", config_json='{"llm": {"provider": "openai"}}', revision=3)
+        rp = RuntimeProfile(owner_user_id=1, name="rp-sync", config_json='{"llm": {"provider": "openai"}}', revision=3, is_default=True)
         db.add(rp)
         db.commit()
         db.refresh(rp)
@@ -247,7 +247,7 @@ def test_update_running_agent_runtime_profile_push_failure_still_returns_200(mon
 
         from app.models.runtime_profile import RuntimeProfile
 
-        rp = RuntimeProfile(name="rp-sync-fail", config_json='{"llm": {"provider": "openai"}}', revision=3)
+        rp = RuntimeProfile(owner_user_id=1, name="rp-sync-fail", config_json='{"llm": {"provider": "openai"}}', revision=3, is_default=True)
         db.add(rp)
         db.commit()
         db.refresh(rp)

@@ -63,6 +63,7 @@ class RuntimeProfileCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
     config_json: str = "{}"
+    is_default: bool = False
 
     _validate_config = field_validator("config_json", mode="before")(validate_runtime_profile_config_json)
 
@@ -71,6 +72,7 @@ class RuntimeProfileUpdateRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     config_json: Optional[str] = None
+    is_default: Optional[bool] = None
 
     @field_validator("config_json", mode="before")
     @classmethod
@@ -82,10 +84,12 @@ class RuntimeProfileUpdateRequest(BaseModel):
 
 class RuntimeProfileResponse(BaseModel):
     id: str
+    owner_user_id: int
     name: str
     description: Optional[str] = None
     config_json: str
     revision: int
+    is_default: bool
     created_at: datetime
     updated_at: datetime
 
@@ -98,3 +102,4 @@ class RuntimeProfileOptionResponse(BaseModel):
     name: str
     description: Optional[str] = None
     revision: int
+    is_default: bool

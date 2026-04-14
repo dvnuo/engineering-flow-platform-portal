@@ -22,7 +22,7 @@ def _build_db():
     db.commit()
     db.refresh(owner)
 
-    rp = RuntimeProfile(name="rp-sync-service", config_json='{"llm": {"provider": "openai"}, "ssh": {"x":1}}', revision=3)
+    rp = RuntimeProfile(owner_user_id=owner.id, name="rp-sync-service", config_json='{"llm": {"provider": "openai"}, "ssh": {"x":1}}', revision=3, is_default=True)
     db.add(rp)
     db.commit()
     db.refresh(rp)

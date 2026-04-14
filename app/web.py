@@ -29,6 +29,7 @@ from app.services.runtime_execution_context_service import RuntimeExecutionConte
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
+from app.services.runtime_profile_service import RuntimeProfileService
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 
@@ -198,6 +199,31 @@ def _settings_error_response(
             **view_data,
         },
     )
+
+
+def _runtime_profile_panel_context(
+    request: Request,
+    profile,
+    profile_repo: RuntimeProfileRepository,
+    *,
+    status_type: str = "",
+    status_message: str = "",
+) -> dict:
+    bound_count = profile_repo.count_bound_agents(profile.id)
+    config_data = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    view_data = _settings_view_payload(config_data)
+    return {
+        "request": request,
+        "profile_id": profile.id,
+        "status_type": status_type,
+        "status_message": status_message,
+        "profile_name": profile.name,
+        "profile_description": profile.description or "",
+        "profile_revision": profile.revision,
+        "profile_is_default": bool(profile.is_default),
+        "profile_bound_agent_count": bound_count,
+        **view_data,
+    }
 
 
 def _settings_parse_instances(
@@ -1341,8 +1367,10 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
         if agent.runtime_profile_id:
             profile_repo = RuntimeProfileRepository(db)
             runtime_profile = profile_repo.get_by_id(agent.runtime_profile_id)
-            if runtime_profile:
+            if runtime_profile and runtime_profile.owner_user_id in {user.id, agent.owner_user_id}:
                 bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
+            else:
+                runtime_profile = None
 
         if not runtime_profile:
             return templates.TemplateResponse(
@@ -1416,7 +1444,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
 
         profile_repo = RuntimeProfileRepository(db)
         runtime_profile = profile_repo.get_by_id(agent.runtime_profile_id)
-        if not runtime_profile:
+        if not runtime_profile or runtime_profile.owner_user_id not in {user.id, agent.owner_user_id}:
             return templates.TemplateResponse(
                 "partials/settings_panel.html",
                 {
@@ -1488,6 +1516,81 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 **view_data,
             },
         )
+    finally:
+        db.close()
+
+
+@router.get("/app/runtime-profiles/{profile_id}/panel")
+async def app_runtime_profile_panel(request: Request, profile_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        service = RuntimeProfileService(db)
+        profile = service.get_for_user(user, profile_id)
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
+        profile_repo = RuntimeProfileRepository(db)
+        return templates.TemplateResponse(
+            "partials/runtime_profile_panel.html",
+            _runtime_profile_panel_context(request, profile, profile_repo),
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/runtime-profiles/{profile_id}/save")
+async def app_runtime_profile_save(request: Request, profile_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        service = RuntimeProfileService(db)
+        profile = service.get_for_user(user, profile_id)
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
+
+        profile_repo = RuntimeProfileRepository(db)
+        config_base = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        if merge_error:
+            return templates.TemplateResponse(
+                "partials/runtime_profile_panel.html",
+                _runtime_profile_panel_context(request, profile, profile_repo, status_type="error", status_message=merge_error),
+            )
+
+        sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
+        is_default = str(form.get("is_default") or "").lower() in {"1", "true", "on", "yes"}
+        updated, config_changed = service.update_for_user(
+            user,
+            profile_id,
+            name=(form.get("name") or profile.name).strip(),
+            description=(form.get("description") or "").strip() or None,
+            config_json=dump_runtime_profile_config_json(sanitized_config),
+            is_default=is_default,
+        )
+
+        status_type = "success"
+        status_message = "Runtime profile saved."
+        if config_changed:
+            try:
+                await runtime_profile_sync_service.sync_profile_to_bound_agents(db, updated)
+            except Exception:
+                logger.exception("runtime profile fan-out sync failed after profile save profile_id=%s", updated.id)
+                status_type = "error"
+                status_message = "Runtime profile saved, but fan-out sync failed."
+
+        response = templates.TemplateResponse(
+            "partials/runtime_profile_panel.html",
+            _runtime_profile_panel_context(request, updated, profile_repo, status_type=status_type, status_message=status_message),
+        )
+        response.headers["HX-Trigger"] = "runtimeProfilesChanged"
+        return response
     finally:
         db.close()
 

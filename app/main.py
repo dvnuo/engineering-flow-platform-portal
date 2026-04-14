@@ -32,7 +32,12 @@ from app.log_context import bind_log_context, generate_span_id, generate_trace_i
 from app.repositories.user_repo import UserRepository
 from app.logger import setup_logging
 from app.services.auth_service import hash_password
-from app.services.schema_guard import assert_phase5_schema_compatibility, assert_portal_schema_ready
+from app.services.runtime_profile_service import RuntimeProfileService
+from app.services.schema_guard import (
+    assert_phase5_schema_compatibility,
+    assert_portal_schema_ready,
+    assert_runtime_profile_schema_compatibility,
+)
 from app.web import router as web_router
 
 settings = get_settings()
@@ -63,19 +68,25 @@ def on_startup() -> None:
     setup_logging(logging.DEBUG if settings.debug else logging.INFO)
     assert_portal_schema_ready(engine)
     assert_phase5_schema_compatibility(engine)
+    assert_runtime_profile_schema_compatibility(engine)
 
     db = SessionLocal()
     try:
         repo = UserRepository(db)
+        runtime_profile_service = RuntimeProfileService(db)
         # Validate admin password is set
         if not settings.bootstrap_admin_password:
             print("WARNING: BOOTSTRAP_ADMIN_PASSWORD not set! Admin account will not be created.")
         elif not repo.get_by_username(settings.bootstrap_admin_username):
-            repo.create(
+            admin_user = repo.create(
                 settings.bootstrap_admin_username,
                 hash_password(settings.bootstrap_admin_password),
                 role="admin",
             )
+            runtime_profile_service.ensure_user_has_default_profile(admin_user)
+
+        runtime_profile_service.repair_legacy_runtime_profiles(db)
+        runtime_profile_service.ensure_defaults_for_all_users(db)
     finally:
         db.close()
 

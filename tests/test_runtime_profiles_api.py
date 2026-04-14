@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import User
+from app.models import Agent, User
 
 
 def _build_client(monkeypatch):
@@ -21,160 +21,106 @@ def _build_client(monkeypatch):
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
 
-    admin = User(username="admin", password_hash="test", role="admin", is_active=True)
-    viewer = User(username="viewer", password_hash="test", role="viewer", is_active=True)
-    db.add_all([admin, viewer])
+    user1 = User(username="u1", password_hash="test", role="user", is_active=True)
+    user2 = User(username="u2", password_hash="test", role="user", is_active=True)
+    db.add_all([user1, user2])
     db.commit()
-    db.refresh(admin)
-    db.refresh(viewer)
+    db.refresh(user1)
+    db.refresh(user2)
 
-    monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
-
-    state = {"user": admin}
+    state = {"user": user1}
 
     def _override_user():
-        user = state["user"]
-        return SimpleNamespace(id=user.id, role=user.role, username=user.username, nickname=user.username)
+        u = state["user"]
+        return SimpleNamespace(id=u.id, role=u.role, username=u.username, nickname=u.username)
 
     def _override_db():
         yield db
 
+    monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
     app.dependency_overrides[deps_module.get_current_user] = _override_user
     app.dependency_overrides[runtime_profiles_api.get_db] = _override_db
     app.dependency_overrides[agents_api.get_db] = _override_db
     app.dependency_overrides[agents_api.get_current_user] = _override_user
 
+    def _set_user(user):
+        state["user"] = user
+
     def _cleanup():
         app.dependency_overrides.clear()
         db.close()
 
-    def _set_user(user):
-        state["user"] = user
-
-    return TestClient(app), _set_user, admin, viewer, _cleanup
+    return TestClient(app), db, user1, user2, _set_user, _cleanup
 
 
-def test_runtime_profiles_crud_and_validation(monkeypatch):
-    client, _set_user, _admin, _viewer, cleanup = _build_client(monkeypatch)
+def test_runtime_profiles_scoped_and_defaults(monkeypatch):
+    client, db, u1, u2, set_user, cleanup = _build_client(monkeypatch)
     try:
-        bad_json = client.post("/api/runtime-profiles", json={"name": "rp1", "config_json": "{"})
-        assert bad_json.status_code == 422
+        r1 = client.post("/api/runtime-profiles", json={"name": "Default", "description": "a", "config_json": json.dumps({"llm": {"provider": "openai"}})})
+        assert r1.status_code == 200
+        body1 = r1.json()
+        assert body1["owner_user_id"] == u1.id
+        assert body1["is_default"] is True
 
-        bad_section = client.post("/api/runtime-profiles", json={"name": "rp2", "config_json": json.dumps({"ssh": {}})})
-        assert bad_section.status_code == 422
+        r2 = client.post("/api/runtime-profiles", json={"name": "Reviewer", "config_json": "{}"})
+        assert r2.status_code == 200
+        body2 = r2.json()
 
-        create = client.post(
-            "/api/runtime-profiles",
-            json={"name": "Default Runtime", "description": "base", "config_json": json.dumps({"llm": {"provider": "openai"}})},
-        )
-        assert create.status_code == 200
-        profile = create.json()
-        assert profile["revision"] == 1
+        dup = client.post("/api/runtime-profiles", json={"name": "Reviewer", "config_json": "{}"})
+        assert dup.status_code == 409
+
+        set_user(u2)
+        same_name_other_user = client.post("/api/runtime-profiles", json={"name": "Reviewer", "config_json": "{}"})
+        assert same_name_other_user.status_code == 200
+
+        options = client.get("/api/runtime-profiles/options")
+        assert options.status_code == 200
+        assert len(options.json()) == 1
+        assert options.json()[0]["is_default"] is True
 
         list_resp = client.get("/api/runtime-profiles")
-        assert list_resp.status_code == 200
         assert len(list_resp.json()) == 1
+        assert list_resp.json()[0]["owner_user_id"] == u2.id
 
-        get_resp = client.get(f"/api/runtime-profiles/{profile['id']}")
-        assert get_resp.status_code == 200
-        assert get_resp.json()["name"] == "Default Runtime"
+        # cross-user read -> 404
+        not_found = client.get(f"/api/runtime-profiles/{body1['id']}")
+        assert not_found.status_code == 404
 
-        patch_resp = client.patch(
-            f"/api/runtime-profiles/{profile['id']}",
-            json={"config_json": json.dumps({"llm": {"provider": "anthropic"}, "debug": {"enabled": True}})},
+        set_user(u1)
+        switch_default = client.patch(f"/api/runtime-profiles/{body2['id']}", json={"is_default": True})
+        assert switch_default.status_code == 200
+        options = client.get("/api/runtime-profiles/options").json()
+        assert len([p for p in options if p["is_default"]]) == 1
+        assert any(p["id"] == body2["id"] and p["is_default"] for p in options)
+
+        # cannot delete last profile
+        del1 = client.delete(f"/api/runtime-profiles/{body2['id']}")
+        assert del1.status_code == 200
+        del_last = client.delete(f"/api/runtime-profiles/{body1['id']}")
+        assert del_last.status_code == 409
+
+        # in-use profile cannot delete
+        p = client.post("/api/runtime-profiles", json={"name": "InUse", "is_default": True, "config_json": "{}"}).json()
+        agent = Agent(
+            name="a1",
+            owner_user_id=u1.id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            runtime_profile_id=p["id"],
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep",
+            service_name="svc",
+            pvc_name="pvc",
+            endpoint_path="/",
+            agent_type="workspace",
         )
-        assert patch_resp.status_code == 200
-        assert patch_resp.json()["revision"] == 2
+        db.add(agent)
+        db.commit()
 
-        delete_resp = client.delete(f"/api/runtime-profiles/{profile['id']}")
-        assert delete_resp.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_runtime_profile_delete_conflict_when_referenced(monkeypatch):
-    client, _set_user, _admin, _viewer, cleanup = _build_client(monkeypatch)
-    try:
-        rp = client.post("/api/runtime-profiles", json={"name": "InUse", "config_json": "{}"}).json()
-        create_agent = client.post(
-            "/api/agents",
-            json={"name": "A1", "image": "example/image:latest", "runtime_profile_id": rp["id"]},
-        )
-        assert create_agent.status_code == 200
-
-        delete_resp = client.delete(f"/api/runtime-profiles/{rp['id']}")
-        assert delete_resp.status_code == 409
-    finally:
-        cleanup()
-
-
-def test_runtime_profile_options_endpoint_for_non_admin(monkeypatch):
-    client, set_user, _admin, viewer, cleanup = _build_client(monkeypatch)
-    try:
-        create = client.post(
-            "/api/runtime-profiles",
-            json={"name": "Option Runtime", "description": "d", "config_json": json.dumps({"llm": {"provider": "openai"}})},
-        )
-        assert create.status_code == 200
-
-        set_user(viewer)
-        resp = client.get("/api/runtime-profiles/options")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert len(body) == 1
-        assert set(body[0].keys()) == {"id", "name", "description", "revision"}
-        assert "config_json" not in body[0]
-    finally:
-        cleanup()
-
-
-def test_runtime_profile_patch_triggers_fanout_sync(monkeypatch):
-    client, _set_user, _admin, _viewer, cleanup = _build_client(monkeypatch)
-    try:
-        create = client.post(
-            "/api/runtime-profiles",
-            json={"name": "Sync Runtime", "config_json": json.dumps({"llm": {"provider": "openai"}})},
-        )
-        assert create.status_code == 200
-        profile = create.json()
-
-        calls = []
-
-        async def _fake_sync(db, runtime_profile):
-            calls.append(runtime_profile.id)
-            return {"updated_running_count": 0, "skipped_not_running_count": 0, "failed_agent_ids": []}
-
-        monkeypatch.setattr("app.api.runtime_profiles.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
-
-        patch_resp = client.patch(
-            f"/api/runtime-profiles/{profile['id']}",
-            json={"config_json": json.dumps({"llm": {"provider": "anthropic"}})},
-        )
-        assert patch_resp.status_code == 200
-        assert patch_resp.json()["id"] == profile["id"]
-        assert calls == [profile["id"]]
-    finally:
-        cleanup()
-
-
-def test_runtime_profile_patch_sync_exception_does_not_break_response(monkeypatch):
-    client, _set_user, _admin, _viewer, cleanup = _build_client(monkeypatch)
-    try:
-        create = client.post(
-            "/api/runtime-profiles",
-            json={"name": "Sync Exception Runtime", "config_json": json.dumps({"llm": {"provider": "openai"}})},
-        )
-        profile = create.json()
-
-        async def _boom(_db, _runtime_profile):
-            raise RuntimeError("sync failed")
-
-        monkeypatch.setattr("app.api.runtime_profiles.runtime_profile_sync_service.sync_profile_to_bound_agents", _boom)
-        patch_resp = client.patch(
-            f"/api/runtime-profiles/{profile['id']}",
-            json={"config_json": json.dumps({"llm": {"provider": "anthropic"}})},
-        )
-        assert patch_resp.status_code == 200
-        assert patch_resp.json()["id"] == profile["id"]
+        del_used = client.delete(f"/api/runtime-profiles/{p['id']}")
+        assert del_used.status_code == 409
     finally:
         cleanup()

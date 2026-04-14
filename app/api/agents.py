@@ -91,6 +91,7 @@ def _validate_profile_references(
     capability_profile_id: str | None,
     policy_profile_id: str | None,
     runtime_profile_id: str | None,
+    current_user_id: int | None = None,
 ) -> None:
     if capability_profile_id is not None:
         capability_profile = CapabilityProfileRepository(db).get_by_id(capability_profile_id)
@@ -104,7 +105,7 @@ def _validate_profile_references(
 
     if runtime_profile_id is not None:
         runtime_profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
-        if not runtime_profile:
+        if not runtime_profile or (current_user_id is not None and runtime_profile.owner_user_id != current_user_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
 
 
@@ -130,7 +131,7 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 @router.post("", response_model=AgentResponse)
 def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _validate_profile_references(db, payload.capability_profile_id, payload.policy_profile_id, payload.runtime_profile_id)
+    _validate_profile_references(db, payload.capability_profile_id, payload.policy_profile_id, payload.runtime_profile_id, current_user_id=user.id)
     _validate_agent_type_or_422(payload.agent_type)
 
     repo = AgentRepository(db)
@@ -188,7 +189,7 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         _validate_profile_references(db, None, changes["policy_profile_id"], None)
 
     if "runtime_profile_id" in changes and changes["runtime_profile_id"] is not None:
-        _validate_profile_references(db, None, None, changes["runtime_profile_id"])
+        _validate_profile_references(db, None, None, changes["runtime_profile_id"], current_user_id=user.id)
 
     if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="disk_size_gi must be >= 1")
