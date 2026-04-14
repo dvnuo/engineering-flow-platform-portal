@@ -50,6 +50,7 @@ def _normalize_github_review_requested(payload: dict) -> ExternalEventIngressReq
         target_ref=f"{owner}/{repo}",
         dedupe_key=dedupe_key,
         payload_json=payload_json,
+        metadata_json=json.dumps({"trigger_mode": "push", "source_kind": "github.pull_request_review_requested"}),
     )
 
 
@@ -89,6 +90,7 @@ def _normalize_jira_workflow_requested(payload: dict) -> ExternalEventIngressReq
         external_account_id=issue_assignee,
         target_ref=project_key,
         payload_json=payload_json,
+        metadata_json=json.dumps({"trigger_mode": "push", "source_kind": "jira.workflow_review_requested"}),
         project_key=project_key,
         issue_type=issue_type,
         trigger_status=trigger_status,

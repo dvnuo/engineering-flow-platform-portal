@@ -1,5 +1,6 @@
 import json
 
+from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
@@ -48,6 +49,55 @@ class ExternalEventRouterService:
         if not isinstance(parsed, dict):
             return None
         return parsed
+
+    @staticmethod
+    def _parse_metadata_object(raw: str | None) -> dict | None:
+        return ExternalEventRouterService._parse_json_object(raw)
+
+    @staticmethod
+    def _resolve_trigger_mode(request: ExternalEventIngressRequest) -> str:
+        metadata = ExternalEventRouterService._parse_metadata_object(request.metadata_json)
+        if not metadata:
+            return "push"
+        trigger_mode = str(metadata.get("trigger_mode") or "").strip().lower()
+        if trigger_mode in {"push", "poll"}:
+            return trigger_mode
+        return "push"
+
+    @staticmethod
+    def _normalize_subscription_mode(mode: str | None) -> str:
+        cleaned = (mode or "").strip().lower()
+        return cleaned or "push"
+
+    @staticmethod
+    def _subscription_accepts_trigger_mode(subscription, trigger_mode: str) -> bool:
+        subscription_mode = ExternalEventRouterService._normalize_subscription_mode(subscription.mode)
+        if subscription_mode == "hybrid":
+            return True
+        if trigger_mode == "push":
+            return subscription_mode in {"push", "hybrid"}
+        if trigger_mode == "poll":
+            return subscription_mode in {"poll", "hybrid"}
+        return subscription_mode in {"push", "hybrid"}
+
+    @staticmethod
+    def _filter_subscriptions_for_trigger_mode(subscriptions: list, trigger_mode: str) -> list:
+        return [sub for sub in subscriptions if ExternalEventRouterService._subscription_accepts_trigger_mode(sub, trigger_mode)]
+
+    @staticmethod
+    def _filter_subscriptions_for_bound_agent(subscriptions: list, *, agent_id: str, binding_id: str | None) -> list:
+        filtered: list = []
+        for sub in subscriptions:
+            if sub.agent_id != agent_id:
+                continue
+            if sub.binding_id and sub.binding_id != binding_id:
+                continue
+            filtered.append(sub)
+        return filtered
+
+    @staticmethod
+    def _filter_subscriptions_for_agent(subscriptions: list, *, agent_id: str) -> list:
+        return [sub for sub in subscriptions if sub.agent_id == agent_id]
 
     @staticmethod
     def _extract_github_review_payload(request: ExternalEventIngressRequest, subscription_id: str) -> tuple[dict | None, str | None]:
@@ -295,6 +345,8 @@ class ExternalEventRouterService:
 
         subscriptions = subscription_repo.list_enabled_for_source(source_type=source_type, event_type=request.event_type)
         matching_subscriptions = [sub for sub in subscriptions if self._matches_target_ref(sub, request.target_ref)]
+        trigger_mode = self._resolve_trigger_mode(request)
+        matching_subscriptions = self._filter_subscriptions_for_trigger_mode(matching_subscriptions, trigger_mode)
         matching_subscriptions.sort(key=lambda item: item.id)
         matched_subscription_ids = [sub.id for sub in matching_subscriptions]
 
@@ -302,9 +354,9 @@ class ExternalEventRouterService:
             return ExternalEventIngressResponse(
                 accepted=False,
                 matched_subscription_ids=[],
-                routing_reason="no_matching_subscription",
+                routing_reason="no_matching_subscription_for_trigger_mode",
                 resolved_task_type=None,
-                message="No enabled subscription matched source/event/target_ref",
+                message=f"No enabled subscription matched source/event/target_ref for trigger_mode={trigger_mode}",
             )
 
         matched_agent_id = None
@@ -337,6 +389,21 @@ class ExternalEventRouterService:
             matched_workflow_rule_id = matched_rule.id
             matched_agent_id = matched_rule.target_agent_id
             task_type = "jira_workflow_review_task"
+            agent_subscriptions = self._filter_subscriptions_for_agent(
+                matching_subscriptions,
+                agent_id=matched_agent_id,
+            )
+            if not agent_subscriptions:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="no_subscription_for_routed_agent",
+                    matched_agent_id=matched_agent_id,
+                    matched_workflow_rule_id=matched_workflow_rule_id,
+                    resolved_task_type=task_type,
+                    message="Workflow rule matched an agent, but that agent has no matching enabled subscription",
+                )
+            selected_subscription = agent_subscriptions[0]
             matched_agent = AgentRepository(db).get_by_id(matched_agent_id) if matched_agent_id else None
             gate_rejection = self._evaluate_capability_profile_event_gate(
                 agent=matched_agent,
@@ -394,21 +461,50 @@ class ExternalEventRouterService:
                     message="external_account_id is required for identity binding based routing",
                 )
 
+            binding_repo = AgentIdentityBindingRepository(db)
+            matched_binding = binding_repo.find_binding(
+                system_type=source_type,
+                external_account_id=request.external_account_id,
+            )
+            if not matched_binding:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="no_enabled_binding",
+                    matched_agent_id=None,
+                    message="No agent matched the provided identity binding",
+                )
+
+            matched_agent_id = matched_binding.agent_id
+            agent_subscriptions = self._filter_subscriptions_for_bound_agent(
+                matching_subscriptions,
+                agent_id=matched_agent_id,
+                binding_id=matched_binding.id,
+            )
+            if not agent_subscriptions:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="no_subscription_for_bound_agent",
+                    matched_agent_id=matched_agent_id,
+                    message="Matched identity binding exists, but no enabled subscription for that agent/binding accepted this event",
+                )
+            selected_subscription = agent_subscriptions[0]
+
             routing_decision = self.runtime_router.resolve_binding_decision_for_event(
                 system_type=source_type,
                 external_account_id=request.external_account_id,
                 db=db,
             )
-            if not routing_decision.matched_agent_id:
+            if routing_decision.matched_agent_id != matched_agent_id:
                 return ExternalEventIngressResponse(
                     accepted=False,
                     matched_subscription_ids=matched_subscription_ids,
-                    routing_reason=routing_decision.reason,
-                    matched_agent_id=None,
-                    message="No agent matched the provided identity binding",
+                    routing_reason="binding_routing_mismatch",
+                    matched_agent_id=matched_agent_id,
+                    message="Identity binding agent does not match runtime router decision",
                 )
 
-            matched_agent_id = routing_decision.matched_agent_id
             matched_agent = AgentRepository(db).get_by_id(matched_agent_id)
             gate_rejection = self._evaluate_capability_profile_event_gate(
                 agent=matched_agent,

@@ -2355,6 +2355,14 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
             error = "source_type and event_type are required"
         if form_data["mode"] not in {"push", "poll", "hybrid"}:
             error = "mode must be push, poll, or hybrid"
+        if not error and form_data["binding_id"]:
+            binding = AgentIdentityBindingRepository(db).get_by_id(form_data["binding_id"])
+            if (
+                not binding
+                or binding.agent_id != agent_id
+                or (binding.system_type or "").strip().lower() != form_data["source_type"]
+            ):
+                error = "binding_id must refer to a binding on the same agent and provider"
 
         scope_json, scope_error = _parse_json_textarea(form_data["scope_json"], field_name="scope_json")
         matcher_json, matcher_error = _parse_json_textarea(form_data["matcher_json"], field_name="matcher_json")

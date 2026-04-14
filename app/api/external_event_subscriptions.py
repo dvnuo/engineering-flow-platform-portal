@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
+from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.schemas.external_event_subscription import ExternalEventSubscriptionCreateRequest, ExternalEventSubscriptionResponse
@@ -20,6 +21,11 @@ def _derive_source_kind(source_type: str, event_type: str, provided_source_kind:
     return f"{(source_type or '').strip().lower()}.{(event_type or '').strip()}"
 
 
+def _normalize_mode(mode: str | None) -> str:
+    cleaned = (mode or "").strip().lower()
+    return cleaned or "push"
+
+
 @router.post("/api/external-event-subscriptions", response_model=ExternalEventSubscriptionResponse)
 def create_external_event_subscription(
     payload: ExternalEventSubscriptionCreateRequest,
@@ -33,8 +39,23 @@ def create_external_event_subscription(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     create_payload = payload.model_dump()
+    normalized_source_type = (payload.source_type or "").strip().lower()
+    normalized_mode = _normalize_mode(payload.mode)
+    if normalized_mode not in {"push", "poll", "hybrid"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="mode must be one of push, poll, hybrid")
+
+    if payload.binding_id:
+        binding = AgentIdentityBindingRepository(db).get_by_id(payload.binding_id)
+        if not binding or binding.agent_id != payload.agent_id or binding.system_type != normalized_source_type:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="binding_id must refer to a binding on the same agent and provider",
+            )
+
+    create_payload["source_type"] = normalized_source_type
+    create_payload["mode"] = normalized_mode
     create_payload["source_kind"] = _derive_source_kind(
-        payload.source_type,
+        normalized_source_type,
         payload.event_type,
         payload.source_kind,
     )

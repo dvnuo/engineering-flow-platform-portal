@@ -282,6 +282,24 @@ def test_settings_panel_includes_triggered_work_sections(monkeypatch):
         cleanup()
 
 
+def test_settings_panel_keeps_triggered_work_containers_outside_outer_form(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(db, agent, name="rp-layout", config={"llm": {"provider": "openai"}}, revision=1)
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        html = resp.text
+        form_end = html.find("</form>")
+        bindings_idx = html.find("settings-bindings-panel-container")
+        subs_idx = html.find("settings-subscriptions-panel-container")
+        assert form_end != -1
+        assert bindings_idx != -1 and subs_idx != -1
+        assert form_end < bindings_idx
+        assert form_end < subs_idx
+    finally:
+        cleanup()
+
+
 def test_task_detail_panel_shows_bundle_and_dedupe_metadata(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
