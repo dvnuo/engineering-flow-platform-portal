@@ -613,7 +613,9 @@ aState.activeRequest = {{ clientRequestId: "req-a" }};
     unread: ensureChatState("agent-A").unreadCount,
     needsReload: ensureChatState("agent-A").needsReload,
     bSession: state.agentSessionIds.get("agent-B"),
-    renderAgentListCalls: rendered
+    renderAgentListCalls: rendered,
+    inflightThinking: ensureChatState("agent-A").inflightThinking,
+    pendingThinkingEvents: ensureChatState("agent-A").pendingThinkingEvents
   }}));
 }})();
 """
@@ -623,6 +625,8 @@ aState.activeRequest = {{ clientRequestId: "req-a" }};
     assert data["needsReload"] is True
     assert data["bSession"] == "s-b"
     assert data["renderAgentListCalls"] == 1
+    assert data["inflightThinking"] is None
+    assert data["pendingThinkingEvents"] is None
 
 
 def test_selected_agent_hidden_success_notifies_and_merges_events():
@@ -867,6 +871,8 @@ function notifyAgentCompletion() {{}}
 {handle_failure}
 const chatStateA = ensureChatState("agent-A");
 chatStateA.activeRequest = {{ clientRequestId: "req-a" }};
+chatStateA.attachmentHistory = [["old-1"], ["new-failed"]];
+chatStateA.didAppendAttachmentHistoryForPendingSend = true;
 handleAgentChatFailure("agent-A", {{
   clientRequestId: "req-a",
   backupMessage: "fix this",
@@ -877,6 +883,7 @@ console.log(JSON.stringify({{
   draftText: ensureChatState("agent-A").draftText,
   draftAttachmentsValue: ensureChatState("agent-A").draftAttachmentsValue,
   pendingFilesLen: ensureChatState("agent-A").pendingFiles.length,
+  attachmentHistory: ensureChatState("agent-A").attachmentHistory,
   backgroundStatus: ensureChatState("agent-A").backgroundStatus,
   needsReload: ensureChatState("agent-A").needsReload,
   renderCalls
@@ -887,9 +894,106 @@ console.log(JSON.stringify({{
     assert data["draftText"] == "fix this"
     assert data["draftAttachmentsValue"] == '["file-1","file-2"]'
     assert data["pendingFilesLen"] == 1
+    assert data["attachmentHistory"] == [["old-1"]]
     assert data["backgroundStatus"] == "error"
     assert data["needsReload"] is False
     assert data["renderCalls"] == 1
+
+
+def test_render_chat_history_rebuilds_attachment_history_for_selected_agent():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    render_history = _extract_js_function(js_file, "renderChatHistory")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  selectedAgentName: "Agent A",
+  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [["dirty-old"]] }}]]),
+}};
+const dom = {{
+  messageList: {{
+    innerHTML: "",
+    appendChild() {{}},
+  }},
+}};
+function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
+function clearMessageListToWelcome() {{ dom.messageList.innerHTML = "WELCOME"; }}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function attachThinkingToLatestAssistant() {{}}
+function scrollToBottom() {{}}
+const document = {{
+  createElement(tag) {{
+    return {{
+      tag,
+      className: "",
+      dataset: {{}},
+      textContent: "",
+      appendChild() {{}},
+    }};
+  }},
+}};
+{render_history}
+renderChatHistory([
+  {{ role: "user", content: "u1", attachments: ["file-1"] }},
+  {{ role: "assistant", content: "a1" }},
+  {{ role: "user", content: "u2", attachments: [] }},
+], {{}});
+console.log(JSON.stringify({{
+  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["attachmentHistory"] == [["file-1"], []]
+
+
+def test_render_chat_history_empty_clears_attachment_history():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    render_history = _extract_js_function(js_file, "renderChatHistory")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  selectedAgentName: "Agent A",
+  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [["dirty-old"]] }}]]),
+}};
+const dom = {{
+  messageList: {{
+    innerHTML: "",
+    appendChild() {{}},
+  }},
+}};
+function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
+function clearMessageListToWelcome() {{ dom.messageList.innerHTML = "WELCOME"; }}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function attachThinkingToLatestAssistant() {{}}
+function scrollToBottom() {{}}
+const document = {{
+  createElement() {{
+    return {{ className: "", dataset: {{}}, textContent: "", appendChild() {{}} }};
+  }},
+}};
+{render_history}
+renderChatHistory([], {{}});
+console.log(JSON.stringify({{
+  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory,
+  messageListHtml: dom.messageList.innerHTML
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["attachmentHistory"] == []
+    assert data["messageListHtml"] == "WELCOME"
 
 
 def test_ensure_event_socket_for_selected_agent_uses_active_request_id():

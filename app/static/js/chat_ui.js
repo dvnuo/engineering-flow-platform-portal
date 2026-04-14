@@ -1984,6 +1984,8 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   if (state.selectedAgentId !== agentIdAtSend) {
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
     chatState.needsReload = true;
     markAgentUnread(agentIdAtSend, "completed");
     renderAgentList();
@@ -2037,11 +2039,18 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   const restoredMessage = requestCtx.backupMessage || "";
   const restoredFiles = Array.isArray(requestCtx.backupFiles) ? requestCtx.backupFiles : [];
   const restoredAttachmentsValue = JSON.stringify(requestCtx.attachments || []);
+  const shouldRollbackAttachmentHistory =
+    !!chatState.didAppendAttachmentHistoryForPendingSend &&
+    Array.isArray(chatState.attachmentHistory) &&
+    chatState.attachmentHistory.length > 0;
   setChatSubmittingForAgent(agentIdAtSend, false);
   chatState.activeRequest = null;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   const errorMsg = error?.message || "Send failed";
   if (state.selectedAgentId !== agentIdAtSend) {
+    if (shouldRollbackAttachmentHistory) {
+      chatState.attachmentHistory.pop();
+    }
     chatState.draftText = restoredMessage;
     chatState.pendingFiles = restoredFiles;
     chatState.draftAttachmentsValue = restoredAttachmentsValue;
@@ -2057,7 +2066,9 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   removeTemporaryAssistantRows();
   removeLatestOptimisticUserRow();
-  if (chatState.attachmentHistory.length) chatState.attachmentHistory.pop();
+  if (shouldRollbackAttachmentHistory) {
+    chatState.attachmentHistory.pop();
+  }
   chatState.pendingFiles = restoredFiles;
   if (dom.chatInput) dom.chatInput.value = restoredMessage;
   const attachmentsInput = document.getElementById("chat-attachments");
@@ -2721,13 +2732,16 @@ async function returnFromTaskDetailToSidebar() {
 
 function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
+  const selectedChatState = getChatState();
 
   if (!messages.length) {
+    if (selectedChatState) selectedChatState.attachmentHistory = [];
     clearMessageListToWelcome();
     return;
   }
 
   dom.messageList.innerHTML = "";
+  if (selectedChatState) selectedChatState.attachmentHistory = [];
   messages.forEach((message) => {
     if (message.role !== "user" && message.role !== "assistant") return;
     const isUser = message.role === "user";
@@ -2766,13 +2780,14 @@ function renderChatHistory(messages, metadata = {}) {
       content.textContent = message.content || "";
       article.appendChild(content);
 
-      const msgAttachments = message.attachments || [];
-      if (msgAttachments.length > 0) {
+      const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
+      if (selectedChatState) selectedChatState.attachmentHistory.push([...normalizedAttachments]);
+      if (normalizedAttachments.length > 0) {
         const attachmentDiv = document.createElement("div");
         attachmentDiv.className = "message-attachments";
-        attachmentDiv.dataset.attachments = JSON.stringify(msgAttachments);
-        article.dataset.attachments = JSON.stringify(msgAttachments);
-        msgAttachments.forEach(fileId => {
+        attachmentDiv.dataset.attachments = JSON.stringify(normalizedAttachments);
+        article.dataset.attachments = JSON.stringify(normalizedAttachments);
+        normalizedAttachments.forEach(fileId => {
           const img = document.createElement("img");
           img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
           img.className = "message-attachment-thumb";
