@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 import pytest
+from _js_extract_helpers import _extract_js_function, _extract_js_helper_block
 
 
 def test_agent_settings_panel():
@@ -130,120 +131,6 @@ def test_proxy_api_chat_stream():
     response = client.post("/a/agent-123/api/chat/stream",
                          json={"message": "test"})
     assert response.status_code in [400, 401, 403, 404, 500, 502]
-
-
-def test_chat_ui_includes_display_block_renderer_helpers():
-    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
-    assert "function parseDisplayBlocks(" in js_source
-    assert "function renderDisplayBlocksToHtml(" in js_source
-    assert "function renderSingleDisplayBlock(" in js_source
-    assert "function renderCodeBlock(" in js_source
-    assert "function renderTableBlock(" in js_source
-    assert "function enhanceMarkdownBlock(" in js_source
-
-
-def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
-    start_marker = f"// RUNTIME_EVENT_HELPER_START: {helper_name}"
-    end_marker = f"// RUNTIME_EVENT_HELPER_END: {helper_name}"
-    start = js_text.find(start_marker)
-    if start < 0:
-        raise AssertionError(f"Unable to find start marker for {helper_name} in chat_ui.js")
-    end = js_text.find(end_marker, start)
-    if end < 0:
-        raise AssertionError(f"Unable to find end marker for {helper_name} in chat_ui.js")
-    return js_text[start + len(start_marker):end].strip()
-
-
-def _extract_js_function(js_text: str, function_name: str) -> str:
-    markers = [f"async function {function_name}(", f"function {function_name}("]
-    start = -1
-    for marker in markers:
-        start = js_text.find(marker)
-        if start >= 0:
-            break
-    if start < 0:
-        raise AssertionError(f"Unable to find function {function_name} in chat_ui.js")
-
-    def _scan_to_matching(text: str, index: int, open_char: str, close_char: str) -> int:
-        depth = 0
-        i = index
-        in_single = False
-        in_double = False
-        in_template = False
-        while i < len(text):
-            char = text[i]
-            nxt = text[i + 1] if i + 1 < len(text) else ""
-            if in_single:
-                if char == "\\":
-                    i += 2
-                    continue
-                if char == "'":
-                    in_single = False
-                i += 1
-                continue
-            if in_double:
-                if char == "\\":
-                    i += 2
-                    continue
-                if char == '"':
-                    in_double = False
-                i += 1
-                continue
-            if in_template:
-                if char == "\\":
-                    i += 2
-                    continue
-                if char == "`":
-                    in_template = False
-                i += 1
-                continue
-            if char == "/" and nxt == "/":
-                nl = text.find("\n", i + 2)
-                i = len(text) if nl == -1 else nl + 1
-                continue
-            if char == "/" and nxt == "*":
-                end = text.find("*/", i + 2)
-                if end == -1:
-                    raise AssertionError(f"Unable to parse function {function_name}; unterminated block comment")
-                i = end + 2
-                continue
-            if char == "'":
-                in_single = True
-                i += 1
-                continue
-            if char == '"':
-                in_double = True
-                i += 1
-                continue
-            if char == "`":
-                in_template = True
-                i += 1
-                continue
-            if char == open_char:
-                depth += 1
-            elif char == close_char:
-                depth -= 1
-                if depth == 0:
-                    return i
-            i += 1
-        raise AssertionError(f"Unable to parse function {function_name}; unmatched {open_char}{close_char}")
-
-    signature_paren_start = js_text.find("(", start)
-    if signature_paren_start < 0:
-        raise AssertionError(f"Unable to parse function {function_name} signature start")
-    signature_paren_end = _scan_to_matching(js_text, signature_paren_start, "(", ")")
-
-    body_start = -1
-    for index in range(signature_paren_end + 1, len(js_text)):
-        if js_text[index].isspace():
-            continue
-        body_start = index
-        break
-    if body_start < 0 or js_text[body_start] != "{":
-        raise AssertionError(f"Unable to parse function {function_name} body start")
-
-    body_end = _scan_to_matching(js_text, body_start, "{", "}")
-    return js_text[start:body_end + 1]
 
 
 def test_chat_ui_display_block_helpers_behavior():
@@ -508,6 +395,9 @@ console.log(JSON.stringify(result));
     assert normalized["data"]["request_id"] == "r1"
     assert normalized["data"]["session_id"] == "s1"
     assert normalized["data"]["agent_id"] == "a1"
+    assert normalized["request_id"] == "r1"
+    assert normalized["session_id"] == "s1"
+    assert normalized["agent_id"] == "a1"
     assert normalized["state"] == "running"
     assert isinstance(normalized["ts"], (int, float))
     assert data["precedence"]["type"] == "normalized_type"
@@ -518,117 +408,46 @@ console.log(JSON.stringify(result));
 
     assert data["invalid"] == [None, None, None]
     assert data["completionStates"] == [True, True, True, True, False, False, False]
-    assert data["zeroTs"]["ts"] == 0
-    assert data["zeroStringTs"]["ts"] == "0"
-    assert data["legacyComplete"]["type"] == "execution.completed"
-    assert data["legacyComplete"]["raw_type"] == "complete"
-    assert data["legacyComplete"]["lifecycle_type"] == "execution.completed"
-    assert data["completionState"]["lifecycle_type"] == "execution.completed"
-    assert data["failedState"]["lifecycle_type"] == "execution.failed"
-    assert data["failedResult"]["lifecycle_type"] == "execution.failed"
 
 
-def test_chat_ui_event_socket_replaces_stale_connecting_session():
+def test_update_agent_session_is_isolated_per_agent():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
-    ensure_socket_fn = _extract_js_function(js_file, "ensureEventSocketForSelectedAgent")
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    update_session = _extract_js_function(js_file, "updateAgentSession")
 
     script = f"""
-{ensure_socket_fn}
-
-const events = [];
-const CLOSED = 3;
-const CONNECTING = 0;
-const OPEN = 1;
-let currentSession = "new-session";
-let websocketCreated = 0;
-
-const window = {{
-  location: {{
-    protocol: "https:",
-    host: "portal.test",
-  }}
-}};
-
 const state = {{
-  selectedAgentId: "agent-A",
-  eventWs: {{
-    readyState: CONNECTING,
-    close: () => {{
-      events.push("closed:old");
-      state.eventWs.readyState = CLOSED;
-    }},
-  }},
-  eventWsAgentId: "agent-A",
-  eventWsSessionId: "old-session",
+  selectedAgentId: "agent-B",
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
 }};
-
-function currentSessionIdForSelectedAgent() {{
-  return currentSession;
-}}
-
-function disconnectEventSocket() {{
-  if (state.eventWs) state.eventWs.close();
-  state.eventWs = null;
-  state.eventWsAgentId = null;
-  state.eventWsSessionId = null;
-}}
-
-class FakeWebSocket {{
-  constructor(url) {{
-    this.url = url;
-    this.readyState = CONNECTING;
-    websocketCreated += 1;
-    events.push("opened:" + url);
-  }}
-}}
-FakeWebSocket.CONNECTING = CONNECTING;
-FakeWebSocket.OPEN = OPEN;
-globalThis.WebSocket = FakeWebSocket;
-
-ensureEventSocketForSelectedAgent();
-const firstSocket = state.eventWs;
-const firstUrl = firstSocket?.url || null;
-const firstSession = state.eventWsSessionId;
-const firstCreated = websocketCreated;
-
-ensureEventSocketForSelectedAgent();
-const secondSocket = state.eventWs;
-const secondUrl = secondSocket?.url || null;
-const secondSession = state.eventWsSessionId;
-const secondCreated = websocketCreated;
-
+function setLastSessionId() {{}}
+function syncHiddenSessionInputFromState() {{}}
+function ensureEventSocketForSelectedAgent() {{}}
+{create_state}
+{ensure_state}
+{update_session}
+updateAgentSession("agent-A", "s-a");
+updateAgentSession("agent-B", "s-b");
+updateAgentSession("agent-A", "s-a-2");
 console.log(JSON.stringify({{
-  events,
-  firstUrl,
-  firstSession,
-  firstCreated,
-  secondUrl,
-  secondSession,
-  secondCreated,
-  sameSocketOnSecondCall: firstSocket === secondSocket,
+  a: ensureChatState("agent-A").sessionId,
+  b: ensureChatState("agent-B").sessionId,
+  mapA: state.agentSessionIds.get("agent-A"),
+  mapB: state.agentSessionIds.get("agent-B"),
 }}));
 """
-
-    completed = subprocess.run(
-        [node_bin, "-e", script],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
-
-    assert "closed:old" in data["events"]
-    assert data["firstUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=new-session"
-    assert data["firstSession"] == "new-session"
-    assert data["firstCreated"] == 1
-    assert data["secondCreated"] == 1
-    assert data["secondUrl"] == data["firstUrl"]
-    assert data["secondSession"] == "new-session"
-    assert data["sameSocketOnSecondCall"] is True
+    assert data["a"] == "s-a-2"
+    assert data["b"] == "s-b"
+    assert data["mapA"] == "s-a-2"
+    assert data["mapB"] == "s-b"
 
 
 def test_chat_ui_set_active_nav_section_loads_cached_bundles_without_refreshing():

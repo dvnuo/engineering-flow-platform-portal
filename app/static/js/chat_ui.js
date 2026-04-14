@@ -109,6 +109,7 @@ if (dom.chatInput) {
         return;
       }
       
+      const agentId = state.selectedAgentId;
       for (const { file, name, isImage } of files) {
         const pf = {
           id: 'paste_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
@@ -124,10 +125,10 @@ if (dom.chatInput) {
           pf.previewUrl = URL.createObjectURL(file);
         }
         
-        state.pendingFiles.push(pf);
+        ensureChatState(state.selectedAgentId).pendingFiles.push(pf);
         renderInputPreview();
         
-        uploadPendingFile(pf)
+        uploadPendingFile(pf, agentId)
           .then(data => {
             pf.status = 'uploaded';
             pf.uploadedData = data;
@@ -162,10 +163,9 @@ function setBlobUrlMapping(blobUrl, fileId) {
 }
 
 function addToAttachmentHistory(attachments) {
-  if (!state.attachmentHistory) {
-    state.attachmentHistory = [];
-  }
-  state.attachmentHistory.push(attachments);
+  const chatState = getChatState();
+  if (!chatState) return;
+  chatState.attachmentHistory.push(attachments);
 }
 
 function getLastSessionKey(agentId) {
@@ -202,24 +202,18 @@ const state = {
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
   agentSessionIds: new Map(),
-  isSubmittingChat: false,
+  chatStatesByAgent: new Map(),
   pendingMessage: "",
   currentUserId: Number(dom.appRoot?.dataset.userId || 0),
   currentUserName: dom.appRoot?.dataset.nickname || dom.appRoot?.dataset.username || "You",
-  attachmentHistory: [],
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
   eventWs: null,
   eventWsAgentId: null,
   eventWsSessionId: null,
-  inflightThinking: null,
-  pendingThinkingEvents: null,  // Events from HTMX response (skill mode)
-  pendingFiles: [],
+  eventWsRequestId: null,
   isComposingInput: false,
   suggestRequestSeq: 0,
   suggestBlurHideTimer: null,
-  // Backup for restore on error
-  pendingFilesBackup: [],
-  messageBackup: "",
   requirementBundles: [],
   hasRequirementBundlesCache: false,
   selectedBundleKey: null,
@@ -227,10 +221,46 @@ const state = {
   secondaryPaneCollapsed: false,
   myTasks: [],
   selectedTaskId: null,
-  didAppendAttachmentHistoryForPendingSend: false,
   serverFilesRootPath: null,
   serverFilesCurrentPath: null,
 };
+
+function createDefaultChatState() {
+  return {
+    sessionId: "",
+    isSubmitting: false,
+    pendingFiles: [],
+    attachmentHistory: [],
+    inflightThinking: null,
+    pendingThinkingEvents: null,
+    didAppendAttachmentHistoryForPendingSend: false,
+    draftText: "",
+    draftAttachmentsValue: "",
+    activeRequest: null,
+    needsReload: false,
+    unreadCount: 0,
+    backgroundStatus: "",
+    lastCompletedRequestId: "",
+  };
+}
+
+function ensureChatState(agentId) {
+  if (!agentId) return null;
+  if (!state.chatStatesByAgent.has(agentId)) {
+    const next = createDefaultChatState();
+    next.sessionId = state.agentSessionIds.get(agentId) || "";
+    state.chatStatesByAgent.set(agentId, next);
+  }
+  return state.chatStatesByAgent.get(agentId);
+}
+
+function getChatState(agentId = state.selectedAgentId) {
+  return ensureChatState(agentId);
+}
+
+function currentSessionIdForAgent(agentId) {
+  return ensureChatState(agentId)?.sessionId || "";
+}
 
 const md = window.markdownit({
   html: false,
@@ -268,7 +298,9 @@ function generateFileId() {
 }
 
 function removePendingFile(id) {
-  const pf = state.pendingFiles.find(f => f.id === id);
+  const chatState = getChatState();
+  if (!chatState) return;
+  const pf = chatState.pendingFiles.find(f => f.id === id);
   if (pf) {
     // Abort upload if in progress
     if (pf.xhr && pf.xhr.abort) {
@@ -276,18 +308,20 @@ function removePendingFile(id) {
       pf.cancelled = true;
     }
   }
-  const idx = state.pendingFiles.findIndex(f => f.id === id);
+  const idx = chatState.pendingFiles.findIndex(f => f.id === id);
   if (idx !== -1) {
     // Don't revoke immediately - wait for message to be sent
     // The blob URLs are needed for the optimistic UI message
-    state.pendingFiles.splice(idx, 1);
+    chatState.pendingFiles.splice(idx, 1);
     renderInputPreview();
   }
 }
 
 function clearPendingFiles() {
+  const chatState = getChatState();
+  if (!chatState) return;
   // Abort any in-progress uploads and revoke blob URLs to prevent memory leaks
-  state.pendingFiles.forEach(pf => {
+  chatState.pendingFiles.forEach(pf => {
     if (pf.xhr && pf.xhr.abort) {
       pf.xhr.abort();
     }
@@ -296,7 +330,7 @@ function clearPendingFiles() {
       URL.revokeObjectURL(pf.previewUrl);
     }
   });
-  state.pendingFiles = [];
+  chatState.pendingFiles = [];
   renderInputPreview();
 
   // Clear attachments field
@@ -308,6 +342,9 @@ function clearPendingFiles() {
 
 // Add files and upload immediately
 async function addPendingFilesAndUpload(files) {
+  const chatState = getChatState();
+  if (!chatState) return;
+  const agentId = state.selectedAgentId;
   for (const file of files) {
     const isImage = file.type.startsWith('image/');
     const pf = {
@@ -318,7 +355,7 @@ async function addPendingFilesAndUpload(files) {
       isImage: isImage,
       status: 'uploading'
     };
-    state.pendingFiles.push(pf);
+    chatState.pendingFiles.push(pf);
     renderInputPreview();
 
     // Generate preview
@@ -330,7 +367,7 @@ async function addPendingFilesAndUpload(files) {
 
     // Upload immediately
     try {
-      const data = await uploadPendingFile(pf);
+      const data = await uploadPendingFile(pf, agentId);
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
@@ -357,17 +394,23 @@ async function addPendingFilesAndUpload(files) {
 }
 
 function renderInputPreview() {
+  const chatState = getChatState();
   const container = document.getElementById('input-preview-area');
   if (!container) return;
+  if (!chatState) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
 
-  if (state.pendingFiles.length === 0) {
+  if (chatState.pendingFiles.length === 0) {
     container.classList.add('hidden');
     container.innerHTML = '';
     return;
   }
 
   container.classList.remove('hidden');
-  container.innerHTML = state.pendingFiles.map(pf => {
+  container.innerHTML = chatState.pendingFiles.map(pf => {
     let content = '';
     let statusBadge = '';
 
@@ -396,7 +439,7 @@ function renderInputPreview() {
   }).join('');
 }
 
-async function uploadPendingFile(pf) {
+async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
   return new Promise((resolve, reject) => {
     // Check if already cancelled
     if (pf.cancelled) {
@@ -432,7 +475,7 @@ async function uploadPendingFile(pf) {
     });
     xhr.addEventListener('error', () => { reject(new Error('Network error')); });
     xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')); });
-    const url = '/a/' + state.selectedAgentId + '/api/files/upload';
+    const url = '/a/' + agentId + '/api/files/upload';
     xhr.open('POST', url);
     xhr.send(formData);
   });
@@ -543,6 +586,13 @@ function buildPendingAssistantArticle() {
   return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
+function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant") {
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const encodedMd = escapeHtmlAttr(content || "");
+  const encodedBlocks = escapeHtmlAttr(JSON.stringify(displayBlocks || []));
+  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
+}
+
 function buildPendingAssistantRowForEvents(thinkingId) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const name = state.selectedAgentName || "Assistant";
@@ -591,6 +641,7 @@ function disconnectEventSocket() {
   state.eventWs = null;
   state.eventWsAgentId = null;
   state.eventWsSessionId = null;
+  state.eventWsRequestId = null;
 }
 
 function isTrackableThinkingEvent(type) {
@@ -661,6 +712,9 @@ function normalizeRuntimeEvent(payload) {
     raw_type: rawType,
     lifecycle_type: lifecycleType,
     data: mergedData,
+    session_id: candidate?.session_id || mergedData.session_id || "",
+    request_id: candidate?.request_id || mergedData.request_id || "",
+    agent_id: candidate?.agent_id || mergedData.agent_id || "",
     ts,
     state: candidate?.state || mergedData.state || "",
   };
@@ -777,6 +831,26 @@ function attachThinkingToLatestAssistant(events) {
   return true;
 }
 
+function mergeThinkingEvents(primaryEvents, secondaryEvents) {
+  const first = Array.isArray(primaryEvents) ? primaryEvents : [];
+  const second = Array.isArray(secondaryEvents) ? secondaryEvents : [];
+  const merged = [];
+  const seen = new Set();
+  const add = (event) => {
+    if (!event || typeof event !== "object") return;
+    const data = (event.data && typeof event.data === "object") ? event.data : {};
+    const requestId = event.request_id || data.request_id || "";
+    const sessionId = event.session_id || data.session_id || "";
+    const key = `${event.type || ""}|${requestId}|${sessionId}|${JSON.stringify(data)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(event);
+  };
+  first.forEach(add);
+  second.forEach(add);
+  return merged;
+}
+
 // Render thinking events from chat response (non-WebSocket)
 function escapeHtml(str) {
   if (str == null) return '';
@@ -788,16 +862,22 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Note: Event rendering is handled by attachThinkingToLatestAssistant in handleChatAfterSwap
+// Note: Event rendering is handled by attachThinkingToLatestAssistant in fetch success path.
 
-function handleAgentEventMessage(raw) {
+function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
 
   const entry = normalizeRuntimeEvent(payload);
   if (!entry) return;
-  const currentSessionId = currentSessionIdForSelectedAgent();
+  const currentAgentId = socketCtx.agentId || state.selectedAgentId;
+  const chatState = ensureChatState(currentAgentId);
+  if (!chatState) return;
+  const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
+  if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
+  const currentRequestId = socketCtx.requestId || chatState.activeRequest?.clientRequestId || "";
+  if (entry.request_id && currentRequestId && entry.request_id !== currentRequestId) return;
 
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
@@ -807,10 +887,10 @@ function handleAgentEventMessage(raw) {
   if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
 
   // Initialize inflightThinking if not set and we have skill mode events
-  if (!state.inflightThinking && type?.startsWith("skill_")) {
+  if (!chatState.inflightThinking && type?.startsWith("skill_")) {
     // Create a placeholder thinking panel for skill mode
     const thinkingId = `thinking-${Date.now()}`;
-    state.inflightThinking = { id: thinkingId, events: [], completed: false };
+    chatState.inflightThinking = { id: thinkingId, events: [], completed: false };
     
     // Find or create the assistant message placeholder
     let assistantPlaceholder = dom.messageList?.querySelector('article.assistant-message.pending-thinking');
@@ -820,14 +900,14 @@ function handleAgentEventMessage(raw) {
     }
     if (assistantPlaceholder) {
       assistantPlaceholder.dataset.thinkingId = thinkingId;
-      renderThinkingProcess(assistantPlaceholder, state.inflightThinking.events);
+      renderThinkingProcess(assistantPlaceholder, chatState.inflightThinking.events);
     }
   }
 
-  if (!state.inflightThinking) return;
+  if (!chatState.inflightThinking) return;
 
-  if (!state.inflightThinking.started && type !== "execution.started") {
-    state.inflightThinking.events.push({
+  if (!chatState.inflightThinking.started && type !== "execution.started") {
+    chatState.inflightThinking.events.push({
       type: "execution.started",
       raw_type: "execution.started",
       lifecycle_type: "execution.started",
@@ -835,17 +915,17 @@ function handleAgentEventMessage(raw) {
       ts: entry.ts,
       state: "started",
     });
-    state.inflightThinking.started = true;
+    chatState.inflightThinking.started = true;
   }
 
-  state.inflightThinking.events.push(entry);
-  if (type === "execution.started") state.inflightThinking.started = true;
+  chatState.inflightThinking.events.push(entry);
+  if (type === "execution.started") chatState.inflightThinking.started = true;
 
   if (lifecycleType && lifecycleType !== type) {
     const terminalDetail = lifecycleType === "execution.failed"
       ? (entry?.data?.error || entry?.data?.message || "Execution failed")
       : (entry?.data?.message || "Execution complete");
-    state.inflightThinking.events.push({
+    chatState.inflightThinking.events.push({
       type: lifecycleType,
       raw_type: lifecycleType,
       lifecycle_type: lifecycleType,
@@ -855,44 +935,52 @@ function handleAgentEventMessage(raw) {
     });
   }
 
-  const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${state.inflightThinking.id}"]`);
-  if (pendingArticle) renderThinkingProcess(pendingArticle, state.inflightThinking.events);
+  const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${chatState.inflightThinking.id}"]`);
+  if (pendingArticle) renderThinkingProcess(pendingArticle, chatState.inflightThinking.events);
 
   if (type === "execution.completed" || type === "execution.failed" || type === "skill_complete" || isCompletion || lifecycleType === "execution.completed" || lifecycleType === "execution.failed") {
-    state.inflightThinking.completed = true;
+    chatState.inflightThinking.completed = true;
   }
 }
 
-function ensureEventSocketForSelectedAgent() {
-  const agentId = state.selectedAgentId;
+function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
   if (!agentId) return;
-  const sessionId = currentSessionIdForSelectedAgent();
-
+  const chatState = ensureChatState(agentId);
+  const session = sessionId || chatState?.sessionId || "";
+  if (agentId !== state.selectedAgentId) return;
   if (state.eventWs) {
     const sameAgent = state.eventWsAgentId === agentId;
-    const sameSession = (state.eventWsSessionId || "") === (sessionId || "");
+    const sameSession = (state.eventWsSessionId || "") === (session || "");
+    const sameRequest = (state.eventWsRequestId || "") === (requestId || "");
     const readyState = state.eventWs.readyState;
-    if (sameAgent && sameSession && (readyState === WebSocket.OPEN || readyState === WebSocket.CONNECTING)) return;
-    // Replace stale in-flight sockets too, otherwise a previous session's CONNECTING socket can attach to the wrong stream.
+    if (sameAgent && sameSession && sameRequest && (readyState === WebSocket.OPEN || readyState === WebSocket.CONNECTING)) return;
     disconnectEventSocket();
   }
-
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const sessionQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
-  const ws = new WebSocket(`${protocol}//${window.location.host}/a/${agentId}/api/events${sessionQuery}`);
+  const params = new URLSearchParams();
+  if (session) params.set("session_id", session);
+  if (requestId) params.set("request_id", requestId);
+  const query = params.toString();
+  const wsUrl = `${protocol}//${window.location.host}/a/${agentId}/api/events${query ? `?${query}` : ""}`;
+  const ws = new WebSocket(wsUrl);
   state.eventWs = ws;
   state.eventWsAgentId = agentId;
-  state.eventWsSessionId = sessionId || "";
-
-  ws.onmessage = (event) => handleAgentEventMessage(event.data);
+  state.eventWsSessionId = session || "";
+  state.eventWsRequestId = requestId || "";
+  ws.onmessage = (event) => handleAgentEventMessage(event.data, { agentId, sessionId: session, requestId });
   ws.onclose = () => {
-    if (state.eventWs === ws) {
-      state.eventWs = null;
-      state.eventWsAgentId = null;
-      state.eventWsSessionId = null;
-    }
+    if (state.eventWs === ws) disconnectEventSocket();
   };
   ws.onerror = () => {};
+}
+
+function ensureEventSocketForSelectedAgent() {
+  if (typeof ensureEventSocketForAgent !== "function") return;
+  const agentId = state.selectedAgentId;
+  if (!agentId) return;
+  const chatState = ensureChatState(agentId);
+  const requestId = chatState?.activeRequest?.clientRequestId || "";
+  ensureEventSocketForAgent(agentId, currentSessionIdForSelectedAgent(), requestId || null);
 }
 
 function applyTheme(theme) {
@@ -1230,6 +1318,11 @@ async function agentApi(path, options = {}) {
   return api(`/a/${state.selectedAgentId}${path}`, options);
 }
 
+async function agentApiFor(agentId, path, options = {}) {
+  if (!agentId) throw new Error("No selected assistant");
+  return api(`/a/${agentId}${path}`, options);
+}
+
 function defaultWelcomeMessage() {
   const welcomeAgentName = state.selectedAgentName || "Assistant";
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
@@ -1252,13 +1345,19 @@ function removeWelcomeMessageIfPresent() {
   if (onlyWelcome) welcome.remove();
 }
 
+function setChatSubmittingForAgent(agentId, active) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  chatState.isSubmitting = !!active;
+  if (agentId === state.selectedAgentId && dom.sendChatBtn) dom.sendChatBtn.disabled = !!active;
+}
+
 function setChatSubmitting(active) {
-  state.isSubmittingChat = active;
-  if (dom.sendChatBtn) dom.sendChatBtn.disabled = active;
+  setChatSubmittingForAgent(state.selectedAgentId, active);
 }
 
 function currentSessionIdForSelectedAgent() {
-  return state.agentSessionIds.get(state.selectedAgentId) || "";
+  return currentSessionIdForAgent(state.selectedAgentId);
 }
 
 function syncHiddenSessionInputFromState() {
@@ -1267,19 +1366,59 @@ function syncHiddenSessionInputFromState() {
   if (hiddenInput) hiddenInput.value = currentSessionIdForSelectedAgent();
 }
 
-function updateSelectedAgentSession(sessionId) {
-  if (!state.selectedAgentId) return;
-
+function updateAgentSession(agentId, sessionId) {
+  if (!agentId) return;
+  const chatState = ensureChatState(agentId);
   const value = (sessionId || "").trim();
   if (value) {
-    state.agentSessionIds.set(state.selectedAgentId, value);
-    setLastSessionId(state.selectedAgentId, value);
+    state.agentSessionIds.set(agentId, value);
+    if (chatState) chatState.sessionId = value;
+    setLastSessionId(agentId, value);
   } else {
-    state.agentSessionIds.delete(state.selectedAgentId);
-    setLastSessionId(state.selectedAgentId, null);
+    state.agentSessionIds.delete(agentId);
+    if (chatState) chatState.sessionId = "";
+    setLastSessionId(agentId, null);
   }
-  syncHiddenSessionInputFromState();
-  ensureEventSocketForSelectedAgent();
+  if (agentId === state.selectedAgentId) {
+    syncHiddenSessionInputFromState();
+    ensureEventSocketForSelectedAgent();
+  }
+}
+
+function updateSelectedAgentSession(sessionId) {
+  updateAgentSession(state.selectedAgentId, sessionId);
+}
+
+function persistComposerForAgent(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  chatState.draftText = dom.chatInput?.value || "";
+  chatState.draftAttachmentsValue = document.getElementById("chat-attachments")?.value || "";
+}
+
+function restoreComposerForAgent(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  if (dom.chatInput) dom.chatInput.value = chatState.draftText || "";
+  const attachmentsInput = document.getElementById("chat-attachments");
+  if (attachmentsInput) attachmentsInput.value = chatState.draftAttachmentsValue || "";
+  syncChatInputHeight();
+  renderInputPreview();
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = !!chatState.isSubmitting;
+}
+
+function markAgentUnread(agentId, status) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  chatState.unreadCount += 1;
+  chatState.backgroundStatus = status || chatState.backgroundStatus || "completed";
+}
+
+function clearAgentUnread(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  chatState.unreadCount = 0;
+  chatState.backgroundStatus = "";
 }
 
 // Helper to update owner-only button visibility
@@ -1318,15 +1457,21 @@ function renderAgentList() {
 
     agents.forEach((agent) => {
       const status = (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+      const chatState = ensureChatState(agent.id);
       const isActive = state.selectedAgentId === agent.id;
       const row = document.createElement("button");
       row.type = "button";
       row.className = `portal-agent-row${isActive ? " is-active" : ""}`;
       const sharedBadge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="portal-agent-shared">shared</span>';
+      const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
+      let runtimeBadge = "";
+      if (chatState?.isSubmitting) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
+      else if (chatState?.backgroundStatus === "completed") runtimeBadge = '<span class="portal-agent-chat-badge is-completed">completed</span>';
+      else if (chatState?.backgroundStatus === "error") runtimeBadge = '<span class="portal-agent-chat-badge is-error">error</span>';
       row.innerHTML = `
         <div class="portal-agent-row-head">
           <span class="portal-agent-name">${safe(agent.name)}</span>
-          ${sharedBadge}
+          <span class="portal-agent-row-badges">${runtimeBadge}${unreadBadge}${sharedBadge}</span>
         </div>
         <div class="portal-agent-row-foot">
           <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
@@ -1565,6 +1710,8 @@ function renderAgentActions(agent, status) {
 }
 
 async function selectAgentById(agentId) {
+  const previousAgentId = state.selectedAgentId;
+  if (previousAgentId) persistComposerForAgent(previousAgentId);
   state.selectedAgentId = agentId;
   const allAgents = state.mineAgents || [];
   const selectedAgent = allAgents.find(a => a.id === agentId);
@@ -1580,11 +1727,12 @@ async function selectAgentById(agentId) {
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.cachedMentionFiles = [];
   state.selectedSuggestionIndex = -1;
-  state.inflightThinking = null;
   disconnectEventSocket();
 
   if (dom.chatAgentId) dom.chatAgentId.value = agentId || "";
   syncHiddenSessionInputFromState();
+  restoreComposerForAgent(agentId);
+  clearAgentUnread(agentId);
   clearMessageListToWelcome();
 
   await setActiveNavSection("assistants", { toggleIfSame: false });
@@ -1642,6 +1790,12 @@ async function syncSelectedAgentState() {
   syncMainHeader();
 
   if (running) {
+    const chatState = ensureChatState(agent.id);
+    if (chatState?.needsReload && chatState.sessionId) {
+      await loadSessionForAgent(agent.id, chatState.sessionId, { render: true });
+      ensureEventSocketForSelectedAgent();
+      return;
+    }
     const lastSessionId = getLastSessionId(agent.id);
     if (lastSessionId) {
       try {
@@ -1658,14 +1812,14 @@ async function syncSelectedAgentState() {
 // Load last session from remote agent runtime
 async function loadLastSessionFromRemote(agentId) {
   try {
-    const data = await agentApi("/api/sessions?limit=1");
+    const data = await agentApiFor(agentId, "/api/sessions?limit=1");
     const sessions = data.sessions || [];
     if (sessions.length > 0) {
       // Use session_id (not id) for session objects
       const lastSessionId = sessions[0].session_id;
       if (lastSessionId) {
         setLastSessionId(agentId, lastSessionId);
-        await loadSession(lastSessionId);
+        await loadSessionForAgent(agentId, lastSessionId, { render: agentId === state.selectedAgentId });
       }
     }
   } catch (e) {
@@ -1711,126 +1865,222 @@ async function refreshAll() {
 }
 
 // ===== chat submit lifecycle =====
-function handleChatBeforeRequest(event) {
-  if (event.target?.id !== "chat-form") return;
-  if (state.isSubmittingChat) {
-    event.preventDefault();
-    return;
-  }
 
-  // Block submission if any files are still uploading
-  const uploadingFiles = state.pendingFiles.filter(pf => pf.status === 'uploading');
-  if (uploadingFiles.length > 0) {
-    event.preventDefault();
+function maybeRequestNotificationPermission() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+function notifyAgentCompletion(agentId, agentName, status, summary = "") {
+  const text = `${agentName || agentId}: ${status}${summary ? ` - ${summary}` : ""}`;
+  if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification(text);
+      return;
+    } catch {}
+  }
+  showToast(text);
+}
+
+function buildAttachmentsFromChatState(agentId, chatState) {
+  const uploadedFileIds = chatState.pendingFiles
+    .filter((pf) => pf.file_id && pf.status === "uploaded")
+    .map((pf) => pf.file_id);
+  if (uploadedFileIds.length) return uploadedFileIds;
+  const existingAttachments = document.getElementById("chat-attachments")?.value;
+  if (!existingAttachments) return [];
+  try {
+    return JSON.parse(existingAttachments);
+  } catch {
+    return [];
+  }
+}
+
+async function submitChatForSelectedAgent() {
+  const agentIdAtSend = state.selectedAgentId;
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!agentIdAtSend || !chatState) return;
+  if (chatState.isSubmitting) return;
+  const uploadingFiles = chatState.pendingFiles.filter((pf) => pf.status === "uploading");
+  if (uploadingFiles.length) {
     showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
     return;
   }
+  const messageAtSend = dom.chatInput?.value?.trim() || "";
+  if (!messageAtSend) return;
+  const attachmentsAtSend = buildAttachmentsFromChatState(agentIdAtSend, chatState);
+  const sessionIdAtSend = currentSessionIdForAgent(agentIdAtSend);
+  const clientRequestId = `portal-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const requestCtx = {
+    agentId: agentIdAtSend,
+    sessionIdAtSend,
+    message: messageAtSend,
+    attachments: attachmentsAtSend,
+    clientRequestId,
+    startedAt: Date.now(),
+    backupMessage: messageAtSend,
+    backupFiles: [...chatState.pendingFiles],
+  };
 
-  // Get the message
-  const message = dom.chatInput?.value?.trim() || "";
-  if (!message) {
-    event.preventDefault();
-    return;
-  }
-
-  // Backup message and files for potential restore on error
-  messageBackup = message;
-  pendingFilesBackup = [...state.pendingFiles];
-  state.didAppendAttachmentHistoryForPendingSend = false;
-
-  // Build attachments from pendingFiles for display
-  setChatSubmitting(true);
+  maybeRequestNotificationPermission();
+  chatState.didAppendAttachmentHistoryForPendingSend = false;
   removeWelcomeMessageIfPresent();
   removeTemporaryAssistantRows();
   hideSuggest();
-
-  // Build attachments from pending files for display
-  let displayAttachments = [];
-  
-  // First try to get from pendingFiles
-  displayAttachments = state.pendingFiles.map(pf => ({
-    name: pf.file.name,
-    type: pf.isImage ? 'image' : 'file',
-    previewUrl: pf.previewUrl,
-    url: pf.uploadedData?.url
-  }));
-  
-  // If no pending files, check chat-attachments (for Edit flow)
-  if (displayAttachments.length === 0) {
-    const chatAttachmentsInput = document.getElementById("chat-attachments");
-    if (chatAttachmentsInput && chatAttachmentsInput.value) {
-      try {
-        const attachmentIds = JSON.parse(chatAttachmentsInput.value);
-        displayAttachments = attachmentIds.map(id => ({
-          name: id,
-          type: 'image',
-          previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`,
-          url: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(id)}`
-        }));
-      } catch (e) {
-        // console.error('Failed to parse attachments:', e);
-      }
-    }
-  }
-
-  if (dom.messageList && message) {
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(message, displayAttachments));
-    const thinkingId = 'thinking-' + Date.now();
+  if (agentIdAtSend === state.selectedAgentId && dom.messageList) {
+    const displayAttachments = chatState.pendingFiles.map((pf) => ({
+      name: pf.file?.name || pf.name || "",
+      type: pf.isImage ? "image" : "file",
+      previewUrl: pf.previewUrl,
+      url: pf.uploadedData?.url,
+    }));
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(messageAtSend, displayAttachments));
+    const thinkingId = `thinking-${Date.now()}`;
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
     const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
     if (pending) pending.dataset.thinkingId = thinkingId;
-    state.inflightThinking = { id: thinkingId, events: [], completed: false };
-    if (pending) renderThinkingProcess(pending, state.inflightThinking.events);
-    ensureEventSocketForSelectedAgent();
+    chatState.inflightThinking = { id: thinkingId, events: [], completed: false };
+    if (pending) renderThinkingProcess(pending, chatState.inflightThinking.events);
+    ensureEventSocketForAgent(agentIdAtSend, sessionIdAtSend, clientRequestId);
     scrollToBottom();
   }
-
-  // Clear pending files and input (message is already captured in 'message' variable)
-  clearPendingFiles();
+  chatState.attachmentHistory.push(attachmentsAtSend);
+  chatState.didAppendAttachmentHistoryForPendingSend = true;
+  chatState.pendingFiles = [];
+  renderInputPreview();
   if (dom.chatInput) dom.chatInput.value = "";
   resetChatInputHeight();
+  const attachmentsInput = document.getElementById("chat-attachments");
+  if (attachmentsInput) attachmentsInput.value = "";
   setChatStatus("Sending...");
+  chatState.activeRequest = requestCtx;
+  setChatSubmittingForAgent(agentIdAtSend, true);
 
-  // Note: attachments is now set via htmx:configRequest event
-  // HTMX will submit the form with attachments in the payload
+  try {
+    const resp = await fetch(`/a/${agentIdAtSend}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: messageAtSend,
+        session_id: sessionIdAtSend || undefined,
+        attachments: attachmentsAtSend,
+        client_request_id: clientRequestId,
+      }),
+    });
+    if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+    const payload = await resp.json();
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, payload);
+  } catch (error) {
+    handleAgentChatFailure(agentIdAtSend, requestCtx, error);
+  }
 }
 
-function handleChatResponseError(event) {
-  if (event.target?.id !== "chat-form") return;
+async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  const mergedThinkingEvents = mergeThinkingEvents(chatState.inflightThinking?.events || [], payload?.events || []);
+  updateAgentSession(agentIdAtSend, payload.session_id || requestCtx.sessionIdAtSend || "");
+  setChatSubmittingForAgent(agentIdAtSend, false);
+  chatState.activeRequest = null;
+  chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
+  chatState.didAppendAttachmentHistoryForPendingSend = false;
+  if (state.selectedAgentId !== agentIdAtSend) {
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
+    chatState.needsReload = true;
+    markAgentUnread(agentIdAtSend, "completed");
+    renderAgentList();
+    const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
+    notifyAgentCompletion(agentIdAtSend, agentName, "completed", (payload.response || "").slice(0, 80));
+    return;
+  }
 
   removeTemporaryAssistantRows();
-  removeLatestOptimisticUserRow();
-  if (state.didAppendAttachmentHistoryForPendingSend && Array.isArray(state.attachmentHistory) && state.attachmentHistory.length) {
-    state.attachmentHistory.pop();
-  }
-  state.didAppendAttachmentHistoryForPendingSend = false;
-  setChatSubmitting(false);
-  state.inflightThinking = null;
-
-  // Restore message and files from backup
-  if (messageBackup || pendingFilesBackup.length > 0) {
-    if (dom.chatInput) dom.chatInput.value = messageBackup;
-    syncChatInputHeight();
-    state.pendingFiles = pendingFilesBackup;
-    renderInputPreview();
-    pendingFilesBackup = [];
-    messageBackup = "";
-  }
-
-  // Extract error message from response
-  let errorMsg = "Send failed";
-  const xhr = event.detail?.xhr;
-  if (xhr) {
-    try {
-      const response = JSON.parse(xhr.responseText);
-      errorMsg = response.detail || response.message || `Error: ${xhr.status} ${xhr.statusText}`;
-    } catch (e) {
-      errorMsg = xhr.responseText || `Error: ${xhr.status} ${xhr.statusText}`;
+  const optimisticUserArticle = getLatestOptimisticUserArticle();
+  if (!optimisticUserArticle) {
+    const resolvedSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
+    if (resolvedSessionId) {
+      await loadSessionForAgent(agentIdAtSend, resolvedSessionId, { render: true });
     }
+    if (mergedThinkingEvents.length) attachThinkingToLatestAssistant(mergedThinkingEvents);
+    addEditButtonsToMessages();
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
+    setChatStatus("Ready");
+    if (document.hidden) {
+      const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
+      notifyAgentCompletion(agentIdAtSend, agentName, "completed", (payload.response || "").slice(0, 80));
+    }
+    return;
   }
-  setChatStatus(errorMsg, true);
+  if (optimisticUserArticle && payload.user_message_id) {
+    optimisticUserArticle.dataset.messageId = payload.user_message_id;
+    delete optimisticUserArticle.dataset.optimisticUser;
+  }
+  const assistantHtml = buildAssistantMessageArticle(payload.response || "", payload.display_blocks || [], state.selectedAgentName || "Assistant");
+  dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
+  if (mergedThinkingEvents.length) attachThinkingToLatestAssistant(mergedThinkingEvents);
+  chatState.inflightThinking = null;
+  chatState.pendingThinkingEvents = null;
+  setChatStatus("Ready");
+  renderMarkdown(dom.messageList);
+  decorateToolMessages(dom.messageList);
+  renderIcons();
+  addEditButtonsToMessages();
+  scrollToBottom();
+  if (document.hidden) {
+    const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
+    notifyAgentCompletion(agentIdAtSend, agentName, "completed", (payload.response || "").slice(0, 80));
+  }
+}
 
-  // Also show error in message list
+function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  const restoredMessage = requestCtx.backupMessage || "";
+  const restoredFiles = Array.isArray(requestCtx.backupFiles) ? requestCtx.backupFiles : [];
+  const restoredAttachmentsValue = JSON.stringify(requestCtx.attachments || []);
+  const shouldRollbackAttachmentHistory =
+    !!chatState.didAppendAttachmentHistoryForPendingSend &&
+    Array.isArray(chatState.attachmentHistory) &&
+    chatState.attachmentHistory.length > 0;
+  setChatSubmittingForAgent(agentIdAtSend, false);
+  chatState.activeRequest = null;
+  chatState.didAppendAttachmentHistoryForPendingSend = false;
+  const errorMsg = error?.message || "Send failed";
+  if (state.selectedAgentId !== agentIdAtSend) {
+    if (shouldRollbackAttachmentHistory) {
+      chatState.attachmentHistory.pop();
+    }
+    chatState.draftText = restoredMessage;
+    chatState.pendingFiles = restoredFiles;
+    chatState.draftAttachmentsValue = restoredAttachmentsValue;
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
+    chatState.backgroundStatus = "error";
+    chatState.needsReload = false;
+    markAgentUnread(agentIdAtSend, "error");
+    renderAgentList();
+    const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
+    notifyAgentCompletion(agentIdAtSend, agentName, "failed", errorMsg);
+    return;
+  }
+  removeTemporaryAssistantRows();
+  removeLatestOptimisticUserRow();
+  if (shouldRollbackAttachmentHistory) {
+    chatState.attachmentHistory.pop();
+  }
+  chatState.pendingFiles = restoredFiles;
+  if (dom.chatInput) dom.chatInput.value = restoredMessage;
+  const attachmentsInput = document.getElementById("chat-attachments");
+  if (attachmentsInput) attachmentsInput.value = restoredAttachmentsValue;
+  chatState.draftAttachmentsValue = restoredAttachmentsValue;
+  renderInputPreview();
+  syncChatInputHeight();
+  chatState.inflightThinking = null;
+  setChatStatus(errorMsg, true);
   if (dom.messageList) {
     const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     dom.messageList.insertAdjacentHTML("beforeend", `
@@ -1847,106 +2097,10 @@ function handleChatResponseError(event) {
     scrollToBottom();
     renderIcons();
   }
-}
-
-function handleChatAfterRequest(event) {
-  if (event.target?.id !== "chat-form") return;
-  if (!event.detail?.successful) return;
-
-  setChatSubmitting(false);
-  state.didAppendAttachmentHistoryForPendingSend = false;
-  state.pendingMessage = "";
-  state.messagePrepared = false;
-
-  // Extract events from response for later rendering (after HTMX swap)
-  try {
-    const xhr = event.detail.xhr;
-    if (xhr && xhr.responseText) {
-      // Parse once and extract both events and user message ID
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xhr.responseText, "text/html");
-      const oobInput = doc.querySelector('#chat-user-message-id');
-      if (oobInput && oobInput.value) {
-        const userMessageId = oobInput.value;
-        const optimisticUserArticle = getLatestOptimisticUserArticle();
-        if (optimisticUserArticle) {
-          optimisticUserArticle.dataset.messageId = userMessageId;
-          delete optimisticUserArticle.dataset.optimisticUser;
-
-          const parentContainer = optimisticUserArticle.parentElement;
-          const editBtn = optimisticUserArticle.querySelector('.edit-msg-btn') ||
-            parentContainer?.querySelector?.('.edit-msg-btn');
-          if (editBtn) {
-            const contentEl = optimisticUserArticle.querySelector('.message-body, .whitespace-pre-wrap');
-            const content = contentEl ? contentEl.textContent : '';
-            const attachments = state.attachmentHistory.length > 0
-              ? (state.attachmentHistory[state.attachmentHistory.length - 1] || [])
-              : [];
-            editBtn.onclick = () => openEditMessageModal(userMessageId, content, attachments);
-          }
-        }
-      }
-
-      // Extract events
-      const assistantArticle = doc.querySelector('article.assistant-message');
-      if (assistantArticle) {
-        const eventsData = assistantArticle.querySelector('[data-events]');
-        if (eventsData) {
-          try {
-            const events = JSON.parse(eventsData.dataset.events);
-            // Validate events is an array before storing
-            if (Array.isArray(events) && events.length > 0) {
-              state.pendingThinkingEvents = events;
-            }
-          } catch (e) {
-            console.error('Failed to parse events:', e);
-          }
-        }
-      }
-      
-    }
-  } catch (e) {
-    // Ignore errors
+  if (document.hidden) {
+    const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
+    notifyAgentCompletion(agentIdAtSend, agentName, "failed", errorMsg);
   }
-  
-  // Add edit buttons to the newly sent message
-  addEditButtonsToMessages();
-}
-
-function handleChatAfterSwap(target) {
-  if (target?.id !== "message-list") return;
-
-  // Merge both WebSocket events and HTMX response events
-  const wsEvents = state.inflightThinking?.events ? [...state.inflightThinking.events] : [];
-  const htmxEvents = state.pendingThinkingEvents || [];
-  
-  // Combine and dedupe events (HTMX events are usually skill mode, WS are regular)
-  const allEvents = [...wsEvents];
-  htmxEvents.forEach(e => {
-    if (!allEvents.some(ex => ex.type === e.type && JSON.stringify(ex.data) === JSON.stringify(e.data))) {
-      allEvents.push(e);
-    }
-  });
-  
-  removeTemporaryAssistantRows();
-  if (allEvents.length) attachThinkingToLatestAssistant(allEvents);
-  
-  // Clear states
-  state.pendingThinkingEvents = null;
-  state.inflightThinking = null;
-  state.didAppendAttachmentHistoryForPendingSend = false;
-
-  // OOB swap from chat partial updates hidden #chat-session-id. Keep per-agent session state in sync.
-  // Re-query the element each time since OOB swap replaces the DOM element
-  const sessionFromInput = document.getElementById("chat-session-id")?.value || "";
-  updateSelectedAgentSession(sessionFromInput);
-
-  renderMarkdown(dom.messageList);
-  decorateToolMessages(dom.messageList);
-  renderIcons();
-  scrollToBottom();
-
-  setChatStatus("Ready");
 }
 
 // ===== HTML decode helper =====
@@ -1959,40 +2113,10 @@ function decodeHtml(text) {
 
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
-  document.addEventListener("htmx:configRequest", (event) => {
-    // This fires right before HTMX makes the request - perfect time to set attachments
-    const elt = event.detail.requestConfig?.elt || event.target;
-    if (elt?.id === "chat-form") {
-      // Check if attachments already set (e.g., from Edit flow)
-      const chatAttachmentsInput = document.getElementById("chat-attachments");
-      const existingAttachments = chatAttachmentsInput?.value;
-      
-      // If already set (from Edit), don't overwrite
-      if (existingAttachments && existingAttachments !== '') {
-        event.detail.parameters.attachments = existingAttachments;
-      } else {
-        // Normal send - use pendingFiles
-        const uploadedFileIds = state.pendingFiles
-          .filter(pf => pf.file_id && pf.status === 'uploaded')
-          .map(pf => pf.file_id);
-        event.detail.parameters.attachments = JSON.stringify(uploadedFileIds);
-        
-        // Store attachments in history (always record, even empty arrays for indexing)
-        addToAttachmentHistory(uploadedFileIds);
-        state.didAppendAttachmentHistoryForPendingSend = true;
-      }
-    }
-  });
-
-  document.addEventListener("htmx:beforeRequest", handleChatBeforeRequest);
-  document.addEventListener("htmx:afterRequest", handleChatAfterRequest);
   document.addEventListener("htmx:afterSwap", (event) => {
-    handleChatAfterSwap(event.target);
     if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
-    if (event.target?.id === "message-list") addEditButtonsToMessages();
     renderIcons();
   });
-  document.addEventListener("htmx:responseError", handleChatResponseError);
 }
 
 // ===== suggestion popup hooks =====
@@ -2058,9 +2182,11 @@ function insertFileReference(fileIdOrRef) {
   }
 
   if (fileId) {
+    const chatState = getChatState();
+    if (!chatState) return;
     // Add to pendingFiles state and render preview in input-preview-area
     // Attachments will be built from pendingFiles when sending the message
-    const existingPf = state.pendingFiles.find(pf => pf.file_id === fileId);
+    const existingPf = chatState.pendingFiles.find(pf => pf.file_id === fileId);
     if (!existingPf) {
       const pf = {
         id: fileId,
@@ -2071,7 +2197,7 @@ function insertFileReference(fileIdOrRef) {
         isImage: false,
         status: 'uploaded'
       };
-      state.pendingFiles.push(pf);
+      chatState.pendingFiles.push(pf);
       renderInputPreview();
     }
   }
@@ -2732,13 +2858,16 @@ async function returnFromTaskDetailToSidebar() {
 
 function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
+  const selectedChatState = getChatState();
 
   if (!messages.length) {
+    if (selectedChatState) selectedChatState.attachmentHistory = [];
     clearMessageListToWelcome();
     return;
   }
 
   dom.messageList.innerHTML = "";
+  if (selectedChatState) selectedChatState.attachmentHistory = [];
   messages.forEach((message) => {
     if (message.role !== "user" && message.role !== "assistant") return;
     const isUser = message.role === "user";
@@ -2777,13 +2906,14 @@ function renderChatHistory(messages, metadata = {}) {
       content.textContent = message.content || "";
       article.appendChild(content);
 
-      const msgAttachments = message.attachments || [];
-      if (msgAttachments.length > 0) {
+      const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
+      if (selectedChatState) selectedChatState.attachmentHistory.push([...normalizedAttachments]);
+      if (normalizedAttachments.length > 0) {
         const attachmentDiv = document.createElement("div");
         attachmentDiv.className = "message-attachments";
-        attachmentDiv.dataset.attachments = JSON.stringify(msgAttachments);
-        article.dataset.attachments = JSON.stringify(msgAttachments);
-        msgAttachments.forEach(fileId => {
+        attachmentDiv.dataset.attachments = JSON.stringify(normalizedAttachments);
+        article.dataset.attachments = JSON.stringify(normalizedAttachments);
+        normalizedAttachments.forEach(fileId => {
           const img = document.createElement("img");
           img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
           img.className = "message-attachment-thumb";
@@ -2819,22 +2949,28 @@ function renderChatHistory(messages, metadata = {}) {
   scrollToBottom();
 }
 
-async function loadSession(sessionId) {
+async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
 
-  const data = await agentApi(`/api/sessions/${encodeURIComponent(normalized)}`);
-  updateSelectedAgentSession(normalized);
-  // Ensure agent name is set
-  if (!state.selectedAgentName && state.selectedAgentId) {
-    const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
-    state.selectedAgentName = agent?.name || null;
+  const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(normalized)}`);
+  updateAgentSession(agentId, normalized);
+  const chatState = ensureChatState(agentId);
+  if (chatState) chatState.needsReload = false;
+  if (render) {
+    // Ensure agent name is set
+    if (!state.selectedAgentName && state.selectedAgentId) {
+      const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
+      state.selectedAgentName = agent?.name || null;
+    }
+    renderChatHistory(data.messages || [], data.metadata || {});
+    addEditButtonsToMessages();
+    setChatStatus(`Loaded session ${normalized}`);
   }
-  renderChatHistory(data.messages || [], data.metadata || {});
-  addEditButtonsToMessages();
+}
 
-  setChatStatus(`Loaded session ${normalized}`);
-  // Only open sessions panel if explicitly requested
+async function loadSession(sessionId) {
+  return loadSessionForAgent(state.selectedAgentId, sessionId, { render: true });
 }
 
 async function openServerFiles() {
@@ -3425,7 +3561,8 @@ async function clearChat() {
     }
 
     updateSelectedAgentSession("");
-    state.inflightThinking = null;
+    const chatState = getChatState();
+    if (chatState) chatState.inflightThinking = null;
     removeTemporaryAssistantRows();
     clearMessageListToWelcome();
     resetChatInputHeight();
@@ -3439,7 +3576,8 @@ async function startNewChatForSelectedAgent() {
   if (!ensureRunningSelectedAssistant("start a new chat")) return;
   closeSessionsDrawer();
   updateSelectedAgentSession("");
-  state.inflightThinking = null;
+  const chatState = getChatState();
+  if (chatState) chatState.inflightThinking = null;
   removeTemporaryAssistantRows();
   clearMessageListToWelcome();
   setChatSubmitting(false);
@@ -3663,8 +3801,9 @@ function addEditButtonsToMessages() {
       if (attachments.length === 0) {
         const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
         const articleIndex = allUserArticles.indexOf(article);
-        if (articleIndex >= 0 && articleIndex < state.attachmentHistory.length) {
-          attachments.push(...state.attachmentHistory[articleIndex]);
+        const chatState = getChatState();
+        if (chatState && articleIndex >= 0 && articleIndex < chatState.attachmentHistory.length) {
+          attachments.push(...chatState.attachmentHistory[articleIndex]);
         }
       }
 
@@ -3812,12 +3951,14 @@ function bindEvents() {
 
             const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
             const targetUserIndex = userArticles.findIndex((article) => article.dataset.messageId === messageId);
-            if (targetUserIndex >= 0 && Array.isArray(state.attachmentHistory)) {
-              state.attachmentHistory = state.attachmentHistory.slice(0, targetUserIndex);
+            const selectedChatState = getChatState();
+            if (targetUserIndex >= 0 && Array.isArray(selectedChatState?.attachmentHistory)) {
+              selectedChatState.attachmentHistory = selectedChatState.attachmentHistory.slice(0, targetUserIndex);
             }
           } else {
             clearMessageListToWelcome();
-            state.attachmentHistory = [];
+            const selectedChatState = getChatState();
+            if (selectedChatState) selectedChatState.attachmentHistory = [];
           }
         }
         
@@ -3836,8 +3977,7 @@ function bindEvents() {
           attachmentsInput.value = editAttachments;
         }
         
-        // Trigger HTMX form submission to send the message
-        htmx.trigger("#chat-form", "submit");
+        await submitChatForSelectedAgent();
       } else {
         showToast(result.error || "Failed to delete message");
       }
@@ -3916,8 +4056,9 @@ function bindEvents() {
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (state.isSubmittingChat) return;
-      htmx.trigger("#chat-form", "submit");
+      const chatState = getChatState();
+      if (chatState?.isSubmitting) return;
+      submitChatForSelectedAgent();
     }
   });
   dom.chatSuggest?.addEventListener("mousedown", () => {
@@ -4248,7 +4389,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // Form submit is handled by HTMX via hx-on::before-request
+  document.getElementById("chat-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitChatForSelectedAgent();
+  });
 
   // Drag and drop file upload
   const messageList = dom.messageList;
