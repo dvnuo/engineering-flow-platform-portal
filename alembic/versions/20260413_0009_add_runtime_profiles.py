@@ -54,6 +54,8 @@ def _has_fk(table_name: str, constrained_columns: list[str], referred_table: str
 
 
 def upgrade() -> None:
+    dialect = op.get_bind().dialect.name
+
     if not _has_table("runtime_profiles"):
         op.create_table(
             "runtime_profiles",
@@ -69,30 +71,61 @@ def upgrade() -> None:
     if not _has_index("runtime_profiles", "ix_runtime_profiles_name"):
         op.create_index("ix_runtime_profiles_name", "runtime_profiles", ["name"], unique=True)
 
-    if not _has_column("agents", "runtime_profile_id"):
-        op.add_column("agents", sa.Column("runtime_profile_id", sa.String(length=36), nullable=True))
+    needs_runtime_profile_id_column = not _has_column("agents", "runtime_profile_id")
+    runtime_profile_id_will_exist = needs_runtime_profile_id_column or _has_column("agents", "runtime_profile_id")
+    needs_runtime_profile_fk = runtime_profile_id_will_exist and not _has_fk(
+        "agents", ["runtime_profile_id"], "runtime_profiles"
+    )
+
+    if dialect == "sqlite":
+        if needs_runtime_profile_id_column or needs_runtime_profile_fk:
+            with op.batch_alter_table("agents") as batch_op:
+                if needs_runtime_profile_id_column:
+                    batch_op.add_column(sa.Column("runtime_profile_id", sa.String(length=36), nullable=True))
+                if needs_runtime_profile_fk:
+                    batch_op.create_foreign_key(
+                        "fk_agents_runtime_profile_id_runtime_profiles",
+                        "runtime_profiles",
+                        ["runtime_profile_id"],
+                        ["id"],
+                    )
+    else:
+        if needs_runtime_profile_id_column:
+            op.add_column("agents", sa.Column("runtime_profile_id", sa.String(length=36), nullable=True))
+        if _has_column("agents", "runtime_profile_id") and not _has_fk(
+            "agents", ["runtime_profile_id"], "runtime_profiles"
+        ):
+            op.create_foreign_key(
+                "fk_agents_runtime_profile_id_runtime_profiles",
+                "agents",
+                "runtime_profiles",
+                ["runtime_profile_id"],
+                ["id"],
+            )
 
     if not _has_index("agents", "ix_agents_runtime_profile_id"):
         op.create_index("ix_agents_runtime_profile_id", "agents", ["runtime_profile_id"])
 
-    if _has_column("agents", "runtime_profile_id") and not _has_fk("agents", ["runtime_profile_id"], "runtime_profiles"):
-        op.create_foreign_key(
-            "fk_agents_runtime_profile_id_runtime_profiles",
-            "agents",
-            "runtime_profiles",
-            ["runtime_profile_id"],
-            ["id"],
-        )
-
 
 def downgrade() -> None:
     if _has_table("agents"):
-        if _has_fk("agents", ["runtime_profile_id"], "runtime_profiles"):
-            op.drop_constraint("fk_agents_runtime_profile_id_runtime_profiles", "agents", type_="foreignkey")
         if _has_index("agents", "ix_agents_runtime_profile_id"):
             op.drop_index("ix_agents_runtime_profile_id", table_name="agents")
-        if _has_column("agents", "runtime_profile_id"):
-            op.drop_column("agents", "runtime_profile_id")
+
+        if op.get_bind().dialect.name == "sqlite":
+            needs_fk_drop = _has_fk("agents", ["runtime_profile_id"], "runtime_profiles")
+            needs_col_drop = _has_column("agents", "runtime_profile_id")
+            if needs_fk_drop or needs_col_drop:
+                with op.batch_alter_table("agents") as batch_op:
+                    if needs_fk_drop:
+                        batch_op.drop_constraint("fk_agents_runtime_profile_id_runtime_profiles", type_="foreignkey")
+                    if needs_col_drop:
+                        batch_op.drop_column("runtime_profile_id")
+        else:
+            if _has_fk("agents", ["runtime_profile_id"], "runtime_profiles"):
+                op.drop_constraint("fk_agents_runtime_profile_id_runtime_profiles", "agents", type_="foreignkey")
+            if _has_column("agents", "runtime_profile_id"):
+                op.drop_column("agents", "runtime_profile_id")
 
     if _has_table("runtime_profiles"):
         if _has_index("runtime_profiles", "ix_runtime_profiles_name"):
