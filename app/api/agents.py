@@ -20,6 +20,7 @@ from app.schemas.agent import (
 from app.services.k8s_service import K8sService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
+from app.utils.git_urls import normalize_git_repo_url
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
 
@@ -117,6 +118,26 @@ def _validate_agent_type_or_422(agent_type: str | None) -> None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_type must be one of: workspace, specialist, task")
 
 
+def _default_agent_image() -> str:
+    return f"{settings.default_agent_image_repo}:{settings.default_agent_image_tag}"
+
+
+def _resolve_create_repo_url(payload: AgentCreateRequest) -> str | None:
+    if "repo_url" in payload.model_fields_set:
+        return payload.repo_url
+    return normalize_git_repo_url(settings.default_agent_repo_url)
+
+
+def _resolve_create_branch(payload: AgentCreateRequest) -> str:
+    branch = (payload.branch or "").strip()
+    return branch or settings.default_agent_branch
+
+
+def _resolve_create_image(payload: AgentCreateRequest) -> str:
+    image = (payload.image or "").strip()
+    return image or _default_agent_image()
+
+
 @router.get("/mine", response_model=list[AgentResponse])
 def list_mine(user=Depends(get_current_user), db: Session = Depends(get_db)):
     agents = AgentRepository(db).list_by_owner(user.id)
@@ -138,6 +159,10 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
     if runtime_profile_id is None:
         runtime_profile_id = RuntimeProfileService(db).ensure_user_has_default_profile(user).id
 
+    effective_image = _resolve_create_image(payload)
+    effective_repo_url = _resolve_create_repo_url(payload)
+    effective_branch = _resolve_create_branch(payload)
+
     repo = AgentRepository(db)
     agent = repo.create(
         name=payload.name,
@@ -145,9 +170,9 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         owner_user_id=user.id,
         visibility="private",
         status="creating",
-        image=payload.image,
-        repo_url=payload.repo_url,
-        branch=payload.branch,
+        image=effective_image,
+        repo_url=effective_repo_url,
+        branch=effective_branch,
         cpu=payload.cpu,
         memory=payload.memory,
         agent_type=payload.agent_type,
@@ -176,7 +201,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         target_type="agent",
         target_id=agent.id,
         user_id=user.id,
-        details={"name": agent.name, "image": agent.image, "status": agent.status},
+        details={"name": agent.name, "image": effective_image, "status": agent.status},
     )
     return AgentResponse.model_validate(agent)
 

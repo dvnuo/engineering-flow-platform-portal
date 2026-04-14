@@ -473,7 +473,7 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
         cleanup()
 
 
-def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
+def test_internal_specialist_pool_returns_expected_ids():
     client, leader_agent, _member_agent, _user_member, _outsider, _set_user, cleanup = _build_client_with_overrides()
     try:
         from app.main import app
@@ -568,7 +568,7 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
         cleanup()
 
 
-def test_internal_task_agent_create_delete_without_key_enforcement_preserves_safeguards():
+def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_route():
     client, leader_agent, _member_agent, _user_member, _outsider, _set_user, cleanup = _build_client_with_overrides()
     try:
         from app.main import app

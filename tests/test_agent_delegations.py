@@ -847,7 +847,7 @@ def test_malformed_runtime_delegation_result_marks_failed_but_keeps_task_result(
         cleanup()
 
 
-def test_internal_api_allows_missing_or_invalid_api_key(monkeypatch):
+def test_internal_delegation_route_accepts_internal_requests_and_ignores_unrecognized_header(monkeypatch):
     client, _db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         payload = {
@@ -858,11 +858,15 @@ def test_internal_api_allows_missing_or_invalid_api_key(monkeypatch):
             "visibility": "leader_only",
             "skill_name": "review",
         }
-        missing_key = client.post("/api/internal/agent-delegations", json=payload)
-        assert missing_key.status_code == 200
+        baseline_resp = client.post("/api/internal/agent-delegations", json=payload)
+        assert baseline_resp.status_code == 200
 
-        bad_key = client.post("/api/internal/agent-delegations", json=payload)
-        assert bad_key.status_code == 200
+        sideband_resp = client.post(
+            "/api/internal/agent-delegations",
+            json=payload,
+            headers={"X-Arbitrary-Header": "ignored"},
+        )
+        assert sideband_resp.status_code == 200
     finally:
         cleanup()
 
@@ -942,7 +946,7 @@ def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkey
         cleanup()
 
 
-def test_internal_read_routes_are_unfiltered_without_key_enforcement(monkeypatch):
+def test_internal_read_routes_are_unfiltered_for_internal_control_plane_requests(monkeypatch):
     client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)

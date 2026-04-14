@@ -83,11 +83,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         env = self.service._build_agent_container_env(SimpleNamespace(id="agent-123"))
         names = [item.name for item in env]
 
-        self.assertIn("EFP_CONFIG_KEY", names)
-        self.assertIn("PORTAL_INTERNAL_BASE_URL", names)
-        self.assertIn("PORTAL_AGENT_ID", names)
-        removed_runtime_env = "_".join(["RUNTIME", "INTERNAL", "API", "KEY"])
-        self.assertNotIn(removed_runtime_env, names)
+        self.assertEqual(set(names), {"EFP_CONFIG_KEY", "PORTAL_INTERNAL_BASE_URL", "PORTAL_AGENT_ID"})
 
         portal_base = next(item for item in env if item.name == "PORTAL_INTERNAL_BASE_URL")
         self.assertEqual(portal_base.value, "http://portal.internal.svc")
@@ -100,8 +96,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         env = self.service._build_agent_container_env(SimpleNamespace(id="agent-123"))
         names = [item.name for item in env]
 
-        self.assertIn("EFP_CONFIG_KEY", names)
-        self.assertNotIn("PORTAL_INTERNAL_BASE_URL", names)
+        self.assertEqual(set(names), {"EFP_CONFIG_KEY", "PORTAL_AGENT_ID"})
 
     def test_git_clone_shell_command_uses_askpass_not_credential_url(self):
         command = self.service._git_clone_shell_command()
