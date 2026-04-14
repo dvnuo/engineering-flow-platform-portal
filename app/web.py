@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
@@ -31,6 +31,7 @@ from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_service import RuntimeProfileService
+from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 
@@ -51,6 +52,7 @@ runtime_execution_context_service = RuntimeExecutionContextService()
 task_dispatcher_service = TaskDispatcherService()
 requirement_bundle_service = RequirementBundleGithubService()
 runtime_profile_sync_service = RuntimeProfileSyncService(proxy_service=proxy_service)
+runtime_profile_test_service = RuntimeProfileTestService()
 base_uri = settings.base_uri
 
 
@@ -471,9 +473,23 @@ def _runtime_profile_panel_context(
     status_type: str = "",
     status_message: str = "",
 ) -> dict:
+    from app.models.agent import Agent
+
     bound_count = profile_repo.count_bound_agents(profile.id)
-    config_data = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    config_data = RuntimeProfileService.merge_with_managed_defaults(
+        parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    )
     view_data = _settings_view_payload(config_data)
+    proxy_agent = profile_repo.db.query(Agent).filter(
+        Agent.runtime_profile_id == profile.id,
+        Agent.status == "running",
+    ).order_by(Agent.updated_at.desc(), Agent.created_at.desc()).first()
+    copilot_proxy_agent_id = proxy_agent.id if proxy_agent else ""
+    copilot_proxy_agent_hint = (
+        f"Using running agent {copilot_proxy_agent_id} as Copilot auth proxy."
+        if copilot_proxy_agent_id
+        else "No running bound agent available for Copilot auth proxy."
+    )
     return {
         "request": request,
         "profile_id": profile.id,
@@ -484,6 +500,8 @@ def _runtime_profile_panel_context(
         "profile_revision": profile.revision,
         "profile_is_default": bool(profile.is_default),
         "profile_bound_agent_count": bound_count,
+        "copilot_proxy_agent_id": copilot_proxy_agent_id,
+        "copilot_proxy_agent_hint": copilot_proxy_agent_hint,
         **view_data,
     }
 
@@ -616,9 +634,15 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     proxy_url_value = (form.get("proxy_url") or "").strip()
     proxy_username_value = (form.get("proxy_username") or "").strip()
     if "proxy_url" in form:
-        proxy_cfg["url"] = proxy_url_value
+        if proxy_url_value:
+            proxy_cfg["url"] = proxy_url_value
+        else:
+            proxy_cfg.pop("url", None)
     if "proxy_username" in form:
-        proxy_cfg["username"] = proxy_username_value
+        if proxy_username_value:
+            proxy_cfg["username"] = proxy_username_value
+        else:
+            proxy_cfg.pop("username", None)
     if "proxy_password" in form:
         new_password = (form.get("proxy_password") or "").strip()
         if new_password:
@@ -1737,7 +1761,9 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 },
             )
 
-        config_data = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        config_data = RuntimeProfileService.merge_with_managed_defaults(
+            parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        )
         view_data = _settings_view_payload(config_data)
         return templates.TemplateResponse(
             "partials/settings_panel.html",
@@ -1810,7 +1836,9 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             )
 
         profile_bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
-        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        config_base = RuntimeProfileService.merge_with_managed_defaults(
+            parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        )
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return _settings_error_response(
@@ -1869,6 +1897,50 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         db.close()
 
 
+_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github"}
+
+
+def _validate_managed_test_target(target: str) -> str:
+    clean_target = (target or "").strip().lower()
+    if clean_target not in _MANAGED_TEST_TARGETS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown test target")
+    return clean_target
+
+
+@router.post("/app/agents/{agent_id}/settings/test/{target}")
+async def app_agent_settings_test(request: Request, agent_id: str, target: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    target = _validate_managed_test_target(target)
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_write(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if not agent.runtime_profile_id:
+            raise HTTPException(status_code=404, detail="RuntimeProfile not found")
+
+        runtime_profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
+        if not runtime_profile or runtime_profile.owner_user_id not in {user.id, agent.owner_user_id}:
+            raise HTTPException(status_code=404, detail="RuntimeProfile not found")
+
+        config_base = RuntimeProfileService.merge_with_managed_defaults(
+            parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        )
+        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        if merge_error:
+            return JSONResponse({"ok": False, "target": target, "message": merge_error})
+        ok, message = await runtime_profile_test_service.run_test(target, config_payload)
+        return JSONResponse({"ok": bool(ok), "target": target, "message": message})
+    finally:
+        db.close()
+
+
 @router.get("/app/runtime-profiles/{profile_id}/panel")
 async def app_runtime_profile_panel(request: Request, profile_id: str):
     user = _current_user_from_cookie(request)
@@ -1890,6 +1962,34 @@ async def app_runtime_profile_panel(request: Request, profile_id: str):
         db.close()
 
 
+@router.post("/app/runtime-profiles/{profile_id}/test/{target}")
+async def app_runtime_profile_test(request: Request, profile_id: str, target: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    target = _validate_managed_test_target(target)
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        service = RuntimeProfileService(db)
+        profile = service.get_for_user(user, profile_id)
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
+
+        config_base = RuntimeProfileService.merge_with_managed_defaults(
+            parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+        )
+        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        if merge_error:
+            return JSONResponse({"ok": False, "target": target, "message": merge_error})
+
+        ok, message = await runtime_profile_test_service.run_test(target, config_payload)
+        return JSONResponse({"ok": bool(ok), "target": target, "message": message})
+    finally:
+        db.close()
+
+
 @router.post("/app/runtime-profiles/{profile_id}/save")
 async def app_runtime_profile_save(request: Request, profile_id: str):
     user = _current_user_from_cookie(request)
@@ -1905,7 +2005,9 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
 
         profile_repo = RuntimeProfileRepository(db)
-        config_base = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+        config_base = RuntimeProfileService.merge_with_managed_defaults(
+            parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+        )
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return templates.TemplateResponse(

@@ -116,6 +116,14 @@ def test_agent_runtime_delete():
     assert response.status_code in [200, 401, 403, 404]
 
 
+def test_managed_settings_initializer_hooks_present():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "function initializeManagedSettingsPanels()" in js
+    assert 'event.target?.id === "workspace-detail-content"' in js
+    assert "initializeManagedSettingsPanels();" in js
+    assert "loadRuntimeProfilePanelContent(profileId)" in js
+
+
 def test_agent_defaults():
     """Test agent defaults endpoint."""
     from app.main import app

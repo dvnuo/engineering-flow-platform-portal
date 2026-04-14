@@ -87,3 +87,19 @@ def test_repair_legacy_shared_profiles_clones_and_rebinds():
     u2_profiles = svc.list_for_user(u2)
     assert len([p for p in u1_profiles if p.is_default]) == 1
     assert len([p for p in u2_profiles if p.is_default]) == 1
+
+
+def test_default_profile_config_has_safe_managed_defaults():
+    cfg = RuntimeProfileService.default_profile_config()
+    assert cfg["llm"]["max_tokens"] == 1000
+    assert cfg["llm"]["temperature"] == 0.7
+    assert cfg["llm"]["max_retries"] == 3
+    assert cfg["llm"]["retry_delay"] == 1
+    assert cfg["llm"]["system-prompt"]["daily_notes"]["enabled"] is True
+    assert cfg["debug"]["log_level"] == "INFO"
+
+    assert "api_key" not in cfg["llm"]
+    assert "api_base" not in cfg["llm"]
+    assert "api_token" not in cfg["github"]
+    assert "base_url" not in cfg["github"]
+    assert "password" not in cfg["proxy"]

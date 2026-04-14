@@ -58,9 +58,17 @@ def test_app_template_contains_new_portal_shell():
     assert "toggle-slider" in create_runtime_modal
 
     runtime_panel = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+    settings_panel = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     assert 'name="is_default"' in runtime_panel
     assert "toggle-switch" in runtime_panel
     assert "toggle-slider" in runtime_panel
+    assert 'data-test-base="/app/runtime-profiles/{{ profile_id }}/test"' in runtime_panel
+    assert 'data-test-base="/app/agents/{{ agent_id }}/settings/test"' in settings_panel
+    assert 'data-current-value="{{ llm.get(\'model\', \'\') }}"' in runtime_panel
+    assert 'data-current-value="{{ llm.get(\'model\', \'\') }}"' in settings_panel
+    assert 'data-test-target="proxy"' in runtime_panel
+    assert 'data-test-target="proxy"' in settings_panel
+    assert "providerModels" not in settings_panel
 
     css = Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert ".toggle-switch" in css
