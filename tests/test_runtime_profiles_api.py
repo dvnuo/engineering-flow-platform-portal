@@ -66,6 +66,16 @@ def test_runtime_profiles_scoped_and_defaults(monkeypatch):
         assert r2.status_code == 200
         body2 = r2.json()
 
+        options_ordered = client.get("/api/runtime-profiles/options")
+        assert options_ordered.status_code == 200
+        ordered_names = [item["name"] for item in options_ordered.json()]
+        assert ordered_names[:2] == ["Reviewer", "Default"]
+
+        profiles_ordered = client.get("/api/runtime-profiles")
+        assert profiles_ordered.status_code == 200
+        ordered_profile_names = [item["name"] for item in profiles_ordered.json()]
+        assert ordered_profile_names[:2] == ["Reviewer", "Default"]
+
         dup = client.post("/api/runtime-profiles", json={"name": "Reviewer", "config_json": "{}"})
         assert dup.status_code == 409
 

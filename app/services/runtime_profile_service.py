@@ -27,7 +27,7 @@ class RuntimeProfileService:
         }
 
     def list_for_user(self, user) -> list[RuntimeProfile]:
-        return self.repo.list_by_owner(user.id)
+        return self.repo.list_by_owner_newest_first(user.id)
 
     def get_for_user(self, user, profile_id: str) -> RuntimeProfile | None:
         return self.repo.get_by_id_for_owner(profile_id, user.id)

@@ -26,10 +26,13 @@
           <input type="text" name="description" value="{{ profile_description }}" class="portal-form-input" />
         </label>
       </div>
-      <label class="portal-checkbox-row">
-        <input type="checkbox" name="is_default" {% if profile_is_default %}checked{% endif %}/>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch">
+          <input type="checkbox" name="is_default" {% if profile_is_default %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
         <span>Default profile</span>
-      </label>
+      </div>
       <div class="portal-inline-state">
         Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong>
       </div>
