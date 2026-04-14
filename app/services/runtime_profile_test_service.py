@@ -1,3 +1,4 @@
+import base64
 import socket
 from urllib.parse import urlparse
 
@@ -71,16 +72,15 @@ class RuntimeProfileTestService:
 
         instance = self._first_auth_instance(jira_cfg.get("instances") or [])
         if not instance:
-            return False, "No usable Jira instance found. Provide URL plus token or username/password."
+            return False, "No usable Jira instance found. Provide URL plus one of: username+token, token-only, or username+password."
 
         base_url = str(instance.get("url") or "").strip().rstrip("/")
         endpoint = f"{base_url}/rest/api/2/myself"
-        headers, auth = self._build_auth(instance)
+        headers = self._build_auth(instance)
         ok, message, data = await self._http_json_request(
             method="GET",
             url=endpoint,
             headers=headers,
-            auth=auth,
             payload=None,
             timeout=15.0,
         )
@@ -97,16 +97,15 @@ class RuntimeProfileTestService:
 
         instance = self._first_auth_instance(confluence_cfg.get("instances") or [])
         if not instance:
-            return False, "No usable Confluence instance found. Provide URL plus token or username/password."
+            return False, "No usable Confluence instance found. Provide URL plus one of: username+token, token-only, or username+password."
 
         base_url = str(instance.get("url") or "").strip().rstrip("/")
         endpoint = f"{base_url}/rest/api/space?limit=1"
-        headers, auth = self._build_auth(instance)
+        headers = self._build_auth(instance)
         ok, message, _data = await self._http_json_request(
             method="GET",
             url=endpoint,
             headers=headers,
-            auth=auth,
             payload=None,
             timeout=15.0,
         )
@@ -191,18 +190,27 @@ class RuntimeProfileTestService:
             token = str(item.get("token") or "").strip()
             username = str(item.get("username") or "").strip()
             password = str(item.get("password") or "").strip()
-            if url and (token or (username and password)):
+            has_username_token = bool(username and token)
+            has_token_only = bool(token and not username)
+            has_username_password = bool(username and password)
+            if url and (has_username_token or has_token_only or has_username_password):
                 return item
         return None
 
     @staticmethod
-    def _build_auth(instance: dict) -> tuple[dict, tuple[str, str] | None]:
-        token = str(instance.get("token") or "").strip()
-        if token:
-            return {"Authorization": f"Bearer {token}"}, None
+    def _build_auth(instance: dict) -> dict:
         username = str(instance.get("username") or "").strip()
+        token = str(instance.get("token") or "").strip()
+        if username and token:
+            encoded = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
+            return {"Authorization": f"Basic {encoded}"}
+        if token:
+            return {"Authorization": f"Bearer {token}"}
         password = str(instance.get("password") or "").strip()
-        return {}, (username, password)
+        if username and password:
+            encoded = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+            return {"Authorization": f"Basic {encoded}"}
+        return {}
 
     async def _http_json_smoke(self, method: str, url: str, headers: dict, payload: dict | None, timeout: float, success_message_builder):
         ok, message, data = await self._http_json_request(
@@ -223,11 +231,10 @@ class RuntimeProfileTestService:
         headers: dict,
         payload: dict | None,
         timeout: float,
-        auth: tuple[str, str] | None = None,
     ) -> tuple[bool, str, dict | None]:
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.request(method=method, url=url, headers=headers, json=payload, auth=auth)
+                response = await client.request(method=method, url=url, headers=headers, json=payload)
         except Exception as exc:
             return False, f"Request failed: {exc}", None
 

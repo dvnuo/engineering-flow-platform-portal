@@ -3611,9 +3611,11 @@ function updateModelOptions(root) {
   const modelSelect = root.querySelector("#llm_model");
   if (!providerSelect || !modelSelect) return;
   const provider = providerSelect.value || "openai";
+  const initialProvider = providerSelect.dataset.initialProvider || provider;
+  const initialValue = modelSelect.dataset.initialValue || modelSelect.dataset.currentValue || "";
+  const lastProvider = modelSelect.dataset.lastProvider || initialProvider;
+  const previousValue = modelSelect.value || "";
   const models = managedProviderModels[provider] || [];
-  const currentModel = modelSelect.dataset.currentValue || "";
-  const previous = modelSelect.value || currentModel;
   modelSelect.innerHTML = "";
   models.forEach((model) => {
     const option = document.createElement("option");
@@ -3621,16 +3623,26 @@ function updateModelOptions(root) {
     option.textContent = model.label;
     modelSelect.appendChild(option);
   });
-  const preferred = provider === providerSelect.dataset.initialProvider ? currentModel : previous;
-  const hasPreferred = preferred && models.some((m) => m.value === preferred);
-  if (preferred && !hasPreferred) {
-    const extra = document.createElement("option");
-    extra.value = preferred;
-    extra.textContent = `${preferred} (Current)`;
-    modelSelect.appendChild(extra);
+  const hasModel = (value) => !!value && models.some((m) => m.value === value);
+
+  let preferred = "";
+  if (provider === initialProvider && lastProvider === initialProvider) {
+    preferred = initialValue;
+    if (preferred && !hasModel(preferred)) {
+      const extra = document.createElement("option");
+      extra.value = preferred;
+      extra.textContent = `${preferred} (Current)`;
+      modelSelect.appendChild(extra);
+    }
+  } else if (provider !== lastProvider) {
+    preferred = hasModel(previousValue) ? previousValue : (models[0]?.value || "");
+  } else {
+    preferred = hasModel(previousValue) ? previousValue : (models[0]?.value || "");
   }
   if (preferred) modelSelect.value = preferred;
-  modelSelect.dataset.currentValue = modelSelect.value || preferred || "";
+  if (!modelSelect.value && models[0]?.value) modelSelect.value = models[0].value;
+  modelSelect.dataset.currentValue = modelSelect.value || "";
+  modelSelect.dataset.lastProvider = provider;
 
   const copilotBtn = root.querySelector("#copilot_auth_btn");
   const authStatus = root.querySelector("#copilot_auth_status");
@@ -3733,7 +3745,12 @@ function initializeManagedSettingsRoot(root) {
   normalizeInstanceInputs(root, "confluence");
   window.initPasswordToggles(root);
   const provider = root.querySelector("#llm_provider");
+  const modelSelect = root.querySelector("#llm_model");
   if (provider && !provider.dataset.initialProvider) provider.dataset.initialProvider = provider.value || "openai";
+  if (modelSelect && !modelSelect.dataset.initialValue) {
+    modelSelect.dataset.initialValue = modelSelect.dataset.currentValue || "";
+    modelSelect.dataset.lastProvider = provider?.value || "openai";
+  }
   updateModelOptions(root);
   const settingsStatus = root.querySelector("#settings-status");
   if (settingsStatus && settingsStatus.dataset.handled !== "1") {

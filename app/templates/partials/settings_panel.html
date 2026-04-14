@@ -49,7 +49,7 @@
         </label>
         <label class="portal-form-label">
           <span class="portal-form-label">Model</span>
-          <select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ llm.get('model', '') }}"></select>
+          <select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ llm.get('model', '') }}" data-initial-value="{{ llm.get('model', '') }}"></select>
         </label>
       </div>
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="portal-form-input" /></label>
