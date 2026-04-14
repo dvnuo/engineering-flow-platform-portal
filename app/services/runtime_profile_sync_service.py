@@ -57,13 +57,17 @@ class RuntimeProfileSyncService:
 
     async def push_payload_to_agent(self, agent, payload: dict) -> bool:
         try:
+            headers = {
+                "content-type": "application/json",
+                **self.proxy_service.build_runtime_internal_headers(),
+            }
             status_code, content, _ = await self.proxy_service.forward(
                 agent=agent,
                 method="POST",
                 subpath="api/internal/runtime-profile/apply",
                 query_items=[],
                 body=json.dumps(payload).encode("utf-8"),
-                headers={"content-type": "application/json"},
+                headers=headers,
                 extra_headers=self._portal_trusted_headers(),
             )
         except Exception as exc:

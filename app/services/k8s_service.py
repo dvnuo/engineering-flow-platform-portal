@@ -443,6 +443,9 @@ class K8sService:
             env.append(client.V1EnvVar(name="PORTAL_INTERNAL_BASE_URL", value=base_url))
         if agent is not None and getattr(agent, "id", None):
             env.append(client.V1EnvVar(name="PORTAL_AGENT_ID", value=str(agent.id)))
+        runtime_internal_api_key = (getattr(self.settings, "runtime_internal_api_key", None) or "").strip()
+        if runtime_internal_api_key:
+            env.append(client.V1EnvVar(name="RUNTIME_INTERNAL_API_KEY", value=runtime_internal_api_key))
         return env
 
     def _git_clone_shell_command(self) -> str:

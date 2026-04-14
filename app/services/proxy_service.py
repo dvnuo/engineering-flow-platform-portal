@@ -60,7 +60,11 @@ def build_portal_execution_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
 
 def build_runtime_internal_headers() -> dict[str, str]:
-    return {}
+    settings = get_settings()
+    key = sanitize_header_value(getattr(settings, "runtime_internal_api_key", None))
+    if not key:
+        return {}
+    return {"X-Internal-Api-Key": key}
 
 
 def build_runtime_trace_headers(trace_context: dict[str, str] | None) -> dict[str, str]:

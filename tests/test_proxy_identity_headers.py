@@ -2,7 +2,7 @@ from types import SimpleNamespace
 import json
 
 from fastapi.testclient import TestClient
-from app.services.proxy_service import build_runtime_internal_headers, build_runtime_trace_headers
+from app.services.proxy_service import build_runtime_trace_headers
 
 
 def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
@@ -121,11 +121,11 @@ def test_proxy_agent_restricts_config_save_for_non_owner(monkeypatch):
     finally:
         app.dependency_overrides.clear()
 
-    assert config_save_resp.status_code == 403
+    assert config_save_resp.status_code == 410
     assert normal_resp.status_code == 200
 
 
-def test_proxy_agent_allows_config_save_for_owner(monkeypatch):
+def test_proxy_agent_blocks_portal_managed_runtime_config_paths_for_owner(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module
 
@@ -152,24 +152,67 @@ def test_proxy_agent_allows_config_save_for_owner(monkeypatch):
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
 
-        captured = []
+        calls = {"count": 0}
 
         async def _fake_forward(**kwargs):
-            captured.append(kwargs)
+            calls["count"] += 1
             return 200, b'{"ok": true}', "application/json"
 
         monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
         client = TestClient(app)
 
         config_save_resp = client.post("/a/agent-1/api/config/save", content=b"{}")
+        config_read_resp = client.get("/a/agent-1/api/config")
         normal_resp = client.get("/a/agent-1/api/usage")
     finally:
         app.dependency_overrides.clear()
 
-    assert config_save_resp.status_code == 200
+    assert config_save_resp.status_code == 410
+    assert config_read_resp.status_code == 410
     assert normal_resp.status_code == 200
-    assert captured[0]["subpath"] == "api/config/save"
-    assert captured[1]["subpath"] == "api/usage"
+    assert calls["count"] == 1
+
+
+def test_proxy_agent_blocks_runtime_internal_paths_for_owner(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=55, username="owner", nickname="Owner", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=55,
+        visibility="private",
+        status="running",
+    )
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
+        calls = {"count": 0}
+
+        async def _fake_forward(**kwargs):
+            calls["count"] += 1
+            return 200, b'{"ok": true}', "application/json"
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        client = TestClient(app)
+        internal_resp = client.post("/a/agent-1/api/internal/runtime-profile/apply", content=b"{}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert internal_resp.status_code == 403
+    assert calls["count"] == 0
 
 
 def test_proxy_agent_returns_410_for_removed_legacy_ssh_paths(monkeypatch):
@@ -318,8 +361,8 @@ def test_requires_write_access_normalizes_slashes():
 
     assert not proxy_module._requires_write_access("GET", "api/ssh/public-key")
     assert not proxy_module._requires_write_access("POST", "api/ssh/generate")
-    assert proxy_module._requires_write_access("POST", "api/config/save")
-    assert proxy_module._requires_write_access("POST", "/api/config/save/")
+    assert not proxy_module._requires_write_access("POST", "api/config/save")
+    assert not proxy_module._requires_write_access("POST", "/api/config/save/")
     assert proxy_module._requires_write_access("GET", "api/server-files")
     assert proxy_module._requires_write_access("GET", "/api/server-files/read/")
     assert proxy_module._requires_write_access("POST", "api/server-files/upload")
@@ -610,11 +653,28 @@ def test_proxy_direct_chat_rejects_non_object_json_payload_without_forwarding(mo
     assert calls["count"] == 0
 
 
-def test_build_runtime_internal_headers_returns_empty_dict():
-    from app.services.proxy_service import build_runtime_internal_headers
+def test_build_runtime_internal_headers_returns_empty_dict_when_key_missing(monkeypatch):
+    from app.services import proxy_service as proxy_service_module
 
-    headers = build_runtime_internal_headers()
+    monkeypatch.setattr(
+        proxy_service_module,
+        "get_settings",
+        lambda: SimpleNamespace(runtime_internal_api_key=""),
+    )
+    headers = proxy_service_module.build_runtime_internal_headers()
     assert headers == {}
+
+
+def test_build_runtime_internal_headers_includes_internal_key_when_configured(monkeypatch):
+    from app.services import proxy_service as proxy_service_module
+
+    monkeypatch.setattr(
+        proxy_service_module,
+        "get_settings",
+        lambda: SimpleNamespace(runtime_internal_api_key="rt-key"),
+    )
+    headers = proxy_service_module.build_runtime_internal_headers()
+    assert headers == {"X-Internal-Api-Key": "rt-key"}
 
 
 def test_runtime_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
@@ -821,8 +881,15 @@ def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypa
     assert calls["stream_request"]["params"] == [("stream", "runtime")]
 
 
-def test_build_runtime_internal_headers_default_contract():
-    headers = build_runtime_internal_headers()
+def test_build_runtime_internal_headers_default_contract(monkeypatch):
+    from app.services import proxy_service as proxy_service_module
+
+    monkeypatch.setattr(
+        proxy_service_module,
+        "get_settings",
+        lambda: SimpleNamespace(runtime_internal_api_key=None),
+    )
+    headers = proxy_service_module.build_runtime_internal_headers()
     assert headers == {}
 
 
