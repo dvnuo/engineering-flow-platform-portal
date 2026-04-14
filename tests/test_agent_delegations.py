@@ -847,7 +847,7 @@ def test_malformed_runtime_delegation_result_marks_failed_but_keeps_task_result(
         cleanup()
 
 
-def test_internal_delegation_route_allows_requests_and_ignores_unrelated_headers(monkeypatch):
+def test_internal_delegation_route_accepts_internal_requests_and_ignores_arbitrary_sideband_header(monkeypatch):
     client, _db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         payload = {
@@ -858,15 +858,15 @@ def test_internal_delegation_route_allows_requests_and_ignores_unrelated_headers
             "visibility": "leader_only",
             "skill_name": "review",
         }
-        without_extra_headers = client.post("/api/internal/agent-delegations", json=payload)
-        assert without_extra_headers.status_code == 200
+        baseline_resp = client.post("/api/internal/agent-delegations", json=payload)
+        assert baseline_resp.status_code == 200
 
-        with_unrelated_header = client.post(
+        sideband_resp = client.post(
             "/api/internal/agent-delegations",
             json=payload,
-            headers={"X-Unused-Sideband": "ignored"},
+            headers={"X-Arbitrary-Sideband": "ignored"},
         )
-        assert with_unrelated_header.status_code == 200
+        assert sideband_resp.status_code == 200
     finally:
         cleanup()
 

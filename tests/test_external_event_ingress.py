@@ -157,14 +157,14 @@ def test_public_ingest_is_admin_only():
         cleanup()
 
 
-def test_internal_ingest_accepts_standard_internal_requests():
+def test_internal_ingest_accepts_default_internal_route_request():
     client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
-        missing = client.post(
+        ingest_resp = client.post(
             "/api/internal/external-events/ingest",
             json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},
         )
-        assert missing.status_code == 200
+        assert ingest_resp.status_code == 200
     finally:
         cleanup()
 

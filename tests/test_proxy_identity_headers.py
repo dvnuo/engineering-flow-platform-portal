@@ -653,26 +653,26 @@ def test_proxy_direct_chat_rejects_non_object_json_payload_without_forwarding(mo
     assert calls["count"] == 0
 
 
-def test_unknown_header_is_not_forwarded_in_browser_proxy_allowlist():
+def test_non_allowlisted_sideband_header_is_not_forwarded_in_browser_proxy_allowlist():
     from app.services.proxy_service import ProxyService
 
     outbound = ProxyService._build_outbound_headers(
         headers={"content-type": "application/json"},
-        extra_headers={"X-Unused-Sideband": "ignored", "X-Portal-User-Id": "10"},
+        extra_headers={"X-Arbitrary-Sideband": "ignored", "X-Portal-User-Id": "10"},
     )
 
     assert outbound["content-type"] == "application/json"
     assert outbound["X-Portal-User-Id"] == "10"
-    assert "X-Unused-Sideband" not in outbound
+    assert "X-Arbitrary-Sideband" not in outbound
 
 
-def test_unknown_portal_prefixed_header_is_not_forwarded_in_browser_proxy_allowlist():
+def test_non_allowlisted_portal_prefixed_sideband_header_is_not_forwarded_in_browser_proxy_allowlist():
     from app.services.proxy_service import ProxyService
 
     outbound = ProxyService._build_outbound_headers(
         headers={"content-type": "application/json"},
         extra_headers={
-            "X-Portal-Unused-Sideband": "ignored",
+            "X-Portal-Arbitrary-Sideband": "ignored",
             "X-Portal-User-Id": "10",
             "X-Portal-Author-Source": "portal",
         },
@@ -681,7 +681,7 @@ def test_unknown_portal_prefixed_header_is_not_forwarded_in_browser_proxy_allowl
     assert outbound["content-type"] == "application/json"
     assert outbound["X-Portal-User-Id"] == "10"
     assert outbound["X-Portal-Author-Source"] == "portal"
-    assert "X-Portal-Unused-Sideband" not in outbound
+    assert "X-Portal-Arbitrary-Sideband" not in outbound
 
 
 def test_build_portal_execution_headers_returns_identity_headers_only():
@@ -699,7 +699,7 @@ def test_build_portal_execution_headers_returns_identity_headers_only():
     }
 
 
-def test_proxy_direct_chat_succeeds_without_additional_control_plane_headers(monkeypatch):
+def test_proxy_direct_chat_succeeds_with_standard_browser_request_headers(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module
 
