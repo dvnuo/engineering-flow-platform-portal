@@ -2717,12 +2717,11 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
     await refreshRuntimeProfileList({ preserveSelection: true });
     if (state.activeNavSection === "runtime-profiles" && !state.secondaryPaneCollapsed) {
       const defaultProfile = state.runtimeProfiles.find((item) => item.is_default);
+      const preferredProfile = defaultProfile || state.runtimeProfiles[0] || null;
       let targetProfileId = null;
-      if (didSwitchSection) {
-        targetProfileId = (defaultProfile || state.runtimeProfiles[0] || {}).id || null;
+      if (didSwitchSection || didRevealPane) {
+        targetProfileId = preferredProfile ? preferredProfile.id : null;
         state.selectedRuntimeProfileId = targetProfileId;
-      } else if (didRevealPane) {
-        targetProfileId = state.selectedRuntimeProfileId || (defaultProfile || state.runtimeProfiles[0] || {}).id || null;
       }
 
       if (targetProfileId) {

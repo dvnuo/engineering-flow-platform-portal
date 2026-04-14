@@ -843,6 +843,124 @@ async function runEmptyProfiles() {{
     assert any("No runtime profiles found." in msg for msg in data["emptyProfiles"]["placeholderMessages"])
 
 
+def test_chat_ui_runtime_profiles_reopen_prefers_default_profile():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
+    load_runtime_profile_panel_content_fn = _extract_js_function(js_file, "loadRuntimeProfilePanelContent")
+
+    script = f"""
+{load_runtime_profile_panel_content_fn}
+{set_active_nav_section_fn}
+
+function noop() {{}}
+function makeToggleObj() {{
+  return {{
+    classList: {{
+      toggle: noop,
+    }},
+  }};
+}}
+
+const dom = {{
+  railAssistantsBtn: makeToggleObj(),
+  bundlesMenuBtn: makeToggleObj(),
+  tasksMenuBtn: makeToggleObj(),
+  runtimeProfilesMenuBtn: makeToggleObj(),
+  assistantsNavSection: makeToggleObj(),
+  bundlesNavSection: makeToggleObj(),
+  tasksNavSection: makeToggleObj(),
+  runtimeProfilesNavSection: makeToggleObj(),
+  workspaceDetailContent: {{
+    dataset: {{
+      workspaceState: "idle",
+    }},
+  }},
+}};
+
+const state = {{
+  activeNavSection: "runtime-profiles",
+  secondaryPaneCollapsed: false,
+  selectedRuntimeProfileId: "custom-1",
+  runtimeProfiles: [
+    {{ id: "reviewer-2", name: "Reviewer", is_default: false, revision: 1 }},
+    {{ id: "default-1", name: "Default", is_default: true, revision: 3 }},
+  ],
+}};
+let loadedProfileIds = [];
+
+function applySecondaryPaneState() {{}}
+function renderSecondaryPaneHeader() {{}}
+function syncMainHeader() {{}}
+function showAssistantDefaultMainView() {{}}
+function showBundlesLoadingMainView() {{}}
+function showTasksLoadingMainView() {{}}
+function loadRequirementBundlesFromCache() {{
+  return {{ hasCache: true, hasItems: true }};
+}}
+function renderRequirementBundleList() {{}}
+function showBundlesDefaultMainView() {{}}
+function showBundlesEmptyMainView() {{}}
+function showTasksDefaultMainView() {{}}
+async function refreshMyTasks() {{}}
+function renderRuntimeProfileList() {{}}
+function renderWorkspaceDetailPlaceholder(_message, workspaceState) {{
+  dom.workspaceDetailContent.dataset.workspaceState = workspaceState || "runtime-profiles-placeholder";
+}}
+async function refreshRuntimeProfileList() {{}}
+const htmx = {{
+  ajax: async function(_method, url) {{
+    loadedProfileIds.push(url.split("/")[3]);
+  }}
+}};
+function setMainView(_view) {{}}
+
+async function run() {{
+  loadedProfileIds = [];
+  await setActiveNavSection("runtime-profiles");
+  const afterCollapse = {{
+    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
+    loadedProfileIds: [...loadedProfileIds],
+  }};
+
+  loadedProfileIds = [];
+  await setActiveNavSection("runtime-profiles");
+  const afterReopen = {{
+    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
+    selectedRuntimeProfileId: state.selectedRuntimeProfileId,
+    loadedProfileIds: [...loadedProfileIds],
+    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
+  }};
+
+  console.log(JSON.stringify({{ afterCollapse, afterReopen }}));
+}}
+
+run().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert data["afterCollapse"]["secondaryPaneCollapsed"] is True
+    assert data["afterCollapse"]["loadedProfileIds"] == []
+
+    assert data["afterReopen"]["secondaryPaneCollapsed"] is False
+    assert data["afterReopen"]["selectedRuntimeProfileId"] == "default-1"
+    assert data["afterReopen"]["loadedProfileIds"] == ["default-1"]
+    assert data["afterReopen"]["workspaceState"] == "runtime-profile-detail"
+
+
 def test_chat_ui_refresh_requirement_bundles_treats_empty_cached_list_as_cache():
     node_bin = shutil.which("node")
     if not node_bin:
