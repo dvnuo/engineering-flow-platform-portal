@@ -7,6 +7,7 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.user import PasswordUpdateRequest, UserCreateRequest, UserResponse
 from app.services.auth_service import hash_password
+from app.services.runtime_profile_service import RuntimeProfileService
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -19,6 +20,7 @@ def create_user(payload: UserCreateRequest, admin=Depends(require_admin), db: Se
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
 
     user = repo.create(payload.username, hash_password(payload.password), payload.role)
+    RuntimeProfileService(db).ensure_user_has_default_profile(user)
     AuditRepository(db).create(
         action="create_user",
         target_type="user",

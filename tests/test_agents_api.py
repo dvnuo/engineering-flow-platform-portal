@@ -233,7 +233,7 @@ def test_create_and_update_agent_runtime_profile_validation_and_response(monkeyp
 
         from app.models.runtime_profile import RuntimeProfile
 
-        rp = RuntimeProfile(name="rp", config_json="{}", revision=1)
+        rp = RuntimeProfile(owner_user_id=1, name="rp", config_json="{}", revision=1, is_default=True)
         db.add(rp)
         db.commit()
         db.refresh(rp)
@@ -252,6 +252,49 @@ def test_create_and_update_agent_runtime_profile_validation_and_response(monkeyp
         cleanup()
 
 
+def test_create_agent_without_runtime_profile_id_uses_user_default_profile(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        from app.models.runtime_profile import RuntimeProfile
+
+        default_profile = RuntimeProfile(owner_user_id=1, name="Default", config_json="{}", revision=1, is_default=True)
+        db.add(default_profile)
+        db.commit()
+        db.refresh(default_profile)
+
+        create_ok = client.post("/api/agents", json={"name": "auto-default", "image": "example/image:latest"})
+        assert create_ok.status_code == 200
+        assert create_ok.json()["runtime_profile_id"] == default_profile.id
+    finally:
+        cleanup()
+
+
+def test_create_agent_with_other_users_runtime_profile_is_404(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        from app.models.runtime_profile import RuntimeProfile
+        from app.models import User
+
+        foreign_user = User(username="foreign", password_hash="test", role="user", is_active=True)
+        db.add(foreign_user)
+        db.commit()
+        db.refresh(foreign_user)
+        foreign_profile = RuntimeProfile(owner_user_id=foreign_user.id, name="Foreign", config_json="{}", revision=1, is_default=True)
+        db.add(foreign_profile)
+        db.commit()
+        db.refresh(foreign_profile)
+
+        resp = client.post(
+            "/api/agents",
+            json={"name": "bad-foreign", "image": "example/image:latest", "runtime_profile_id": foreign_profile.id},
+        )
+        assert resp.status_code == 404
+    finally:
+        cleanup()
+
+
 def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
@@ -259,7 +302,7 @@ def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch
 
         from app.models.runtime_profile import RuntimeProfile
 
-        rp = RuntimeProfile(name="rp-sync", config_json='{"llm": {"provider": "openai"}}', revision=3)
+        rp = RuntimeProfile(owner_user_id=1, name="rp-sync", config_json='{"llm": {"provider": "openai"}}', revision=3, is_default=True)
         db.add(rp)
         db.commit()
         db.refresh(rp)
@@ -285,8 +328,9 @@ def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch
         assert pushed[-1]["revision"] == 3
 
         clear_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": None})
-        assert clear_resp.status_code == 200
-        assert pushed[-1] == {"runtime_profile_id": None, "revision": None, "config": {}}
+        assert clear_resp.status_code == 422
+        assert "runtime_profile_id cannot be null" in clear_resp.json()["detail"]
+        assert pushed[-1]["runtime_profile_id"] == rp.id
     finally:
         cleanup()
 
@@ -298,7 +342,7 @@ def test_update_running_agent_runtime_profile_push_failure_still_returns_200(mon
 
         from app.models.runtime_profile import RuntimeProfile
 
-        rp = RuntimeProfile(name="rp-sync-fail", config_json='{"llm": {"provider": "openai"}}', revision=3)
+        rp = RuntimeProfile(owner_user_id=1, name="rp-sync-fail", config_json='{"llm": {"provider": "openai"}}', revision=3, is_default=True)
         db.add(rp)
         db.commit()
         db.refresh(rp)

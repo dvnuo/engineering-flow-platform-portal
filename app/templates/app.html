@@ -20,6 +20,9 @@
         {% endif %}
       </div>
       <div class="portal-rail-bottom">
+        <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Runtime Profiles">
+          <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
+        </button>
         <button id="theme-toggle" class="portal-rail-btn" type="button" title="Toggle theme">
           <i data-lucide="moon" class="w-5 h-5"></i>
         </button>
@@ -45,6 +48,9 @@
           <button id="add-bundle-btn" class="toolbar-icon-btn hidden" type="button" title="Create Bundle">
             <i data-lucide="plus" class="w-5 h-5"></i>
           </button>
+          <button id="add-runtime-profile-btn" class="toolbar-icon-btn hidden" type="button" title="Create Runtime Profile">
+            <i data-lucide="plus" class="w-5 h-5"></i>
+          </button>
         </div>
       </div>
       <div class="portal-secondary-list">
@@ -56,6 +62,9 @@
         </section>
         <section id="tasks-nav-section" class="portal-secondary-section hidden">
           <div id="task-nav-list" class="portal-secondary-list-body"></div>
+        </section>
+        <section id="runtime-profiles-nav-section" class="portal-secondary-section hidden">
+          <div id="runtime-profile-nav-list" class="portal-secondary-list-body"></div>
         </section>
       </div>
     </aside>
@@ -248,6 +257,33 @@
   </div>
 </div>
 
+<div id="create-runtime-profile-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-card panel">
+    <div class="portal-modal-titlebar">
+      <h3>Create Runtime Profile</h3>
+      <button id="close-create-runtime-profile-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
+    </div>
+    <form id="create-runtime-profile-form" class="stack">
+      <div>
+        <label>Name</label>
+        <input name="name" required />
+      </div>
+      <div>
+        <label>Description</label>
+        <input name="description" />
+      </div>
+      <label class="portal-checkbox-row">
+        <input type="checkbox" name="is_default" />
+        <span>Set as default</span>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button type="submit" class="portal-btn is-primary">Create</button>
+      </div>
+      <p id="create-runtime-profile-msg" class="portal-modal-feedback"></p>
+    </form>
+  </div>
+</div>
+
 <div id="create-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
     <div class="portal-modal-titlebar">
@@ -270,9 +306,7 @@
       </div>
       <div>
         <label>Runtime Profile</label>
-        <select name="runtime_profile_id" id="create-runtime-profile-select">
-          <option value="">None</option>
-        </select>
+        <select name="runtime_profile_id" id="create-runtime-profile-select"></select>
       </div>
       <button type="submit">Create Assistant</button>
       <p id="create-msg" class="portal-modal-feedback"></p>
@@ -303,9 +337,7 @@
       </div>
       <div>
         <label>Runtime Profile</label>
-        <select name="runtime_profile_id" id="edit-runtime-profile-select">
-          <option value="">None</option>
-        </select>
+        <select name="runtime_profile_id" id="edit-runtime-profile-select"></select>
       </div>
       <button type="submit">Save Changes</button>
       <p id="edit-msg" class="portal-modal-feedback"></p>

@@ -861,7 +861,7 @@ def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
 
         db_gen = app.dependency_overrides[internal_agents_api.get_db]()
         db = next(db_gen)
-        rp = RuntimeProfile(name="rp-ctx", config_json='{"llm": {"provider": "openai"}, "ssh": {"hack": true}}', revision=3)
+        rp = RuntimeProfile(owner_user_id=agent.owner_user_id, name="rp-ctx", config_json='{"llm": {"provider": "openai"}, "ssh": {"hack": true}}', revision=3, is_default=True)
         db.add(rp)
         db.commit()
         db.refresh(rp)

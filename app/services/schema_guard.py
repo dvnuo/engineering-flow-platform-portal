@@ -8,6 +8,10 @@ REQUIRED_AGENT_COLUMNS = (
     "task_cleanup_policy",
     "runtime_profile_id",
 )
+REQUIRED_RUNTIME_PROFILE_COLUMNS = (
+    "owner_user_id",
+    "is_default",
+)
 REQUIRED_PORTAL_TABLES = (
     "alembic_version",
     "users",
@@ -57,5 +61,22 @@ def assert_phase5_schema_compatibility(engine: Engine) -> None:
     missing_joined = ", ".join(missing)
     raise RuntimeError(
         "Database schema is incompatible with this Portal build. Missing columns on 'agents': "
+        f"{missing_joined}. Run `alembic upgrade head` before starting Portal."
+    )
+
+
+def assert_runtime_profile_schema_compatibility(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "runtime_profiles" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("runtime_profiles")}
+    missing = [column for column in REQUIRED_RUNTIME_PROFILE_COLUMNS if column not in existing_columns]
+    if not missing:
+        return
+
+    missing_joined = ", ".join(missing)
+    raise RuntimeError(
+        "Database schema is incompatible with this Portal build. Missing columns on 'runtime_profiles': "
         f"{missing_joined}. Run `alembic upgrade head` before starting Portal."
     )

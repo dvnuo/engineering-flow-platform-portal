@@ -395,7 +395,7 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
 
         from app.models.runtime_profile import RuntimeProfile
 
-        runtime_profile = RuntimeProfile(name="group-task-rp", config_json="{}", revision=1)
+        runtime_profile = RuntimeProfile(owner_user_id=leader_agent.owner_user_id, name="group-task-rp", config_json="{}", revision=1, is_default=True)
         db.add(runtime_profile)
         db.commit()
         db.refresh(runtime_profile)
