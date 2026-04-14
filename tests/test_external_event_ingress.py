@@ -1509,6 +1509,57 @@ def test_github_provider_webhook_review_requested_routes_to_existing_router(monk
         cleanup()
 
 
+def test_github_provider_webhook_review_requested_routes_via_binding_username_fallback():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    original_secret = None
+    original_allow_insecure = None
+    try:
+        import app.api.provider_webhooks as provider_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            target_ref="octo/portal",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="gh-canonical-1",
+            username="alice",
+            enabled=True,
+        )
+        original_secret = provider_api.settings.github_webhook_secret
+        original_allow_insecure = provider_api.settings.allow_insecure_provider_webhooks
+        provider_api.settings.github_webhook_secret = ""
+        provider_api.settings.allow_insecure_provider_webhooks = True
+
+        response = client.post(
+            "/api/webhooks/github",
+            json={
+                "action": "review_requested",
+                "pull_request": {"number": 15, "head": {"sha": "abc123"}},
+                "repository": {"name": "portal", "owner": {"login": "octo"}},
+                "requested_reviewer": {"login": "alice"},
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["resolved_task_type"] == "github_review_task"
+        created_task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
+        assert created_task is not None
+        assert created_task.assignee_agent_id == agent.id
+    finally:
+        if original_secret is not None:
+            import app.api.provider_webhooks as provider_api
+
+            provider_api.settings.github_webhook_secret = original_secret
+            provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
+        cleanup()
+
+
 def test_github_provider_webhook_invalid_signature_returns_401(monkeypatch):
     client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     original_secret = None
@@ -1976,6 +2027,7 @@ def test_provider_webhook_normalizers_include_push_metadata():
     assert jira is not None
     assert json.loads(github.metadata_json)["trigger_mode"] == "push"
     assert json.loads(github.metadata_json)["source_kind"] == "github.pull_request_review_requested"
+    assert json.loads(github.metadata_json)["binding_lookup_username"] == "alice"
     assert json.loads(jira.metadata_json)["trigger_mode"] == "push"
     assert json.loads(jira.metadata_json)["source_kind"] == "jira.workflow_review_requested"
 
@@ -2096,6 +2148,82 @@ def test_identity_binding_chooses_candidate_with_matching_subscription():
         created = AgentTaskRepository(db).get_by_id(body["created_task_id"])
         assert created is not None
         assert created.assignee_agent_id == agent_b.id
+    finally:
+        cleanup()
+
+
+def test_identity_binding_exact_external_id_wins_over_username_fallback():
+    client, db, agent_a, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        agent_b = Agent(
+            name="Exact Match Agent B",
+            description="exact-match-b",
+            owner_user_id=agent_a.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-exact-b.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-exact-b",
+            service_name="svc-exact-b",
+            pvc_name="pvc-exact-b",
+            endpoint_path="/",
+            agent_type="workspace",
+        )
+        db.add(agent_b)
+        db.commit()
+        db.refresh(agent_b)
+
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent_a.id,
+            system_type="github",
+            external_account_id="alice",
+            username="alice",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent_b.id,
+            system_type="github",
+            external_account_id="gh-canonical-2",
+            username="alice",
+            enabled=True,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent_a.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            target_ref="octo/portal",
+            mode="poll",
+            enabled=True,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent_b.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            target_ref="octo/portal",
+            mode="poll",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "gh-canonical-2",
+                "target_ref": "octo/portal",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":12,"reviewer":"alice","head_sha":"sha-123"}',
+                "metadata_json": '{"trigger_mode":"poll","source_kind":"github.pull_request_review_requested","binding_lookup_username":"alice"}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["matched_agent_id"] == agent_b.id
     finally:
         cleanup()
 

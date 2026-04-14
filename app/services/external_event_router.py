@@ -65,6 +65,14 @@ class ExternalEventRouterService:
         return "push"
 
     @staticmethod
+    def _binding_lookup_username_from_metadata(request: ExternalEventIngressRequest) -> str | None:
+        metadata = ExternalEventRouterService._parse_metadata_object(request.metadata_json)
+        if not metadata:
+            return None
+        username = str(metadata.get("binding_lookup_username") or "").strip()
+        return username or None
+
+    @staticmethod
     def _normalize_subscription_mode(mode: str | None) -> str:
         cleaned = (mode or "").strip().lower()
         return cleaned or "push"
@@ -461,6 +469,12 @@ class ExternalEventRouterService:
                 system_type=source_type,
                 external_account_id=request.external_account_id,
             )
+            lookup_username = self._binding_lookup_username_from_metadata(request)
+            if not binding_candidates and lookup_username:
+                binding_candidates = binding_repo.list_bindings_for_username(
+                    system_type=source_type,
+                    username=lookup_username,
+                )
             if not binding_candidates:
                 return ExternalEventIngressResponse(
                     accepted=False,

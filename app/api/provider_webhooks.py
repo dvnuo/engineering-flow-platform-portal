@@ -50,7 +50,14 @@ def _normalize_github_review_requested(payload: dict) -> ExternalEventIngressReq
         target_ref=f"{owner}/{repo}",
         dedupe_key=dedupe_key,
         payload_json=payload_json,
-        metadata_json=json.dumps({"trigger_mode": "push", "source_kind": "github.pull_request_review_requested"}),
+        metadata_json=json.dumps(
+            {
+                "trigger_mode": "push",
+                "source_kind": "github.pull_request_review_requested",
+                "binding_lookup_username": reviewer,
+                "provider_reviewer_id": requested_reviewer.get("id"),
+            }
+        ),
     )
 
 

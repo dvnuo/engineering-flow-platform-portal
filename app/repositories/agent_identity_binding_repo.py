@@ -92,6 +92,26 @@ class AgentIdentityBindingRepository:
         stmt = select(AgentIdentityBinding).where(and_(*conditions)).order_by(AgentIdentityBinding.created_at.desc())
         return list(self.db.scalars(stmt).all())
 
+    def list_bindings_for_username(
+        self,
+        *,
+        system_type: str,
+        username: str,
+        enabled_only: bool = True,
+    ) -> list[AgentIdentityBinding]:
+        normalized_system_type = self._normalize_system_type(system_type)
+        cleaned_username = (username or "").strip()
+        if not cleaned_username:
+            return []
+        conditions = [
+            AgentIdentityBinding.system_type == normalized_system_type,
+            AgentIdentityBinding.username == cleaned_username,
+        ]
+        if enabled_only:
+            conditions.append(AgentIdentityBinding.enabled.is_(True))
+        stmt = select(AgentIdentityBinding).where(and_(*conditions)).order_by(AgentIdentityBinding.created_at.desc())
+        return list(self.db.scalars(stmt).all())
+
     def get_by_agent_and_binding_key(
         self,
         agent_id: str,
