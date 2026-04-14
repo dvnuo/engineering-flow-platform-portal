@@ -82,10 +82,12 @@ class RuntimeProfileUpdateRequest(BaseModel):
 
 class RuntimeProfileResponse(BaseModel):
     id: str
+    owner_user_id: int
     name: str
     description: Optional[str] = None
     config_json: str
     revision: int
+    is_default: bool
     created_at: datetime
     updated_at: datetime
 
@@ -98,3 +100,4 @@ class RuntimeProfileOptionResponse(BaseModel):
     name: str
     description: Optional[str] = None
     revision: int
+    is_default: bool

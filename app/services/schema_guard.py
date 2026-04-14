@@ -8,6 +8,11 @@ REQUIRED_AGENT_COLUMNS = (
     "task_cleanup_policy",
     "runtime_profile_id",
 )
+REQUIRED_RUNTIME_PROFILE_COLUMNS = (
+    "owner_user_id",
+    "is_default",
+)
+
 REQUIRED_PORTAL_TABLES = (
     "alembic_version",
     "users",
@@ -46,16 +51,23 @@ def assert_portal_schema_ready(engine: Engine) -> None:
 
 def assert_phase5_schema_compatibility(engine: Engine) -> None:
     inspector = inspect(engine)
-    if "agents" not in inspector.get_table_names():
-        return
+    table_names = inspector.get_table_names()
+    if "agents" in table_names:
+        existing_columns = {column["name"] for column in inspector.get_columns("agents")}
+        missing = [column for column in REQUIRED_AGENT_COLUMNS if column not in existing_columns]
+        if missing:
+            missing_joined = ", ".join(missing)
+            raise RuntimeError(
+                "Database schema is incompatible with this Portal build. Missing columns on 'agents': "
+                f"{missing_joined}. Run `alembic upgrade head` before starting Portal."
+            )
 
-    existing_columns = {column["name"] for column in inspector.get_columns("agents")}
-    missing = [column for column in REQUIRED_AGENT_COLUMNS if column not in existing_columns]
-    if not missing:
-        return
-
-    missing_joined = ", ".join(missing)
-    raise RuntimeError(
-        "Database schema is incompatible with this Portal build. Missing columns on 'agents': "
-        f"{missing_joined}. Run `alembic upgrade head` before starting Portal."
-    )
+    if "runtime_profiles" in table_names:
+        existing_runtime_columns = {column["name"] for column in inspector.get_columns("runtime_profiles")}
+        missing_runtime = [column for column in REQUIRED_RUNTIME_PROFILE_COLUMNS if column not in existing_runtime_columns]
+        if missing_runtime:
+            missing_joined = ", ".join(missing_runtime)
+            raise RuntimeError(
+                "Database schema is incompatible with this Portal build. Missing columns on 'runtime_profiles': "
+                f"{missing_joined}. Run `alembic upgrade head` before starting Portal."
+            )

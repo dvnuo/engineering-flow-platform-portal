@@ -44,6 +44,7 @@ const dom = {
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
   bundlesMenuBtn: document.getElementById("bundles-menu-btn"),
+  runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
   portalSecondaryPane: document.getElementById("portal-secondary-pane"),
   secondaryPaneEyebrow: document.getElementById("secondary-pane-eyebrow"),
@@ -52,10 +53,13 @@ const dom = {
   assistantsNavSection: document.getElementById("assistants-nav-section"),
   bundlesNavSection: document.getElementById("bundles-nav-section"),
   tasksNavSection: document.getElementById("tasks-nav-section"),
+  runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   bundleNavList: document.getElementById("bundle-nav-list"),
   taskNavList: document.getElementById("task-nav-list"),
+  runtimeProfileNavList: document.getElementById("runtime-profile-nav-list"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
+  addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   composerAttachBtn: document.getElementById("composer-attach-btn"),
   homeTitle: document.getElementById("home-title"),
@@ -68,6 +72,10 @@ const dom = {
   createBundleForm: document.getElementById("create-bundle-form"),
   createBundleMsg: document.getElementById("create-bundle-msg"),
   closeCreateBundleModal: document.getElementById("close-create-bundle-modal"),
+  createRuntimeProfileModal: document.getElementById("create-runtime-profile-modal"),
+  createRuntimeProfileForm: document.getElementById("create-runtime-profile-form"),
+  createRuntimeProfileMsg: document.getElementById("create-runtime-profile-msg"),
+  closeCreateRuntimeProfileModal: document.getElementById("close-create-runtime-profile-modal"),
   addAgentBtn: document.getElementById("add-agent-btn"),
   editForm: document.getElementById("edit-form"),
 };
@@ -224,6 +232,8 @@ const state = {
   serverFilesRootPath: null,
   serverFilesCurrentPath: null,
   runtimeProfiles: [],
+  myRuntimeProfiles: [],
+  selectedRuntimeProfileId: null,
 };
 
 function createDefaultChatState() {
@@ -2434,9 +2444,11 @@ function renderSecondaryPaneHeader() {
   const addAgentBtn = dom.addAgentBtn;
   const addBundleBtn = dom.addBundleBtn;
   const refreshBundlesBtn = dom.refreshBundlesBtn;
+  const addRuntimeProfileBtn = dom.addRuntimeProfileBtn;
   if (addAgentBtn) addAgentBtn.classList.add("hidden");
   if (addBundleBtn) addBundleBtn.classList.add("hidden");
   if (refreshBundlesBtn) refreshBundlesBtn.classList.add("hidden");
+  if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.add("hidden");
 
   if (state.activeNavSection === "assistants") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
@@ -2447,9 +2459,13 @@ function renderSecondaryPaneHeader() {
     dom.secondaryPaneTitle.textContent = "Bundles";
     if (refreshBundlesBtn) refreshBundlesBtn.classList.remove("hidden");
     if (addBundleBtn) addBundleBtn.classList.remove("hidden");
-  } else {
+  } else if (state.activeNavSection === "tasks") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Tasks";
+  } else {
+    dom.secondaryPaneEyebrow.textContent = "My Space";
+    dom.secondaryPaneTitle.textContent = "Runtime Profiles";
+    if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.remove("hidden");
   }
 }
 
@@ -2466,8 +2482,16 @@ function syncMainHeader() {
   if (assistantMode) {
     restoreAssistantHeaderState();
   } else {
-    dom.embedTitle.textContent = state.activeNavSection === "bundles" ? "Bundles" : "My Tasks";
-    setChatStatus(state.activeNavSection === "bundles" ? "Browse and open bundle detail in the main stage" : "Browse tasks and open task detail in the main stage");
+    if (state.activeNavSection === "bundles") {
+      dom.embedTitle.textContent = "Bundles";
+      setChatStatus("Browse and open bundle detail in the main stage");
+    } else if (state.activeNavSection === "tasks") {
+      dom.embedTitle.textContent = "My Tasks";
+      setChatStatus("Browse tasks and open task detail in the main stage");
+    } else {
+      dom.embedTitle.textContent = "Runtime Profiles";
+      setChatStatus("Browse and edit your runtime profiles");
+    }
   }
 }
 
@@ -2523,6 +2547,10 @@ function syncDefaultMainViewForSection(section) {
   }
   if (section === "tasks") {
     showTasksDefaultMainView();
+    return;
+  }
+  if (section === "runtime-profiles") {
+    showRuntimeProfilesDefaultMainView();
   }
 }
 
@@ -2618,7 +2646,7 @@ function upsertRequirementBundleListItem(item, { persist = true } = {}) {
 async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   const previousSection = state.activeNavSection;
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
-  const validSections = new Set(["assistants", "bundles", "tasks"]);
+  const validSections = new Set(["assistants", "bundles", "tasks", "runtime-profiles"]);
   if (!validSections.has(section)) return;
 
   if (section === state.activeNavSection && toggleIfSame) {
@@ -2631,10 +2659,12 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   dom.railAssistantsBtn?.classList.toggle("is-active", state.activeNavSection === "assistants");
   dom.bundlesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "bundles");
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
+  dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
 
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.bundlesNavSection?.classList.toggle("hidden", state.activeNavSection !== "bundles");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
+  dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
 
   applySecondaryPaneState();
   renderSecondaryPaneHeader();
@@ -2653,6 +2683,8 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
       showBundlesLoadingMainView();
     } else if (section === "tasks") {
       showTasksLoadingMainView();
+    } else if (section === "runtime-profiles") {
+      showRuntimeProfilesLoadingMainView();
     }
   }
 
@@ -2688,6 +2720,18 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
       dom.workspaceDetailContent?.dataset.workspaceState === "tasks-loading"
     ) {
       showTasksDefaultMainView();
+    }
+  }
+
+  if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {
+    await refreshRuntimeProfiles({ force: true });
+    if (
+      state.activeNavSection === "runtime-profiles" &&
+      !state.secondaryPaneCollapsed &&
+      !state.selectedRuntimeProfileId &&
+      dom.workspaceDetailContent?.dataset.workspaceState === "runtime-profiles-loading"
+    ) {
+      showRuntimeProfilesDefaultMainView();
     }
   }
 }
@@ -2846,6 +2890,81 @@ async function openTaskDetailInMain(taskId) {
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
     dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`;
+  }
+}
+
+function showRuntimeProfilesDefaultMainView() {
+  if (!state.myRuntimeProfiles.length) {
+    renderWorkspaceDetailPlaceholder("No runtime profiles yet. Create one to get started.", "runtime-profiles-placeholder");
+  } else if (!state.selectedRuntimeProfileId) {
+    renderWorkspaceDetailPlaceholder("Select a runtime profile from the left sidebar.", "runtime-profiles-placeholder");
+  }
+  syncMainHeader();
+}
+
+function showRuntimeProfilesLoadingMainView() {
+  renderWorkspaceDetailPlaceholder("Loading runtime profiles…", "runtime-profiles-loading");
+  syncMainHeader();
+}
+
+function renderRuntimeProfileNavList(errorMessage = "") {
+  if (!dom.runtimeProfileNavList) return;
+  if (errorMessage) {
+    dom.runtimeProfileNavList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
+    return;
+  }
+  if (!state.myRuntimeProfiles.length) {
+    dom.runtimeProfileNavList.innerHTML = '<div class="portal-bundle-list-state">No runtime profiles yet.</div>';
+    return;
+  }
+
+  dom.runtimeProfileNavList.innerHTML = "";
+  state.myRuntimeProfiles.forEach((profile) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `portal-task-row${state.selectedRuntimeProfileId === profile.id ? " is-active" : ""}`;
+    row.innerHTML = `
+      <div class="portal-bundle-title">${safe(profile.name)}</div>
+      <div class="portal-bundle-meta">rev ${safe(profile.revision)}${profile.is_default ? " · Default" : ""}</div>
+    `;
+    row.addEventListener("click", async () => {
+      state.selectedRuntimeProfileId = profile.id;
+      renderRuntimeProfileNavList();
+      await openRuntimeProfileInMain(profile.id);
+    });
+    dom.runtimeProfileNavList.append(row);
+  });
+}
+
+async function openRuntimeProfileInMain(profileId) {
+  if (!dom.workspaceDetailContent) return;
+  await setActiveNavSection("runtime-profiles", { toggleIfSame: false });
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "runtime-profile-detail";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading runtime profile…</div>';
+  await htmx.ajax("GET", `/app/runtime-profiles/${encodeURIComponent(profileId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
+  syncMainHeader();
+}
+
+async function refreshRuntimeProfiles({ force = true } = {}) {
+  try {
+    const profiles = await api(`/api/runtime-profiles${force ? "" : ""}`);
+    state.myRuntimeProfiles = Array.isArray(profiles) ? profiles : [];
+    state.runtimeProfiles = state.myRuntimeProfiles.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      revision: p.revision,
+      is_default: p.is_default,
+    }));
+    if (state.selectedRuntimeProfileId && !state.myRuntimeProfiles.some((p) => p.id === state.selectedRuntimeProfileId)) {
+      state.selectedRuntimeProfileId = null;
+    }
+    renderRuntimeProfileNavList();
+  } catch (error) {
+    state.myRuntimeProfiles = [];
+    state.runtimeProfiles = [];
+    renderRuntimeProfileNavList(`Failed to load runtime profiles: ${error.message}`);
   }
 }
 
@@ -3601,12 +3720,18 @@ async function loadRuntimeProfiles(force = false) {
 function populateRuntimeProfileSelect(selectEl, selectedId = '') {
   if (!selectEl) return;
   const profiles = state.runtimeProfiles || [];
-  selectEl.innerHTML = '<option value="">None</option>' + profiles.map((profile) => {
+  selectEl.innerHTML = profiles.map((profile) => {
     const selected = selectedId && selectedId === profile.id ? ' selected' : '';
     return `<option value="${escapeHtmlAttr(profile.id)}"${selected}>${safe(profile.name)}</option>`;
   }).join('');
-  if (!selectedId && profiles.length === 1) {
-    selectEl.value = profiles[0].id;
+
+  if (!profiles.length) {
+    selectEl.value = '';
+    return;
+  }
+  if (!selectedId) {
+    const defaultProfile = profiles.find((profile) => profile.is_default) || profiles[0];
+    selectEl.value = defaultProfile?.id || profiles[0].id;
   }
 }
 
@@ -3987,6 +4112,7 @@ function bindEvents() {
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.railAssistantsBtn?.addEventListener("click", () => setActiveNavSection("assistants"));
   dom.bundlesMenuBtn?.addEventListener("click", () => setActiveNavSection("bundles"));
+  dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.homeOpenBundlesBtn?.addEventListener("click", async () => {
     await setActiveNavSection("bundles", { toggleIfSame: false });
@@ -4085,6 +4211,26 @@ function bindEvents() {
     if (taskBackBtn) {
       event.preventDefault();
       await returnFromTaskDetailToSidebar();
+      return;
+    }
+
+    const runtimeDeleteBtn = event.target.closest("[data-runtime-profile-delete]");
+    if (runtimeDeleteBtn) {
+      event.preventDefault();
+      const profileId = runtimeDeleteBtn.dataset.runtimeProfileDelete || "";
+      if (!profileId) return;
+      if (!window.confirm("Delete this runtime profile?")) return;
+      try {
+        const result = await api(`/app/runtime-profiles/${encodeURIComponent(profileId)}/delete`, { method: "POST" });
+        await refreshRuntimeProfiles({ force: true });
+        const nextId = result?.selected_profile_id || (state.myRuntimeProfiles[0]?.id || null);
+        state.selectedRuntimeProfileId = nextId;
+        renderRuntimeProfileNavList();
+        if (nextId) await openRuntimeProfileInMain(nextId);
+        else showRuntimeProfilesDefaultMainView();
+      } catch (error) {
+        showToast(`Failed to delete runtime profile: ${error.message}`);
+      }
     }
   });
 
@@ -4103,6 +4249,45 @@ function bindEvents() {
   });
 
   dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
+
+  dom.addRuntimeProfileBtn?.addEventListener("click", () => {
+    dom.createRuntimeProfileModal?.classList.remove("hidden");
+    dom.createRuntimeProfileModal?.setAttribute("aria-hidden", "false");
+    setModalFeedback(dom.createRuntimeProfileMsg, "", "");
+  });
+
+  dom.closeCreateRuntimeProfileModal?.addEventListener("click", () => {
+    dom.createRuntimeProfileModal?.classList.add("hidden");
+    dom.createRuntimeProfileModal?.setAttribute("aria-hidden", "true");
+  });
+
+  dom.createRuntimeProfileForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const payload = {
+      name: String(new FormData(form).get("name") || "").trim(),
+      description: String(new FormData(form).get("description") || "").trim() || null,
+      config_json: "{}",
+    };
+    try {
+      setModalFeedback(dom.createRuntimeProfileMsg, "", "Creating...");
+      const created = await api("/api/runtime-profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      form.reset();
+      dom.createRuntimeProfileModal?.classList.add("hidden");
+      dom.createRuntimeProfileModal?.setAttribute("aria-hidden", "true");
+      await refreshRuntimeProfiles({ force: true });
+      await setActiveNavSection("runtime-profiles", { toggleIfSame: false });
+      state.selectedRuntimeProfileId = created.id;
+      renderRuntimeProfileNavList();
+      await openRuntimeProfileInMain(created.id);
+    } catch (err) {
+      setModalFeedback(dom.createRuntimeProfileMsg, "error", err.message);
+    }
+  });
 
   dom.addBundleBtn?.addEventListener("click", () => {
     dom.createBundleModal?.classList.remove("hidden");
@@ -4167,7 +4352,7 @@ function bindEvents() {
         cpu: defaults.cpu,
         memory: defaults.memory,
         mount_path: defaults.mount_path,
-        runtime_profile_id: runtimeProfileId || null,
+        runtime_profile_id: runtimeProfileId || undefined,
       };
 
       msgEl.textContent = "Creating...";

@@ -120,3 +120,29 @@ def test_portal_schema_ready_passes_with_all_required_tables():
     metadata.create_all(engine)
 
     assert_portal_schema_ready(engine)
+
+
+def test_schema_guard_raises_when_runtime_profile_columns_missing():
+    engine = create_engine("sqlite:///:memory:")
+    metadata = MetaData()
+    Table(
+        "agents",
+        metadata,
+        Column("id", String(36), primary_key=True),
+        Column("template_agent_id", String(36)),
+        Column("task_scope_label", String(255)),
+        Column("task_cleanup_policy", String(32)),
+        Column("runtime_profile_id", String(36)),
+    )
+    Table("runtime_profiles", metadata, Column("id", String(36), primary_key=True))
+    metadata.create_all(engine)
+
+    try:
+        assert_phase5_schema_compatibility(engine)
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "runtime_profiles" in message
+        assert "owner_user_id" in message
+        assert "is_default" in message
+    else:
+        raise AssertionError("expected RuntimeError for missing runtime profile columns")

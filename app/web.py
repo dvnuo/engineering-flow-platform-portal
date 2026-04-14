@@ -28,6 +28,7 @@ from app.services.proxy_service import ProxyService, build_portal_execution_head
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
+from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
@@ -49,6 +50,7 @@ runtime_execution_context_service = RuntimeExecutionContextService()
 task_dispatcher_service = TaskDispatcherService()
 requirement_bundle_service = RequirementBundleGithubService()
 runtime_profile_sync_service = RuntimeProfileSyncService(proxy_service=proxy_service)
+runtime_profile_service = RuntimeProfileService()
 base_uri = settings.base_uri
 
 
@@ -229,6 +231,40 @@ def _settings_parse_instances(
     return instances
 
 
+
+
+def _load_manageable_runtime_profile_or_404(request: Request, profile_id: str, db, user):
+    profile = RuntimeProfileRepository(db).get_by_id_for_owner(profile_id, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="RuntimeProfile not found")
+    return profile
+
+
+def _runtime_profile_panel_response(
+    request: Request,
+    profile,
+    profile_bound_agent_count: int,
+    *,
+    status_type: str = "",
+    status_message: str = "",
+):
+    config_data = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    view_data = _settings_view_payload(config_data)
+    return templates.TemplateResponse(
+        "partials/runtime_profile_panel.html",
+        {
+            "request": request,
+            "profile_id": profile.id,
+            "profile_name": profile.name,
+            "description": profile.description,
+            "profile_revision": profile.revision,
+            "is_default": profile.is_default,
+            "profile_bound_agent_count": profile_bound_agent_count,
+            "status_type": status_type,
+            "status_message": status_message,
+            **view_data,
+        },
+    )
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
@@ -1488,6 +1524,145 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 **view_data,
             },
         )
+    finally:
+        db.close()
+
+
+@router.get("/app/runtime-profiles/{profile_id}/panel")
+async def app_runtime_profile_panel(request: Request, profile_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        profile_repo = RuntimeProfileRepository(db)
+        runtime_profile = _load_manageable_runtime_profile_or_404(request, profile_id, db, user)
+        bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
+        return _runtime_profile_panel_response(request, runtime_profile, bound_agent_count)
+    finally:
+        db.close()
+
+
+@router.post("/app/runtime-profiles/{profile_id}/save")
+async def app_runtime_profile_save(request: Request, profile_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        profile_repo = RuntimeProfileRepository(db)
+        runtime_profile = _load_manageable_runtime_profile_or_404(request, profile_id, db, user)
+        profile_bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
+
+        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        if merge_error:
+            view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
+            return templates.TemplateResponse(
+                "partials/runtime_profile_panel.html",
+                {
+                    "request": request,
+                    "profile_id": runtime_profile.id,
+                    "profile_name": (form.get("name") or runtime_profile.name).strip() or runtime_profile.name,
+                    "description": (form.get("description") or runtime_profile.description),
+                    "profile_revision": runtime_profile.revision,
+                    "is_default": runtime_profile.is_default,
+                    "profile_bound_agent_count": profile_bound_agent_count,
+                    "status_type": "error",
+                    "status_message": merge_error,
+                    **view_data,
+                },
+            )
+
+        config_changed = sanitize_runtime_profile_config_dict(config_payload) != sanitize_runtime_profile_config_dict(config_base)
+        runtime_profile.name = (form.get("name") or runtime_profile.name).strip() or runtime_profile.name
+        runtime_profile.description = (form.get("description") or "").strip() or None
+        if config_changed:
+            runtime_profile.config_json = dump_runtime_profile_config_json(config_payload)
+            runtime_profile.revision = (runtime_profile.revision or 0) + 1
+
+        runtime_profile = profile_repo.save(runtime_profile)
+
+        status_type = "success"
+        status_message = "Runtime profile saved."
+        if config_changed:
+            try:
+                sync_result = await runtime_profile_sync_service.sync_profile_to_bound_agents(db, runtime_profile)
+                status_message = (
+                    "Runtime profile updated. "
+                    f"Updated running agents: {sync_result['updated_running_count']}, "
+                    f"skipped (not running): {sync_result['skipped_not_running_count']}."
+                )
+                if sync_result.get("failed_agent_ids"):
+                    status_type = "error"
+                    status_message = (
+                        "Runtime profile saved, but some running agents failed to sync: "
+                        + ", ".join(sync_result["failed_agent_ids"])
+                    )
+            except Exception:
+                logger.exception("runtime profile fan-out sync failed after profile save profile_id=%s", runtime_profile.id)
+                status_type = "error"
+                status_message = (
+                    "Runtime profile was saved, but sync fan-out failed this time. "
+                    "Running agents may need retry; newly started agents will still pull from Portal on startup."
+                )
+
+        return _runtime_profile_panel_response(
+            request,
+            runtime_profile,
+            profile_repo.count_bound_agents(runtime_profile.id),
+            status_type=status_type,
+            status_message=status_message,
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/runtime-profiles/{profile_id}/set-default")
+async def app_runtime_profile_set_default(request: Request, profile_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        try:
+            runtime_profile = runtime_profile_service.set_default_profile(db, user.id, profile_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="RuntimeProfile not found") from exc
+        profile_repo = RuntimeProfileRepository(db)
+        return _runtime_profile_panel_response(
+            request,
+            runtime_profile,
+            profile_repo.count_bound_agents(runtime_profile.id),
+            status_type="success",
+            status_message="Default runtime profile updated.",
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/runtime-profiles/{profile_id}/delete")
+async def app_runtime_profile_delete(request: Request, profile_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        profile_repo = RuntimeProfileRepository(db)
+        runtime_profile = _load_manageable_runtime_profile_or_404(request, profile_id, db, user)
+        if profile_repo.count_bound_agents(runtime_profile.id) > 0:
+            raise HTTPException(status_code=409, detail="RuntimeProfile is still referenced by agents")
+        ok, message = runtime_profile_service.delete_profile_for_user(db, user.id, runtime_profile.id)
+        if not ok:
+            raise HTTPException(status_code=409, detail=message or "Unable to delete runtime profile")
+
+        default_profile = runtime_profile_service.resolve_default_profile_for_user(db, user.id)
+        return {"ok": True, "selected_profile_id": default_profile.id}
     finally:
         db.close()
 

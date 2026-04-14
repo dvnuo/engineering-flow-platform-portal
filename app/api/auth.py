@@ -11,9 +11,11 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.auth import LoginRequest, MeResponse, RegisterRequest
 from app.services.auth_service import hash_password, issue_session_token, verify_password
 from app.redaction import sanitize_exception_message
+from app.services.runtime_profile_service import RuntimeProfileService
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 settings = get_settings()
+runtime_profile_service = RuntimeProfileService()
 
 
 @router.post("/register")
@@ -29,6 +31,7 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     # Use transaction to prevent race condition
     try:
         user = repo.create(payload.username, hash_password(payload.password), "user", payload.nickname)
+        runtime_profile_service.ensure_user_has_default_profile(db, user.id)
     except Exception as e:
         logger.exception("Auth error")
         db.rollback()

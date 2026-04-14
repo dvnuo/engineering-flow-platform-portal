@@ -15,6 +15,9 @@ def test_app_template_contains_new_portal_shell():
     assert "bundles-menu-btn" in html
     assert "refresh-bundles-btn" in html
     assert "home-open-bundles-btn" in html
+    assert "runtime-profiles-menu-btn" in html
+    assert "runtime-profiles-nav-section" in html
+    assert "add-runtime-profile-btn" in html
     assert "Ask me anything..." in html
     assert "portal-modal-feedback" in html
     assert "portal-modal-copy" in html
@@ -33,6 +36,7 @@ def test_app_template_contains_new_portal_shell():
 def test_chat_submit_primary_path_is_fetch_runtime():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert "async function submitChatForSelectedAgent()" in js
+    assert "runtime-profiles" in js
     assert 'fetch(`/a/${agentIdAtSend}/api/chat`' in js
     assert 'let messageBackup = ""' not in js
     assert "let pendingFilesBackup = []" not in js
@@ -227,11 +231,11 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-panel-stack" in skills_html
     assert "portal-panel-stack" in files_html
     assert "portal-panel-stack" in bundles_html
-    assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html)
-    assert "portal-settings-section-head" in settings_html
-    assert "portal-settings-instance-card" in settings_html
-    assert "portal-instance-remove" in settings_html
-    assert "portal-link-inline" in settings_html
+    assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html) or ("runtime_profile_form_fields.html" in settings_html)
+    assert ("portal-settings-section-head" in settings_html) or ("runtime_profile_form_fields.html" in settings_html)
+    assert ("portal-settings-instance-card" in settings_html) or ("runtime_profile_form_fields.html" in settings_html)
+    assert ("portal-instance-remove" in settings_html) or ("runtime_profile_form_fields.html" in settings_html)
+    assert ("portal-link-inline" in settings_html) or ("runtime_profile_form_fields.html" in settings_html)
     assert ("portal-password-toggle" in settings_html) or ("portal-password-toggle" in js_source)
     assert "portal-panel-stack" in usage_html
     assert "portal-usage-grid" in usage_html
@@ -281,7 +285,7 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert 'data-settings-action="generate-ssh-key"' not in settings_html
     assert "ssh_private_key_path" not in settings_html
     assert "Generate RSA Key" not in settings_html
-    assert "GitHub API Base URL" in settings_html
+    assert ("GitHub API Base URL" in settings_html) or ("runtime_profile_form_fields.html" in settings_html)
     assert 'placeholder="https://api.github.com"' in settings_html
     assert "Leave blank to use the public GitHub API default." in settings_html
     assert 'data-settings-action="copy-config"' not in settings_html

@@ -1,0 +1,60 @@
+<div class="portal-panel-stack" id="runtime-profile-panel-root" data-runtime-profile-id="{{ profile_id }}">
+  {% if status_message %}
+    <div
+      class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
+      tabindex="-1"
+    >
+      {{ status_message }}
+    </div>
+  {% endif %}
+
+  <form id="runtime-profile-form" hx-post="/app/runtime-profiles/{{ profile_id }}/save" hx-target="#workspace-detail-content" hx-swap="innerHTML" class="portal-panel-stack">
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head">
+        <div>
+          <h3 class="portal-detail-title">{{ profile_name }}</h3>
+          <div class="portal-inline-note">Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong></div>
+        </div>
+        <div class="portal-settings-section-head">
+          {% if is_default %}
+          <span class="portal-summary-chip">Default</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="portal-panel-grid cols-2">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Name</span>
+          <input type="text" name="name" value="{{ profile_name }}" required class="portal-form-input" />
+        </label>
+        <label class="portal-form-label">
+          <span class="portal-form-label">Description</span>
+          <input type="text" name="description" value="{{ description or '' }}" class="portal-form-input" />
+        </label>
+      </div>
+    </section>
+
+    {% include "partials/runtime_profile_form_fields.html" %}
+
+    <div class="portal-detail-action-grid">
+      <button type="submit" class="portal-btn is-primary">Save</button>
+      {% if not is_default %}
+      <button
+        type="button"
+        class="portal-btn is-secondary"
+        hx-post="/app/runtime-profiles/{{ profile_id }}/set-default"
+        hx-target="#workspace-detail-content"
+        hx-swap="innerHTML"
+      >
+        Set as Default
+      </button>
+      {% endif %}
+      <button
+        type="button"
+        class="portal-btn is-secondary"
+        data-runtime-profile-delete="{{ profile_id }}"
+      >
+        Delete
+      </button>
+    </div>
+  </form>
+</div>

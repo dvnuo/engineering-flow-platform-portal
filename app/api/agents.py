@@ -18,6 +18,7 @@ from app.schemas.agent import (
     AgentUpdateRequest,
 )
 from app.services.k8s_service import K8sService
+from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
@@ -44,6 +45,7 @@ def get_agent_defaults(user=Depends(get_current_user)):
 
 k8s_service = K8sService()
 runtime_profile_sync_service = RuntimeProfileSyncService()
+runtime_profile_service = RuntimeProfileService()
 
 
 def _can_read(agent, user) -> bool:
@@ -91,6 +93,7 @@ def _validate_profile_references(
     capability_profile_id: str | None,
     policy_profile_id: str | None,
     runtime_profile_id: str | None,
+    expected_owner_user_id: int | None = None,
 ) -> None:
     if capability_profile_id is not None:
         capability_profile = CapabilityProfileRepository(db).get_by_id(capability_profile_id)
@@ -105,6 +108,8 @@ def _validate_profile_references(
     if runtime_profile_id is not None:
         runtime_profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
         if not runtime_profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
+        if expected_owner_user_id is not None and runtime_profile.owner_user_id != expected_owner_user_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
 
 
@@ -130,7 +135,18 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 @router.post("", response_model=AgentResponse)
 def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _validate_profile_references(db, payload.capability_profile_id, payload.policy_profile_id, payload.runtime_profile_id)
+    runtime_profile_id = payload.runtime_profile_id
+    if runtime_profile_id:
+        _validate_profile_references(
+            db,
+            payload.capability_profile_id,
+            payload.policy_profile_id,
+            runtime_profile_id,
+            expected_owner_user_id=user.id,
+        )
+    else:
+        _validate_profile_references(db, payload.capability_profile_id, payload.policy_profile_id, None)
+        runtime_profile_id = runtime_profile_service.resolve_default_profile_for_user(db, user.id).id
     _validate_agent_type_or_422(payload.agent_type)
 
     repo = AgentRepository(db)
@@ -148,7 +164,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         agent_type=payload.agent_type,
         capability_profile_id=payload.capability_profile_id,
         policy_profile_id=payload.policy_profile_id,
-        runtime_profile_id=payload.runtime_profile_id,
+        runtime_profile_id=runtime_profile_id,
         disk_size_gi=payload.disk_size_gi,
         mount_path=payload.mount_path,
         namespace=settings.agents_namespace,
@@ -187,8 +203,19 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     if "policy_profile_id" in changes and changes["policy_profile_id"] is not None:
         _validate_profile_references(db, None, changes["policy_profile_id"], None)
 
-    if "runtime_profile_id" in changes and changes["runtime_profile_id"] is not None:
-        _validate_profile_references(db, None, None, changes["runtime_profile_id"])
+    if "runtime_profile_id" in changes:
+        if changes["runtime_profile_id"] is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="runtime_profile_id cannot be null; choose one of the user's runtime profiles.",
+            )
+        _validate_profile_references(
+            db,
+            None,
+            None,
+            changes["runtime_profile_id"],
+            expected_owner_user_id=agent.owner_user_id,
+        )
 
     if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="disk_size_gi must be >= 1")
@@ -204,12 +231,10 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
 
     if "runtime_profile_id" in changes and (agent.status or "").lower() == "running":
         runtime_profile_id = changes.get("runtime_profile_id")
-        payload_data = runtime_profile_sync_service.build_clear_payload()
-        if runtime_profile_id:
-            profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
-            if profile:
-                payload_data = runtime_profile_sync_service.build_apply_payload_from_profile(profile)
-        await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
+        profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
+        if profile:
+            payload_data = runtime_profile_sync_service.build_apply_payload_from_profile(profile)
+            await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
 
     # Update K8s runtime if repo_url or branch changed
     if "repo_url" in changes or "branch" in changes:
