@@ -80,6 +80,7 @@ def test_task_detail_panel_renders_business_context_for_bundle_action_task(monke
     response = client.get("/app/tasks/task-1/panel")
     assert response.status_code == 200
     assert "Collect Requirements" in response.text
+    assert "Requirement Bundle" in response.text
     assert "Input Payload" in response.text
     assert "Result Payload" in response.text
     assert "Open Bundle Detail" in response.text

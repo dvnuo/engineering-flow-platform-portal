@@ -290,14 +290,17 @@ def _build_task_detail_view_model(task) -> dict:
 
     action_label = ""
     template_label = template_id or "-"
+    template = None
     if getattr(task, "task_type", "") == "bundle_action_task" and template_id:
         try:
             template = require_bundle_template(template_id)
-            template_label = template.label
+        except ValueError:
+            template = None
+        if template is not None:
+            template_label = template.display_name or template_id
             action = next((item for item in template.actions if item.action_id == action_id), None)
-            action_label = action.label if action else ""
-        except Exception:  # noqa: BLE001
-            pass
+            if action is not None:
+                action_label = action.label
     if not action_label and action_id:
         action_label = action_id.replace("_", " ").title()
 
