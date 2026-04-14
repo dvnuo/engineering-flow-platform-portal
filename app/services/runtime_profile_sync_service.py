@@ -57,10 +57,7 @@ class RuntimeProfileSyncService:
 
     async def push_payload_to_agent(self, agent, payload: dict) -> bool:
         try:
-            headers = {
-                "content-type": "application/json",
-                **self.proxy_service.build_runtime_internal_headers(),
-            }
+            headers = {"content-type": "application/json"}
             status_code, content, _ = await self.proxy_service.forward(
                 agent=agent,
                 method="POST",

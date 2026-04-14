@@ -653,30 +653,6 @@ def test_proxy_direct_chat_rejects_non_object_json_payload_without_forwarding(mo
     assert calls["count"] == 0
 
 
-def test_build_runtime_internal_headers_returns_empty_dict_when_key_missing(monkeypatch):
-    from app.services import proxy_service as proxy_service_module
-
-    monkeypatch.setattr(
-        proxy_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(runtime_internal_api_key=""),
-    )
-    headers = proxy_service_module.build_runtime_internal_headers()
-    assert headers == {}
-
-
-def test_build_runtime_internal_headers_includes_internal_key_when_configured(monkeypatch):
-    from app.services import proxy_service as proxy_service_module
-
-    monkeypatch.setattr(
-        proxy_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(runtime_internal_api_key="rt-key"),
-    )
-    headers = proxy_service_module.build_runtime_internal_headers()
-    assert headers == {"X-Internal-Api-Key": "rt-key"}
-
-
 def test_runtime_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
     from app.services.proxy_service import ProxyService
 
@@ -719,7 +695,7 @@ def test_build_portal_execution_headers_returns_identity_headers_only():
     assert "X-Portal-Internal-Api-Key" not in headers
 
 
-def test_proxy_direct_chat_succeeds_when_portal_internal_api_key_missing(monkeypatch):
+def test_proxy_direct_chat_succeeds_without_extra_internal_auth(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module
 
@@ -772,18 +748,6 @@ def test_proxy_direct_chat_succeeds_when_portal_internal_api_key_missing(monkeyp
 
     assert response.status_code == 200
     assert calls["count"] == 1
-
-
-def test_require_internal_api_key_is_permissive_without_header():
-    import app.deps as deps_module
-
-    assert deps_module.require_internal_api_key(None) is True
-
-
-def test_require_internal_api_key_is_permissive_with_any_header_value():
-    import app.deps as deps_module
-
-    assert deps_module.require_internal_api_key("wrong-key") is True
 
 
 def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypatch):
@@ -879,18 +843,6 @@ def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypa
     assert calls["forward_count"] == 0
     assert calls["stream_request"]["url"] == "http://runtime.local:8000/api/chat/stream"
     assert calls["stream_request"]["params"] == [("stream", "runtime")]
-
-
-def test_build_runtime_internal_headers_default_contract(monkeypatch):
-    from app.services import proxy_service as proxy_service_module
-
-    monkeypatch.setattr(
-        proxy_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(runtime_internal_api_key=None),
-    )
-    headers = proxy_service_module.build_runtime_internal_headers()
-    assert headers == {}
 
 
 def test_build_runtime_trace_headers_only_includes_non_empty_sanitized_values():

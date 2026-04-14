@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from types import SimpleNamespace
 
 from app.db import get_db
-from app.deps import get_current_user, require_internal_api_key
+from app.deps import get_current_user
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.schemas.agent_group import (
     AgentGroupCreateRequest,
@@ -192,7 +192,6 @@ def delete_group_task_agent(group_id: str, agent_id: str, user=Depends(get_curre
 @router.get("/api/internal/agent-groups/{group_id}/specialist-pool", response_model=InternalAgentGroupSpecialistPoolResponse)
 def get_internal_group_specialist_pool(
     group_id: str,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     service = AgentGroupService(db)
@@ -213,7 +212,6 @@ def get_internal_group_specialist_pool(
 def create_internal_group_task_agent(
     group_id: str,
     payload: InternalAgentGroupTaskAgentCreateRequest,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     service = AgentGroupService(db)
@@ -245,7 +243,6 @@ def create_internal_group_task_agent(
 def delete_internal_group_task_agent(
     group_id: str,
     agent_id: str,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     service = AgentGroupService(db)

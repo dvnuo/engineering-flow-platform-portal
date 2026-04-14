@@ -870,7 +870,7 @@ def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
         db.add(agent)
         db.commit()
 
-        resp = client.get(f"/api/internal/agents/{agent.id}/runtime-context", headers={"X-Internal-Api-Key": "test"})
+        resp = client.get(f"/api/internal/agents/{agent.id}/runtime-context", )
         assert resp.status_code == 200
         body = resp.json()
         assert body["runtime_profile_id"] == rp.id

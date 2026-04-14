@@ -59,8 +59,6 @@ Access `http://localhost:8000/login`
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
-| `PORTAL_INTERNAL_API_KEY` | Reserved for optional future Portal↔Runtime internal key enforcement (currently not required by Portal runtime paths) | (empty) |
-| `RUNTIME_INTERNAL_API_KEY` | Reserved for optional future Portal↔Runtime internal key enforcement (currently not required by Portal runtime paths) | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC secret for `/api/webhooks/github` | (empty) |
 | `JIRA_WEBHOOK_SHARED_SECRET` | Shared secret expected in `X-Efp-Webhook-Secret` for `/api/webhooks/jira` | (empty) |
@@ -86,11 +84,6 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 - Portal remains the only user-facing entry point and forwards Portal identity headers to Runtime.
 - Portal runtime requests no longer require or emit internal API-key headers in the current in-VPC topology.
 - EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
-
-### Phase 5 internal-key enforcement status
-
-- Internal API key enforcement for Portal↔Runtime traffic is intentionally disabled in the current deployment topology.
-- `PORTAL_INTERNAL_API_KEY` and `RUNTIME_INTERNAL_API_KEY` remain available as config fields for possible future reintroduction.
 
 ### Internal control-plane export contract
 

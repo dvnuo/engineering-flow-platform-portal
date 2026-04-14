@@ -74,9 +74,7 @@ def _build_db():
 def test_push_payload_to_agent_swallows_forward_exception(monkeypatch):
     db, rp, running, _stopped = _build_db()
     try:
-        service = RuntimeProfileSyncService(
-            proxy_service=SimpleNamespace(forward=None, build_runtime_internal_headers=lambda: {})
-        )
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
 
         async def _raise_forward(**_kwargs):
             raise RuntimeError("network down")
@@ -92,9 +90,7 @@ def test_push_payload_to_agent_swallows_forward_exception(monkeypatch):
 def test_sync_profile_to_bound_agents_collects_failures_without_raising(monkeypatch):
     db, rp, running, stopped = _build_db()
     try:
-        service = RuntimeProfileSyncService(
-            proxy_service=SimpleNamespace(forward=None, build_runtime_internal_headers=lambda: {})
-        )
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
 
         async def _raise_forward(**_kwargs):
             raise RuntimeError("runtime unreachable")
@@ -110,15 +106,10 @@ def test_sync_profile_to_bound_agents_collects_failures_without_raising(monkeypa
         db.close()
 
 
-def test_push_payload_to_agent_forwards_runtime_internal_api_key(monkeypatch):
+def test_push_payload_to_agent_uses_content_type_and_portal_trusted_headers(monkeypatch):
     db, rp, running, _stopped = _build_db()
     try:
-        service = RuntimeProfileSyncService(
-            proxy_service=SimpleNamespace(
-                forward=None,
-                build_runtime_internal_headers=lambda: {"X-Internal-Api-Key": "rt-key"},
-            )
-        )
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
         captured = {}
 
         async def _fake_forward(**kwargs):
@@ -129,8 +120,7 @@ def test_push_payload_to_agent_forwards_runtime_internal_api_key(monkeypatch):
 
         ok = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
         assert ok is True
-        assert captured["headers"]["content-type"] == "application/json"
-        assert captured["headers"]["X-Internal-Api-Key"] == "rt-key"
-        assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
+        assert captured["headers"] == {"content-type": "application/json"}
+        assert captured["extra_headers"] == {"X-Portal-Author-Source": "portal"}
     finally:
         db.close()

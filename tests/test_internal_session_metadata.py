@@ -130,20 +130,14 @@ def test_internal_session_metadata_upsert_create_and_update():
         cleanup()
 
 
-def test_internal_session_metadata_allows_requests_without_internal_api_key():
+def test_internal_session_metadata_allows_requests_without_extra_internal_auth():
     client, agent, _agent_b, cleanup = _build_client()
     try:
         missing_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-unauth/metadata",
             json={"group_id": "g-1"},
         )
-        wrong_resp = client.put(
-            f"/api/internal/agents/{agent.id}/sessions/s-unauth/metadata",
-            headers={"X-Internal-Api-Key": "wrong"},
-            json={"group_id": "g-1"},
-        )
         assert missing_resp.status_code == 200
-        assert wrong_resp.status_code == 200
     finally:
         cleanup()
 

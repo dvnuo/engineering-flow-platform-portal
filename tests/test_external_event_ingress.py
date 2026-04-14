@@ -157,20 +157,14 @@ def test_public_ingest_is_admin_only():
         cleanup()
 
 
-def test_internal_ingest_allows_missing_or_wrong_internal_api_key():
+def test_internal_ingest_allows_requests_without_extra_internal_auth():
     client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         missing = client.post(
             "/api/internal/external-events/ingest",
             json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},
         )
-        wrong = client.post(
-            "/api/internal/external-events/ingest",
-            headers={"X-Internal-Api-Key": "wrong"},
-            json={"source_type": "github", "event_type": "push", "external_account_id": "acct-1"},
-        )
         assert missing.status_code == 200
-        assert wrong.status_code == 200
     finally:
         cleanup()
 

@@ -861,7 +861,7 @@ def test_internal_api_allows_missing_or_invalid_api_key(monkeypatch):
         missing_key = client.post("/api/internal/agent-delegations", json=payload)
         assert missing_key.status_code == 200
 
-        bad_key = client.post("/api/internal/agent-delegations", json=payload, headers={"X-Internal-Api-Key": "wrong"})
+        bad_key = client.post("/api/internal/agent-delegations", json=payload)
         assert bad_key.status_code == 200
     finally:
         cleanup()
@@ -970,7 +970,7 @@ def test_internal_read_routes_are_unfiltered_without_key_enforcement(monkeypatch
             f"/api/internal/agent-groups/{group.id}/task-board",
         ]:
             assert client.get(url).status_code == 200
-            assert client.get(url, headers={"X-Internal-Api-Key": "wrong"}).status_code == 200
+            assert client.get(url).status_code == 200
 
         delegations_response = client.get(
             f"/api/internal/agent-groups/{group.id}/delegations",

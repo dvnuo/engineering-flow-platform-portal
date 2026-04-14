@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import require_internal_api_key
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
@@ -16,7 +15,7 @@ runtime_execution_context_service = RuntimeExecutionContextService()
 
 
 @router.get("/api/internal/agents/{agent_id}/runtime-context", response_model=AgentRuntimeContextResponse)
-def get_agent_runtime_context(agent_id: str, _: bool = Depends(require_internal_api_key), db: Session = Depends(get_db)):
+def get_agent_runtime_context(agent_id: str, db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")

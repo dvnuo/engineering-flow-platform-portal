@@ -546,7 +546,7 @@ def test_internal_specialist_pool_requires_key_and_returns_expected_ids():
         assert (
             client.get(
                 f"/api/internal/agent-groups/{group['id']}/specialist-pool",
-                headers={"X-Internal-Api-Key": "wrong"},
+                
             ).status_code
             == 200
         )
