@@ -31,6 +31,14 @@ class RuntimeProfileRepository:
         )
         return list(self.db.scalars(query).all())
 
+    def list_by_owner_newest_first(self, owner_user_id: int) -> list[RuntimeProfile]:
+        query = (
+            select(RuntimeProfile)
+            .where(RuntimeProfile.owner_user_id == owner_user_id)
+            .order_by(RuntimeProfile.created_at.desc(), RuntimeProfile.id.desc())
+        )
+        return list(self.db.scalars(query).all())
+
     def get_by_id_for_owner(self, profile_id: str, owner_user_id: int) -> RuntimeProfile | None:
         return self.db.scalar(
             select(RuntimeProfile).where(

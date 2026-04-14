@@ -7,6 +7,9 @@
         <button id="rail-assistants-btn" class="portal-rail-btn is-active" type="button" title="Assistants">
           <i data-lucide="bot" class="w-5 h-5"></i>
         </button>
+        <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Runtime Profiles">
+          <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
+        </button>
         <button id="bundles-menu-btn" class="portal-rail-btn" type="button" title="Bundles">
           <i data-lucide="package" class="w-5 h-5"></i>
         </button>
@@ -20,9 +23,6 @@
         {% endif %}
       </div>
       <div class="portal-rail-bottom">
-        <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Runtime Profiles">
-          <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
-        </button>
         <button id="theme-toggle" class="portal-rail-btn" type="button" title="Toggle theme">
           <i data-lucide="moon" class="w-5 h-5"></i>
         </button>
@@ -86,9 +86,6 @@
           </button>
           <button id="btn-files" class="toolbar-icon-btn" type="button" title="Server Files" data-owner-only="true">
             <i data-lucide="folder" class="w-5 h-5"></i>
-          </button>
-          <button id="top-settings" class="toolbar-icon-btn" type="button" title="Settings" data-owner-only="true">
-            <i data-lucide="settings" class="w-5 h-5"></i>
           </button>
           <button id="detail-toggle" class="toolbar-icon-btn" type="button" title="Assistant details">
             <i data-lucide="panel-right" class="w-5 h-5"></i>
@@ -272,10 +269,13 @@
         <label>Description</label>
         <input name="description" />
       </div>
-      <label class="portal-checkbox-row">
-        <input type="checkbox" name="is_default" />
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch">
+          <input type="checkbox" name="is_default" />
+          <span class="toggle-slider"></span>
+        </label>
         <span>Set as default</span>
-      </label>
+      </div>
       <div class="flex justify-end gap-2">
         <button type="submit" class="portal-btn is-primary">Create</button>
       </div>

@@ -37,7 +37,6 @@ const dom = {
   closeToolPanel: document.getElementById("close-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
-  topSettings: document.getElementById("top-settings"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
@@ -2476,7 +2475,7 @@ function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
 
   const sessionsBtn = document.getElementById("btn-sessions");
-  const assistantOnlyControls = [dom.selectedStatus, sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, dom.topSettings, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
+  const assistantOnlyControls = [dom.selectedStatus, sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
   assistantOnlyControls.forEach((el) => {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
@@ -2716,8 +2715,21 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
 
   if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {
     await refreshRuntimeProfileList({ preserveSelection: true });
-    if (state.activeNavSection === "runtime-profiles" && !state.secondaryPaneCollapsed && !state.selectedRuntimeProfileId) {
-      renderWorkspaceDetailPlaceholder("Select a runtime profile from the left sidebar.", "runtime-profiles-placeholder");
+    if (state.activeNavSection === "runtime-profiles" && !state.secondaryPaneCollapsed) {
+      const defaultProfile = state.runtimeProfiles.find((item) => item.is_default);
+      let targetProfileId = null;
+      if (didSwitchSection) {
+        targetProfileId = (defaultProfile || state.runtimeProfiles[0] || {}).id || null;
+        state.selectedRuntimeProfileId = targetProfileId;
+      } else if (didRevealPane) {
+        targetProfileId = state.selectedRuntimeProfileId || (defaultProfile || state.runtimeProfiles[0] || {}).id || null;
+      }
+
+      if (targetProfileId) {
+        await loadRuntimeProfilePanelContent(targetProfileId);
+      } else {
+        renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
+      }
     }
   }
 
@@ -3084,7 +3096,10 @@ async function loadServerFiles(path) {
       const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       return (
         `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+          `<label class="toggle-switch">` +
+            `<input type="checkbox" class="file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+            `<span class="toggle-slider"></span>` +
+          `</label>` +
           `<div class="portal-file-name-cell name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
             `<span class="portal-file-icon">${icon}</span>` +
             `<span class="portal-file-name">${escapeHtml(item.name)}</span>` +
@@ -3105,7 +3120,7 @@ async function loadServerFiles(path) {
           `</div>` +
         `</div>` +
         `<div class="portal-file-select-row">` +
-          `<input type="checkbox" id="sf-select-all"> <label for="sf-select-all">Select all</label>` +
+          `<label class="toggle-switch"><input type="checkbox" id="sf-select-all"><span class="toggle-slider"></span></label><label for="sf-select-all">Select all</label>` +
         `</div>` +
         `<div class="portal-panel-stack">${rows || '<div class="portal-inline-state">Empty directory</div>'}</div>` +
       `</div>`
@@ -3128,8 +3143,8 @@ async function loadServerFiles(path) {
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
           // Skip if clicking checkbox or name cell (name cell has dedicated handler)
-          if (e.target.type === 'checkbox' || e.target.closest('.name-cell')) {
-            if (e.target.type === 'checkbox') {
+          if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch') || e.target.closest('.name-cell')) {
+            if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch')) {
               updateDownloadButton(panel);
             }
             return;
@@ -3151,7 +3166,7 @@ async function loadServerFiles(path) {
           e.stopPropagation();
 
           // Skip if clicking checkbox
-          if (e.target.type === 'checkbox') {
+          if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch')) {
             updateDownloadButton(panel);
             return;
           }
@@ -3712,15 +3727,22 @@ function renderRuntimeProfileList(errorMessage = "") {
   });
 }
 
-async function openRuntimeProfileInMain(profileId) {
+async function loadRuntimeProfilePanelContent(profileId) {
   if (!profileId) return;
-  await setActiveNavSection("runtime-profiles", { toggleIfSame: false });
   state.selectedRuntimeProfileId = profileId;
   renderRuntimeProfileList();
   await htmx.ajax("GET", `/app/runtime-profiles/${encodeURIComponent(profileId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "runtime-profile-detail";
   syncMainHeader();
+}
+
+async function openRuntimeProfileInMain(profileId, { ensureSection = true } = {}) {
+  if (!profileId) return;
+  if (ensureSection) {
+    await setActiveNavSection("runtime-profiles", { toggleIfSame: false });
+  }
+  await loadRuntimeProfilePanelContent(profileId);
 }
 
 async function refreshRuntimeProfileList({ preserveSelection = true } = {}) {
@@ -4130,7 +4152,6 @@ function bindEvents() {
   });
   document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
 
-  dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");
@@ -4843,7 +4864,7 @@ function loadSystemPromptConfig(agentId) {
       var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + labels[name] + '"' + disabledAttr + '>Edit</button>' : '';
       var item = document.createElement('div');
       item.className = 'portal-system-prompt-item';
-      item.innerHTML = '<label class="portal-checkbox-row"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span>' + labels[name] + '</span></label>' + editButton;
+      item.innerHTML = '<div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span class="toggle-slider"></span></label><span>' + labels[name] + '</span></div>' + editButton;
       items.appendChild(item);
     }
     
@@ -4909,7 +4930,7 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-labelledby', 'sp-editor-title');
-    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><label class="portal-checkbox-row"><input type="checkbox" id="sp-editor-enabled"><span>Enable custom prompt for this section</span></label><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
+    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-editor-enabled"><span class="toggle-slider"></span></label><span>Enable custom prompt for this section</span></div><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
     document.body.appendChild(modal);
 
     modal._keyHandler = function(e) {

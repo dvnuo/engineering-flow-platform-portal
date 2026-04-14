@@ -16,6 +16,7 @@ def test_app_template_contains_new_portal_shell():
     assert "refresh-bundles-btn" in html
     assert "home-open-bundles-btn" in html
     assert "runtime-profiles-menu-btn" in html
+    assert 'id="top-settings"' not in html
     assert "runtime-profiles-nav-section" in html
     assert "add-runtime-profile-btn" in html
     assert "create-runtime-profile-modal" in html
@@ -35,6 +36,35 @@ def test_app_template_contains_new_portal_shell():
     assert 'id="chat-form"' in html
     chat_form_block = html[html.find('id="chat-form"'):html.find("</form>", html.find('id="chat-form"'))]
     assert 'hx-post="/app/chat/send"' not in chat_form_block
+
+    rail_top_start = html.index('<div class="portal-rail-top">')
+    rail_top_end = html.index('</div>', rail_top_start)
+    rail_top = html[rail_top_start:rail_top_end]
+    assert "runtime-profiles-menu-btn" in rail_top
+    assert rail_top.index("rail-assistants-btn") < rail_top.index("runtime-profiles-menu-btn") < rail_top.index("bundles-menu-btn")
+
+    rail_bottom_start = html.index('<div class="portal-rail-bottom">')
+    rail_bottom_end = html.index('</div>', rail_bottom_start)
+    rail_bottom = html[rail_bottom_start:rail_bottom_end]
+    assert "runtime-profiles-menu-btn" not in rail_bottom
+    assert "theme-toggle" in rail_bottom
+    assert "logout-btn" in rail_bottom
+
+    create_runtime_modal_start = html.index('id="create-runtime-profile-form"')
+    create_runtime_modal_end = html.index("</form>", create_runtime_modal_start)
+    create_runtime_modal = html[create_runtime_modal_start:create_runtime_modal_end]
+    assert 'name="is_default"' in create_runtime_modal
+    assert "toggle-switch" in create_runtime_modal
+    assert "toggle-slider" in create_runtime_modal
+
+    runtime_panel = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+    assert 'name="is_default"' in runtime_panel
+    assert "toggle-switch" in runtime_panel
+    assert "toggle-slider" in runtime_panel
+
+    css = Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert ".toggle-switch" in css
+    assert ".toggle-slider" in css
 
 
 def test_chat_submit_primary_path_is_fetch_runtime():
