@@ -653,26 +653,26 @@ def test_proxy_direct_chat_rejects_non_object_json_payload_without_forwarding(mo
     assert calls["count"] == 0
 
 
-def test_runtime_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
+def test_unknown_header_is_not_forwarded_in_browser_proxy_allowlist():
     from app.services.proxy_service import ProxyService
 
     outbound = ProxyService._build_outbound_headers(
         headers={"content-type": "application/json"},
-        extra_headers={"X-Internal-Api-Key": "runtime-s2s-key", "X-Portal-User-Id": "10"},
+        extra_headers={"X-Debug-Bypass": "runtime-s2s-key", "X-Portal-User-Id": "10"},
     )
 
     assert outbound["content-type"] == "application/json"
     assert outbound["X-Portal-User-Id"] == "10"
-    assert "X-Internal-Api-Key" not in outbound
+    assert "X-Debug-Bypass" not in outbound
 
 
-def test_portal_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
+def test_unknown_portal_prefixed_header_is_not_forwarded_in_browser_proxy_allowlist():
     from app.services.proxy_service import ProxyService
 
     outbound = ProxyService._build_outbound_headers(
         headers={"content-type": "application/json"},
         extra_headers={
-            "X-Portal-Internal-Api-Key": "portal-s2s-key",
+            "X-Portal-Debug-Bypass": "portal-s2s-key",
             "X-Portal-User-Id": "10",
             "X-Portal-Author-Source": "portal",
         },
@@ -681,7 +681,7 @@ def test_portal_internal_header_is_not_forwarded_in_browser_proxy_allowlist():
     assert outbound["content-type"] == "application/json"
     assert outbound["X-Portal-User-Id"] == "10"
     assert outbound["X-Portal-Author-Source"] == "portal"
-    assert "X-Portal-Internal-Api-Key" not in outbound
+    assert "X-Portal-Debug-Bypass" not in outbound
 
 
 def test_build_portal_execution_headers_returns_identity_headers_only():
@@ -692,7 +692,7 @@ def test_build_portal_execution_headers_returns_identity_headers_only():
     assert headers["X-Portal-Author-Source"] == "portal"
     assert headers["X-Portal-User-Id"] == "55"
     assert headers["X-Portal-User-Name"] == "Name"
-    assert "X-Portal-Internal-Api-Key" not in headers
+    assert "X-Portal-Debug-Bypass" not in headers
 
 
 def test_proxy_direct_chat_succeeds_without_extra_internal_auth(monkeypatch):
