@@ -324,3 +324,38 @@ def test_design_disabled_and_message_when_requirements_missing(monkeypatch):
     assert response.status_code == 200
     assert "requirements.yaml not found — run Collect Requirements first" in response.text
     assert "disabled" in response.text
+
+
+def test_completed_bundle_shows_available_actions_without_recommended_heading(monkeypatch):
+    client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    state["template_id"] = "requirement.v1"
+    state["artifact_exists"] = {"requirements": True, "test_cases": True}
+
+    response = client.get(
+        "/app/requirement-bundles/open",
+        params={"repo": "octo/engineering-flow-platform-assets", "path": "any", "branch": "main"},
+    )
+    assert response.status_code == 200
+    assert "Recommended Next Step" not in response.text
+    assert "Available Actions" in response.text
+    assert "Collect Requirements" in response.text
+    assert "Design Test Cases" in response.text
+    assert response.text.count('name="action_id"') >= 2
+
+
+def test_form_state_only_expands_action_and_does_not_force_recommended_action():
+    import app.web as web_module
+
+    detail = _detail_for("requirement.v1", artifact_exists={"requirements": True, "test_cases": True})
+    vm = web_module._build_bundle_detail_view_model(
+        detail,
+        web_module.list_bundle_templates(),
+        [],
+        form_state={"action_id": "design_test_cases", "action_agent_id": "agent-1"},
+    )
+
+    assert vm["recommended_action"] is None
+    actions_by_id = {item["action_id"]: item for item in vm["actions"]}
+    assert actions_by_id["design_test_cases"]["expanded"] is True
+    assert actions_by_id["design_test_cases"]["is_recommended"] is False
+    assert actions_by_id["collect_requirements"]["is_recommended"] is False

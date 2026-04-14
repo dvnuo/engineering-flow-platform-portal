@@ -246,14 +246,11 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates, agents, *, 
         if not action["is_complete"] and not action["is_blocked"]:
             recommended_action_id = action["action_id"]
             break
-    if recommended_action_id is None and form_state.get("action_id"):
-        recommended_action_id = form_state.get("action_id")
-    if recommended_action_id is None and actions:
-        recommended_action_id = actions[0]["action_id"]
+    expanded_action_id = form_state.get("action_id") or ""
 
     for action in actions:
         action["is_recommended"] = action["action_id"] == recommended_action_id
-        action["expanded"] = action["is_recommended"] or form_state.get("action_id") == action["action_id"]
+        action["expanded"] = action["is_recommended"] or action["action_id"] == expanded_action_id
 
     recommended_action = next((item for item in actions if item["is_recommended"]), None)
     other_actions = [item for item in actions if not item["is_recommended"]]
