@@ -47,6 +47,17 @@ Access `http://localhost:8000/login`
 - Username: `admin`
 - Password: Set `BOOTSTRAP_ADMIN_PASSWORD=admin123` env var
 
+### Focused regression checks
+
+When validating routing behavior for external events and settings panel rendering, run the focused regression suite:
+
+```bash
+PYTHONPATH=. pytest -q \
+  tests/test_external_event_ingress.py \
+  tests/test_event_subscription_and_agent_tasks.py \
+  tests/test_web_runtime_profile_settings.py
+```
+
 ---
 
 ## Configuration
