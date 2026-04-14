@@ -28,11 +28,59 @@ def _has_index(table_name: str, index_name: str) -> bool:
     return any(index.get("name") == index_name for index in inspector.get_indexes(table_name))
 
 
+def _has_fk(table_name: str, constrained_columns: list[str], referred_table: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    for fk in inspector.get_foreign_keys(table_name):
+        if fk.get("referred_table") == referred_table and fk.get("constrained_columns") == constrained_columns:
+            return True
+    return False
+
+
 def upgrade() -> None:
-    if not _has_column("agent_tasks", "owner_user_id"):
-        op.add_column("agent_tasks", sa.Column("owner_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True))
-    if not _has_column("agent_tasks", "created_by_user_id"):
-        op.add_column("agent_tasks", sa.Column("created_by_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True))
+    dialect = op.get_bind().dialect.name
+
+    needs_owner_user_id = not _has_column("agent_tasks", "owner_user_id")
+    needs_created_by_user_id = not _has_column("agent_tasks", "created_by_user_id")
+
+    owner_user_id_will_exist = needs_owner_user_id or _has_column("agent_tasks", "owner_user_id")
+    created_by_user_id_will_exist = needs_created_by_user_id or _has_column("agent_tasks", "created_by_user_id")
+
+    needs_owner_user_fk = owner_user_id_will_exist and not _has_fk("agent_tasks", ["owner_user_id"], "users")
+    needs_created_by_user_fk = created_by_user_id_will_exist and not _has_fk("agent_tasks", ["created_by_user_id"], "users")
+
+    if dialect == "sqlite":
+        if needs_owner_user_id or needs_created_by_user_id or needs_owner_user_fk or needs_created_by_user_fk:
+            with op.batch_alter_table("agent_tasks") as batch_op:
+                if needs_owner_user_id:
+                    batch_op.add_column(sa.Column("owner_user_id", sa.Integer(), nullable=True))
+                if needs_created_by_user_id:
+                    batch_op.add_column(sa.Column("created_by_user_id", sa.Integer(), nullable=True))
+                if needs_owner_user_fk:
+                    batch_op.create_foreign_key(
+                        "fk_agent_tasks_owner_user_id_users",
+                        "users",
+                        ["owner_user_id"],
+                        ["id"],
+                    )
+                if needs_created_by_user_fk:
+                    batch_op.create_foreign_key(
+                        "fk_agent_tasks_created_by_user_id_users",
+                        "users",
+                        ["created_by_user_id"],
+                        ["id"],
+                    )
+    else:
+        if needs_owner_user_id:
+            op.add_column(
+                "agent_tasks",
+                sa.Column("owner_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
+            )
+        if needs_created_by_user_id:
+            op.add_column(
+                "agent_tasks",
+                sa.Column("created_by_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
+            )
     if not _has_column("agent_tasks", "runtime_request_id"):
         op.add_column("agent_tasks", sa.Column("runtime_request_id", sa.String(length=128), nullable=True))
     if not _has_column("agent_tasks", "summary"):
@@ -72,7 +120,8 @@ def downgrade() -> None:
         "ix_agent_tasks_created_by_user_id",
         "ix_agent_tasks_owner_user_id",
     ]:
-        op.drop_index(index_name, table_name="agent_tasks")
+        if _has_index("agent_tasks", index_name):
+            op.drop_index(index_name, table_name="agent_tasks")
 
     for column_name in [
         "finished_at",
@@ -80,7 +129,28 @@ def downgrade() -> None:
         "error_message",
         "summary",
         "runtime_request_id",
-        "created_by_user_id",
-        "owner_user_id",
     ]:
-        op.drop_column("agent_tasks", column_name)
+        if _has_column("agent_tasks", column_name):
+            op.drop_column("agent_tasks", column_name)
+
+    if op.get_bind().dialect.name == "sqlite":
+        needs_owner_fk_drop = _has_fk("agent_tasks", ["owner_user_id"], "users")
+        needs_created_by_fk_drop = _has_fk("agent_tasks", ["created_by_user_id"], "users")
+        needs_owner_col_drop = _has_column("agent_tasks", "owner_user_id")
+        needs_created_by_col_drop = _has_column("agent_tasks", "created_by_user_id")
+
+        if needs_owner_fk_drop or needs_created_by_fk_drop or needs_owner_col_drop or needs_created_by_col_drop:
+            with op.batch_alter_table("agent_tasks") as batch_op:
+                if needs_owner_fk_drop:
+                    batch_op.drop_constraint("fk_agent_tasks_owner_user_id_users", type_="foreignkey")
+                if needs_created_by_fk_drop:
+                    batch_op.drop_constraint("fk_agent_tasks_created_by_user_id_users", type_="foreignkey")
+                if needs_created_by_col_drop:
+                    batch_op.drop_column("created_by_user_id")
+                if needs_owner_col_drop:
+                    batch_op.drop_column("owner_user_id")
+    else:
+        if _has_column("agent_tasks", "created_by_user_id"):
+            op.drop_column("agent_tasks", "created_by_user_id")
+        if _has_column("agent_tasks", "owner_user_id"):
+            op.drop_column("agent_tasks", "owner_user_id")

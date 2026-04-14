@@ -132,6 +132,7 @@ def test_alembic_upgrade_head_adopts_legacy_master_sqlite_db(tmp_path, monkeypat
         "policy_profiles",
         "agent_identity_bindings",
         "agent_tasks",
+        "runtime_profiles",
         "agent_groups",
         "agent_group_members",
         "group_shared_context_snapshots",
@@ -148,6 +149,31 @@ def test_alembic_upgrade_head_adopts_legacy_master_sqlite_db(tmp_path, monkeypat
     assert "agent_type" in agent_columns
     assert "capability_profile_id" in agent_columns
     assert "policy_profile_id" in agent_columns
+    assert "runtime_profile_id" in agent_columns
+
+    agent_task_columns = {column["name"] for column in inspector.get_columns("agent_tasks")}
+    assert "owner_user_id" in agent_task_columns
+    assert "created_by_user_id" in agent_task_columns
+    assert "runtime_request_id" in agent_task_columns
+
+    runtime_profile_columns = {column["name"] for column in inspector.get_columns("runtime_profiles")}
+    assert "owner_user_id" in runtime_profile_columns
+    assert "is_default" in runtime_profile_columns
+
+    agent_fks = inspector.get_foreign_keys("agents")
+    assert any(
+        fk.get("referred_table") == "runtime_profiles" and fk.get("constrained_columns") == ["runtime_profile_id"]
+        for fk in agent_fks
+    )
+
+    agent_task_fks = inspector.get_foreign_keys("agent_tasks")
+    assert any(
+        fk.get("referred_table") == "users" and fk.get("constrained_columns") == ["owner_user_id"] for fk in agent_task_fks
+    )
+    assert any(
+        fk.get("referred_table") == "users" and fk.get("constrained_columns") == ["created_by_user_id"]
+        for fk in agent_task_fks
+    )
 
     migrated_agents = Table("agents", MetaData(), autoload_with=engine)
     with engine.connect() as connection:
@@ -156,3 +182,5 @@ def test_alembic_upgrade_head_adopts_legacy_master_sqlite_db(tmp_path, monkeypat
         ).scalar_one()
     assert agent_type is not None
     assert agent_type == "workspace"
+
+    command.downgrade(alembic_cfg, "20260408_0007")
