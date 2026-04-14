@@ -107,3 +107,15 @@ class RuntimeRouterService:
         if not agent:
             return self.build_routing_decision(None, db, "no_enabled_binding", execution_mode="async_task")
         return self.build_routing_decision(agent, db, "matched_enabled_binding", execution_mode="async_task")
+
+    def resolve_agent_decision_for_event(
+        self,
+        *,
+        agent_id: str,
+        db: Session,
+        reason: str = "matched_enabled_binding",
+    ) -> RuntimeRoutingDecisionResponse:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            return self.build_routing_decision(None, db, "no_enabled_binding", execution_mode="async_task")
+        return self.build_routing_decision(agent, db, reason, execution_mode="async_task")

@@ -75,6 +75,23 @@ class AgentIdentityBindingRepository:
         )
         return self.db.scalars(stmt).first()
 
+    def list_bindings_for_key(
+        self,
+        *,
+        system_type: str,
+        external_account_id: str,
+        enabled_only: bool = True,
+    ) -> list[AgentIdentityBinding]:
+        normalized_system_type = self._normalize_system_type(system_type)
+        conditions = [
+            AgentIdentityBinding.system_type == normalized_system_type,
+            AgentIdentityBinding.external_account_id == external_account_id,
+        ]
+        if enabled_only:
+            conditions.append(AgentIdentityBinding.enabled.is_(True))
+        stmt = select(AgentIdentityBinding).where(and_(*conditions)).order_by(AgentIdentityBinding.created_at.desc())
+        return list(self.db.scalars(stmt).all())
+
     def get_by_agent_and_binding_key(
         self,
         agent_id: str,
