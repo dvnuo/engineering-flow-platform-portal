@@ -157,7 +157,7 @@ def test_public_ingest_is_admin_only():
         cleanup()
 
 
-def test_internal_ingest_allows_requests_without_additional_headers():
+def test_internal_ingest_accepts_standard_internal_requests():
     client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     try:
         missing = client.post(

@@ -130,11 +130,11 @@ def test_internal_session_metadata_upsert_create_and_update():
         cleanup()
 
 
-def test_internal_session_metadata_allows_requests_without_additional_headers():
+def test_internal_session_metadata_accepts_standard_internal_requests():
     client, agent, _agent_b, cleanup = _build_client()
     try:
         missing_resp = client.put(
-            f"/api/internal/agents/{agent.id}/sessions/s-unauth/metadata",
+            f"/api/internal/agents/{agent.id}/sessions/s-open-internal/metadata",
             json={"group_id": "g-1"},
         )
         assert missing_resp.status_code == 200
