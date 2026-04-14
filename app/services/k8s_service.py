@@ -121,7 +121,7 @@ class K8sService:
                             "name": "agent",
                             "image": agent.image,
                             "ports": [{"containerPort": 8000}],
-                            "env": self._build_agent_container_env(),
+                            "env": self._build_agent_container_env(agent),
                             "volumeMounts": volume_mounts,
                         }],
                     }
@@ -375,7 +375,7 @@ class K8sService:
                                 name="agent",
                                 image=agent.image,
                                 ports=[client.V1ContainerPort(container_port=8000)],
-                                env=self._build_agent_container_env(),
+                                env=self._build_agent_container_env(agent),
                                 volume_mounts=volume_mounts,
                             )
                         ],
@@ -423,7 +423,7 @@ class K8sService:
         )
         return env
 
-    def _build_agent_container_env(self):
+    def _build_agent_container_env(self, agent=None):
         from kubernetes import client
 
         env = [
@@ -441,6 +441,8 @@ class K8sService:
         base_url = (self.settings.portal_internal_base_url or "").strip()
         if base_url:
             env.append(client.V1EnvVar(name="PORTAL_INTERNAL_BASE_URL", value=base_url))
+        if agent is not None and getattr(agent, "id", None):
+            env.append(client.V1EnvVar(name="PORTAL_AGENT_ID", value=str(agent.id)))
         return env
 
     def _git_clone_shell_command(self) -> str:

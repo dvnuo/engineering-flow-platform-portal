@@ -46,6 +46,16 @@ class RuntimePolicyContextResponse(BaseModel):
     derived_runtime_rules: dict = Field(default_factory=dict)
 
 
+
+
+class RuntimeProfileContextResponse(BaseModel):
+    runtime_profile_id: str
+    name: str
+    revision: int
+    managed_sections: list[str] = Field(default_factory=list)
+    config: dict = Field(default_factory=dict)
+    source: str
+
 class RuntimeRoutingDecisionResponse(BaseModel):
     matched_agent_id: Optional[str] = None
     matched_agent_type: Optional[str] = None
@@ -65,4 +75,6 @@ class AgentRuntimeContextResponse(BaseModel):
     policy_profile_id: Optional[str] = None
     capability_context: RuntimeCapabilityContextResponse
     policy_context: RuntimePolicyContextResponse
+    runtime_profile_id: Optional[str] = None
+    runtime_profile_context: Optional[RuntimeProfileContextResponse] = None
     runtime_target: RuntimeTargetInfoResponse

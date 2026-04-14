@@ -1,6 +1,5 @@
 <div class="portal-panel-stack" id="settings-panel-root" data-agent-id="{{ agent_id }}">
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
-    <input type="hidden" name="original_config_json" value='{{ config | tojson | e }}' />
     {% if status_message %}
       <div
         id="settings-status"
@@ -11,6 +10,17 @@
         {{ status_message }}
       </div>
     {% endif %}
+
+    {% if profile_missing_message %}
+      <div class="portal-inline-state is-error">{{ profile_missing_message }}</div>
+    {% else %}
+      <div class="portal-inline-state">
+        Runtime Profile: <strong>{{ profile_name }}</strong> · Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong>.<br />
+        Changes here update a shared RuntimeProfile and affect all bound agents.
+      </div>
+    {% endif %}
+
+    {% if not profile_missing_message %}
 
     <!-- Proxy Section -->
     <section class="portal-panel-section">
@@ -236,13 +246,11 @@
       </label>
     </section>
 
-    <div class="flex gap-2">
-      <button type="button" class="portal-btn is-secondary" data-settings-action="copy-config">Copy</button>
-      <button type="button" class="portal-btn is-secondary" data-settings-action="paste-config">Paste</button>
-    </div>
     <button type="submit" class="portal-btn is-primary">Save Settings</button>
+    {% endif %}
   </form>
 
+  {% if not profile_missing_message %}
   <script>
   (function() {
     // Provider-Model mapping (from EFP) - define only once
@@ -529,4 +537,5 @@
     }
   })();
   </script>
+  {% endif %}
 </div>

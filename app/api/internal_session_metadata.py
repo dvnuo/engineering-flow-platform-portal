@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import require_internal_api_key
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.schemas.agent_session_metadata import AgentSessionMetadataResponse, AgentSessionMetadataUpsertRequest
@@ -18,7 +17,6 @@ def upsert_session_metadata(
     agent_id: str,
     session_id: str,
     payload: AgentSessionMetadataUpsertRequest,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     agent = AgentRepository(db).get_by_id(agent_id)
@@ -37,7 +35,6 @@ def upsert_session_metadata(
 def get_session_metadata(
     agent_id: str,
     session_id: str,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     agent = AgentRepository(db).get_by_id(agent_id)
@@ -60,7 +57,6 @@ def list_session_metadata(
     group_id: str | None = None,
     latest_event_state: str | None = None,
     current_task_id: str | None = None,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     agent = AgentRepository(db).get_by_id(agent_id)

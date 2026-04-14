@@ -47,19 +47,13 @@ If parsing fails or data is missing, Portal falls back to deterministic local se
 Portal container should be configured with:
 
 - `BOOTSTRAP_ADMIN_PASSWORD`
-- `PORTAL_INTERNAL_API_KEY`
-- `RUNTIME_INTERNAL_API_KEY`
 - `PORTAL_INTERNAL_BASE_URL` (usually Portal service DNS, for example `http://efp-portal-service.default.svc.cluster.local`)
-
-Portal->Runtime control-plane headers are sourced from these env values.
 
 ## 4) Portal-managed runtime env contract (`efp-agents-secret`)
 
 Portal injects runtime container env from `efp-agents-secret`:
 
 - `EFP_CONFIG_KEY`
-- `PORTAL_INTERNAL_API_KEY`
-- `RUNTIME_INTERNAL_API_KEY`
 
 Portal also injects plain env:
 

@@ -493,6 +493,7 @@ class AgentGroupService:
             agent_type="task",
             capability_profile_id=template_agent.capability_profile_id,
             policy_profile_id=template_agent.policy_profile_id,
+            runtime_profile_id=template_agent.runtime_profile_id,
             template_agent_id=template_agent.id,
             task_scope_label=getattr(payload, "scope_label", None),
             task_cleanup_policy=(getattr(payload, "task_agent_cleanup_policy", None) or getattr(payload, "cleanup_policy", None)),

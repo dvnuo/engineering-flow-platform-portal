@@ -1,4 +1,4 @@
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -28,10 +28,3 @@ def require_admin(user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
     return user
-
-
-def require_internal_api_key(x_internal_api_key: str | None = Header(default=None)):
-    # Internal API key enforcement is intentionally disabled for the current
-    # in-VPC Portal↔Runtime topology and may be reintroduced later.
-    _ = x_internal_api_key
-    return True

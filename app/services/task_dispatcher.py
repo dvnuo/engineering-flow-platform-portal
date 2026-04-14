@@ -70,7 +70,7 @@ class TaskDispatcherService:
         return payload, None
 
     async def _post_to_runtime(self, url: str, body: dict) -> httpx.Response:
-        headers = self.proxy_service.build_runtime_internal_headers()
+        headers = {}
         metadata = body.get("metadata") if isinstance(body, dict) else None
         if isinstance(metadata, dict):
             headers.update(build_runtime_trace_headers(metadata))
@@ -78,7 +78,7 @@ class TaskDispatcherService:
             return await client.post(url, json=body, headers=headers)
 
     async def _get_runtime_task_status(self, url: str, metadata: dict | None = None) -> httpx.Response:
-        headers = self.proxy_service.build_runtime_internal_headers()
+        headers = {}
         if isinstance(metadata, dict):
             headers.update(build_runtime_trace_headers(metadata))
         async with httpx.AsyncClient(timeout=30.0) as client:

@@ -268,6 +268,12 @@
         <label>Branch</label>
         <input name="branch" placeholder="master" value="master" />
       </div>
+      <div>
+        <label>Runtime Profile</label>
+        <select name="runtime_profile_id" id="create-runtime-profile-select">
+          <option value="">None</option>
+        </select>
+      </div>
       <button type="submit">Create Assistant</button>
       <p id="create-msg" class="portal-modal-feedback"></p>
     </form>
@@ -295,6 +301,12 @@
         <label>Branch</label>
         <input name="branch" placeholder="master" />
       </div>
+      <div>
+        <label>Runtime Profile</label>
+        <select name="runtime_profile_id" id="edit-runtime-profile-select">
+          <option value="">None</option>
+        </select>
+      </div>
       <button type="submit">Save Changes</button>
       <p id="edit-msg" class="portal-modal-feedback"></p>
     </form>
@@ -317,24 +329,6 @@
       <p class="portal-modal-copy">Note: All subsequent messages will be deleted after editing.</p>
       <button type="submit" class="portal-btn is-primary">Save & Resend</button>
     </form>
-  </div>
-</div>
-
-<div id="paste-modal" class="modal hidden" aria-hidden="true">
-  <div class="modal-card panel">
-    <div class="portal-modal-titlebar">
-      <h3>Paste Configuration</h3>
-      <button id="close-paste-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
-    </div>
-    <div class="stack">
-      <p class="portal-modal-copy">Paste your configuration JSON below:</p>
-      <textarea id="paste-config-text" class="portal-form-textarea portal-form-textarea-mono" placeholder='{"llm": {...}, "jira": {...}}'></textarea>
-      <div id="paste-success-msg" class="portal-inline-state hidden">Configuration applied successfully!</div>
-      <div class="portal-modal-actions portal-modal-actions-stretch">
-        <button id="cancel-paste-btn" type="button" class="portal-btn is-secondary">Cancel</button>
-        <button id="confirm-paste-btn" type="button" class="portal-btn is-primary">Apply</button>
-      </div>
-    </div>
   </div>
 </div>
 

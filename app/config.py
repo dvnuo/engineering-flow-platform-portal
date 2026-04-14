@@ -12,8 +12,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./portal.db"
     secret_key: str = "change-me-in-production"
     session_cookie_name: str = "portal_session"
-    portal_internal_api_key: str = Field(default="", validation_alias="PORTAL_INTERNAL_API_KEY")
-    runtime_internal_api_key: str = Field(default="", validation_alias="RUNTIME_INTERNAL_API_KEY")
     portal_internal_base_url: str = Field(default="", validation_alias="PORTAL_INTERNAL_BASE_URL")
     github_webhook_secret: str = Field(default="", validation_alias="GITHUB_WEBHOOK_SECRET")
     jira_webhook_shared_secret: str = Field(default="", validation_alias="JIRA_WEBHOOK_SHARED_SECRET")

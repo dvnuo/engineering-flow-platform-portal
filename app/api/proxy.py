@@ -46,14 +46,22 @@ def _requires_write_access(method: str, subpath: str) -> bool:
     normalized = (subpath or "").strip("/").lower()
     if normalized.startswith("api/server-files"):
         return True
-    return (method.upper(), normalized) in {
-        ("POST", "api/config/save"),
-    }
+    return False
 
 
 def _is_removed_legacy_ssh_path(subpath: str) -> bool:
     normalized = (subpath or "").strip("/").lower()
     return normalized == "api/ssh" or normalized.startswith("api/ssh/")
+
+
+def _is_removed_portal_managed_config_path(subpath: str) -> bool:
+    normalized = (subpath or "").strip("/").lower()
+    return normalized in {"api/config", "api/config/save"}
+
+
+def _is_control_plane_only_runtime_path(subpath: str) -> bool:
+    normalized = (subpath or "").strip("/").lower()
+    return normalized == "api/internal" or normalized.startswith("api/internal/")
 
 
 def _filter_proxy_query_items(query_items):
@@ -110,6 +118,16 @@ async def proxy_agent(
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail="Legacy SSH runtime endpoints have been removed",
+        )
+    if _is_removed_portal_managed_config_path(subpath):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Runtime config endpoints are no longer exposed via Portal proxy. Use Runtime Profiles in Portal instead.",
+        )
+    if _is_control_plane_only_runtime_path(subpath):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Runtime internal endpoints are not exposed via the user-facing Portal proxy.",
         )
     if _requires_write_access(request.method, subpath) and not _can_write(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")

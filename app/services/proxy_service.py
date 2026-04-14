@@ -59,9 +59,6 @@ def build_portal_identity_headers(user) -> dict[str, str]:
 def build_portal_execution_headers(user) -> dict[str, str]:
     return build_portal_identity_headers(user)
 
-def build_runtime_internal_headers() -> dict[str, str]:
-    return {}
-
 
 def build_runtime_trace_headers(trace_context: dict[str, str] | None) -> dict[str, str]:
     trace_context = trace_context or {}
@@ -137,11 +134,6 @@ class ProxyService:
                         "Set K8S_NODE_IP environment variable."
                     )
         return self._node_ip
-
-
-    def build_runtime_internal_headers(self) -> dict[str, str]:
-        return build_runtime_internal_headers()
-
     def build_agent_base_url(self, agent) -> str:
         # Try to get NodePort from K8s service
         if self.core_api:

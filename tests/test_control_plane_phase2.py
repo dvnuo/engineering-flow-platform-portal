@@ -850,3 +850,38 @@ def test_group_cannot_have_second_leader_member(monkeypatch):
         assert add_resp.json()["detail"] == "Group already has a leader member"
     finally:
         cleanup()
+
+
+def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        from app.main import app
+        import app.api.internal_agents as internal_agents_api
+        from app.models.runtime_profile import RuntimeProfile
+
+        db_gen = app.dependency_overrides[internal_agents_api.get_db]()
+        db = next(db_gen)
+        rp = RuntimeProfile(name="rp-ctx", config_json='{"llm": {"provider": "openai"}, "ssh": {"hack": true}}', revision=3)
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        agent.runtime_profile_id = rp.id
+        db.add(agent)
+        db.commit()
+
+        resp = client.get(f"/api/internal/agents/{agent.id}/runtime-context", )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["runtime_profile_id"] == rp.id
+        assert body["runtime_profile_context"]["runtime_profile_id"] == rp.id
+        assert body["runtime_profile_context"]["name"] == "rp-ctx"
+        assert body["runtime_profile_context"]["revision"] == 3
+        assert body["runtime_profile_context"]["managed_sections"] == ["llm", "proxy", "jira", "confluence", "github", "git", "debug"]
+        assert body["runtime_profile_context"]["source"] == "portal.runtime_profile"
+        assert "config" in body["runtime_profile_context"]
+        assert "ssh" not in body["runtime_profile_context"]["config"]
+        assert "capability_context" in body
+        assert "policy_context" in body
+    finally:
+        cleanup()

@@ -126,7 +126,7 @@ def test_sync_api_persists_snapshot_and_latest_reads_it(monkeypatch):
         assert sync_resp.status_code == 200
         assert sync_resp.json()["catalog_version"] == "v-sync-1"
         assert sync_resp.json()["source_agent_id"] == agent.id
-        assert captured["headers"] == {}
+        assert "headers" not in captured or captured["headers"] == {}
 
         set_user(admin_user)
         latest = client.get("/api/runtime-capability-catalog/latest")
@@ -175,7 +175,7 @@ def test_sync_api_returns_clear_error_when_runtime_unreachable(monkeypatch):
         cleanup()
 
 
-def test_sync_api_succeeds_when_runtime_internal_key_missing(monkeypatch):
+def test_sync_api_succeeds_with_plain_runtime_capabilities_fetch(monkeypatch):
     client, agent, _other_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client(monkeypatch)
 
     class _FakeResponse:

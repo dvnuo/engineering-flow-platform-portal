@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import require_internal_api_key
 from app.repositories.agent_repo import AgentRepository
-from app.schemas.runtime_router import AgentRuntimeContextResponse, RuntimeCapabilityContextResponse, RuntimePolicyContextResponse
+from app.repositories.runtime_profile_repo import RuntimeProfileRepository
+from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.schemas.runtime_router import AgentRuntimeContextResponse, RuntimeCapabilityContextResponse, RuntimePolicyContextResponse, RuntimeProfileContextResponse
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_router import RuntimeRouterService
 
@@ -14,12 +15,26 @@ runtime_execution_context_service = RuntimeExecutionContextService()
 
 
 @router.get("/api/internal/agents/{agent_id}/runtime-context", response_model=AgentRuntimeContextResponse)
-def get_agent_runtime_context(agent_id: str, _: bool = Depends(require_internal_api_key), db: Session = Depends(get_db)):
+def get_agent_runtime_context(agent_id: str, db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     execution_context = runtime_execution_context_service.build_for_agent(db, agent)
+
+    runtime_profile_context = None
+    if agent.runtime_profile_id:
+        runtime_profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
+        if runtime_profile:
+            config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+            runtime_profile_context = RuntimeProfileContextResponse(
+                runtime_profile_id=runtime_profile.id,
+                name=runtime_profile.name,
+                revision=runtime_profile.revision,
+                managed_sections=["llm", "proxy", "jira", "confluence", "github", "git", "debug"],
+                config=config,
+                source="portal.runtime_profile",
+            )
 
     return AgentRuntimeContextResponse(
         agent_id=agent.id,
@@ -28,5 +43,7 @@ def get_agent_runtime_context(agent_id: str, _: bool = Depends(require_internal_
         policy_profile_id=execution_context.get("policy_profile_id"),
         capability_context=RuntimeCapabilityContextResponse.model_validate(execution_context.get("capability_context") or {}),
         policy_context=RuntimePolicyContextResponse.model_validate(execution_context.get("policy_context") or {}),
+        runtime_profile_id=agent.runtime_profile_id,
+        runtime_profile_context=runtime_profile_context,
         runtime_target=service.resolve_agent_runtime(agent),
     )

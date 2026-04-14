@@ -18,8 +18,8 @@ def test_app_template_contains_new_portal_shell():
     assert "Ask me anything..." in html
     assert "portal-modal-feedback" in html
     assert "portal-modal-copy" in html
-    assert "portal-form-textarea-mono" in html
-    assert "portal-modal-actions-stretch" in html
+    assert "portal-form-textarea-mono" not in html
+    assert "portal-modal-actions-stretch" not in html
     assert "muted tiny" not in html
     assert "text-slate-400" not in html
     assert "bg-slate-800" not in html
@@ -284,8 +284,8 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "GitHub API Base URL" in settings_html
     assert 'placeholder="https://api.github.com"' in settings_html
     assert "Leave blank to use the public GitHub API default." in settings_html
-    assert 'data-settings-action="copy-config"' in settings_html
-    assert 'data-settings-action="paste-config"' in settings_html
+    assert 'data-settings-action="copy-config"' not in settings_html
+    assert 'data-settings-action="paste-config"' not in settings_html
     assert 'data-agent-id="{{ agent_id }}"' in settings_html
     assert "Settings saved!" not in settings_html
     assert "setTimeout(function(){closeToolPanel();}, 500)" not in settings_html

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import get_current_user, require_internal_api_key
+from app.deps import get_current_user
 from app.schemas.agent_delegation import (
     AgentDelegationBoardItemResponse,
     AgentDelegationRunSummaryResponse,
@@ -42,7 +42,6 @@ async def create_agent_delegation(payload: AgentDelegationCreateRequest, user=De
 @router.post("/api/internal/agent-delegations", response_model=AgentDelegationResponse)
 async def create_internal_agent_delegation(
     payload: InternalAgentDelegationCreateRequest,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     """Internal control-plane write API for runtime-to-portal orchestration.
@@ -60,7 +59,6 @@ async def create_internal_agent_delegation(
 @router.get("/api/internal/agent-groups/{group_id}/delegations", response_model=list[AgentDelegationResponse])
 def list_internal_group_delegations(
     group_id: str,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     """Internal control-plane read API for runtime-to-portal orchestration.
@@ -78,7 +76,6 @@ def list_internal_group_delegations(
 @router.get("/api/internal/agent-groups/{group_id}/task-board", response_model=AgentGroupTaskBoardResponse)
 def get_internal_group_task_board(
     group_id: str,
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     """Internal control-plane read API for runtime-to-portal orchestration.

@@ -12,6 +12,7 @@ REQUIRED_PORTAL_TABLES = (
     "agent_session_metadata",
     "capability_profiles",
     "policy_profiles",
+    "runtime_profiles",
     "agent_identity_bindings",
     "workflow_transition_rules",
     "external_event_subscriptions",
@@ -33,6 +34,7 @@ def test_schema_guard_passes_when_agents_table_has_required_columns():
         Column("template_agent_id", String(36)),
         Column("task_scope_label", String(255)),
         Column("task_cleanup_policy", String(32)),
+        Column("runtime_profile_id", String(36)),
     )
     metadata.create_all(engine)
 
@@ -61,6 +63,7 @@ def test_schema_guard_raises_with_actionable_message_when_columns_missing():
         assert "template_agent_id" in message
         assert "task_scope_label" in message
         assert "task_cleanup_policy" in message
+        assert "runtime_profile_id" in message
         assert "alembic upgrade head" in message
     else:
         raise AssertionError("expected RuntimeError for missing phase5 agent columns")

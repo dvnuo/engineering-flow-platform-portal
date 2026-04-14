@@ -3,7 +3,6 @@ import json
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import require_internal_api_key
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 
@@ -25,7 +24,6 @@ def list_internal_workflow_transition_rules(
     system_type: str | None = Query(default=None),
     enabled: bool | None = Query(default=None),
     project_key: str | None = Query(default=None),
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     rules = WorkflowTransitionRuleRepository(db).list_all()
@@ -74,7 +72,6 @@ def list_internal_workflow_transition_rules(
 def list_internal_agent_identity_bindings(
     system_type: str | None = Query(default=None),
     enabled: bool | None = Query(default=None),
-    _: bool = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     normalized_system = (system_type or "").strip().lower()

@@ -21,6 +21,7 @@ class AgentCreateRequest(BaseModel):
     agent_type: str = "workspace"
     capability_profile_id: Optional[str] = None
     policy_profile_id: Optional[str] = None
+    runtime_profile_id: Optional[str] = None
 
     @field_validator("agent_type")
     @classmethod
@@ -48,6 +49,7 @@ class AgentUpdateRequest(BaseModel):
     agent_type: Optional[str] = None
     capability_profile_id: Optional[str] = None
     policy_profile_id: Optional[str] = None
+    runtime_profile_id: Optional[str] = None
 
     @field_validator("agent_type")
     @classmethod
@@ -92,6 +94,7 @@ class AgentResponse(BaseModel):
     agent_type: str
     capability_profile_id: Optional[str] = None
     policy_profile_id: Optional[str] = None
+    runtime_profile_id: Optional[str] = None
     disk_size_gi: int
     description: Optional[str] = None
     last_error: Optional[str] = None
