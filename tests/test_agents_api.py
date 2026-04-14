@@ -140,6 +140,57 @@ def test_invalid_agent_type_on_update_returns_422(monkeypatch):
         cleanup()
 
 
+def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+
+        monkeypatch.setattr(agents_api.settings, "default_agent_image_repo", "ghcr.io/acme/portal-agent")
+        monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "v2.4.1")
+        monkeypatch.setattr(agents_api.settings, "default_agent_repo_url", "git@github.com:Acme/Portal.git")
+        monkeypatch.setattr(agents_api.settings, "default_agent_branch", "release/default")
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="running", message=None),
+        )
+
+        response = client.post("/api/agents", json={"name": "defaulted-agent"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["image"] == "ghcr.io/acme/portal-agent:v2.4.1"
+        assert body["branch"] == "release/default"
+        assert body["repo_url"] == "https://github.com/Acme/Portal.git"
+    finally:
+        cleanup()
+
+
+def test_create_agent_allows_explicit_null_repo_url_while_still_defaulting_branch(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+
+        monkeypatch.setattr(agents_api.settings, "default_agent_image_repo", "ghcr.io/acme/portal-agent")
+        monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "v2.4.1")
+        monkeypatch.setattr(agents_api.settings, "default_agent_repo_url", "https://github.com/acme/default-repo")
+        monkeypatch.setattr(agents_api.settings, "default_agent_branch", "release/default")
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="running", message=None),
+        )
+
+        response = client.post(
+            "/api/agents",
+            json={"name": "no-repo-agent", "repo_url": None, "branch": "   "},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["repo_url"] is None
+        assert body["branch"] == "release/default"
+        assert body["image"] == "ghcr.io/acme/portal-agent:v2.4.1"
+    finally:
+        cleanup()
+
+
 def test_null_agent_type_on_update_returns_422_and_does_not_mutate_agent(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:

@@ -19,7 +19,7 @@ class Agent(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="creating")
     image: Mapped[str] = mapped_column(String(255), nullable=False)
     repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # GitHub repo URL
-    branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, default="main")  # Git branch
+    branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # Git branch
     cpu: Mapped[Optional[str]] = mapped_column(String(32))
     memory: Mapped[Optional[str]] = mapped_column(String(32))
     disk_size_gi: Mapped[int] = mapped_column(Integer, nullable=False, default=20)

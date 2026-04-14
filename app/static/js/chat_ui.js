@@ -224,6 +224,7 @@ const state = {
   serverFilesRootPath: null,
   serverFilesCurrentPath: null,
   runtimeProfiles: [],
+  agentDefaults: null,
 };
 
 function createDefaultChatState() {
@@ -1506,12 +1507,15 @@ function renderAgentMeta(agent) {
   // Build repo/branch section if present
   let repoSection = '';
   if (agent.repo_url) {
-    const branch = agent.branch || 'main';
+    const branch = agent.branch || state.agentDefaults?.default_branch || "";
+    const branchLine = branch
+      ? `<div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(branch)}</span></div>`
+      : "";
     repoSection = `
       <div class="portal-detail-section">
         <div class="portal-detail-label">Repository</div>
         <code class="portal-detail-code">${safe(agent.repo_url)}</code>
-        <div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(branch)}</span></div>
+        ${branchLine}
         <div id="agent-git-commit" class="portal-detail-subtle">Loading commit...</div>
       </div>
     `;
@@ -3598,6 +3602,32 @@ async function loadRuntimeProfiles(force = false) {
   }
 }
 
+async function loadAgentDefaults(force = false) {
+  if (!force && state.agentDefaults) {
+    return state.agentDefaults;
+  }
+  const defaults = await api("/api/agents/defaults");
+  state.agentDefaults = defaults;
+  return defaults;
+}
+
+function applyCreateAgentDefaults(form, defaults) {
+  if (!form?.elements) return;
+  const repoInput = form.elements["repo_url"];
+  if (repoInput) {
+    const repoDefault = defaults?.default_repo_url || "";
+    repoInput.value = repoDefault;
+    repoInput.defaultValue = repoDefault;
+  }
+  const branchInput = form.elements["branch"];
+  if (branchInput) {
+    const branchDefault = defaults?.default_branch || "";
+    branchInput.value = branchDefault;
+    branchInput.defaultValue = branchDefault;
+    branchInput.placeholder = branchDefault ? `Configured default branch (${branchDefault})` : "Configured default branch";
+  }
+}
+
 function populateRuntimeProfileSelect(selectEl, selectedId = '') {
   if (!selectEl) return;
   const profiles = state.runtimeProfiles || [];
@@ -3611,7 +3641,7 @@ function populateRuntimeProfileSelect(selectEl, selectedId = '') {
 }
 
 async function openEditDialog(agent) {
-  await loadRuntimeProfiles(true);
+  await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults()]);
   // Populate the edit form by setting input values directly
   const form = document.getElementById("edit-form");
   if (form && form.elements) {
@@ -3625,7 +3655,10 @@ async function openEditDialog(agent) {
       form.elements["repo_url"].value = agent.repo_url || "";
     }
     if (form.elements["branch"]) {
-      form.elements["branch"].value = agent.branch || "master";
+      form.elements["branch"].value = agent.branch || "";
+      form.elements["branch"].placeholder = state.agentDefaults?.default_branch
+        ? `Configured default branch (${state.agentDefaults.default_branch})`
+        : "Configured default branch";
     }
     if (form.elements["runtime_profile_id"]) {
       populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
@@ -4122,7 +4155,17 @@ function bindEvents() {
   });
 
   dom.addAgentBtn?.addEventListener("click", async () => {
-    await loadRuntimeProfiles(true);
+    const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
+    const createForm = document.getElementById("create-form");
+    if (createForm) {
+      createForm.reset();
+      applyCreateAgentDefaults(createForm, defaults);
+    }
+    const createMsg = document.getElementById("create-msg");
+    if (createMsg) {
+      createMsg.textContent = "";
+      setModalFeedback(createMsg, "", createMsg.textContent);
+    }
     const createSelect = document.getElementById("create-runtime-profile-select");
     populateRuntimeProfileSelect(createSelect, "");
     document.getElementById("create-modal")?.classList.remove("hidden");
@@ -4139,19 +4182,14 @@ function bindEvents() {
     const form = e.target;
     const formData = new FormData(form);
     const name = formData.get("name");
-    const repoUrl = formData.get("repo_url");
-    const branch = formData.get("branch");
+    const repoUrl = (formData.get("repo_url") || "").toString().trim();
+    const branch = (formData.get("branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
 
     const msgEl = document.getElementById("create-msg");
 
     try {
-      // Get defaults from config
-      const defaultsResp = await fetch("/api/agents/defaults");
-      if (!defaultsResp.ok) {
-        throw new Error(await handleErrorResponse(defaultsResp));
-      }
-      const defaults = await defaultsResp.json();
+      const defaults = await loadAgentDefaults();
 
       if (!defaults.image_repo || !defaults.disk_size_gi) {
         throw new Error("Invalid defaults configuration");
@@ -4184,6 +4222,7 @@ function bindEvents() {
       msgEl.textContent = "Assistant created!";
       setModalFeedback(msgEl, "success", msgEl.textContent);
       form.reset();
+      applyCreateAgentDefaults(form, defaults);
       setTimeout(() => {
         document.getElementById("create-modal")?.classList.add("hidden");
         document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
@@ -4383,6 +4422,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     openThinkingProcessPanel();
   });
 
+  await loadAgentDefaults();
   await refreshAll();
   await setActiveNavSection("assistants", { toggleIfSame: false });
   renderMarkdown(document);

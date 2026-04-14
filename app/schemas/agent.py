@@ -10,7 +10,7 @@ ALLOWED_AGENT_TYPES = {"workspace", "specialist", "task"}
 
 class AgentCreateRequest(BaseModel):
     name: str
-    image: str
+    image: Optional[str] = None
     repo_url: Optional[str] = None  # GitHub repo URL
     branch: Optional[str] = None  # Git branch
     disk_size_gi: int = 20
