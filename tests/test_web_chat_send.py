@@ -144,7 +144,7 @@ def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Bob"
 
 
-def test_app_chat_send_succeeds_without_extra_internal_auth(monkeypatch):
+def test_app_chat_send_succeeds_without_additional_control_plane_headers(monkeypatch):
     from app.main import app
     import app.web as web_module
 

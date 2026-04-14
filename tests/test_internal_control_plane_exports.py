@@ -150,7 +150,7 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
         cleanup()
 
 
-def test_internal_exports_allow_requests_without_extra_internal_auth():
+def test_internal_exports_allow_requests_without_additional_headers():
     client, cleanup = _build_client()
     try:
         missing = client.get("/api/internal/workflow-transition-rules")
