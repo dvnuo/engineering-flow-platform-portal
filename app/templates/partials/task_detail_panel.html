@@ -1,34 +1,72 @@
-<div id="task-detail-panel-root" class="portal-panel-stack">
+<div id="task-detail-panel-root" class="portal-panel-stack"
+  {% if task_view_model.is_active %}
+  hx-get="/app/tasks/{{ task.id }}/panel"
+  hx-trigger="every 5s"
+  hx-target="{{ content_target }}"
+  hx-swap="innerHTML"
+  {% endif %}>
   <div class="portal-panel-header">
-    <h2 class="portal-panel-title">Task Detail</h2>
-    <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Refresh</button>
+    <div>
+      <h2 class="portal-panel-title">{{ task_view_model.display_title }}</h2>
+      <p class="portal-panel-subtitle">{{ task_view_model.display_subtitle }}</p>
+    </div>
+    <div class="portal-detail-actions">
+      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Refresh</button>
+      {% if task_view_model.bundle_open_url %}
+      <button class="portal-btn is-secondary" hx-get="{{ task_view_model.bundle_open_url }}" hx-target="{{ content_target }}" hx-swap="innerHTML">Open Bundle Detail</button>
+      {% endif %}
+    </div>
   </div>
 
-  <div class="portal-panel-section">
-    <div><strong>task_id:</strong> {{ task.id }}</div>
-    <div><strong>task_type:</strong> {{ task.task_type }}</div>
-    <div><strong>source:</strong> {{ task.source }}</div>
-    <div><strong>status:</strong> {{ task.status }}</div>
-    <div><strong>assignee_agent_id:</strong> {{ task.assignee_agent_id }}</div>
-    <div><strong>group_id:</strong> {{ task.group_id or '-' }}</div>
-    <div><strong>owner_user_id:</strong> {{ task.owner_user_id or '-' }}</div>
-    <div><strong>created_by_user_id:</strong> {{ task.created_by_user_id or '-' }}</div>
-    <div><strong>runtime_request_id:</strong> {{ task.runtime_request_id or '-' }}</div>
-    <div><strong>created_at:</strong> {{ task.created_at }}</div>
-    <div><strong>started_at:</strong> {{ task.started_at or '-' }}</div>
-    <div><strong>finished_at:</strong> {{ task.finished_at or '-' }}</div>
-    <div><strong>summary:</strong> {{ task.summary or '-' }}</div>
-    <div><strong>error_message:</strong> {{ task.error_message or '-' }}</div>
-  </div>
+  {% if task_view_model.error_text %}
+  <div class="portal-callout is-error">{{ task_view_model.error_text }}</div>
+  {% elif task_view_model.summary_text %}
+  <div class="portal-callout is-success">{{ task_view_model.summary_text }}</div>
+  {% elif task_view_model.is_active %}
+  <div class="portal-callout is-warning">Task is {{ task_view_model.status_label }}...</div>
+  {% endif %}
 
-  <div class="portal-panel-section">
-    <h3 class="portal-detail-label">input_payload_json</h3>
-    <pre class="portal-panel-pre">{{ task.input_payload_json or '{}' }}</pre>
-  </div>
-  <div class="portal-panel-section">
-    <h3 class="portal-detail-label">result_payload_json</h3>
-    <pre class="portal-panel-pre">{{ task.result_payload_json or '{}' }}</pre>
-  </div>
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Execution Summary</div>
+    <div class="portal-usage-grid">
+      <div class="portal-usage-card"><span class="portal-usage-k">Status</span><span class="portal-usage-v"><span class="portal-status-badge is-{{ task_view_model.status_tone }}">{{ task_view_model.status_label }}</span></span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Assignee</span><span class="portal-usage-v">{{ task_view_model.assignee_agent_id }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Created</span><span class="portal-usage-v">{{ task_view_model.created_at }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Started</span><span class="portal-usage-v">{{ task_view_model.started_at }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Finished</span><span class="portal-usage-v">{{ task_view_model.finished_at }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Duration</span><span class="portal-usage-v">{{ task_view_model.duration_label }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Retry Count</span><span class="portal-usage-v">{{ task_view_model.retry_count }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Source</span><span class="portal-usage-v">{{ task_view_model.source }}</span></div>
+    </div>
+  </section>
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Context</div>
+    <div class="portal-kv-grid">
+      {% for label, value in task_view_model.context_items %}
+      <div class="portal-kv-item"><span class="portal-usage-k">{{ label }}</span><span class="portal-usage-v">{{ value }}</span></div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Metadata</div>
+    <div class="portal-kv-grid">
+      {% for label, value in task_view_model.metadata_items %}
+      <div class="portal-kv-item"><span class="portal-usage-k">{{ label }}</span><span class="portal-usage-v">{{ value }}</span></div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <details class="portal-collapsible">
+    <summary class="portal-collapsible-summary"><strong>Input Payload</strong></summary>
+    <pre class="portal-panel-pre">{{ task_view_model.input_payload_pretty }}</pre>
+  </details>
+
+  <details class="portal-collapsible" {% if task_view_model.error_text %}open{% endif %}>
+    <summary class="portal-collapsible-summary"><strong>Result Payload</strong></summary>
+    <pre class="portal-panel-pre">{{ task_view_model.result_payload_pretty }}</pre>
+  </details>
 
   {% if content_target == "#workspace-detail-content" %}
   <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1">Back to My Tasks</button>

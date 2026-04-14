@@ -1,3 +1,39 @@
+{% macro render_bundle_action_card(action, bundle_view_model, bundle_detail, agents, content_target) %}
+<details class="portal-collapsible" {% if action.expanded %}open{% endif %}>
+  <summary class="portal-collapsible-summary">
+    <div>
+      <strong>{{ action.label }}</strong>
+      <p class="portal-panel-note">{{ action.description }}</p>
+      {% if action.is_blocked %}<p class="portal-inline-error">{{ action.status_reason }}</p>{% endif %}
+    </div>
+    <span class="portal-status-badge is-{{ action.status_tone }}">{{ action.status_label }}</span>
+  </summary>
+  <form method="post" action="/app/requirement-bundles/actions/run" hx-post="/app/requirement-bundles/actions/run" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-detail-stack">
+    <input type="hidden" name="template_id" value="{{ bundle_view_model.template_id }}" />
+    <input type="hidden" name="action_id" value="{{ action.action_id }}" />
+    <input type="hidden" name="bundle_repo" value="{{ bundle_view_model.repo }}" />
+    <input type="hidden" name="bundle_path" value="{{ bundle_view_model.path }}" />
+    <input type="hidden" name="bundle_branch" value="{{ bundle_view_model.branch }}" />
+    <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
+    <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
+    <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
+    <label class="portal-form-label">Action Agent</label>
+    <select name="action_agent_id" required class="portal-form-select">
+      <option value="">-- Select action agent --</option>
+      {% for agent in agents %}<option value="{{ agent.id }}" {% if action.selected_agent_id == agent.id %}selected{% endif %}>{{ agent.name }} ({{ agent.id }})</option>{% endfor %}
+    </select>
+    {% if action.requires_sources %}
+    <div><label class="portal-form-label">Jira Sources (issue keys or browse URLs)</label><textarea name="jira_sources" rows="2" class="portal-form-textarea">{{ action.jira_sources }}</textarea></div>
+    <div><label class="portal-form-label">Confluence Sources (page IDs or page URLs)</label><textarea name="confluence_sources" rows="2" class="portal-form-textarea">{{ action.confluence_sources }}</textarea></div>
+    <div><label class="portal-form-label">GitHub Docs Sources (repo-relative paths or blob URLs)</label><textarea name="github_doc_sources" rows="2" class="portal-form-textarea">{{ action.github_doc_sources }}</textarea></div>
+    <div><label class="portal-form-label">Figma Sources (ignored in MVP)</label><textarea name="figma_sources" rows="2" class="portal-form-textarea">{{ action.figma_sources }}</textarea></div>
+    {% endif %}
+    {% if action.is_blocked %}<p class="portal-inline-state is-error">{{ action.status_reason }}</p>{% endif %}
+    <button type="submit" class="portal-btn is-primary" {% if action.is_blocked %}disabled{% endif %}>Create + Dispatch Task</button>
+  </form>
+</details>
+{% endmacro %}
+
 <div id="requirement-bundles-panel-root" class="portal-panel-stack">
   <div class="portal-panel-header">
     <div>
@@ -7,127 +43,100 @@
   </div>
 
   {% if status_message %}
-  <div class="portal-inline-state {% if status_type == 'error' %}is-error{% endif %}">
+  <div class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}">
     {{ status_message }}
   </div>
   {% endif %}
 
+  {% if bundle_detail and bundle_view_model %}
+  <section class="portal-panel-section portal-hero-card">
+    <div class="portal-panel-header">
+      <div>
+        <h2 class="portal-panel-title">{{ bundle_view_model.title }}</h2>
+        <p class="portal-panel-subtitle">{{ bundle_view_model.subtitle }}</p>
+      </div>
+      <div class="portal-detail-actions">
+        <span class="portal-status-badge is-{{ bundle_view_model.status_tone }}">{{ bundle_view_model.status_label }}</span>
+        <a href="{{ bundle_view_model.github_url }}" target="_blank" rel="noopener noreferrer" class="portal-btn is-secondary">Open in GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="portal-summary-row">
+    <span class="portal-summary-chip">Status: {{ bundle_view_model.status_label }}</span>
+    <span class="portal-summary-chip">Template: {{ bundle_view_model.template_label }}</span>
+    <span class="portal-summary-chip">Domain: {{ bundle_view_model.domain }}</span>
+    <span class="portal-summary-chip">{{ bundle_view_model.artifact_ready_count }} / {{ bundle_view_model.artifact_total_count }} artifacts ready</span>
+  </div>
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Overview</div>
+    <div class="portal-usage-grid">
+      <div class="portal-usage-card"><span class="portal-usage-k">Repo</span><span class="portal-usage-v">{{ bundle_view_model.repo or '-' }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Branch</span><span class="portal-usage-v">{{ bundle_view_model.branch or '-' }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Last Commit</span><span class="portal-usage-v" title="{{ bundle_view_model.last_commit_full }}">{{ bundle_view_model.last_commit_short }}</span></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">Artifact Progress</span><span class="portal-usage-v">{{ bundle_view_model.artifact_ready_count }} / {{ bundle_view_model.artifact_total_count }}</span></div>
+    </div>
+  </section>
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Artifacts</div>
+    <div class="portal-data-table-wrap">
+      <table class="portal-data-table">
+        <thead><tr><th>Artifact</th><th>File</th><th>Status</th><th>Open</th></tr></thead>
+        <tbody>
+          {% for artifact in bundle_view_model.artifacts %}
+          <tr>
+            <td>{{ artifact.label }}</td>
+            <td>{{ artifact.file_path }}</td>
+            <td><span class="portal-status-badge is-{{ artifact.status_tone }}">{{ artifact.status_label }}</span></td>
+            <td>{% if artifact.github_url %}<a class="portal-link-inline" href="{{ artifact.github_url }}" target="_blank" rel="noopener noreferrer">Open</a>{% else %}-{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Actions</div>
+    {% if bundle_view_model.recommended_action %}
+      <h3 class="portal-detail-label">Recommended Next Step</h3>
+      {{ render_bundle_action_card(bundle_view_model.recommended_action, bundle_view_model, bundle_detail, agents, content_target) }}
+
+      {% if bundle_view_model.other_actions %}
+      <h3 class="portal-detail-label">Other Actions</h3>
+      {% for action in bundle_view_model.other_actions %}
+      {{ render_bundle_action_card(action, bundle_view_model, bundle_detail, agents, content_target) }}
+      {% endfor %}
+      {% endif %}
+    {% else %}
+      <h3 class="portal-detail-label">Available Actions</h3>
+      {% for action in bundle_view_model.actions %}
+      {{ render_bundle_action_card(action, bundle_view_model, bundle_detail, agents, content_target) }}
+      {% endfor %}
+    {% endif %}
+  </section>
+
+  {% if task_result %}
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Recent Run</div>
+    <div class="portal-kv-grid">
+      <div class="portal-kv-item"><span class="portal-usage-k">Task ID</span><span class="portal-usage-v">{{ task_result.task_id }}</span></div>
+      <div class="portal-kv-item"><span class="portal-usage-k">Dispatch Status</span><span class="portal-usage-v">{{ task_result.dispatch_status }}</span></div>
+      <div class="portal-kv-item"><span class="portal-usage-k">Dispatch Message</span><span class="portal-usage-v">{{ task_result.dispatch_message }}</span></div>
+    </div>
+    {% if content_target == "#workspace-detail-content" %}
+    <button type="button" class="portal-btn is-secondary" data-open-task-main="{{ task_result.task_id }}">Open Task Detail</button>
+    {% else %}
+    <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task_result.task_id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Open Task Detail</button>
+    {% endif %}
+  </section>
+  {% endif %}
+  {% else %}
   <div class="portal-panel-section">
     <p class="portal-panel-note">Create bundles from the sidebar <strong>Bundles</strong> section using the + button.</p>
   </div>
-
-  {% if bundle_detail %}
-  {% set manifest = bundle_detail.manifest or {} %}
-  {% set bundle_path = bundle_detail.bundle_ref.path or '' %}
-  {% set path_parts = bundle_path.split('/') if bundle_path else [] %}
-  {% set fallback_title = path_parts[-1] if path_parts else 'Bundle' %}
-  {% set bundle_title = manifest.title or manifest.bundle_id or fallback_title or 'Bundle' %}
-  {% set bundle_id = manifest.bundle_id or fallback_title or 'unknown' %}
-  {% set bundle_status = manifest.status or 'unknown' %}
-  {% set bundle_domain = manifest.scope.domain if manifest.scope and manifest.scope.domain else 'unknown' %}
-  {% set github_url = 'https://github.com/' ~ bundle_detail.bundle_ref.repo ~ '/tree/' ~ bundle_detail.bundle_ref.branch ~ '/' ~ bundle_detail.bundle_ref.path %}
-  {% set artifact_exists_map = {} %}
-  {% for artifact in bundle_detail.artifacts or [] %}
-    {% set _ = artifact_exists_map.update({artifact.artifact_key: artifact.exists}) %}
-  {% endfor %}
-  <section class="portal-panel-section">
-    <div class="portal-panel-header">
-      <h2 class="portal-panel-title">Bundle Detail</h2>
-      <a href="{{ github_url }}" target="_blank" rel="noopener noreferrer" class="portal-btn is-secondary">Open in GitHub</a>
-    </div>
-    <div class="portal-panel-grid cols-2">
-      <div>title: <span>{{ bundle_title }}</span></div>
-      <div>bundle_id: <span>{{ bundle_id }}</span></div>
-      <div>status: <span>{{ bundle_status }}</span></div>
-      <div>domain: <span>{{ bundle_domain }}</span></div>
-      <div>template: <span>{{ bundle_detail.template_label }}{% if bundle_detail.template_id != 'requirement.v1' %} ({{ bundle_detail.template_id }}){% endif %}</span></div>
-      <div>repo: <span>{{ bundle_detail.bundle_ref.repo }}</span></div>
-      <div>branch: <span>{{ bundle_detail.bundle_ref.branch }}</span></div>
-    </div>
-
-    <div class="portal-panel-section">
-      <h3 class="portal-detail-label">Artifacts</h3>
-      <div class="portal-panel-grid cols-2">
-        {% for artifact in bundle_detail.artifacts or [] %}
-        <div>{{ artifact.file_path }}: <span>{{ 'exists' if artifact.exists else 'missing' }}</span></div>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="portal-panel-grid cols-2">
-      {% for template in bundle_templates %}
-      {% if template.template_id == bundle_detail.template_id %}
-      {% for action in template.actions %}
-      {% set missing_required = [] %}
-      {% for required_artifact in action.required_artifacts %}
-      {% if not artifact_exists_map.get(required_artifact) %}
-      {% set _ = missing_required.append(required_artifact) %}
-      {% endif %}
-      {% endfor %}
-      <form method="post" action="/app/requirement-bundles/actions/run" hx-post="/app/requirement-bundles/actions/run" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-panel-section">
-        <h3 class="portal-detail-label">{{ action.label }}</h3>
-        <p class="portal-panel-note">{{ action.description }}</p>
-        <input type="hidden" name="template_id" value="{{ bundle_detail.template_id }}" />
-        <input type="hidden" name="action_id" value="{{ action.action_id }}" />
-        <input type="hidden" name="bundle_repo" value="{{ bundle_detail.bundle_ref.repo }}" />
-        <input type="hidden" name="bundle_path" value="{{ bundle_detail.bundle_ref.path }}" />
-        <input type="hidden" name="bundle_branch" value="{{ bundle_detail.bundle_ref.branch }}" />
-        <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
-        <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
-        <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
-        <label class="portal-form-label">Action Agent</label>
-        <select name="action_agent_id" required class="portal-form-select">
-          <option value="">-- Select action agent --</option>
-          {% for agent in agents %}
-          <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
-          {% endfor %}
-        </select>
-        {% if action.requires_sources %}
-        <div>
-          <label class="portal-form-label">Jira Sources (issue keys or browse URLs)</label>
-          <p class="portal-panel-note">Enter comma or newline separated Jira issue keys or browse links.</p>
-          <textarea name="jira_sources" rows="2" placeholder="PAY-101&#10;https://jira.example.com/browse/PAY-101" class="portal-form-textarea"></textarea>
-        </div>
-        <div>
-          <label class="portal-form-label">Confluence Sources (page IDs or page URLs)</label>
-          <p class="portal-panel-note">Enter comma or newline separated page IDs or page links.</p>
-          <textarea name="confluence_sources" rows="2" placeholder="987654&#10;https://wiki.example.com/spaces/ABC/pages/987654/..." class="portal-form-textarea"></textarea>
-        </div>
-        <div>
-          <label class="portal-form-label">GitHub Docs Sources (repo-relative paths or blob URLs)</label>
-          <p class="portal-panel-note">Enter comma or newline separated repo paths or GitHub blob links.</p>
-          <textarea name="github_doc_sources" rows="2" placeholder="docs/spec.md&#10;https://github.com/org/repo/blob/main/docs/spec.md" class="portal-form-textarea"></textarea>
-        </div>
-        <div>
-          <label class="portal-form-label">Figma Sources (ignored in MVP)</label>
-          <p class="portal-panel-note">Figma URLs are stored only; not processed in MVP.</p>
-          <textarea name="figma_sources" rows="2" placeholder="https://www.figma.com/file/abc123/... (stored only; not processed in MVP)" class="portal-form-textarea"></textarea>
-        </div>
-        {% endif %}
-        {% if missing_required %}
-        <p class="portal-inline-state is-error">{{ action.missing_artifact_message or ('Required artifacts missing: ' ~ (missing_required | join(', '))) }}</p>
-        {% endif %}
-        <button type="submit" {% if missing_required %}disabled{% endif %} class="portal-btn is-primary">Create + Dispatch</button>
-      </form>
-      {% endfor %}
-      {% endif %}
-      {% endfor %}
-    </div>
-
-    {% if task_result %}
-    <div class="portal-panel-section">
-      <div>task id: {{ task_result.task_id }}</div>
-      <div>dispatch status: {{ task_result.dispatch_status }}</div>
-      <div>dispatch message: {{ task_result.dispatch_message }}</div>
-      {% if content_target == "#workspace-detail-content" %}
-      <button type="button" class="portal-btn is-secondary" data-open-task-main="{{ task_result.task_id }}">Open Task Detail</button>
-      {% else %}
-      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task_result.task_id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Open Task Detail</button>
-      {% endif %}
-    </div>
-    {% endif %}
-  </section>
-  {% else %}
   <section class="portal-panel-empty">
     <h2 class="portal-panel-title">No bundle selected</h2>
     <p class="portal-panel-note">Choose a bundle from the left sidebar to view details and run actions.</p>

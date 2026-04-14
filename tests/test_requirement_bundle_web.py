@@ -258,6 +258,63 @@ def test_collect_rejects_empty_and_figma_only(monkeypatch):
     assert len(created_tasks) == 0
 
 
+def test_open_route_does_not_show_opened_success_banner(monkeypatch):
+    client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    state["template_id"] = "requirement.v1"
+    response = client.get(
+        "/app/requirement-bundles/open",
+        params={"repo": "octo/engineering-flow-platform-assets", "path": "any", "branch": "main"},
+    )
+    assert response.status_code == 200
+    assert "Bundle opened successfully." not in response.text
+
+
+def test_collect_validation_error_preserves_form_state(monkeypatch):
+    client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    state["template_id"] = "requirement.v1"
+    figma_url = "https://www.figma.com/file/abc123"
+    response = client.post(
+        "/app/requirement-bundles/actions/run",
+        data={
+            "template_id": "requirement.v1",
+            "action_id": "collect_requirements",
+            "action_agent_id": "agent-1",
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "main",
+            "figma_sources": figma_url,
+        },
+    )
+    assert response.status_code == 200
+    assert "Figma-only collection is not supported in MVP" in response.text
+    assert figma_url in response.text
+    assert 'value="agent-1" selected' in response.text
+
+
+def test_missing_action_agent_rerenders_panel_instead_of_http_400(monkeypatch):
+    client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    state["template_id"] = "requirement.v1"
+    response = client.post(
+        "/app/requirement-bundles/actions/run",
+        data={
+            "template_id": "requirement.v1",
+            "action_id": "collect_requirements",
+            "bundle_repo": "octo/engineering-flow-platform-assets",
+            "bundle_path": "requirement-bundles/payments/checkout-flow",
+            "bundle_branch": "bundle/checkout-flow/deadbeef",
+            "manifest_repo": "octo/engineering-flow-platform-assets",
+            "manifest_path": "requirement-bundles/payments/checkout-flow",
+            "manifest_branch": "main",
+            "jira_sources": "PAY-1",
+        },
+    )
+    assert response.status_code == 200
+    assert "Action agent is required." in response.text
+
+
 def test_design_disabled_and_message_when_requirements_missing(monkeypatch):
     client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
     state["template_id"] = "requirement.v1"
@@ -267,3 +324,38 @@ def test_design_disabled_and_message_when_requirements_missing(monkeypatch):
     assert response.status_code == 200
     assert "requirements.yaml not found — run Collect Requirements first" in response.text
     assert "disabled" in response.text
+
+
+def test_completed_bundle_shows_available_actions_without_recommended_heading(monkeypatch):
+    client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
+    state["template_id"] = "requirement.v1"
+    state["artifact_exists"] = {"requirements": True, "test_cases": True}
+
+    response = client.get(
+        "/app/requirement-bundles/open",
+        params={"repo": "octo/engineering-flow-platform-assets", "path": "any", "branch": "main"},
+    )
+    assert response.status_code == 200
+    assert "Recommended Next Step" not in response.text
+    assert "Available Actions" in response.text
+    assert "Collect Requirements" in response.text
+    assert "Design Test Cases" in response.text
+    assert response.text.count('name="action_id"') >= 2
+
+
+def test_form_state_only_expands_action_and_does_not_force_recommended_action():
+    import app.web as web_module
+
+    detail = _detail_for("requirement.v1", artifact_exists={"requirements": True, "test_cases": True})
+    vm = web_module._build_bundle_detail_view_model(
+        detail,
+        web_module.list_bundle_templates(),
+        [],
+        form_state={"action_id": "design_test_cases", "action_agent_id": "agent-1"},
+    )
+
+    assert vm["recommended_action"] is None
+    actions_by_id = {item["action_id"]: item for item in vm["actions"]}
+    assert actions_by_id["design_test_cases"]["expanded"] is True
+    assert actions_by_id["design_test_cases"]["is_recommended"] is False
+    assert actions_by_id["collect_requirements"]["is_recommended"] is False

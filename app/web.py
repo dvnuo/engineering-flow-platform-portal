@@ -3,6 +3,7 @@ import app.logger  # Ensure logging is configured (intentional side-effect impor
 import json
 import logging
 from datetime import datetime
+from urllib.parse import urlencode
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
@@ -104,6 +105,267 @@ def _parse_multivalue_text_field(raw: str) -> list[str]:
 def _has_supported_collect_sources(sources: dict) -> bool:
     supported_source_keys = ("jira", "confluence", "github_docs")
     return any(sources.get(source_key) for source_key in supported_source_keys)
+
+
+def _status_tone_from_value(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"done", "completed", "ready", "success"}:
+        return "success"
+    if normalized in {"queued", "running", "draft", "in_progress"}:
+        return "warning"
+    if normalized in {"failed", "blocked", "missing", "error"}:
+        return "error"
+    if normalized in {"", "unknown", "none", "null"}:
+        return "neutral"
+    return "info"
+
+
+def _safe_json_object(raw: str | None) -> dict | list | None:
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
+
+
+def _pretty_json_text(raw: str | None) -> str:
+    if raw is None or not str(raw).strip():
+        return "{}"
+    parsed = _safe_json_object(raw)
+    if parsed is None:
+        return raw
+    return json.dumps(parsed, indent=2, ensure_ascii=False)
+
+
+def _short_sha(value: str | None) -> str:
+    cleaned = (value or "").strip()
+    return cleaned[:7] if cleaned else "-"
+
+
+def _format_duration_label(started_at, finished_at) -> str:
+    if not started_at:
+        return "-"
+    end_time = finished_at or datetime.utcnow()
+    total_seconds = max(0, int((end_time - started_at).total_seconds()))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+    return f"{seconds}s"
+
+
+def _bundle_action_output_artifact_key(template_id: str, action_id: str) -> str | None:
+    mapping = {
+        ("requirement.v1", "collect_requirements"): "requirements",
+        ("requirement.v1", "design_test_cases"): "test_cases",
+        ("research.v1", "collect_research_notes"): "research_notes",
+        ("development.v1", "generate_implementation_plan"): "implementation_plan",
+        ("operations.v1", "generate_runbook"): "runbook",
+    }
+    return mapping.get((template_id, action_id))
+
+
+def _humanize_artifact_label(value: str | None) -> str:
+    cleaned = (value or "").strip()
+    return cleaned.replace("_", " ").title() if cleaned else "Artifact"
+
+
+def _build_bundle_detail_view_model(bundle_detail, bundle_templates, agents, *, form_state=None) -> dict:
+    _ = agents
+    manifest = bundle_detail.manifest if isinstance(bundle_detail.manifest, dict) else {}
+    scope = manifest.get("scope") if isinstance(manifest.get("scope"), dict) else {}
+    bundle_path = (bundle_detail.bundle_ref.path or "").strip()
+    fallback_title = bundle_path.split("/")[-1] if bundle_path else "Bundle"
+    bundle_id = manifest.get("bundle_id") or fallback_title or "-"
+    title = manifest.get("title") or bundle_id or fallback_title or "Bundle"
+    status_label = manifest.get("status") or "unknown"
+    template_id = bundle_detail.template_id
+    repo = bundle_detail.bundle_ref.repo or "-"
+    branch = bundle_detail.bundle_ref.branch or "-"
+    github_url = f"https://github.com/{repo}/tree/{branch}/{bundle_detail.bundle_ref.path}"
+
+    artifacts = []
+    artifact_exists_map: dict[str, bool] = {}
+    for artifact in (bundle_detail.artifacts or []):
+        exists = bool(artifact.exists)
+        artifact_exists_map[artifact.artifact_key] = exists
+        artifacts.append(
+            {
+                "artifact_key": artifact.artifact_key,
+                "label": _humanize_artifact_label(artifact.artifact_key),
+                "file_path": artifact.file_path or "-",
+                "exists": exists,
+                "status_label": "Ready" if exists else "Missing",
+                "status_tone": "success" if exists else "error",
+                "github_url": f"https://github.com/{repo}/blob/{branch}/{bundle_detail.bundle_ref.path}/{artifact.file_path}"
+                if artifact.file_path
+                else None,
+            }
+        )
+
+    form_state = form_state or {}
+    template = next((item for item in bundle_templates if item.template_id == template_id), None)
+    actions = []
+    if template:
+        for action in template.actions:
+            missing_required = [key for key in action.required_artifacts if not artifact_exists_map.get(key)]
+            is_blocked = bool(missing_required)
+            output_artifact = _bundle_action_output_artifact_key(template_id, action.action_id)
+            is_complete = bool(output_artifact and artifact_exists_map.get(output_artifact))
+            actions.append(
+                {
+                    "action_id": action.action_id,
+                    "label": action.label,
+                    "description": action.description,
+                    "requires_sources": bool(action.requires_sources),
+                    "required_artifacts": list(action.required_artifacts),
+                    "missing_required": missing_required,
+                    "is_blocked": is_blocked,
+                    "is_complete": is_complete,
+                    "is_recommended": False,
+                    "status_label": "Completed" if is_complete else ("Blocked" if is_blocked else "Ready"),
+                    "status_tone": "success" if is_complete else ("error" if is_blocked else "info"),
+                    "status_reason": (action.missing_artifact_message or f"Required artifacts missing: {', '.join(missing_required)}")
+                    if is_blocked
+                    else "",
+                    "expanded": False,
+                    "selected_agent_id": form_state.get("action_agent_id") or "",
+                    "jira_sources": form_state.get("jira_sources") or "",
+                    "confluence_sources": form_state.get("confluence_sources") or "",
+                    "github_doc_sources": form_state.get("github_doc_sources") or "",
+                    "figma_sources": form_state.get("figma_sources") or "",
+                }
+            )
+
+    recommended_action_id = None
+    for action in actions:
+        if not action["is_complete"] and not action["is_blocked"]:
+            recommended_action_id = action["action_id"]
+            break
+    expanded_action_id = form_state.get("action_id") or ""
+
+    for action in actions:
+        action["is_recommended"] = action["action_id"] == recommended_action_id
+        action["expanded"] = action["is_recommended"] or action["action_id"] == expanded_action_id
+
+    recommended_action = next((item for item in actions if item["is_recommended"]), None)
+    other_actions = [item for item in actions if not item["is_recommended"]]
+
+    return {
+        "title": title,
+        "subtitle": f"{bundle_id} · {bundle_path or '-'}",
+        "bundle_id": bundle_id,
+        "status_label": status_label,
+        "status_tone": _status_tone_from_value(status_label),
+        "domain": scope.get("domain") or "-",
+        "template_label": bundle_detail.template_label,
+        "template_id": template_id,
+        "repo": repo,
+        "branch": branch,
+        "path": bundle_path or "-",
+        "github_url": github_url,
+        "last_commit_short": _short_sha(bundle_detail.last_commit_sha),
+        "last_commit_full": bundle_detail.last_commit_sha or "-",
+        "artifact_ready_count": sum(1 for item in artifacts if item["exists"]),
+        "artifact_total_count": len(artifacts),
+        "artifacts": artifacts,
+        "actions": actions,
+        "recommended_action": recommended_action,
+        "other_actions": other_actions,
+    }
+
+
+def _build_task_detail_view_model(task) -> dict:
+    input_payload = _safe_json_object(getattr(task, "input_payload_json", None))
+    input_obj = input_payload if isinstance(input_payload, dict) else {}
+    bundle_ref = input_obj.get("bundle_ref") if isinstance(input_obj.get("bundle_ref"), dict) else {}
+    manifest_ref = input_obj.get("manifest_ref") if isinstance(input_obj.get("manifest_ref"), dict) else {}
+    sources = input_obj.get("sources") if isinstance(input_obj.get("sources"), dict) else {}
+    template_id = input_obj.get("template_id") if isinstance(input_obj.get("template_id"), str) else ""
+    action_id = input_obj.get("action_id") if isinstance(input_obj.get("action_id"), str) else ""
+
+    action_label = ""
+    template_label = template_id or "-"
+    template = None
+    if getattr(task, "task_type", "") == "bundle_action_task" and template_id:
+        try:
+            template = require_bundle_template(template_id)
+        except ValueError:
+            template = None
+        if template is not None:
+            template_label = template.display_name or template_id
+            action = next((item for item in template.actions if item.action_id == action_id), None)
+            if action is not None:
+                action_label = action.label
+    if not action_label and action_id:
+        action_label = action_id.replace("_", " ").title()
+
+    bundle_path = str(bundle_ref.get("path") or manifest_ref.get("path") or "").strip()
+    status_label = getattr(task, "status", None) or "unknown"
+    is_active = status_label in {"queued", "running"}
+    source_counts = {
+        "jira": len(sources.get("jira") or []),
+        "confluence": len(sources.get("confluence") or []),
+        "github_docs": len(sources.get("github_docs") or []),
+        "figma": len(sources.get("figma") or []),
+    }
+
+    bundle_open_url = None
+    if bundle_ref.get("repo") and bundle_ref.get("path") and bundle_ref.get("branch"):
+        bundle_open_url = f"/app/requirement-bundles/open?{urlencode({'repo': bundle_ref.get('repo'), 'path': bundle_ref.get('path'), 'branch': bundle_ref.get('branch')})}"
+
+    context_items = [
+        ("Task Type", getattr(task, "task_type", None) or "-"),
+        ("Template", template_label),
+        ("Action", action_label or (action_id or "-")),
+        ("Bundle Path", bundle_path or "-"),
+        ("Repo", bundle_ref.get("repo") or "-"),
+        ("Branch", bundle_ref.get("branch") or "-"),
+        ("Jira Sources", str(source_counts["jira"])),
+        ("Confluence Sources", str(source_counts["confluence"])),
+        ("GitHub Docs Sources", str(source_counts["github_docs"])),
+        ("Figma Sources", str(source_counts["figma"])),
+    ]
+    metadata_items = [
+        ("Task ID", getattr(task, "id", "-")),
+        ("Runtime Request ID", getattr(task, "runtime_request_id", None) or "-"),
+        ("Group ID", getattr(task, "group_id", None) or "-"),
+        ("Owner User ID", getattr(task, "owner_user_id", None) or "-"),
+        ("Created By User ID", getattr(task, "created_by_user_id", None) or "-"),
+        ("Updated At", getattr(task, "updated_at", None) or "-"),
+    ]
+
+    return {
+        "display_title": action_label or (getattr(task, "task_type", None) or "Task Detail").replace("_", " ").title(),
+        "display_subtitle": bundle_path.split("/")[-1] if bundle_path else (getattr(task, "task_type", None) or "Task"),
+        "status_label": status_label,
+        "status_tone": _status_tone_from_value(status_label),
+        "is_active": is_active,
+        "summary_text": getattr(task, "summary", None) or "",
+        "error_text": getattr(task, "error_message", None) or "",
+        "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
+        "assignee_agent_id": getattr(task, "assignee_agent_id", None) or "-",
+        "group_id": getattr(task, "group_id", None) or "-",
+        "owner_user_id": getattr(task, "owner_user_id", None) or "-",
+        "created_by_user_id": getattr(task, "created_by_user_id", None) or "-",
+        "runtime_request_id": getattr(task, "runtime_request_id", None) or "-",
+        "task_type": getattr(task, "task_type", None) or "-",
+        "source": getattr(task, "source", None) or "-",
+        "created_at": getattr(task, "created_at", None) or "-",
+        "started_at": getattr(task, "started_at", None) or "-",
+        "finished_at": getattr(task, "finished_at", None) or "-",
+        "updated_at": getattr(task, "updated_at", None) or "-",
+        "retry_count": getattr(task, "retry_count", 0) or 0,
+        "context_items": context_items,
+        "metadata_items": metadata_items,
+        "input_payload_pretty": _pretty_json_text(getattr(task, "input_payload_json", None)),
+        "result_payload_pretty": _pretty_json_text(getattr(task, "result_payload_json", None)),
+        "bundle_open_url": bundle_open_url,
+    }
 
 
 async def _forward_runtime(
@@ -480,6 +742,8 @@ def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
         "status_type": "",
         "status_message": "",
         "task_result": None,
+        "bundle_action_form_state": {},
+        "bundle_view_model": None,
     }
     context.update(kwargs)
     return context
@@ -487,6 +751,13 @@ def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
 
 def _render_requirement_bundles_view(request: Request, user, db, *, panel_mode: bool = False, **kwargs):
     context = _requirement_bundles_context(request, user, db, **kwargs)
+    if context.get("bundle_detail"):
+        context["bundle_view_model"] = _build_bundle_detail_view_model(
+            context["bundle_detail"],
+            context.get("bundle_templates") or [],
+            context.get("agents") or [],
+            form_state=context.get("bundle_action_form_state") or {},
+        )
     context["content_target"] = _content_target_from_request(
         request,
         default="#tool-panel-body" if panel_mode else "#requirement-bundles-page-content",
@@ -543,7 +814,12 @@ def task_detail_panel(request: Request, task_id: str):
                 raise HTTPException(status_code=404, detail="Task not found")
         return templates.TemplateResponse(
             "partials/task_detail_panel.html",
-            {"request": request, "task": task, "content_target": _content_target_from_request(request)},
+            {
+                "request": request,
+                "task": task,
+                "task_view_model": _build_task_detail_view_model(task),
+                "content_target": _content_target_from_request(request),
+            },
         )
     finally:
         db.close()
@@ -613,8 +889,6 @@ def requirement_bundle_open(request: Request, repo: str = Query(""), path: str =
             db,
             panel_mode=panel_mode,
             bundle_detail=detail,
-            status_type="success",
-            status_message="Bundle opened successfully.",
         )
     except RequirementBundleGithubServiceError as exc:
         return _render_requirement_bundles_view(
@@ -657,6 +931,36 @@ def _create_bundle_task_payload(
     return payload
 
 
+def _render_bundle_action_error_response(
+    request: Request,
+    *,
+    user,
+    db,
+    panel_mode: bool,
+    bundle_ref: BundleRef,
+    manifest_ref: BundleRef,
+    status_message: str,
+    form_state: dict | None = None,
+):
+    inspect_ref = manifest_ref if manifest_ref.repo and manifest_ref.path and manifest_ref.branch else bundle_ref
+    bundle_detail = None
+    try:
+        if inspect_ref.repo and inspect_ref.path and inspect_ref.branch:
+            bundle_detail = requirement_bundle_service.inspect_bundle(inspect_ref)
+    except RequirementBundleGithubServiceError:
+        bundle_detail = None
+    return _render_requirement_bundles_view(
+        request,
+        user,
+        db,
+        panel_mode=panel_mode,
+        bundle_detail=bundle_detail,
+        status_type="error",
+        status_message=status_message,
+        bundle_action_form_state=form_state or {},
+    )
+
+
 async def _create_and_dispatch_bundle_task(
     request: Request,
     *,
@@ -667,6 +971,7 @@ async def _create_and_dispatch_bundle_task(
     manifest_ref: BundleRef,
     bundle_ref: BundleRef,
     sources: dict | None = None,
+    form_state: dict | None = None,
 ):
     user = _current_user_from_cookie(request)
     if not user:
@@ -708,6 +1013,7 @@ async def _create_and_dispatch_bundle_task(
                     bundle_detail=bundle_detail,
                     status_type="error",
                     status_message=status_message,
+                    bundle_action_form_state=form_state or {},
                 )
             sources = normalized_sources
         else:
@@ -725,6 +1031,7 @@ async def _create_and_dispatch_bundle_task(
                 bundle_detail=bundle_detail,
                 status_type="error",
                 status_message=hint,
+                bundle_action_form_state=form_state or {},
             )
 
         task_payload = _create_bundle_task_payload(
@@ -796,6 +1103,7 @@ async def _create_and_dispatch_bundle_task(
             panel_mode=panel_mode,
             status_type="error",
             status_message=str(exc),
+            bundle_action_form_state=form_state or {},
         )
     finally:
         if dispatch_context_token is not None:
@@ -813,12 +1121,20 @@ async def requirement_bundle_action_run(request: Request):
     assignee_agent_id = str(form.get("action_agent_id") or "").strip()
     template_id = str(form.get("template_id") or "").strip()
     action_id = str(form.get("action_id") or "").strip()
+    form_state = {
+        "action_id": action_id,
+        "action_agent_id": assignee_agent_id,
+        "jira_sources": str(form.get("jira_sources") or ""),
+        "confluence_sources": str(form.get("confluence_sources") or ""),
+        "github_doc_sources": str(form.get("github_doc_sources") or ""),
+        "figma_sources": str(form.get("figma_sources") or ""),
+    }
 
     sources = {
-        "jira": _parse_multivalue_text_field(str(form.get("jira_sources") or "")),
-        "confluence": _parse_multivalue_text_field(str(form.get("confluence_sources") or "")),
-        "github_docs": _parse_multivalue_text_field(str(form.get("github_doc_sources") or "")),
-        "figma": _parse_multivalue_text_field(str(form.get("figma_sources") or "")),
+        "jira": _parse_multivalue_text_field(form_state["jira_sources"]),
+        "confluence": _parse_multivalue_text_field(form_state["confluence_sources"]),
+        "github_docs": _parse_multivalue_text_field(form_state["github_doc_sources"]),
+        "figma": _parse_multivalue_text_field(form_state["figma_sources"]),
     }
     bundle_ref = BundleRef(
         repo=str(form.get("bundle_repo") or "").strip(),
@@ -830,12 +1146,44 @@ async def requirement_bundle_action_run(request: Request):
         path=str(form.get("manifest_path") or form.get("bundle_path") or "").strip(),
         branch=str(form.get("manifest_branch") or form.get("bundle_branch") or "").strip(),
     )
-    if not assignee_agent_id:
-        raise HTTPException(status_code=400, detail="action_agent_id is required")
-    if not template_id:
-        raise HTTPException(status_code=400, detail="template_id is required")
-    if not action_id:
-        raise HTTPException(status_code=400, detail="action_id is required")
+    panel_mode = _is_htmx_request(request)
+    db = SessionLocal()
+    try:
+        if not assignee_agent_id:
+            return _render_bundle_action_error_response(
+                request,
+                user=user,
+                db=db,
+                panel_mode=panel_mode,
+                bundle_ref=bundle_ref,
+                manifest_ref=manifest_ref,
+                status_message="Action agent is required.",
+                form_state=form_state,
+            )
+        if not template_id:
+            return _render_bundle_action_error_response(
+                request,
+                user=user,
+                db=db,
+                panel_mode=panel_mode,
+                bundle_ref=bundle_ref,
+                manifest_ref=manifest_ref,
+                status_message="template_id is required",
+                form_state=form_state,
+            )
+        if not action_id:
+            return _render_bundle_action_error_response(
+                request,
+                user=user,
+                db=db,
+                panel_mode=panel_mode,
+                bundle_ref=bundle_ref,
+                manifest_ref=manifest_ref,
+                status_message="action_id is required",
+                form_state=form_state,
+            )
+    finally:
+        db.close()
 
     return await _create_and_dispatch_bundle_task(
         request,
@@ -846,6 +1194,7 @@ async def requirement_bundle_action_run(request: Request):
         manifest_ref=manifest_ref,
         bundle_ref=bundle_ref,
         sources=sources,
+        form_state=form_state,
     )
 
 

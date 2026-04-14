@@ -1222,6 +1222,125 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   font-weight: 600;
 }
 
+.portal-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--portal-border);
+  background: var(--portal-surface);
+  color: var(--portal-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.portal-status-badge.is-success {
+  border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-success), var(--portal-surface) 90%);
+  color: color-mix(in srgb, var(--portal-success), var(--portal-text) 25%);
+}
+
+.portal-status-badge.is-warning {
+  border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-warning), var(--portal-surface) 90%);
+}
+
+.portal-status-badge.is-error {
+  border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-danger), var(--portal-surface) 90%);
+  color: color-mix(in srgb, var(--portal-danger), var(--portal-text) 30%);
+}
+
+.portal-status-badge.is-info {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%);
+  background: color-mix(in srgb, var(--portal-accent), var(--portal-surface) 90%);
+}
+
+.portal-status-badge.is-neutral {
+  border-color: var(--portal-border);
+  background: var(--portal-surface-soft);
+}
+
+.portal-hero-card {
+  background: linear-gradient(180deg, var(--portal-surface), var(--portal-surface-muted));
+}
+
+.portal-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.portal-kv-item {
+  border: 1px solid var(--portal-border);
+  border-radius: 12px;
+  background: var(--portal-surface-soft);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.portal-collapsible {
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-surface-muted);
+  padding: 12px;
+}
+
+.portal-collapsible[open] {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%);
+}
+
+.portal-collapsible-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.portal-collapsible-summary:hover {
+  color: var(--portal-text);
+}
+
+.portal-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.portal-callout {
+  border: 1px solid var(--portal-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: var(--portal-surface-soft);
+  color: var(--portal-text-secondary);
+}
+
+.portal-callout.is-success {
+  border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 55%);
+  background: color-mix(in srgb, var(--portal-success), var(--portal-surface) 92%);
+}
+
+.portal-callout.is-warning {
+  border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 55%);
+  background: color-mix(in srgb, var(--portal-warning), var(--portal-surface) 92%);
+}
+
+.portal-callout.is-error {
+  border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 55%);
+  background: color-mix(in srgb, var(--portal-danger), var(--portal-surface) 92%);
+  color: color-mix(in srgb, var(--portal-danger), var(--portal-text) 30%);
+}
+
+.portal-callout.is-info {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%);
+  background: color-mix(in srgb, var(--portal-accent), var(--portal-surface) 92%);
+}
+
 .portal-auth-copy {
   margin: 0;
   color: var(--portal-text-muted);
@@ -1636,3 +1755,10 @@ html[data-theme="dark"] .portal-thinking-block {
     grid-template-columns: 68px 260px minmax(0, 1fr);
   }
 }
+
+@media (max-width: 900px) {
+  .portal-kv-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
