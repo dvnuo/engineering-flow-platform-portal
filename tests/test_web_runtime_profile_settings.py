@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, User
+from app.models.agent_task import AgentTask
 from app.models.runtime_profile import RuntimeProfile
 
 
@@ -265,5 +266,46 @@ def test_settings_panel_without_runtime_profile_shows_message(monkeypatch):
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
         assert "This agent has no runtime profile" in resp.text
+    finally:
+        cleanup()
+
+
+def test_settings_panel_includes_triggered_work_sections(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(db, agent, name="rp-triggered", config={"llm": {"provider": "openai"}}, revision=1)
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        assert "External Identity Bindings" in resp.text
+        assert "External Event Subscriptions" in resp.text
+    finally:
+        cleanup()
+
+
+def test_task_detail_panel_shows_bundle_and_dedupe_metadata(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        task = AgentTask(
+            assignee_agent_id=agent.id,
+            source="github",
+            task_type="mention",
+            status="queued",
+            owner_user_id=agent.owner_user_id,
+            task_family="triggered_work",
+            provider="github",
+            trigger="mention",
+            bundle_id="github:issue:octo/portal:7",
+            version_key=None,
+            dedupe_key="github:mention:octo/portal:7",
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        resp = client.get(f"/app/tasks/{task.id}/panel")
+        assert resp.status_code == 200
+        assert "Bundle ID" in resp.text
+        assert "Dedupe Key" in resp.text
+        assert "github:issue:octo/portal:7" in resp.text
     finally:
         cleanup()

@@ -1,0 +1,58 @@
+<section class="portal-panel-section" id="external-event-subscriptions-panel">
+  <div class="portal-settings-section-title">
+    <span class="portal-section-accent" aria-hidden="true"></span>
+    <h6>External Event Subscriptions</h6>
+  </div>
+
+  {% if success %}<div class="portal-inline-state is-success">{{ success }}</div>{% endif %}
+  {% if error %}<div class="portal-inline-state is-error">{{ error }}</div>{% endif %}
+
+  <form hx-post="/app/agents/{{ agent_id }}/triggered-work/subscriptions/create" hx-target="#external-event-subscriptions-panel" hx-swap="outerHTML" class="portal-panel-stack">
+    <div class="grid grid-cols-2 gap-2">
+      <input type="text" name="source_type" value="{{ form.get('source_type', '') }}" placeholder="source_type" class="portal-form-input" required />
+      <input type="text" name="event_type" value="{{ form.get('event_type', '') }}" placeholder="event_type" class="portal-form-input" required />
+    </div>
+    <div class="grid grid-cols-2 gap-2">
+      <select name="mode" class="portal-form-select">
+        {% set selected_mode = form.get('mode', 'push') %}
+        <option value="push" {{ 'selected' if selected_mode == 'push' else '' }}>push</option>
+        <option value="poll" {{ 'selected' if selected_mode == 'poll' else '' }}>poll</option>
+        <option value="hybrid" {{ 'selected' if selected_mode == 'hybrid' else '' }}>hybrid</option>
+      </select>
+      <input type="text" name="source_kind" value="{{ form.get('source_kind', '') }}" placeholder="source_kind (optional)" class="portal-form-input" />
+    </div>
+    <div class="grid grid-cols-2 gap-2">
+      <input type="text" name="target_ref" value="{{ form.get('target_ref', '') }}" placeholder="target_ref (optional)" class="portal-form-input" />
+      <select name="binding_id" class="portal-form-select">
+        <option value="">(optional) binding</option>
+        {% for binding in bindings %}
+        <option value="{{ binding.id }}" {{ 'selected' if form.get('binding_id') == binding.id else '' }}>{{ binding.system_type }} / {{ binding.external_account_id }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <textarea name="scope_json" rows="2" placeholder="scope_json" class="portal-form-input">{{ form.get('scope_json', '') }}</textarea>
+    <textarea name="matcher_json" rows="2" placeholder="matcher_json" class="portal-form-input">{{ form.get('matcher_json', '') }}</textarea>
+    <textarea name="routing_json" rows="2" placeholder="routing_json" class="portal-form-input">{{ form.get('routing_json', '') }}</textarea>
+    <textarea name="poll_profile_json" rows="2" placeholder="poll_profile_json" class="portal-form-input">{{ form.get('poll_profile_json', '') }}</textarea>
+    <textarea name="config_json" rows="2" placeholder="config_json" class="portal-form-input">{{ form.get('config_json', '') }}</textarea>
+    <input type="text" name="dedupe_key_template" value="{{ form.get('dedupe_key_template', '') }}" placeholder="dedupe_key_template" class="portal-form-input" />
+    <label class="portal-checkbox-row">
+      <input type="checkbox" name="enabled" {% if form.get('enabled', True) %}checked{% endif %} /> Enabled
+    </label>
+    <button type="submit" class="portal-btn is-secondary">Create Subscription</button>
+  </form>
+
+  <div class="portal-panel-stack">
+    {% for item in subscriptions %}
+    <div class="portal-panel-note">
+      <strong>{{ item.source_kind or (item.source_type ~ '.' ~ item.event_type) }}</strong>
+      · mode={{ item.mode or 'push' }} · target={{ item.target_ref or '-' }} · enabled={{ item.enabled }}
+      <form hx-post="/app/agents/{{ agent_id }}/triggered-work/subscriptions/{{ item.id }}/delete" hx-target="#external-event-subscriptions-panel" hx-swap="outerHTML" style="display:inline; margin-left: 8px;">
+        <button type="submit" class="portal-btn is-secondary">Delete</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="portal-panel-empty">No subscriptions yet.</div>
+    {% endfor %}
+  </div>
+</section>

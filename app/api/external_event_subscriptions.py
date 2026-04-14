@@ -14,6 +14,12 @@ def _can_write(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id
 
 
+def _derive_source_kind(source_type: str, event_type: str, provided_source_kind: str | None) -> str:
+    if provided_source_kind and provided_source_kind.strip():
+        return provided_source_kind.strip()
+    return f"{(source_type or '').strip().lower()}.{(event_type or '').strip()}"
+
+
 @router.post("/api/external-event-subscriptions", response_model=ExternalEventSubscriptionResponse)
 def create_external_event_subscription(
     payload: ExternalEventSubscriptionCreateRequest,
@@ -26,7 +32,13 @@ def create_external_event_subscription(
     if not _can_write(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    subscription = ExternalEventSubscriptionRepository(db).create(**payload.model_dump())
+    create_payload = payload.model_dump()
+    create_payload["source_kind"] = _derive_source_kind(
+        payload.source_type,
+        payload.event_type,
+        payload.source_kind,
+    )
+    subscription = ExternalEventSubscriptionRepository(db).create(**create_payload)
     return ExternalEventSubscriptionResponse.model_validate(subscription)
 
 

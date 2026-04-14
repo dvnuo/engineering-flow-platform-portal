@@ -7,6 +7,7 @@ from app.db import Base
 from app.models import Agent, User
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
+from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.services.auth_service import hash_password
 
 
@@ -86,6 +87,31 @@ def _build_client():
         config_json='{"strict": true}',
     )
 
+    ExternalEventSubscriptionRepository(db).create(
+        agent_id=agent.id,
+        source_type="github",
+        event_type="mention",
+        mode="poll",
+        source_kind="github.mention",
+        target_ref="octo/portal",
+        binding_id=None,
+        enabled=True,
+        config_json='{"allowed_repos":["octo/portal"]}',
+        scope_json='{"repos":["octo/portal"]}',
+        matcher_json='{"labels":["needs-review"]}',
+        routing_json='{"queue":"default"}',
+        poll_profile_json='{"interval_seconds":30}',
+    )
+    ExternalEventSubscriptionRepository(db).create(
+        agent_id=agent.id,
+        source_type="jira",
+        event_type="mention",
+        mode="hybrid",
+        source_kind="jira.mention",
+        enabled=False,
+        scope_json='{"projects":["EFP"]}',
+    )
+
     def _override_db():
         yield db
 
@@ -159,5 +185,35 @@ def test_internal_exports_accept_default_internal_route_requests():
         )
         assert rules_resp.status_code == 200
         assert bindings_resp.status_code == 200
+    finally:
+        cleanup()
+
+
+def test_internal_exports_list_external_event_subscriptions_with_filters_and_parsed_fields():
+    client, cleanup = _build_client()
+    try:
+        by_agent = client.get('/api/internal/external-event-subscriptions?agent_id=' + client.get('/api/internal/agent-identity-bindings').json()[0]['agent_id'])
+        assert by_agent.status_code == 200
+        assert len(by_agent.json()) == 2
+
+        poll_enabled = client.get('/api/internal/external-event-subscriptions?system_type=github&enabled=true&mode=poll')
+        assert poll_enabled.status_code == 200
+        items = poll_enabled.json()
+        assert len(items) == 1
+        item = items[0]
+        assert item['source_type'] == 'github'
+        assert item['provider_type'] == 'github'
+        assert item['mode'] == 'poll'
+        assert item['config_json'] == '{"allowed_repos":["octo/portal"]}'
+        assert item['config']['allowed_repos'] == ['octo/portal']
+        assert item['scope_json'] == '{"repos":["octo/portal"]}'
+        assert item['scope']['repos'] == ['octo/portal']
+        assert item['matcher']['labels'] == ['needs-review']
+        assert item['routing']['queue'] == 'default'
+        assert item['poll_profile']['interval_seconds'] == 30
+
+        jira_disabled = client.get('/api/internal/external-event-subscriptions?system_type=jira&enabled=false&mode=hybrid')
+        assert jira_disabled.status_code == 200
+        assert len(jira_disabled.json()) == 1
     finally:
         cleanup()

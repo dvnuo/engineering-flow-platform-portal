@@ -21,6 +21,7 @@
         <span class="portal-panel-chip">{{ task.status }}</span>
       </div>
       <div class="portal-panel-note">type: {{ task.task_type }} · source: {{ task.source }}</div>
+      <div class="portal-panel-note">family: {{ task.task_family or '-' }} · provider: {{ task.provider or '-' }} · trigger: {{ task.trigger or '-' }}</div>
       <div class="portal-panel-note">assignee: {{ task.assignee_agent_id }}</div>
       <div class="portal-panel-note">created: {{ task.created_at }} · updated: {{ task.updated_at }}</div>
       {% if task.error_message %}

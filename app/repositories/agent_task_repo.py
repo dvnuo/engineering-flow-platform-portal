@@ -32,7 +32,6 @@ class AgentTaskRepository:
         )
         return list(self.db.scalars(stmt).all())
 
-
     def list_visible_to_user(self, *, user_id: int, visible_group_ids: list[str] | None = None) -> list[AgentTask]:
         filters = [AgentTask.owner_user_id == user_id, AgentTask.created_by_user_id == user_id]
         group_ids = [group_id for group_id in (visible_group_ids or []) if group_id]
@@ -70,7 +69,10 @@ class AgentTaskRepository:
                     AgentTask.assignee_agent_id == assignee_agent_id,
                     AgentTask.source == source,
                     AgentTask.task_type == task_type,
-                    AgentTask.shared_context_ref == dedupe_hint,
+                    or_(
+                        AgentTask.dedupe_key == dedupe_hint,
+                        and_(AgentTask.dedupe_key.is_(None), AgentTask.shared_context_ref == dedupe_hint),
+                    ),
                     AgentTask.input_payload_json == input_payload_json,
                     AgentTask.status.in_(["queued", "running", "done", "blocked"]),
                     AgentTask.created_at >= cutoff,
@@ -112,6 +114,23 @@ class AgentTaskRepository:
             )
             .order_by(AgentTask.created_at.desc())
         )
+        return list(self.db.scalars(stmt).all())
+
+    def list_active_tasks_for_bundle(
+        self,
+        *,
+        assignee_agent_id: str,
+        bundle_id: str,
+        task_type: str | None = None,
+    ) -> list[AgentTask]:
+        filters = [
+            AgentTask.assignee_agent_id == assignee_agent_id,
+            AgentTask.bundle_id == bundle_id,
+            AgentTask.status.in_(["queued", "running"]),
+        ]
+        if task_type:
+            filters.append(AgentTask.task_type == task_type)
+        stmt = select(AgentTask).where(and_(*filters)).order_by(AgentTask.created_at.desc())
         return list(self.db.scalars(stmt).all())
 
     def delete(self, task: AgentTask) -> None:

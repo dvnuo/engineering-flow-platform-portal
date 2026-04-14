@@ -111,6 +111,89 @@ class ExternalEventRouterService:
         return dedupe_key.rsplit(":", 1)[-1]
 
     @staticmethod
+    def _build_task_family(_request: ExternalEventIngressRequest) -> str:
+        return "triggered_work"
+
+    @staticmethod
+    def _build_source_kind(
+        *,
+        source_type: str,
+        event_type: str,
+        subscription_source_kind: str | None,
+    ) -> str:
+        if subscription_source_kind and subscription_source_kind.strip():
+            return subscription_source_kind.strip()
+        return f"{source_type}.{event_type}"
+
+    @staticmethod
+    def _build_bundle_id(
+        *,
+        request: ExternalEventIngressRequest,
+        source_type: str,
+        payload_obj: dict | None,
+        task_type: str,
+    ) -> str | None:
+        target_ref = (request.target_ref or "").strip()
+
+        if source_type == "github" and task_type == "github_review_task":
+            owner = payload_obj.get("owner") if payload_obj else None
+            repo = payload_obj.get("repo") if payload_obj else None
+            pull_number = payload_obj.get("pull_number") if payload_obj else None
+            if owner and repo and pull_number is not None:
+                return f"github:pr:{owner}/{repo}:{pull_number}"
+
+        if source_type == "jira" and task_type == "jira_workflow_review_task":
+            if request.issue_key:
+                return f"jira:issue:{request.issue_key}"
+            if target_ref:
+                return f"jira:project:{target_ref}"
+
+        if request.event_type == "mention":
+            if source_type == "github":
+                owner = payload_obj.get("owner") if payload_obj else None
+                repo = payload_obj.get("repo") if payload_obj else None
+                issue_number = None
+                if payload_obj:
+                    issue_number = payload_obj.get("issue_number")
+                    if issue_number is None:
+                        issue_number = payload_obj.get("pull_number")
+                if owner and repo and issue_number is not None:
+                    return f"github:issue:{owner}/{repo}:{issue_number}"
+                if target_ref:
+                    return f"github:target:{target_ref}"
+            if source_type == "jira":
+                issue_key = request.issue_key or (payload_obj.get("issue_key") if payload_obj else None)
+                if issue_key:
+                    return f"jira:issue:{issue_key}"
+                if target_ref:
+                    return f"jira:project:{target_ref}"
+            if source_type == "confluence":
+                page_id = payload_obj.get("page_id") if payload_obj else None
+                if page_id:
+                    return f"confluence:page:{page_id}"
+                if target_ref:
+                    return f"confluence:space:{target_ref}"
+
+        fallback = target_ref or request.external_account_id or request.event_type
+        return f"{source_type}:{fallback}" if fallback else None
+
+    @staticmethod
+    def _build_version_key(
+        *,
+        request: ExternalEventIngressRequest,
+        source_type: str,
+        payload_obj: dict | None,
+        task_type: str,
+    ) -> str | None:
+        if source_type == "github" and task_type == "github_review_task":
+            if payload_obj and payload_obj.get("head_sha"):
+                return str(payload_obj.get("head_sha"))
+            return None
+        if source_type == "jira" and task_type == "jira_workflow_review_task" and request.issue_key:
+            return f"{request.issue_key}:{request.trigger_status}" if request.trigger_status else request.issue_key
+        return None
+
+    @staticmethod
     def _build_github_superseded_payload(*, superseding_task_id: str, new_head_sha: str | None) -> str:
         return json.dumps(
             {
@@ -370,10 +453,12 @@ class ExternalEventRouterService:
 
         dedupe_hint = request.dedupe_key
         github_family_prefix = None
+        payload_obj = self._parse_json_object(input_payload_json)
         if source_type == "jira":
             shared_context_ref = request.issue_key or request.dedupe_key or request.target_ref
+            if not dedupe_hint:
+                dedupe_hint = shared_context_ref
         else:
-            payload_obj = self._parse_json_object(input_payload_json)
             dedupe_hint = self._build_github_dedupe_hint(request, payload_obj) or request.dedupe_key
             github_family_prefix = self._build_github_review_family_prefix(request, payload_obj)
             shared_context_ref = dedupe_hint or request.target_ref
@@ -399,6 +484,28 @@ class ExternalEventRouterService:
                     message="Duplicate event detected; existing task reused",
                 )
 
+        task_family = self._build_task_family(request)
+        provider = source_type
+        trigger = request.event_type
+        source_kind = self._build_source_kind(
+            source_type=source_type,
+            event_type=request.event_type,
+            subscription_source_kind=selected_subscription.source_kind,
+        )
+        bundle_id = self._build_bundle_id(
+            request=request,
+            source_type=source_type,
+            payload_obj=payload_obj,
+            task_type=task_type,
+        )
+        version_key = self._build_version_key(
+            request=request,
+            source_type=source_type,
+            payload_obj=payload_obj,
+            task_type=task_type,
+        )
+        dedupe_key = dedupe_hint
+
         task = task_repo.create(
             parent_agent_id=None,
             assignee_agent_id=matched_agent_id,
@@ -408,6 +515,12 @@ class ExternalEventRouterService:
             task_type=task_type,
             input_payload_json=input_payload_json,
             shared_context_ref=shared_context_ref,
+            task_family=task_family,
+            provider=provider,
+            trigger=trigger,
+            bundle_id=bundle_id,
+            version_key=version_key,
+            dedupe_key=dedupe_key,
             status="queued",
             result_payload_json=None,
             retry_count=0,
@@ -436,7 +549,7 @@ class ExternalEventRouterService:
                 matched_workflow_rule_id=matched_workflow_rule_id,
                 resolved_task_type=task_type,
                 deduped=False,
-                message="Event routed, task created, and scheduled for background dispatch",
+                message=f"Event routed, task created, and scheduled for background dispatch ({source_kind})",
             )
 
         return ExternalEventIngressResponse(
@@ -448,7 +561,7 @@ class ExternalEventRouterService:
             matched_workflow_rule_id=matched_workflow_rule_id,
             resolved_task_type=task_type,
             deduped=False,
-            message="Event routed and task created",
+            message=f"Event routed and task created ({source_kind})",
         )
 
     def _dispatch_task_in_background(self, task_id: str) -> None:

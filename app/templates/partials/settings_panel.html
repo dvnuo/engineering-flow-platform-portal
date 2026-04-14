@@ -246,6 +246,22 @@
       </label>
     </section>
 
+    <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Identity Bindings</h6></div><div
+      id="settings-bindings-panel-container"
+      hx-get="/app/agents/{{ agent_id }}/triggered-work/bindings/panel"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="innerHTML"
+    ></div></section>
+
+    <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Event Subscriptions</h6></div><div
+      id="settings-subscriptions-panel-container"
+      hx-get="/app/agents/{{ agent_id }}/triggered-work/subscriptions/panel"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="innerHTML"
+    ></div></section>
+
     <button type="submit" class="portal-btn is-primary">Save Settings</button>
     {% endif %}
   </form>

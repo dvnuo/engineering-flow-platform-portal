@@ -1657,3 +1657,82 @@ def test_provider_webhooks_return_503_when_secrets_are_unset_by_default():
             provider_api.settings.jira_webhook_shared_secret = original_jira_secret
             provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
         cleanup()
+
+
+def test_github_review_ingest_populates_triggered_work_metadata():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-meta",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-meta",
+                "target_ref": "octo/portal",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":42,"reviewer":"alice","head_sha":"sha999"}',
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["accepted"] is True
+
+        task = AgentTaskRepository(db).list_all()[0]
+        assert task.task_family == "triggered_work"
+        assert task.provider == "github"
+        assert task.trigger == "pull_request_review_requested"
+        assert task.bundle_id == "github:pr:octo/portal:42"
+        assert task.version_key == "sha999"
+        assert task.dedupe_key
+    finally:
+        cleanup()
+
+
+def test_generic_mention_creates_queued_task_without_auto_dispatch():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="mention",
+            mode="poll",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-mention",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "mention",
+                "external_account_id": "acct-mention",
+                "target_ref": "octo/portal",
+                "payload_json": '{"owner":"octo","repo":"portal","issue_number":7}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+
+        task = AgentTaskRepository(db).list_all()[0]
+        assert task.task_type == "mention"
+        assert task.status == "queued"
+        assert task.runtime_request_id is None
+    finally:
+        cleanup()

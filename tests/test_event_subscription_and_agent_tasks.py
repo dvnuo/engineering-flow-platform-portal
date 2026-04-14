@@ -362,3 +362,39 @@ def test_external_event_subscriptions_enforce_authorization():
         assert forbidden_outsider_create.status_code == 200
     finally:
         cleanup()
+
+
+def test_create_external_subscription_persists_new_mode_fields():
+    client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        create_resp = client.post(
+            "/api/external-event-subscriptions",
+            json={
+                "agent_id": parent_agent.id,
+                "source_type": "GitHub",
+                "event_type": "mention",
+                "mode": "poll",
+                "source_kind": "github.mention",
+                "binding_id": "binding-123",
+                "scope_json": '{"repos":["octo/portal"]}',
+                "poll_profile_json": '{"interval_seconds":30}',
+                "enabled": True,
+            },
+        )
+        assert create_resp.status_code == 200
+        body = create_resp.json()
+        assert body["mode"] == "poll"
+        assert body["source_kind"] == "github.mention"
+        assert body["binding_id"] == "binding-123"
+        assert body["scope_json"] == '{"repos":["octo/portal"]}'
+        assert body["poll_profile_json"] == '{"interval_seconds":30}'
+
+        list_resp = client.get(f"/api/agents/{parent_agent.id}/external-event-subscriptions")
+        assert list_resp.status_code == 200
+        items = list_resp.json()
+        assert len(items) == 1
+        assert items[0]["mode"] == "poll"
+        assert items[0]["source_kind"] == "github.mention"
+    finally:
+        cleanup()
