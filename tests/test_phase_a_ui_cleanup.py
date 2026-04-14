@@ -19,6 +19,9 @@ def test_app_template_contains_new_portal_shell():
     assert "runtime-profiles-nav-section" in html
     assert "add-runtime-profile-btn" in html
     assert "create-runtime-profile-modal" in html
+    assert '<select name="runtime_profile_id" id="create-runtime-profile-select"></select>' in html
+    assert '<select name="runtime_profile_id" id="edit-runtime-profile-select"></select>' in html
+    assert '<option value="">None</option>' not in html
     assert "Ask me anything..." in html
     assert "portal-modal-feedback" in html
     assert "portal-modal-copy" in html
@@ -42,6 +45,8 @@ def test_chat_submit_primary_path_is_fetch_runtime():
     assert "renderRuntimeProfileList" in js
     assert "openRuntimeProfileInMain" in js
     assert "runtimeProfilesChanged" in js
+    assert "No runtime profiles available" in js
+    assert 'selectEl.innerHTML = \'<option value=\"\">None</option>\'' not in js
     assert 'let messageBackup = ""' not in js
     assert "let pendingFilesBackup = []" not in js
 

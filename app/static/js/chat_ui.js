@@ -3639,12 +3639,16 @@ async function loadRuntimeProfiles(force = false) {
 function populateRuntimeProfileSelect(selectEl, selectedId = '') {
   if (!selectEl) return;
   const profiles = state.runtimeProfiles || [];
-  selectEl.innerHTML = '<option value="">None</option>' + profiles.map((profile) => {
+  if (!profiles.length) {
+    selectEl.innerHTML = '<option value="" disabled selected>No runtime profiles available</option>';
+    return;
+  }
+  selectEl.innerHTML = profiles.map((profile) => {
     const selected = selectedId && selectedId === profile.id ? ' selected' : '';
     const suffix = profile.is_default ? ' (Default)' : '';
     return `<option value="${escapeHtmlAttr(profile.id)}"${selected}>${safe((profile.name || 'Runtime Profile') + suffix)}</option>`;
   }).join('');
-  if (!selectedId && profiles.length > 0) {
+  if (!selectedId) {
     const defaultProfile = profiles.find((item) => item.is_default);
     selectEl.value = (defaultProfile || profiles[0]).id;
   }

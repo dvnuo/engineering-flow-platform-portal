@@ -18,6 +18,7 @@ from app.schemas.agent import (
     AgentUpdateRequest,
 )
 from app.services.k8s_service import K8sService
+from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
@@ -133,6 +134,9 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
 def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _validate_profile_references(db, payload.capability_profile_id, payload.policy_profile_id, payload.runtime_profile_id, current_user_id=user.id)
     _validate_agent_type_or_422(payload.agent_type)
+    runtime_profile_id = payload.runtime_profile_id
+    if runtime_profile_id is None:
+        runtime_profile_id = RuntimeProfileService(db).ensure_user_has_default_profile(user).id
 
     repo = AgentRepository(db)
     agent = repo.create(
@@ -149,7 +153,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         agent_type=payload.agent_type,
         capability_profile_id=payload.capability_profile_id,
         policy_profile_id=payload.policy_profile_id,
-        runtime_profile_id=payload.runtime_profile_id,
+        runtime_profile_id=runtime_profile_id,
         disk_size_gi=payload.disk_size_gi,
         mount_path=payload.mount_path,
         namespace=settings.agents_namespace,
@@ -188,7 +192,12 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     if "policy_profile_id" in changes and changes["policy_profile_id"] is not None:
         _validate_profile_references(db, None, changes["policy_profile_id"], None)
 
-    if "runtime_profile_id" in changes and changes["runtime_profile_id"] is not None:
+    if "runtime_profile_id" in changes:
+        if changes["runtime_profile_id"] is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="runtime_profile_id cannot be null; choose one of the user's runtime profiles.",
+            )
         _validate_profile_references(db, None, None, changes["runtime_profile_id"], current_user_id=user.id)
 
     if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
