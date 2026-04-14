@@ -150,14 +150,14 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
         cleanup()
 
 
-def test_internal_exports_allow_requests_without_extra_internal_auth():
+def test_internal_exports_accept_default_internal_route_requests():
     client, cleanup = _build_client()
     try:
-        missing = client.get("/api/internal/workflow-transition-rules")
-        secondary = client.get(
+        rules_resp = client.get("/api/internal/workflow-transition-rules")
+        bindings_resp = client.get(
             "/api/internal/agent-identity-bindings"
         )
-        assert missing.status_code == 200
-        assert secondary.status_code == 200
+        assert rules_resp.status_code == 200
+        assert bindings_resp.status_code == 200
     finally:
         cleanup()
