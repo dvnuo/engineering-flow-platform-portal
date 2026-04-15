@@ -47,9 +47,14 @@ def _reset_pending():
 
 def test_normalize_github_api_base_url_cases():
     assert normalize_github_api_base_url("") == "https://api.github.com"
+    assert normalize_github_api_base_url(None) == "https://api.github.com"
     assert normalize_github_api_base_url("https://github.com") == "https://api.github.com"
+    assert normalize_github_api_base_url("www.github.com") == "https://api.github.com"
+    assert normalize_github_api_base_url("https://api.github.com/") == "https://api.github.com"
     assert normalize_github_api_base_url("https://github.company.com") == "https://github.company.com/api/v3"
     assert normalize_github_api_base_url("https://github.company.com/api/v3/") == "https://github.company.com/api/v3"
+    assert normalize_github_api_base_url("github.company.com:8443") == "https://github.company.com:8443/api/v3"
+    assert normalize_github_api_base_url("http://github.company.com") == "https://github.company.com/api/v3"
 
 
 def test_start_uses_normalized_public_base(monkeypatch):
@@ -170,3 +175,25 @@ def test_auth_session_is_user_bound(monkeypatch):
     status, check_payload = asyncio.run(service.check_authorization("user-b", payload["auth_id"], payload["device_code"]))
     assert status == 404
     assert check_payload["error"] == "Authorization not found or expired"
+
+
+def test_start_fails_when_github_payload_missing_device_code(monkeypatch):
+    calls = []
+
+    def _factory(_url, _headers, _json):
+        return _FakeResponse(201, {
+            "user_code": "u1",
+            "verification_uri": "https://github.com/login/device",
+            "verification_uri_complete": "https://github.com/login/device?x=1",
+            "expires_in": 900,
+            "interval": 5,
+        })
+
+    monkeypatch.setattr(svc_module.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(calls, _factory))
+    service = CopilotAuthService()
+
+    status, payload = asyncio.run(service.start_authorization("u", ""))
+    assert status == 502
+    assert payload["error"] == "GitHub authorization start failed"
+    assert "device_code" in payload["details"]
+    assert len(svc_module._pending_authorizations) == 0

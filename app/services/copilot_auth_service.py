@@ -56,6 +56,14 @@ class CopilotAuthService:
             return 502, {"error": "GitHub authorization start failed", "details": details}
 
         data = response.json() if response.content else {}
+        required_fields = ["device_code", "user_code", "verification_uri"]
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            return 502, {
+                "error": "GitHub authorization start failed",
+                "details": f"Missing fields in GitHub response: {', '.join(missing_fields)}",
+            }
+
         auth_id = str(uuid4())
         expires_in = int(data.get("expires_in") or 600)
         interval = int(data.get("interval") or 5)

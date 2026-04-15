@@ -1,35 +1,41 @@
 from __future__ import annotations
 
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlsplit, urlunsplit
+
+_DEFAULT_PUBLIC_API_BASE = "https://api.github.com"
+_ENTERPRISE_API_PATH = "/api/v3"
+_PUBLIC_HOSTS = {"github.com", "www.github.com", "api.github.com"}
 
 
-_GITHUB_PUBLIC_HOSTS = {"github.com", "www.github.com", "api.github.com"}
+def _normalize_path(path: str) -> str:
+    value = (path or "").strip().rstrip("/")
+    if not value:
+        return ""
+    if value.lower() == _ENTERPRISE_API_PATH:
+        return _ENTERPRISE_API_PATH
+    return value
 
 
 def normalize_github_api_base_url(raw: Optional[str]) -> str:
     value = (raw or "").strip()
     if not value:
-        return "https://api.github.com"
+        return _DEFAULT_PUBLIC_API_BASE
 
     if "://" not in value:
         value = f"https://{value}"
 
-    parsed = urlparse(value)
-    scheme = parsed.scheme or "https"
-    host = (parsed.netloc or parsed.path or "").strip().lower()
-    path = parsed.path if parsed.netloc else ""
-
+    parsed = urlsplit(value)
+    host = (parsed.netloc or "").strip().lower()
     if not host:
-        return "https://api.github.com"
+        return _DEFAULT_PUBLIC_API_BASE
 
-    path = (path or "").strip()
-    path = path.rstrip("/")
+    if host in _PUBLIC_HOSTS:
+        return _DEFAULT_PUBLIC_API_BASE
 
-    if host in _GITHUB_PUBLIC_HOSTS:
-        return "https://api.github.com"
-
+    path = _normalize_path(parsed.path)
     if not path:
-        path = "/api/v3"
+        path = _ENTERPRISE_API_PATH
 
-    return f"{scheme}://{host}{path}".rstrip("/")
+    normalized = urlunsplit(("https", host, path, "", ""))
+    return normalized.rstrip("/")
