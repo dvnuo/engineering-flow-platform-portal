@@ -582,11 +582,16 @@ function getSelectedAssistantDisplayName(fallback = "Assistant") {
   return name || fallback;
 }
 
+function getNonBlankAuthorName(value) {
+  const name = String(value || "").trim();
+  return name || "";
+}
+
 function getHistoryMessageDisplayName(message, isUser) {
-  if (isUser) {
-    return message?.author_name || getCurrentUserDisplayName();
-  }
-  return message?.author_name || getSelectedAssistantDisplayName();
+  const persistedName = getNonBlankAuthorName(message?.author_name);
+  if (persistedName) return persistedName;
+  if (isUser) return getCurrentUserDisplayName();
+  return getSelectedAssistantDisplayName();
 }
 
 function buildUserMessageArticle(text, attachments = []) {
