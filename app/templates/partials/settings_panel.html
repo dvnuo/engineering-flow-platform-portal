@@ -1,5 +1,27 @@
 <div class="portal-panel-stack" id="settings-panel-root" data-agent-id="{{ agent_id }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/agents/{{ agent_id }}/settings/test">
   <!-- Please select an assistant first -->
+  {% if read_only %}
+    {% if status_message %}
+      <div
+        id="settings-status"
+        class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
+        data-settings-status="{{ status_type }}"
+        tabindex="-1"
+      >
+        {{ status_message }}
+      </div>
+    {% endif %}
+    <div class="portal-inline-state">
+      You can view settings for this assistant, but only the owner or an admin can modify them.
+    </div>
+    {% if profile_missing_message %}
+      <div class="portal-inline-state is-error">{{ profile_missing_message }}</div>
+    {% else %}
+      <div class="portal-inline-state">
+        Runtime Profile: <strong>{{ profile_name }}</strong> · Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong>.
+      </div>
+    {% endif %}
+  {% else %}
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
     {% if status_message %}
       <div
@@ -106,24 +128,23 @@
     <button type="submit" class="portal-btn is-primary">Save Settings</button>
     {% endif %}
   </form>
+  {% endif %}
 
-  {% if not profile_missing_message %}
-  <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Identity Bindings</h6></div><div
+  <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Identity Bindings</h6></div>{% if profile_missing_message %}<div class="portal-inline-state">Bind a runtime profile before configuring bindings or subscriptions.</div>{% else %}<div
     id="settings-bindings-panel-container"
     hx-get="/app/agents/{{ agent_id }}/triggered-work/bindings/panel"
     hx-trigger="load"
     hx-target="this"
     hx-swap="innerHTML"
-  ></div></section>
+  ></div>{% endif %}</section>
 
-  <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Event Subscriptions</h6></div><div
+  <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Event Subscriptions</h6></div>{% if profile_missing_message %}<div class="portal-inline-state">Bind a runtime profile before configuring bindings or subscriptions.</div>{% else %}<div
     id="settings-subscriptions-panel-container"
     hx-get="/app/agents/{{ agent_id }}/triggered-work/subscriptions/panel"
     hx-trigger="load"
     hx-target="this"
     hx-swap="innerHTML"
-  ></div></section>
-  {% endif %}
+  ></div>{% endif %}</section>
 
   {% if not profile_missing_message %}
   <script>

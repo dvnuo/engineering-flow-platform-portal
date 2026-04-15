@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -12,7 +13,15 @@ from app.models.agent_task import AgentTask
 from app.models.runtime_profile import RuntimeProfile
 
 
-def _build_client(monkeypatch, *, current_user_role="admin", current_user_id=None, agent_owner_id=None):
+def _build_client(
+    monkeypatch,
+    *,
+    current_user_role="admin",
+    current_user_id=None,
+    current_user_username=None,
+    agent_owner_id=None,
+    agent_visibility="private",
+):
     from app.main import app
     import app.web as web_module
 
@@ -23,22 +32,33 @@ def _build_client(monkeypatch, *, current_user_role="admin", current_user_id=Non
     db = TestingSessionLocal()
     owner = User(username="owner", password_hash="test", role="user", is_active=True)
     admin = User(username="admin", password_hash="test", role="admin", is_active=True)
-    db.add_all([owner, admin])
+    viewer = User(username="viewer", password_hash="test", role="user", is_active=True)
+    db.add_all([owner, admin, viewer])
     db.commit()
     db.refresh(owner)
     db.refresh(admin)
+    db.refresh(viewer)
 
-    if current_user_id is None:
-        current_user_id = admin.id if current_user_role == "admin" else owner.id
+    user_by_username = {"owner": owner, "admin": admin, "viewer": viewer}
+    selected_user = user_by_username.get(current_user_username) if current_user_username else None
+    if selected_user is None and current_user_id is not None:
+        selected_user = next(
+            (candidate for candidate in (owner, admin, viewer) if candidate.id == current_user_id),
+            None,
+        )
+    if selected_user is None:
+        selected_user = admin if current_user_role == "admin" else owner
+
+    current_user_id = selected_user.id
     if agent_owner_id is None:
         agent_owner_id = owner.id
 
-    current_user = admin if current_user_id == admin.id else owner
+    current_user = selected_user
 
     agent = Agent(
         name="agent-1",
         owner_user_id=agent_owner_id,
-        visibility="private",
+        visibility=agent_visibility,
         status="running",
         image="example/image:latest",
         repo_url=None,
@@ -62,7 +82,7 @@ def _build_client(monkeypatch, *, current_user_role="admin", current_user_id=Non
         "_current_user_from_cookie",
         lambda _request: SimpleNamespace(
             id=current_user.id,
-            role=current_user_role,
+            role=current_user.role,
             username=current_user.username,
             nickname=current_user.username,
         ),
@@ -267,8 +287,33 @@ def test_settings_panel_without_runtime_profile_shows_message(monkeypatch):
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
         assert "This agent has no runtime profile" in resp.text
+        assert "Bind a runtime profile before configuring bindings or subscriptions." in resp.text
     finally:
         cleanup()
+
+
+def test_render_agent_actions_includes_settings_after_edit_and_before_share():
+    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    start = js_source.find("const actions = [")
+    end = js_source.find("if (writable) {", start)
+    assert start != -1 and end != -1
+    actions_block = js_source[start:end]
+    assert 'label: "Edit"' in actions_block
+    assert 'label: "Settings"' not in actions_block
+
+    writable_block_end = js_source.find("actions.forEach", end)
+    writable_block = js_source[end:writable_block_end]
+    assert "if (writable)" in writable_block
+    assert "actions.splice(4, 0" in writable_block
+    assert 'label: "Settings"' in writable_block
+    assert "onClick: () => openSettings()" in writable_block
+
+
+def test_render_agent_actions_keeps_settings_tied_to_writable_gate():
+    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "if (writable) {" in js_source
+    assert "actions.splice(4, 0" in js_source
+    assert 'label: "Settings"' in js_source
 
 
 def test_settings_panel_includes_triggered_work_sections(monkeypatch):
@@ -279,6 +324,59 @@ def test_settings_panel_includes_triggered_work_sections(monkeypatch):
         assert resp.status_code == 200
         assert "External Identity Bindings" in resp.text
         assert "External Event Subscriptions" in resp.text
+    finally:
+        cleanup()
+
+
+def test_shared_non_owner_settings_and_triggered_work_panels_are_read_only(monkeypatch):
+    client, db, agent, cleanup = _build_client(
+        monkeypatch,
+        current_user_username="viewer",
+        agent_visibility="public",
+    )
+    try:
+        _bind_profile(db, agent, name="rp-shared-ro", config={"llm": {"provider": "openai"}}, revision=1)
+
+        settings_resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert settings_resp.status_code == 200
+        assert "only the owner or an admin can modify them" in settings_resp.text
+        assert "id=\"settings-form\"" not in settings_resp.text
+
+        bindings_resp = client.get(f"/app/agents/{agent.id}/triggered-work/bindings/panel")
+        assert bindings_resp.status_code == 200
+        assert "only the owner or an admin can modify them" in bindings_resp.text
+        assert "/triggered-work/bindings/create" not in bindings_resp.text
+        assert "/delete" not in bindings_resp.text
+
+        subs_resp = client.get(f"/app/agents/{agent.id}/triggered-work/subscriptions/panel")
+        assert subs_resp.status_code == 200
+        assert "only the owner or an admin can modify them" in subs_resp.text
+        assert "/triggered-work/subscriptions/create" not in subs_resp.text
+        assert "/delete" not in subs_resp.text
+    finally:
+        cleanup()
+
+
+def test_shared_non_owner_triggered_work_post_create_delete_forbidden(monkeypatch):
+    client, db, agent, cleanup = _build_client(
+        monkeypatch,
+        current_user_username="viewer",
+        agent_visibility="public",
+    )
+    try:
+        _bind_profile(db, agent, name="rp-shared-post", config={"llm": {"provider": "openai"}}, revision=1)
+
+        create_binding = client.post(
+            f"/app/agents/{agent.id}/triggered-work/bindings/create",
+            data={"system_type": "github", "external_account_id": "acct-1", "enabled": "on"},
+        )
+        assert create_binding.status_code == 403
+
+        create_subscription = client.post(
+            f"/app/agents/{agent.id}/triggered-work/subscriptions/create",
+            data={"source_type": "github", "event_type": "issue.opened", "mode": "push", "enabled": "on"},
+        )
+        assert create_subscription.status_code == 403
     finally:
         cleanup()
 
@@ -326,6 +424,10 @@ def test_task_detail_panel_shows_bundle_and_dedupe_metadata(monkeypatch):
         assert "Bundle ID" in resp.text
         assert "Dedupe Key" in resp.text
         assert "github:issue:octo/portal:7" in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_test_endpoint_does_not_mutate_profile(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:

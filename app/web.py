@@ -1769,6 +1769,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        read_only = not _can_write(agent, user)
 
         runtime_profile = None
         bound_agent_count = 0
@@ -1793,6 +1794,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
                     "config": {},
+                    "read_only": read_only,
                 },
             )
 
@@ -1811,6 +1813,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 "profile_name": runtime_profile.name,
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": bound_agent_count,
+                "read_only": read_only,
                 **view_data,
             },
         )
@@ -1849,6 +1852,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
                     "config": {},
+                    "read_only": False,
                 },
             )
 
@@ -1867,6 +1871,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
                     "config": {},
+                    "read_only": False,
                 },
             )
 
@@ -1925,6 +1930,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "profile_name": runtime_profile.name,
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": profile_bound_agent_count,
+                "read_only": False,
                 **view_data,
             },
         )
@@ -2271,7 +2277,7 @@ async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: st
 
     db = SessionLocal()
     try:
-        _triggered_work_authorize(db, user, agent_id)
+        agent = _triggered_work_authorize(db, user, agent_id)
         bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
         return templates.TemplateResponse(
             "partials/agent_identity_bindings_panel.html",
@@ -2282,6 +2288,10 @@ async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: st
                 "error": "",
                 "success": "",
                 "form": {},
+                "read_only": not _can_write(agent, user),
+                "profile_missing_message": ""
+                if agent.runtime_profile_id
+                else "Bind a runtime profile before configuring bindings or subscriptions.",
             },
         )
     finally:
@@ -2391,7 +2401,7 @@ async def app_agent_triggered_work_subscriptions_panel(request: Request, agent_i
 
     db = SessionLocal()
     try:
-        _triggered_work_authorize(db, user, agent_id)
+        agent = _triggered_work_authorize(db, user, agent_id)
         bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
         subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
         return templates.TemplateResponse(
@@ -2404,6 +2414,10 @@ async def app_agent_triggered_work_subscriptions_panel(request: Request, agent_i
                 "error": "",
                 "success": "",
                 "form": {},
+                "read_only": not _can_write(agent, user),
+                "profile_missing_message": ""
+                if agent.runtime_profile_id
+                else "Bind a runtime profile before configuring bindings or subscriptions.",
             },
         )
     finally:
