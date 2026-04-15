@@ -3123,10 +3123,7 @@ async function loadServerFiles(path) {
       const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       return (
         `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<label class="toggle-switch">` +
-            `<input type="checkbox" class="file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
-            `<span class="toggle-slider"></span>` +
-          `</label>` +
+          `<input type="checkbox" class="file-checkbox portal-file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
           `<div class="portal-file-name-cell name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
             `<span class="portal-file-icon">${icon}</span>` +
             `<span class="portal-file-name">${escapeHtml(item.name)}</span>` +
@@ -3147,7 +3144,7 @@ async function loadServerFiles(path) {
           `</div>` +
         `</div>` +
         `<div class="portal-file-select-row">` +
-          `<label class="toggle-switch"><input type="checkbox" id="sf-select-all"><span class="toggle-slider"></span></label><label for="sf-select-all">Select all</label>` +
+          `<input type="checkbox" id="sf-select-all" class="portal-file-checkbox"><label for="sf-select-all">Select all</label>` +
         `</div>` +
         `<div class="portal-panel-stack">${rows || '<div class="portal-inline-state">Empty directory</div>'}</div>` +
       `</div>`
@@ -3170,8 +3167,8 @@ async function loadServerFiles(path) {
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
           // Skip if clicking checkbox or name cell (name cell has dedicated handler)
-          if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch') || e.target.closest('.name-cell')) {
-            if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch')) {
+          if (e.target.type === 'checkbox' || e.target.closest('.name-cell')) {
+            if (e.target.type === 'checkbox') {
               updateDownloadButton(panel);
             }
             return;
@@ -3193,7 +3190,7 @@ async function loadServerFiles(path) {
           e.stopPropagation();
 
           // Skip if clicking checkbox
-          if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch')) {
+          if (e.target.type === 'checkbox') {
             updateDownloadButton(panel);
             return;
           }

@@ -894,6 +894,15 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 60%);
 }
 
+.portal-file-checkbox {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--portal-accent);
+}
+
 .portal-file-name-cell {
   display: flex;
   align-items: center;
