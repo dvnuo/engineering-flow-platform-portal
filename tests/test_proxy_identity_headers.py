@@ -15,6 +15,7 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
         owner_user_id=55,
         visibility="private",
         status="running",
+        name="Agent One",
         capability_profile_id=None,
         policy_profile_id=None,
     )
@@ -68,6 +69,7 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "55"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
+    assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
 
 
 def test_proxy_agent_restricts_config_save_for_non_owner(monkeypatch):
@@ -381,6 +383,7 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
         owner_user_id=77,
         visibility="private",
         status="running",
+        name="Agent One",
         capability_profile_id="cap-1",
         policy_profile_id="pol-1",
     )
@@ -450,6 +453,7 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "77"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
+    assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
 
 
 def test_proxy_direct_chat_rejects_malformed_json_without_forwarding(monkeypatch):
@@ -658,11 +662,16 @@ def test_non_allowlisted_arbitrary_header_is_not_forwarded_in_browser_proxy_allo
 
     outbound = ProxyService._build_outbound_headers(
         headers={"content-type": "application/json"},
-        extra_headers={"X-Arbitrary-Header": "ignored", "X-Portal-User-Id": "10"},
+        extra_headers={
+            "X-Arbitrary-Header": "ignored",
+            "X-Portal-User-Id": "10",
+            "X-Portal-Agent-Name": "Agent One",
+        },
     )
 
     assert outbound["content-type"] == "application/json"
     assert outbound["X-Portal-User-Id"] == "10"
+    assert outbound["X-Portal-Agent-Name"] == "Agent One"
     assert "X-Arbitrary-Header" not in outbound
 
 

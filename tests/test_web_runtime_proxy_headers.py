@@ -73,6 +73,7 @@ def test_runtime_panel_routes_include_identity_headers(monkeypatch):
             "X-Portal-Author-Source": "portal",
             "X-Portal-User-Id": "321",
             "X-Portal-User-Name": "Portal User",
+            "X-Portal-Agent-Name": "Agent One",
         }
 
 
@@ -115,7 +116,7 @@ def test_file_upload_uses_forward_multipart_with_identity_headers(monkeypatch):
     import app.web as web_module
 
     fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
-    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running", name="Agent One")
 
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
@@ -147,6 +148,7 @@ def test_file_upload_uses_forward_multipart_with_identity_headers(monkeypatch):
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "321",
         "X-Portal-User-Name": "Portal User",
+        "X-Portal-Agent-Name": "Agent One",
     }
 
 
@@ -155,7 +157,7 @@ def test_file_upload_enforces_10mb_limit(monkeypatch):
     import app.web as web_module
 
     fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
-    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running", name="Agent One")
 
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
@@ -186,7 +188,7 @@ def test_server_files_upload_uses_forward_multipart_with_identity_headers(monkey
     import app.web as web_module
 
     fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
-    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running", name="Agent One")
 
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
@@ -225,6 +227,7 @@ def test_server_files_upload_uses_forward_multipart_with_identity_headers(monkey
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "321",
         "X-Portal-User-Name": "Portal User",
+        "X-Portal-Agent-Name": "Agent One",
     }
 
 

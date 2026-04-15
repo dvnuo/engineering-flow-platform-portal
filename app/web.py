@@ -25,7 +25,7 @@ from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubServiceError,
 )
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_execution_headers, build_portal_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_agent_identity_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
@@ -82,8 +82,8 @@ def _can_write(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id
 
 
-def _portal_extra_headers(user) -> dict[str, str]:
-    return build_portal_identity_headers(user)
+def _portal_extra_headers(user, agent) -> dict[str, str]:
+    return build_portal_agent_identity_headers(user, agent)
 
 
 def _list_writable_agents(db, user) -> list:
@@ -387,7 +387,7 @@ async def _forward_runtime(
         query_items=query_items,
         body=body,
         headers=headers or {},
-        extra_headers=_portal_extra_headers(user),
+        extra_headers=_portal_extra_headers(user, agent),
     )
 
 
@@ -410,7 +410,7 @@ async def _forward_runtime_multipart(
         files=files,
         data=data,
         headers=headers or {},
-        extra_headers=_portal_extra_headers(user),
+        extra_headers=_portal_extra_headers(user, agent),
     )
 
 
@@ -2079,7 +2079,7 @@ async def app_chat_send(request: Request):
         if attachments:
             payload["attachments"] = attachments
 
-        extra_headers = build_portal_execution_headers(user)
+        extra_headers = build_portal_agent_identity_headers(user, agent)
 
         status_code, content, _ = await proxy_service.forward(
             agent=agent,

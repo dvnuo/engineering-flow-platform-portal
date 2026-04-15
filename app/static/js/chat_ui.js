@@ -572,6 +572,28 @@ function resetChatInputHeight() {
   dom.chatInput.style.height = 'auto';
 }
 
+function getCurrentUserDisplayName() {
+  const name = String(state.currentUserName || "").trim();
+  return name || "You";
+}
+
+function getSelectedAssistantDisplayName(fallback = "Assistant") {
+  const name = String(state.selectedAgentName || "").trim();
+  return name || fallback;
+}
+
+function getNonBlankAuthorName(value) {
+  const name = String(value || "").trim();
+  return name || "";
+}
+
+function getHistoryMessageDisplayName(message, isUser) {
+  const persistedName = getNonBlankAuthorName(message?.author_name);
+  if (persistedName) return persistedName;
+  if (isUser) return getCurrentUserDisplayName();
+  return getSelectedAssistantDisplayName();
+}
+
 function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   let attachmentHtml = "";
@@ -587,12 +609,12 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">You</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const pendingAgentName = state.selectedAgentName || "Assistant";
+  const pendingAgentName = getSelectedAssistantDisplayName();
   return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
@@ -605,7 +627,7 @@ function buildAssistantMessageArticle(content, displayBlocks = [], authorName = 
 
 function buildPendingAssistantRowForEvents(thinkingId) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const name = state.selectedAgentName || "Assistant";
+  const name = getSelectedAssistantDisplayName();
   return `
     <div class="message-row message-row-assistant" data-temporary-assistant="1" data-thinking-fallback="1">
       <div class="message-meta">
@@ -1334,7 +1356,7 @@ async function agentApiFor(agentId, path, options = {}) {
 }
 
 function defaultWelcomeMessage() {
-  const welcomeAgentName = state.selectedAgentName || "Assistant";
+  const welcomeAgentName = getSelectedAssistantDisplayName();
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
 }
 
@@ -2032,7 +2054,11 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     optimisticUserArticle.dataset.messageId = payload.user_message_id;
     delete optimisticUserArticle.dataset.optimisticUser;
   }
-  const assistantHtml = buildAssistantMessageArticle(payload.response || "", payload.display_blocks || [], state.selectedAgentName || "Assistant");
+  const assistantHtml = buildAssistantMessageArticle(
+    payload.response || "",
+    payload.display_blocks || [],
+    getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+  );
   dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
   if (mergedThinkingEvents.length) attachThinkingToLatestAssistant(mergedThinkingEvents);
   chatState.inflightThinking = null;
@@ -2941,7 +2967,7 @@ function renderChatHistory(messages, metadata = {}) {
     header.className = `message-meta${isUser ? " message-meta-user" : ""}`;
     const roleLabel = document.createElement("span");
     roleLabel.className = "message-author";
-    roleLabel.textContent = message.author_name || (isUser ? "You" : (state.selectedAgentName || "Assistant"));
+    roleLabel.textContent = getHistoryMessageDisplayName(message, isUser);
     header.appendChild(roleLabel);
     if (timeStr) {
       const timeLabel = document.createElement("span");

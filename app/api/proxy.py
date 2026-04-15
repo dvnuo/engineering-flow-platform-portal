@@ -21,8 +21,7 @@ from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
 from app.services.proxy_service import (
     ProxyService,
-    build_portal_execution_headers,
-    build_portal_identity_headers,
+    build_portal_agent_identity_headers,
     build_runtime_trace_headers,
 )
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
@@ -142,10 +141,7 @@ async def proxy_agent(
 
         request_body = (await request.body()) or None
         is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
-        if is_direct_chat_execution:
-            extra_headers = build_portal_execution_headers(user)
-        else:
-            extra_headers = build_portal_identity_headers(user)
+        extra_headers = build_portal_agent_identity_headers(user, agent)
 
         if is_direct_chat_execution and request_body:
             if not _content_type_is_json(content_type):
