@@ -116,6 +116,116 @@ def test_agent_runtime_delete():
     assert response.status_code in [200, 401, 403, 404]
 
 
+def test_managed_settings_initializer_hooks_present():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "function initializeManagedSettingsPanels()" in js
+    assert 'event.target?.id === "workspace-detail-content"' in js
+    assert "initializeManagedSettingsPanels();" in js
+    assert "loadRuntimeProfilePanelContent(profileId)" in js
+
+
+def test_update_model_options_keeps_unknown_initial_but_not_cross_provider_leak():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping managed settings model behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    update_model_options_fn = _extract_js_function(js_file, "updateModelOptions")
+
+    marker = "const managedProviderModels ="
+    start = js_file.find(marker)
+    assert start >= 0, "managedProviderModels block not found"
+    brace_start = js_file.find("{", start)
+    assert brace_start >= 0, "managedProviderModels block start not found"
+    depth = 0
+    end = -1
+    for idx in range(brace_start, len(js_file)):
+        char = js_file[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                end = idx
+                break
+    assert end > brace_start, "managedProviderModels block end not found"
+    managed_models_block = js_file[start:end + 2]
+
+    script = f"""
+{managed_models_block}
+{update_model_options_fn}
+
+const noop = () => {{}};
+function makeOption() {{
+  return {{ value: "", textContent: "" }};
+}}
+const document = {{ createElement: makeOption }};
+global.document = document;
+let stopCalled = 0;
+function stopCopilotPolling(_root) {{ stopCalled += 1; }}
+
+function makeSelect(initialValue = "") {{
+  return {{
+    value: initialValue,
+    innerHTML: "",
+    dataset: {{}},
+    options: [],
+    appendChild(option) {{ this.options.push(option); }},
+    classList: {{ toggle: noop, add: noop }},
+  }};
+}}
+
+function makeRoot(providerValue, modelValue) {{
+  const provider = makeSelect(providerValue);
+  provider.dataset.initialProvider = providerValue;
+  const model = makeSelect(modelValue);
+  model.dataset.initialValue = modelValue;
+  model.dataset.currentValue = modelValue;
+  model.dataset.lastProvider = providerValue;
+  const copilotBtn = {{ classList: {{ toggle: noop }} }};
+  const authStatus = {{ classList: {{ add: noop }} }};
+  return {{
+    provider,
+    model,
+    querySelector(sel) {{
+      if (sel === "#llm_provider") return provider;
+      if (sel === "#llm_model") return model;
+      if (sel === "#copilot_auth_btn") return copilotBtn;
+      if (sel === "#copilot_auth_status") return authStatus;
+      return null;
+    }},
+  }};
+}}
+
+const rootA = makeRoot("openai", "custom-unknown-model");
+updateModelOptions(rootA);
+const scenarioA = {{
+  selected: rootA.model.value,
+  hasCurrent: rootA.model.options.some((o) => o.textContent === "custom-unknown-model (Current)"),
+}};
+
+const rootB = makeRoot("openai", "gpt-4.1");
+updateModelOptions(rootB);
+rootB.provider.value = "anthropic";
+updateModelOptions(rootB);
+const scenarioB = {{
+  selected: rootB.model.value,
+  hasLeakedCurrent: rootB.model.options.some((o) => o.textContent === "gpt-4.1 (Current)"),
+  options: rootB.model.options.map((o) => o.value),
+}};
+
+console.log(JSON.stringify({{ scenarioA, scenarioB }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    result = json.loads(completed.stdout.strip())
+
+    assert result["scenarioA"]["selected"] == "custom-unknown-model"
+    assert result["scenarioA"]["hasCurrent"] is True
+    assert result["scenarioB"]["selected"] != "gpt-4.1"
+    assert result["scenarioB"]["hasLeakedCurrent"] is False
+    assert result["scenarioB"]["selected"] in result["scenarioB"]["options"]
+
+
 def test_agent_defaults():
     """Test agent defaults endpoint."""
     from app.main import app
@@ -687,6 +797,280 @@ async function runScenarioE() {{
     assert "No cached bundles yet" not in data["scenarioE"]["lastPlaceholder"]
 
 
+def test_chat_ui_set_active_nav_section_runtime_profiles_prefers_default_and_empty_placeholder():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
+    load_runtime_profile_panel_content_fn = _extract_js_function(js_file, "loadRuntimeProfilePanelContent")
+
+    script = f"""
+{load_runtime_profile_panel_content_fn}
+{set_active_nav_section_fn}
+
+function noop() {{}}
+function makeToggleObj() {{
+  return {{
+    classList: {{
+      toggle: noop,
+    }},
+  }};
+}}
+
+const dom = {{
+  railAssistantsBtn: makeToggleObj(),
+  bundlesMenuBtn: makeToggleObj(),
+  tasksMenuBtn: makeToggleObj(),
+  runtimeProfilesMenuBtn: makeToggleObj(),
+  assistantsNavSection: makeToggleObj(),
+  bundlesNavSection: makeToggleObj(),
+  tasksNavSection: makeToggleObj(),
+  runtimeProfilesNavSection: makeToggleObj(),
+  workspaceDetailContent: {{
+    dataset: {{
+      workspaceState: "idle",
+    }},
+  }},
+}};
+
+const state = {{}};
+let renderedProfileListCount = 0;
+let refreshedProfileCount = 0;
+let loadedProfileIds = [];
+let placeholderMessages = [];
+
+function applySecondaryPaneState() {{}}
+function renderSecondaryPaneHeader() {{}}
+function syncMainHeader() {{}}
+function showAssistantDefaultMainView() {{
+  dom.workspaceDetailContent.dataset.workspaceState = "assistant-default";
+}}
+function showBundlesLoadingMainView() {{}}
+function showTasksLoadingMainView() {{}}
+function loadRequirementBundlesFromCache() {{
+  return {{ hasCache: true, hasItems: true }};
+}}
+function renderRequirementBundleList() {{}}
+function showBundlesDefaultMainView() {{}}
+function showBundlesEmptyMainView() {{}}
+function showTasksDefaultMainView() {{}}
+async function refreshMyTasks() {{}}
+async function htmxAjax(_method, url) {{
+  loadedProfileIds.push(url.split("/")[3]);
+}}
+const htmx = {{ ajax: htmxAjax }};
+function setMainView(_view) {{}}
+function renderRuntimeProfileList() {{
+  renderedProfileListCount += 1;
+}}
+function renderWorkspaceDetailPlaceholder(message, workspaceState) {{
+  placeholderMessages.push(message);
+  dom.workspaceDetailContent.dataset.workspaceState = workspaceState || "runtime-profiles-placeholder";
+}}
+async function refreshRuntimeProfileList() {{
+  refreshedProfileCount += 1;
+  renderRuntimeProfileList();
+}}
+
+async function runWithProfiles() {{
+  renderedProfileListCount = 0;
+  refreshedProfileCount = 0;
+  loadedProfileIds = [];
+  placeholderMessages = [];
+  Object.assign(state, {{
+    activeNavSection: "assistants",
+    secondaryPaneCollapsed: false,
+    selectedRuntimeProfileId: "custom-1",
+    runtimeProfiles: [
+      {{ id: "reviewer-2", name: "Reviewer", is_default: false, revision: 1 }},
+      {{ id: "default-1", name: "Default", is_default: true, revision: 3 }},
+    ],
+  }});
+  await setActiveNavSection("runtime-profiles", {{ toggleIfSame: false }});
+  return {{
+    selectedRuntimeProfileId: state.selectedRuntimeProfileId,
+    loadedProfileIds,
+    renderedProfileListCount,
+    refreshedProfileCount,
+    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
+    placeholderMessages,
+  }};
+}}
+
+async function runEmptyProfiles() {{
+  renderedProfileListCount = 0;
+  refreshedProfileCount = 0;
+  loadedProfileIds = [];
+  placeholderMessages = [];
+  Object.assign(state, {{
+    activeNavSection: "assistants",
+    secondaryPaneCollapsed: false,
+    selectedRuntimeProfileId: null,
+    runtimeProfiles: [],
+  }});
+  await setActiveNavSection("runtime-profiles", {{ toggleIfSame: false }});
+  return {{
+    selectedRuntimeProfileId: state.selectedRuntimeProfileId,
+    loadedProfileIds,
+    renderedProfileListCount,
+    refreshedProfileCount,
+    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
+    placeholderMessages,
+  }};
+}}
+
+(async () => {{
+  const result = {{
+    withProfiles: await runWithProfiles(),
+    emptyProfiles: await runEmptyProfiles(),
+  }};
+  console.log(JSON.stringify(result));
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert data["withProfiles"]["selectedRuntimeProfileId"] == "default-1"
+    assert data["withProfiles"]["loadedProfileIds"] == ["default-1"]
+    assert data["withProfiles"]["refreshedProfileCount"] == 1
+    assert data["withProfiles"]["workspaceState"] == "runtime-profile-detail"
+    assert data["withProfiles"]["placeholderMessages"] in ([], ["Loading runtime profiles…"])
+
+    assert data["emptyProfiles"]["selectedRuntimeProfileId"] is None
+    assert data["emptyProfiles"]["loadedProfileIds"] == []
+    assert data["emptyProfiles"]["workspaceState"] == "runtime-profiles-placeholder"
+    assert any("No runtime profiles found." in msg for msg in data["emptyProfiles"]["placeholderMessages"])
+
+
+def test_chat_ui_runtime_profiles_reopen_prefers_default_profile():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
+    load_runtime_profile_panel_content_fn = _extract_js_function(js_file, "loadRuntimeProfilePanelContent")
+
+    script = f"""
+{load_runtime_profile_panel_content_fn}
+{set_active_nav_section_fn}
+
+function noop() {{}}
+function makeToggleObj() {{
+  return {{
+    classList: {{
+      toggle: noop,
+    }},
+  }};
+}}
+
+const dom = {{
+  railAssistantsBtn: makeToggleObj(),
+  bundlesMenuBtn: makeToggleObj(),
+  tasksMenuBtn: makeToggleObj(),
+  runtimeProfilesMenuBtn: makeToggleObj(),
+  assistantsNavSection: makeToggleObj(),
+  bundlesNavSection: makeToggleObj(),
+  tasksNavSection: makeToggleObj(),
+  runtimeProfilesNavSection: makeToggleObj(),
+  workspaceDetailContent: {{
+    dataset: {{
+      workspaceState: "idle",
+    }},
+  }},
+}};
+
+const state = {{
+  activeNavSection: "runtime-profiles",
+  secondaryPaneCollapsed: false,
+  selectedRuntimeProfileId: "custom-1",
+  runtimeProfiles: [
+    {{ id: "reviewer-2", name: "Reviewer", is_default: false, revision: 1 }},
+    {{ id: "default-1", name: "Default", is_default: true, revision: 3 }},
+  ],
+}};
+let loadedProfileIds = [];
+
+function applySecondaryPaneState() {{}}
+function renderSecondaryPaneHeader() {{}}
+function syncMainHeader() {{}}
+function showAssistantDefaultMainView() {{}}
+function showBundlesLoadingMainView() {{}}
+function showTasksLoadingMainView() {{}}
+function loadRequirementBundlesFromCache() {{
+  return {{ hasCache: true, hasItems: true }};
+}}
+function renderRequirementBundleList() {{}}
+function showBundlesDefaultMainView() {{}}
+function showBundlesEmptyMainView() {{}}
+function showTasksDefaultMainView() {{}}
+async function refreshMyTasks() {{}}
+function renderRuntimeProfileList() {{}}
+function renderWorkspaceDetailPlaceholder(_message, workspaceState) {{
+  dom.workspaceDetailContent.dataset.workspaceState = workspaceState || "runtime-profiles-placeholder";
+}}
+async function refreshRuntimeProfileList() {{}}
+const htmx = {{
+  ajax: async function(_method, url) {{
+    loadedProfileIds.push(url.split("/")[3]);
+  }}
+}};
+function setMainView(_view) {{}}
+
+async function run() {{
+  loadedProfileIds = [];
+  await setActiveNavSection("runtime-profiles");
+  const afterCollapse = {{
+    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
+    loadedProfileIds: [...loadedProfileIds],
+  }};
+
+  loadedProfileIds = [];
+  await setActiveNavSection("runtime-profiles");
+  const afterReopen = {{
+    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
+    selectedRuntimeProfileId: state.selectedRuntimeProfileId,
+    loadedProfileIds: [...loadedProfileIds],
+    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
+  }};
+
+  console.log(JSON.stringify({{ afterCollapse, afterReopen }}));
+}}
+
+run().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    data = json.loads(completed.stdout)
+
+    assert data["afterCollapse"]["secondaryPaneCollapsed"] is True
+    assert data["afterCollapse"]["loadedProfileIds"] == []
+
+    assert data["afterReopen"]["secondaryPaneCollapsed"] is False
+    assert data["afterReopen"]["selectedRuntimeProfileId"] == "default-1"
+    assert data["afterReopen"]["loadedProfileIds"] == ["default-1"]
+    assert data["afterReopen"]["workspaceState"] == "runtime-profile-detail"
+
+
 def test_chat_ui_refresh_requirement_bundles_treats_empty_cached_list_as_cache():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -840,3 +1224,264 @@ def test_thinking_process_template_prefers_normalized_fields():
     template = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
     assert template.find("event.event_type or event.type") != -1
     assert template.find("event.summary") < template.find("event.data and event.data.message")
+
+
+def test_copilot_auth_no_runtime_proxy_strings():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "/a/${agentId}/api/copilot/auth/start" not in js
+    assert "/a/${agentId}/api/copilot/auth/check" not in js
+
+
+def test_start_copilot_auth_uses_portal_endpoints_and_stops_on_declined():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping copilot auth behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
+    stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
+    get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
+    get_github_base_fn = _extract_js_function(js_file, "getManagedGithubBaseUrl")
+    finish_fn = _extract_js_function(js_file, "finishCopilotAuthWithMessage")
+    start_copilot_fn = _extract_js_function(js_file, "startCopilotAuth")
+
+    script = f"""
+const fetchCalls = [];
+const intervalCalls = [];
+const clearedIntervals = [];
+const toasts = [];
+
+let intervalId = 1;
+function setIntervalStub(fn, ms) {{
+  const id = intervalId++;
+  intervalCalls.push({{ id, ms, fn }});
+  return id;
+}}
+function clearIntervalStub(id) {{
+  clearedIntervals.push(id);
+}}
+
+global.setInterval = setIntervalStub;
+global.clearInterval = clearIntervalStub;
+
+function safe(v) {{ return String(v || ""); }}
+function showToast(msg) {{ toasts.push(msg); }}
+
+const classes = () => ({{ add() {{}}, remove() {{}}, toggle() {{}} }});
+const elements = {{
+  authStatus: {{ classList: classes() }},
+  instructions: {{ classList: classes() }},
+  statusText: {{ textContent: "" }},
+  verifyLink: {{ href: "", textContent: "" }},
+  deviceLink: {{ href: "", classList: classes() }},
+  userCode: {{ textContent: "" }},
+  timer: {{ textContent: "" }},
+  apiKey: {{ value: "" }},
+  githubBase: {{ value: "https://github.company.com" }},
+}};
+
+const root = {{
+  dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
+  querySelector(sel) {{
+    if (sel === '#copilot_auth_status') return elements.authStatus;
+    if (sel === '#copilot_instructions') return elements.instructions;
+    if (sel === '#copilot_status_text') return elements.statusText;
+    if (sel === '#copilot_verify_link') return elements.verifyLink;
+    if (sel === '#copilot_device_link') return elements.deviceLink;
+    if (sel === '#copilot_user_code') return elements.userCode;
+    if (sel === '#copilot_timer') return elements.timer;
+    if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
+    if (sel === 'input[name="github_base_url"]') return elements.githubBase;
+    return null;
+  }}
+}};
+
+async function fetch(url, options) {{
+  fetchCalls.push({{ url, options }});
+  if (url.endsWith('/start')) {{
+    return {{
+      ok: true,
+      async json() {{
+        return {{
+          auth_id: 'auth-1',
+          device_code: 'device-1',
+          user_code: 'CODE1',
+          verification_url: 'https://github.com/login/device',
+          verification_complete_url: 'https://github.com/login/device?user_code=CODE1',
+          expires_in: 60,
+          interval: 7,
+        }};
+      }}
+    }};
+  }}
+  if (url.endsWith('/check')) {{
+    return {{ ok: true, async json() {{ return {{ status: 'declined', message: 'nope' }}; }} }};
+  }}
+  throw new Error('unexpected url');
+}}
+
+global.fetch = fetch;
+
+{get_state_fn}
+{stop_polling_fn}
+{get_auth_base_fn}
+{get_github_base_fn}
+{finish_fn}
+{start_copilot_fn}
+
+(async () => {{
+  await startCopilotAuth(root);
+  await intervalCalls.find((x) => x.ms === 7000).fn();
+
+  console.log(JSON.stringify({{
+    fetchCalls,
+    intervalMs: intervalCalls.map((x) => x.ms),
+    clearedIntervals,
+    toasts,
+    statusText: elements.statusText.textContent,
+    startBody: JSON.parse(fetchCalls[0].options.body),
+  }}));
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+
+    assert data["fetchCalls"][0]["url"] == "/api/copilot/auth/start"
+    assert data["startBody"]["github_base_url"] == "https://github.company.com"
+    assert 7000 in data["intervalMs"]
+    assert data["fetchCalls"][1]["url"] == "/api/copilot/auth/check"
+    assert data["statusText"] == "nope"
+    assert len(data["clearedIntervals"]) >= 2
+
+
+def test_start_copilot_auth_stops_on_check_http_error_or_missing_status():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping copilot auth behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
+    stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
+    get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
+    get_github_base_fn = _extract_js_function(js_file, "getManagedGithubBaseUrl")
+    finish_fn = _extract_js_function(js_file, "finishCopilotAuthWithMessage")
+    start_copilot_fn = _extract_js_function(js_file, "startCopilotAuth")
+
+    script = f"""
+async function runScenario(mode) {{
+  const fetchCalls = [];
+  const intervalCalls = [];
+  const clearedIntervals = [];
+
+  let intervalId = 1;
+  function setIntervalStub(fn, ms) {{
+    const id = intervalId++;
+    intervalCalls.push({{ id, ms, fn }});
+    return id;
+  }}
+  function clearIntervalStub(id) {{
+    clearedIntervals.push(id);
+  }}
+
+  global.setInterval = setIntervalStub;
+  global.clearInterval = clearIntervalStub;
+
+  function safe(v) {{ return String(v || ""); }}
+  function showToast(_msg) {{}}
+
+  const classes = () => ({{ add() {{}}, remove() {{}}, toggle() {{}} }});
+  const elements = {{
+    authStatus: {{ classList: classes() }},
+    instructions: {{ classList: classes() }},
+    statusText: {{ textContent: "" }},
+    verifyLink: {{ href: "", textContent: "" }},
+    deviceLink: {{ href: "", classList: classes() }},
+    userCode: {{ textContent: "" }},
+    timer: {{ textContent: "" }},
+    apiKey: {{ value: "" }},
+    githubBase: {{ value: "https://github.company.com" }},
+  }};
+
+  const root = {{
+    dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
+    querySelector(sel) {{
+      if (sel === '#copilot_auth_status') return elements.authStatus;
+      if (sel === '#copilot_instructions') return elements.instructions;
+      if (sel === '#copilot_status_text') return elements.statusText;
+      if (sel === '#copilot_verify_link') return elements.verifyLink;
+      if (sel === '#copilot_device_link') return elements.deviceLink;
+      if (sel === '#copilot_user_code') return elements.userCode;
+      if (sel === '#copilot_timer') return elements.timer;
+      if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
+      if (sel === 'input[name="github_base_url"]') return elements.githubBase;
+      return null;
+    }}
+  }};
+
+  async function fetch(url, options) {{
+    fetchCalls.push({{ url, options }});
+    if (url.endsWith('/start')) {{
+      return {{
+        ok: true,
+        async json() {{
+          return {{
+            auth_id: 'auth-1',
+            device_code: 'device-1',
+            user_code: 'CODE1',
+            verification_url: 'https://github.com/login/device',
+            verification_complete_url: 'https://github.com/login/device?user_code=CODE1',
+            expires_in: 60,
+            interval: 7,
+          }};
+        }}
+      }};
+    }}
+    if (mode === 'http_error') {{
+      return {{ ok: false, status: 404, async json() {{ return {{ error: 'Authorization not found or expired' }}; }} }};
+    }}
+    return {{ ok: true, status: 200, async json() {{ return {{ message: 'missing status from server' }}; }} }};
+  }}
+
+  global.fetch = fetch;
+
+  {get_state_fn}
+  {stop_polling_fn}
+  {get_auth_base_fn}
+  {get_github_base_fn}
+  {finish_fn}
+  {start_copilot_fn}
+
+  await startCopilotAuth(root);
+  await intervalCalls.find((x) => x.ms === 7000).fn();
+
+  return {{
+    fetchCalls,
+    clearedIntervals,
+    statusText: elements.statusText.textContent,
+  }};
+}}
+
+(async () => {{
+  const httpError = await runScenario('http_error');
+  const missingStatus = await runScenario('missing_status');
+  console.log(JSON.stringify({{ httpError, missingStatus }}));
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+
+    assert len(data["httpError"]["clearedIntervals"]) >= 2
+    assert data["httpError"]["statusText"] != "Waiting for authorization..."
+    assert "Authorization not found or expired" in data["httpError"]["statusText"]
+
+    assert len(data["missingStatus"]["clearedIntervals"]) >= 2
+    assert data["missingStatus"]["statusText"] != "Waiting for authorization..."
+    assert "missing status" in data["missingStatus"]["statusText"]

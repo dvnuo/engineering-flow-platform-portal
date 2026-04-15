@@ -37,7 +37,6 @@ const dom = {
   closeToolPanel: document.getElementById("close-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
-  topSettings: document.getElementById("top-settings"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
@@ -573,6 +572,28 @@ function resetChatInputHeight() {
   dom.chatInput.style.height = 'auto';
 }
 
+function getCurrentUserDisplayName() {
+  const name = String(state.currentUserName || "").trim();
+  return name || "You";
+}
+
+function getSelectedAssistantDisplayName(fallback = "Assistant") {
+  const name = String(state.selectedAgentName || "").trim();
+  return name || fallback;
+}
+
+function getNonBlankAuthorName(value) {
+  const name = String(value || "").trim();
+  return name || "";
+}
+
+function getHistoryMessageDisplayName(message, isUser) {
+  const persistedName = getNonBlankAuthorName(message?.author_name);
+  if (persistedName) return persistedName;
+  if (isUser) return getCurrentUserDisplayName();
+  return getSelectedAssistantDisplayName();
+}
+
 function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   let attachmentHtml = "";
@@ -588,12 +609,12 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">You</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const pendingAgentName = state.selectedAgentName || "Assistant";
+  const pendingAgentName = getSelectedAssistantDisplayName();
   return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
@@ -606,7 +627,7 @@ function buildAssistantMessageArticle(content, displayBlocks = [], authorName = 
 
 function buildPendingAssistantRowForEvents(thinkingId) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const name = state.selectedAgentName || "Assistant";
+  const name = getSelectedAssistantDisplayName();
   return `
     <div class="message-row message-row-assistant" data-temporary-assistant="1" data-thinking-fallback="1">
       <div class="message-meta">
@@ -1335,7 +1356,7 @@ async function agentApiFor(agentId, path, options = {}) {
 }
 
 function defaultWelcomeMessage() {
-  const welcomeAgentName = state.selectedAgentName || "Assistant";
+  const welcomeAgentName = getSelectedAssistantDisplayName();
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
 }
 
@@ -2033,7 +2054,11 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     optimisticUserArticle.dataset.messageId = payload.user_message_id;
     delete optimisticUserArticle.dataset.optimisticUser;
   }
-  const assistantHtml = buildAssistantMessageArticle(payload.response || "", payload.display_blocks || [], state.selectedAgentName || "Assistant");
+  const assistantHtml = buildAssistantMessageArticle(
+    payload.response || "",
+    payload.display_blocks || [],
+    getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+  );
   dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
   if (mergedThinkingEvents.length) attachThinkingToLatestAssistant(mergedThinkingEvents);
   chatState.inflightThinking = null;
@@ -2128,7 +2153,9 @@ function decodeHtml(text) {
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
-    if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
+    if (event.target?.id === "tool-panel-body" || event.target?.id === "workspace-detail-content") {
+      initializeManagedSettingsPanels();
+    }
     renderIcons();
   });
 }
@@ -2476,7 +2503,7 @@ function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
 
   const sessionsBtn = document.getElementById("btn-sessions");
-  const assistantOnlyControls = [dom.selectedStatus, sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, dom.topSettings, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
+  const assistantOnlyControls = [dom.selectedStatus, sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
   assistantOnlyControls.forEach((el) => {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
@@ -2716,8 +2743,20 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
 
   if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {
     await refreshRuntimeProfileList({ preserveSelection: true });
-    if (state.activeNavSection === "runtime-profiles" && !state.secondaryPaneCollapsed && !state.selectedRuntimeProfileId) {
-      renderWorkspaceDetailPlaceholder("Select a runtime profile from the left sidebar.", "runtime-profiles-placeholder");
+    if (state.activeNavSection === "runtime-profiles" && !state.secondaryPaneCollapsed) {
+      const defaultProfile = state.runtimeProfiles.find((item) => item.is_default);
+      const preferredProfile = defaultProfile || state.runtimeProfiles[0] || null;
+      let targetProfileId = null;
+      if (didSwitchSection || didRevealPane) {
+        targetProfileId = preferredProfile ? preferredProfile.id : null;
+        state.selectedRuntimeProfileId = targetProfileId;
+      }
+
+      if (targetProfileId) {
+        await loadRuntimeProfilePanelContent(targetProfileId);
+      } else {
+        renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
+      }
     }
   }
 
@@ -2928,7 +2967,7 @@ function renderChatHistory(messages, metadata = {}) {
     header.className = `message-meta${isUser ? " message-meta-user" : ""}`;
     const roleLabel = document.createElement("span");
     roleLabel.className = "message-author";
-    roleLabel.textContent = message.author_name || (isUser ? "You" : (state.selectedAgentName || "Assistant"));
+    roleLabel.textContent = getHistoryMessageDisplayName(message, isUser);
     header.appendChild(roleLabel);
     if (timeStr) {
       const timeLabel = document.createElement("span");
@@ -3084,7 +3123,10 @@ async function loadServerFiles(path) {
       const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       return (
         `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+          `<label class="toggle-switch">` +
+            `<input type="checkbox" class="file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+            `<span class="toggle-slider"></span>` +
+          `</label>` +
           `<div class="portal-file-name-cell name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
             `<span class="portal-file-icon">${icon}</span>` +
             `<span class="portal-file-name">${escapeHtml(item.name)}</span>` +
@@ -3105,7 +3147,7 @@ async function loadServerFiles(path) {
           `</div>` +
         `</div>` +
         `<div class="portal-file-select-row">` +
-          `<input type="checkbox" id="sf-select-all"> <label for="sf-select-all">Select all</label>` +
+          `<label class="toggle-switch"><input type="checkbox" id="sf-select-all"><span class="toggle-slider"></span></label><label for="sf-select-all">Select all</label>` +
         `</div>` +
         `<div class="portal-panel-stack">${rows || '<div class="portal-inline-state">Empty directory</div>'}</div>` +
       `</div>`
@@ -3128,8 +3170,8 @@ async function loadServerFiles(path) {
       panel.querySelectorAll('.file-item').forEach(row => {
         row.addEventListener('click', (e) => {
           // Skip if clicking checkbox or name cell (name cell has dedicated handler)
-          if (e.target.type === 'checkbox' || e.target.closest('.name-cell')) {
-            if (e.target.type === 'checkbox') {
+          if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch') || e.target.closest('.name-cell')) {
+            if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch')) {
               updateDownloadButton(panel);
             }
             return;
@@ -3151,7 +3193,7 @@ async function loadServerFiles(path) {
           e.stopPropagation();
 
           // Skip if clicking checkbox
-          if (e.target.type === 'checkbox') {
+          if (e.target.type === 'checkbox' || e.target.closest('.toggle-switch')) {
             updateDownloadButton(panel);
             return;
           }
@@ -3480,14 +3522,41 @@ async function openMyUploads() {
 }
 
 
-function normalizeInstanceInputs(group) {
-  const container = dom.toolPanelBody?.querySelector(`[data-instance-container="${group}"]`);
-  const countInput = dom.toolPanelBody?.querySelector(`[data-instance-count="${group}"]`);
+const managedProviderModels = {
+  github_copilot: [
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-4.1", label: "GPT-4.1" },
+    { value: "gpt-5-mini", label: "GPT-5 mini" },
+    { value: "gpt-5.3-codex", label: "GPT-5.3-Codex" },
+    { value: "gpt-5.4", label: "GPT-5.4" },
+    { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
+    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  ],
+  openai: [
+    { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
+    { value: "gpt-4", label: "GPT-4" },
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-4.1", label: "GPT-4.1" },
+    { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+    { value: "gpt-5-mini", label: "GPT-5 mini" },
+    { value: "gpt-5", label: "GPT-5" },
+  ],
+  anthropic: [
+    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+    { value: "claude-haiku-4-20250514", label: "Claude Haiku 4" },
+    { value: "claude-opus-4-20250514", label: "Claude Opus 4" },
+  ],
+};
+const managedSettingsActionSelector = "[data-settings-action]";
+
+function normalizeInstanceInputs(root, group) {
+  const container = root?.querySelector(`[data-instance-container="${group}"]`);
+  const countInput = root?.querySelector(`[data-instance-count="${group}"]`);
   if (!container || !countInput) return;
 
   const items = Array.from(container.querySelectorAll(`[data-instance-item="${group}"]`));
   items.forEach((item, idx) => {
-    const title = item.querySelector("span");
+    const title = item.querySelector(".portal-settings-instance-title");
     if (title) title.textContent = `Instance ${idx + 1}`;
     item.querySelectorAll("input[data-field]").forEach((input) => {
       const field = input.dataset.field;
@@ -3497,8 +3566,8 @@ function normalizeInstanceInputs(group) {
   countInput.value = String(items.length);
 }
 
-function addInstanceRow(group) {
-  const container = dom.toolPanelBody?.querySelector(`[data-instance-container="${group}"]`);
+function addInstanceRow(root, group) {
+  const container = root?.querySelector(`[data-instance-container="${group}"]`);
   if (!container) return;
 
   const div = document.createElement("div");
@@ -3522,36 +3591,332 @@ function addInstanceRow(group) {
     <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API Token" class="portal-form-input" />${projectHtml}</div>
   `;
   container.append(div);
-  normalizeInstanceInputs(group);
+  normalizeInstanceInputs(root, group);
 
-  // Initialize password toggles for newly added inputs
-  if (window.initPasswordToggles) {
-    window.initPasswordToggles();
+  if (window.initPasswordToggles) window.initPasswordToggles(root);
+}
+
+window.initPasswordToggles = function(root = document) {
+  root.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach((input) => {
+    input.classList.add("pr-6", "password-toggle-initialized");
+    const wrapper = document.createElement("div");
+    wrapper.className = "relative";
+    input.parentNode.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.tabIndex = 0;
+    toggle.setAttribute("aria-label", "Toggle password visibility");
+    toggle.setAttribute("aria-pressed", "false");
+    toggle.className = "portal-password-toggle";
+    toggle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+    toggle.addEventListener("click", () => {
+      const visible = input.type === "password";
+      input.type = visible ? "text" : "password";
+      toggle.setAttribute("aria-pressed", visible ? "true" : "false");
+    });
+    wrapper.appendChild(toggle);
+  });
+};
+
+function getManagedCopilotState(root) {
+  if (!root.__managedCopilotState) root.__managedCopilotState = { authInterval: null, timerInterval: null };
+  return root.__managedCopilotState;
+}
+
+function stopCopilotPolling(root) {
+  const st = getManagedCopilotState(root);
+  if (st.authInterval) clearInterval(st.authInterval);
+  if (st.timerInterval) clearInterval(st.timerInterval);
+  st.authInterval = null;
+  st.timerInterval = null;
+}
+
+function getManagedCopilotAuthBase(root) {
+  return (root?.dataset?.copilotAuthBase || "").trim() || "/api/copilot/auth";
+}
+
+function getManagedGithubBaseUrl(root) {
+  const input = root?.querySelector('input[name="github_base_url"]');
+  return (input?.value || "").trim();
+}
+
+function finishCopilotAuthWithMessage(root, message) {
+  stopCopilotPolling(root);
+  const statusText = root?.querySelector("#copilot_status_text");
+  if (statusText) statusText.textContent = message || "Authorization failed";
+}
+
+function updateModelOptions(root) {
+  const providerSelect = root.querySelector("#llm_provider");
+  const modelSelect = root.querySelector("#llm_model");
+  if (!providerSelect || !modelSelect) return;
+  const provider = providerSelect.value || "openai";
+  const initialProvider = providerSelect.dataset.initialProvider || provider;
+  const initialValue = modelSelect.dataset.initialValue || modelSelect.dataset.currentValue || "";
+  const lastProvider = modelSelect.dataset.lastProvider || initialProvider;
+  const previousValue = modelSelect.value || "";
+  const models = managedProviderModels[provider] || [];
+  modelSelect.innerHTML = "";
+  models.forEach((model) => {
+    const option = document.createElement("option");
+    option.value = model.value;
+    option.textContent = model.label;
+    modelSelect.appendChild(option);
+  });
+  const hasModel = (value) => !!value && models.some((m) => m.value === value);
+
+  let preferred = "";
+  if (provider === initialProvider && lastProvider === initialProvider) {
+    preferred = initialValue;
+    if (preferred && !hasModel(preferred)) {
+      const extra = document.createElement("option");
+      extra.value = preferred;
+      extra.textContent = `${preferred} (Current)`;
+      modelSelect.appendChild(extra);
+    }
+  } else if (provider !== lastProvider) {
+    preferred = hasModel(previousValue) ? previousValue : (models[0]?.value || "");
+  } else {
+    preferred = hasModel(previousValue) ? previousValue : (models[0]?.value || "");
+  }
+  if (preferred) modelSelect.value = preferred;
+  if (!modelSelect.value && models[0]?.value) modelSelect.value = models[0].value;
+  modelSelect.dataset.currentValue = modelSelect.value || "";
+  modelSelect.dataset.lastProvider = provider;
+
+  const copilotBtn = root.querySelector("#copilot_auth_btn");
+  const authStatus = root.querySelector("#copilot_auth_status");
+  const isCopilot = provider === "github_copilot";
+  if (copilotBtn) copilotBtn.classList.toggle("hidden", !isCopilot);
+  if (authStatus && !isCopilot) authStatus.classList.add("hidden");
+  if (!isCopilot) stopCopilotPolling(root);
+}
+
+async function runManagedSettingsTest(root, target, button) {
+  const form = root.querySelector("form");
+  if (!form) return;
+  const testBase = root.dataset.testBase || "";
+  if (!testBase) return;
+  const resultEl = root.querySelector(`[data-test-result="${target}"]`);
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Testing...";
+  try {
+    const resp = await fetch(`${testBase}/${target}`, { method: "POST", body: new FormData(form) });
+    const data = await resp.json();
+    const ok = !!data.ok;
+    if (resultEl) {
+      resultEl.className = `portal-inline-state ${ok ? "is-success" : "is-error"}`;
+      resultEl.textContent = data.message || "";
+    }
+    showToast(data.message || `${target} test completed`);
+  } catch (error) {
+    if (resultEl) {
+      resultEl.className = "portal-inline-state is-error";
+      resultEl.textContent = safe(error.message);
+    }
+    showToast(`Test failed: ${safe(error.message)}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
   }
 }
 
+async function startCopilotAuth(root) {
+  const authStatus = root.querySelector("#copilot_auth_status");
+  const instructions = root.querySelector("#copilot_instructions");
+  const statusText = root.querySelector("#copilot_status_text");
+  const verifyLink = root.querySelector("#copilot_verify_link");
+  const deviceLink = root.querySelector("#copilot_device_link");
+  const userCode = root.querySelector("#copilot_user_code");
+  const timer = root.querySelector("#copilot_timer");
 
-function initializeSettingsPanel() {
-  const root = dom.toolPanelBody?.querySelector("#settings-panel-root");
-  if (!root || !dom.toolPanelBody?.querySelector("#settings-form")) return;
+  stopCopilotPolling(root);
+  const authBase = getManagedCopilotAuthBase(root);
+  const githubBaseUrl = getManagedGithubBaseUrl(root);
 
-  normalizeInstanceInputs("jira");
-  normalizeInstanceInputs("confluence");
+  try {
+    const response = await fetch(`${authBase}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ github_base_url: githubBaseUrl }),
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (_error) {
+      throw new Error("Authorization start failed: invalid response");
+    }
+    if (!response.ok || data.error) throw new Error(data.error || data.details || "Authorization start failed");
 
+    const requiredStartFields = ["auth_id", "device_code", "user_code", "verification_url"];
+    const missingStartFields = requiredStartFields.filter((field) => !data[field]);
+    if (missingStartFields.length > 0) {
+      throw new Error(`Authorization start failed: missing ${missingStartFields.join(", ")}`);
+    }
+
+    if (authStatus) authStatus.classList.remove("hidden");
+    if (instructions) instructions.classList.remove("hidden");
+    if (verifyLink) {
+      verifyLink.href = data.verification_url;
+      verifyLink.textContent = data.verification_url;
+    }
+    if (deviceLink) {
+      if (data.verification_complete_url) {
+        deviceLink.href = data.verification_complete_url;
+        deviceLink.classList.remove("hidden");
+      } else {
+        deviceLink.classList.add("hidden");
+      }
+    }
+    if (userCode) userCode.textContent = data.user_code || "";
+    if (statusText) statusText.textContent = "Waiting for authorization...";
+
+    let remaining = Number(data.expires_in || 600);
+    if (timer) timer.textContent = `${remaining}s`;
+    const st = getManagedCopilotState(root);
+    st.timerInterval = setInterval(() => {
+      remaining -= 1;
+      if (timer) timer.textContent = `${Math.max(remaining, 0)}s`;
+      if (remaining <= 0) {
+        finishCopilotAuthWithMessage(root, "Authorization timed out. Please start again.");
+      }
+    }, 1000);
+
+    st.authInterval = setInterval(async () => {
+      let checkResp;
+      try {
+        checkResp = await fetch(`${authBase}/check`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ auth_id: data.auth_id, device_code: data.device_code }),
+        });
+      } catch (error) {
+        finishCopilotAuthWithMessage(root, `Authorization check failed: ${safe(error.message)}`);
+        return;
+      }
+
+      let check = null;
+      try {
+        check = await checkResp.json();
+      } catch (_error) {
+        finishCopilotAuthWithMessage(root, "Authorization check failed: invalid response");
+        return;
+      }
+
+      if (!checkResp.ok) {
+        finishCopilotAuthWithMessage(
+          root,
+          check?.message || check?.details || check?.error || `Authorization check failed (HTTP ${checkResp.status})`,
+        );
+        return;
+      }
+
+      if (check?.error && !check?.status) {
+        finishCopilotAuthWithMessage(root, check.message || check.details || check.error);
+        return;
+      }
+
+      if (!check?.status) {
+        finishCopilotAuthWithMessage(root, "Authorization check failed: missing status");
+        return;
+      }
+
+      if (check.status === "pending") return;
+
+      if (check.status === "authorized") {
+        stopCopilotPolling(root);
+        if (statusText) statusText.textContent = "Authorized successfully!";
+        if (instructions) instructions.classList.add("hidden");
+        const apiInput = root.querySelector('input[name="llm_api_key"]');
+        if (apiInput && check.token) apiInput.value = check.token;
+        showToast("Copilot token inserted into API Key field. Save to persist.");
+      } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
+        finishCopilotAuthWithMessage(root, check.message || check.error || "Authorization failed");
+      } else {
+        finishCopilotAuthWithMessage(root, `Authorization check failed: unknown status ${safe(check.status)}`);
+      }
+    }, (Number(data.interval) || 5) * 1000);
+  } catch (error) {
+    showToast(`Copilot authorization failed: ${safe(error.message)}`);
+    finishCopilotAuthWithMessage(root, `Copilot authorization failed: ${safe(error.message)}`);
+  }
+}
+
+function initializeManagedSettingsRoot(root) {
+  if (!root) return;
+  normalizeInstanceInputs(root, "jira");
+  normalizeInstanceInputs(root, "confluence");
+  window.initPasswordToggles(root);
+  const provider = root.querySelector("#llm_provider");
+  const modelSelect = root.querySelector("#llm_model");
+  if (provider && !provider.dataset.initialProvider) provider.dataset.initialProvider = provider.value || "openai";
+  if (modelSelect && !modelSelect.dataset.initialValue) {
+    modelSelect.dataset.initialValue = modelSelect.dataset.currentValue || "";
+    modelSelect.dataset.lastProvider = provider?.value || "openai";
+  }
+  updateModelOptions(root);
+  const settingsStatus = root.querySelector("#settings-status");
+  if (settingsStatus && settingsStatus.dataset.handled !== "1") {
+    settingsStatus.dataset.handled = "1";
+    const kind = settingsStatus.dataset.settingsStatus || "";
+    const message = (settingsStatus.textContent || "").trim();
+    if (kind === "success" && message) {
+      showToast(message);
+      if (root.id === "settings-panel-root") closeToolPanel();
+    }
+    if (kind === "error" && typeof settingsStatus.focus === "function") settingsStatus.focus();
+  }
   if (root.dataset.actionsBound === "1") return;
   root.dataset.actionsBound = "1";
-
+  root.addEventListener("change", (event) => {
+    if (event.target?.id === "llm_provider") updateModelOptions(root);
+  });
   root.addEventListener("click", async (event) => {
-    const btn = event.target.closest("[data-settings-action]");
-    if (!btn) return;
-    event.preventDefault();
-
-    const agentId = root.dataset.agentId || state.selectedAgentId;
-    if (!agentId) {
-      showToast("Please select an assistant first");
+    const addBtn = event.target.closest('[data-action="add-instance"]');
+    if (addBtn) {
+      event.preventDefault();
+      addInstanceRow(root, addBtn.dataset.group || "jira");
       return;
     }
+    const removeBtn = event.target.closest('[data-action="remove-instance"]');
+    if (removeBtn) {
+      event.preventDefault();
+      const group = removeBtn.dataset.group || "jira";
+      removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
+      normalizeInstanceInputs(root, group);
+      return;
+    }
+    const testBtn = event.target.closest("[data-test-target]");
+    if (testBtn) {
+      event.preventDefault();
+      await runManagedSettingsTest(root, testBtn.dataset.testTarget, testBtn);
+      return;
+    }
+    if (event.target.closest("#copilot_auth_btn")) {
+      event.preventDefault();
+      await startCopilotAuth(root);
+      return;
+    }
+    if (event.target.closest("#copilot_copy_btn")) {
+      event.preventDefault();
+      const code = root.querySelector("#copilot_user_code")?.textContent || "";
+      if (code && navigator.clipboard) {
+        await navigator.clipboard.writeText(code);
+        showToast("Code copied!");
+      }
+    }
   });
+}
+
+function initializeManagedSettingsPanels() {
+  initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
+  initializeManagedSettingsRoot(document.getElementById("runtime-profile-panel-root"));
+}
+
+function initializeSettingsPanel() {
+  initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
 }
 
 async function openSettings() {
@@ -3712,15 +4077,23 @@ function renderRuntimeProfileList(errorMessage = "") {
   });
 }
 
-async function openRuntimeProfileInMain(profileId) {
+async function loadRuntimeProfilePanelContent(profileId) {
   if (!profileId) return;
-  await setActiveNavSection("runtime-profiles", { toggleIfSame: false });
   state.selectedRuntimeProfileId = profileId;
   renderRuntimeProfileList();
   await htmx.ajax("GET", `/app/runtime-profiles/${encodeURIComponent(profileId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
+  if (typeof initializeManagedSettingsPanels === "function") initializeManagedSettingsPanels();
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "runtime-profile-detail";
   syncMainHeader();
+}
+
+async function openRuntimeProfileInMain(profileId, { ensureSection = true } = {}) {
+  if (!profileId) return;
+  if (ensureSection) {
+    await setActiveNavSection("runtime-profiles", { toggleIfSame: false });
+  }
+  await loadRuntimeProfilePanelContent(profileId);
 }
 
 async function refreshRuntimeProfileList({ preserveSelection = true } = {}) {
@@ -4130,7 +4503,6 @@ function bindEvents() {
   });
   document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
 
-  dom.topSettings?.addEventListener("click", openSettings);
 
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");
@@ -4180,20 +4552,6 @@ function bindEvents() {
       return;
     }
 
-    const addBtn = event.target.closest('[data-action="add-instance"]');
-    if (addBtn) {
-      event.preventDefault();
-      addInstanceRow(addBtn.dataset.group || "jira");
-      return;
-    }
-
-    const removeBtn = event.target.closest('[data-action="remove-instance"]');
-    if (removeBtn) {
-      event.preventDefault();
-      const group = removeBtn.dataset.group || "jira";
-      removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
-      normalizeInstanceInputs(group);
-    }
   });
 
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
@@ -4843,7 +5201,7 @@ function loadSystemPromptConfig(agentId) {
       var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + labels[name] + '"' + disabledAttr + '>Edit</button>' : '';
       var item = document.createElement('div');
       item.className = 'portal-system-prompt-item';
-      item.innerHTML = '<label class="portal-checkbox-row"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span>' + labels[name] + '</span></label>' + editButton;
+      item.innerHTML = '<div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span class="toggle-slider"></span></label><span>' + labels[name] + '</span></div>' + editButton;
       items.appendChild(item);
     }
     
@@ -4909,7 +5267,7 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-labelledby', 'sp-editor-title');
-    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><label class="portal-checkbox-row"><input type="checkbox" id="sp-editor-enabled"><span>Enable custom prompt for this section</span></label><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
+    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-editor-enabled"><span class="toggle-slider"></span></label><span>Enable custom prompt for this section</span></div><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
     document.body.appendChild(modal);
 
     modal._keyHandler = function(e) {

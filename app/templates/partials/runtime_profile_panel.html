@@ -1,268 +1,77 @@
-<div class="portal-panel-stack" id="runtime-profile-panel-root" data-runtime-profile-id="{{ profile_id }}">
+<div class="portal-panel-stack" id="runtime-profile-panel-root" data-runtime-profile-id="{{ profile_id }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/runtime-profiles/{{ profile_id }}/test">
   <form id="runtime-profile-form" hx-post="/app/runtime-profiles/{{ profile_id }}/save" hx-target="#workspace-detail-content" hx-swap="innerHTML" class="portal-panel-stack">
     {% if status_message %}
-      <div
-        id="settings-status"
-        class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
-        data-settings-status="{{ status_type }}"
-        tabindex="-1"
-      >
-        {{ status_message }}
-      </div>
+      <div id="settings-status" class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}" data-settings-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
     {% endif %}
 
     <section class="portal-panel-section">
-      <div class="portal-settings-section-title">
-        <span class="portal-section-accent" aria-hidden="true"></span>
-        <h6>Runtime Profile Metadata</h6>
-      </div>
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Runtime Profile Metadata</h6></div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Name</span>
-          <input type="text" name="name" value="{{ profile_name }}" required class="portal-form-input" />
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">Description</span>
-          <input type="text" name="description" value="{{ profile_description }}" class="portal-form-input" />
-        </label>
+        <label class="portal-form-label"><span class="portal-form-label">Name</span><input type="text" name="name" value="{{ profile_name }}" required class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Description</span><input type="text" name="description" value="{{ profile_description }}" class="portal-form-input" /></label>
       </div>
-      <label class="portal-checkbox-row">
-        <input type="checkbox" name="is_default" {% if profile_is_default %}checked{% endif %}/>
-        <span>Default profile</span>
-      </label>
-      <div class="portal-inline-state">
-        Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong>
-      </div>
+      <div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="is_default" {% if profile_is_default %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Default profile</span></div>
+      <div class="portal-inline-state">Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong></div>
+      <div class="portal-inline-note">Changes here update a shared Runtime Profile and affect all bound agents.</div>
     </section>
 
-    <!-- Proxy Section -->
     <section class="portal-panel-section">
-      <div class="portal-settings-section-head">
-        <div class="portal-settings-section-title">
-          <span class="portal-section-accent" aria-hidden="true"></span>
-          <h6>Proxy</h6>
-        </div>
-        <div class="portal-checkbox-row">
-          <label class="toggle-switch"><input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
-          <span>Enabled</span>
-        </div>
-      </div>
-      <label class="portal-form-label">
-        <span class="portal-form-label">Proxy URL</span>
-        <input type="text" name="proxy_url" value="{{ proxy.get('url', '') }}" placeholder="http://proxy.example.com:8080" class="portal-form-input" />
-      </label>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Username</span>
-          <input type="text" name="proxy_username" value="{{ proxy.get('username', '') }}" placeholder="Optional" class="portal-form-input" />
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">Password</span>
-          <input type="password" name="proxy_password" value="{{ proxy.get('password', '') }}" placeholder="Optional" class="portal-form-input" />
-        </label>
-      </div>
+      <div class="portal-settings-section-head"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Proxy</h6></div><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Enabled</span></div></div>
+      <label class="portal-form-label"><span class="portal-form-label">Proxy URL</span><input type="text" name="proxy_url" value="{{ proxy.get('url', '') }}" placeholder="http://proxy.example.com:8080" class="portal-form-input" /></label>
+      <div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="proxy_username" value="{{ proxy.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="proxy_password" value="{{ proxy.get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label></div>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="proxy">Test Proxy</button><div class="portal-inline-state" data-test-result="proxy"></div></div>
     </section>
-    
-    <!-- LLM Model Section -->
+
     <section class="portal-panel-section">
-      <div class="portal-settings-section-title">
-        <span class="portal-section-accent" aria-hidden="true"></span>
-        <h6>LLM Model</h6>
-      </div>
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>LLM Model</h6></div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Provider</span>
-          <select name="llm_provider" id="llm_provider" class="portal-form-select">
-            <option value="openai" {{ 'selected' if llm.get('provider') == 'openai' else '' }}>OpenAI</option>
-            <option value="anthropic" {{ 'selected' if llm.get('provider') == 'anthropic' else '' }}>Anthropic</option>
-            <option value="github_copilot" {{ 'selected' if llm.get('provider') == 'github_copilot' else '' }}>GitHub Copilot</option>
-          </select>
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">Model</span>
-          <select name="llm_model" id="llm_model" class="portal-form-select">
-          </select>
-        </label>
+        <label class="portal-form-label"><span class="portal-form-label">Provider</span><select name="llm_provider" id="llm_provider" class="portal-form-select"><option value="openai" {{ 'selected' if llm.get('provider') == 'openai' else '' }}>OpenAI</option><option value="anthropic" {{ 'selected' if llm.get('provider') == 'anthropic' else '' }}>Anthropic</option><option value="github_copilot" {{ 'selected' if llm.get('provider') == 'github_copilot' else '' }}>GitHub Copilot</option></select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ llm.get('model', '') }}" data-initial-value="{{ llm.get('model', '') }}"></select></label>
       </div>
-      <label class="portal-form-label">
-        <span class="portal-form-label">API Key</span>
-        <input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="portal-form-input" />
-      </label>
-      
-      <!-- Authorize GitHub Copilot Button (shown only for github_copilot) -->
-      <button type="button" id="copilot_auth_btn" class="portal-btn is-secondary hidden">
-        Authorize GitHub Copilot
-      </button>
-      
-      <!-- Copilot Auth Status -->
-      <div id="copilot_auth_status" class="portal-form-input">
-        <div class="portal-settings-section-head">
-          <span class="portal-inline-note">Status:</span>
-          <span id="copilot_status_text" class="portal-inline-note">Not authorized</span>
-        </div>
+      <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="portal-form-input" /></label>
+      <button type="button" id="copilot_auth_btn" class="portal-btn is-secondary hidden">Authorize GitHub Copilot</button>
+      <div id="copilot_auth_status" class="portal-form-input hidden">
+        <div class="portal-settings-section-head"><span class="portal-inline-note">Status:</span><span id="copilot_status_text" class="portal-inline-note">Not authorized</span></div>
         <div id="copilot_instructions" class="hidden space-y-2">
           <p class="portal-inline-note">Step 1: Click the link below to authorize</p>
           <a id="copilot_verify_link" href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline"></a>
           <p class="portal-inline-note">Step 2: Copy this code</p>
-          <div class="flex items-center gap-2">
-            <span id="copilot_user_code" class="portal-detail-code"></span>
-            <button type="button" id="copilot_copy_btn" class="portal-btn is-secondary">Copy</button>
-          </div>
+          <div class="flex items-center gap-2"><span id="copilot_user_code" class="portal-detail-code"></span><button type="button" id="copilot_copy_btn" class="portal-btn is-secondary">Copy</button></div>
           <p class="portal-inline-note">Step 3: Click to complete authorization</p>
           <a id="copilot_device_link" href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all">Complete Authorization →</a>
-          <div class="flex items-center gap-2 mt-2">
-            <span id="copilot_timer" class="portal-inline-note"></span>
-          </div>
+          <div class="flex items-center gap-2 mt-2"><span id="copilot_timer" class="portal-inline-note"></span></div>
         </div>
       </div>
+      <div class="portal-inline-note">Authorization runs in Portal and fills the API key field only. Save to persist.</div>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="llm">Test LLM</button><div class="portal-inline-state" data-test-result="llm"></div></div>
     </section>
 
-    <!-- Jira Section -->
     <section class="portal-panel-section" data-instance-group="jira">
-      <div class="portal-settings-section-head">
-        <div class="portal-settings-section-title">
-          <span class="portal-section-accent" aria-hidden="true"></span>
-          <h6>Jira</h6>
-        </div>
-        <div class="portal-checkbox-row">
-          <label class="toggle-switch"><input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
-          <span>Enabled</span>
-        </div>
-      </div>
+      <div class="portal-settings-section-head"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Jira</h6></div><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Enabled</span></div></div>
       <input type="hidden" name="jira_instance_count" value="{{ jira_instances|length }}" data-instance-count="jira" />
-      <div class="space-y-2" data-instance-container="jira">
-        {% for inst in jira_instances %}
-          <div class="portal-settings-instance-card" data-instance-item="jira">
-            <div class="portal-settings-instance-head">
-              <span class="portal-settings-instance-title">Instance {{ loop.index }}</span>
-              <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="jira">Remove</button>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" />
-              <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="portal-form-input" />
-              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="portal-form-input" />
-              <input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="portal-form-input" />
-            </div>
-          </div>
-        {% endfor %}
-      </div>
+      <div class="space-y-2" data-instance-container="jira">{% for inst in jira_instances %}<div class="portal-settings-instance-card" data-instance-item="jira"><div class="portal-settings-instance-head"><span class="portal-settings-instance-title">Instance {{ loop.index }}</span><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="jira">Remove</button></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="portal-form-input" /><input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="portal-form-input" /></div></div>{% endfor %}</div>
       <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="jira">+ Add Jira Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="jira">Test Jira</button><div class="portal-inline-state" data-test-result="jira"></div></div>
     </section>
 
-    <!-- Confluence Section -->
     <section class="portal-panel-section" data-instance-group="confluence">
-      <div class="portal-settings-section-head">
-        <div class="portal-settings-section-title">
-          <span class="portal-section-accent" aria-hidden="true"></span>
-          <h6>Confluence</h6>
-        </div>
-        <div class="portal-checkbox-row">
-          <label class="toggle-switch"><input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
-          <span>Enabled</span>
-        </div>
-      </div>
+      <div class="portal-settings-section-head"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Confluence</h6></div><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Enabled</span></div></div>
       <input type="hidden" name="confluence_instance_count" value="{{ confluence_instances|length }}" data-instance-count="confluence" />
-      <div class="space-y-2" data-instance-container="confluence">
-        {% for inst in confluence_instances %}
-          <div class="portal-settings-instance-card" data-instance-item="confluence">
-            <div class="portal-settings-instance-head">
-              <span class="portal-settings-instance-title">Instance {{ loop.index }}</span>
-              <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="confluence">Remove</button>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" />
-              <input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="portal-form-input" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="portal-form-input" />
-              <input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="portal-form-input" />
-              <input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="portal-form-input" />
-            </div>
-          </div>
-        {% endfor %}
-      </div>
+      <div class="space-y-2" data-instance-container="confluence">{% for inst in confluence_instances %}<div class="portal-settings-instance-card" data-instance-item="confluence"><div class="portal-settings-instance-head"><span class="portal-settings-instance-title">Instance {{ loop.index }}</span><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="confluence">Remove</button></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="portal-form-input" /><input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="portal-form-input" /></div></div>{% endfor %}</div>
       <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="confluence">+ Add Confluence Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="confluence">Test Confluence</button><div class="portal-inline-state" data-test-result="confluence"></div></div>
     </section>
 
-    <!-- GitHub Section -->
     <section class="portal-panel-section">
-      <div class="portal-settings-section-head">
-        <div class="portal-settings-section-title">
-          <span class="portal-section-accent" aria-hidden="true"></span>
-          <h6>GitHub</h6>
-        </div>
-        <div class="portal-checkbox-row">
-          <label class="toggle-switch"><input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
-          <span>Enabled</span>
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">GitHub API Base URL</span>
-          <input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="portal-form-input" />
-          <span class="portal-form-hint">Leave blank to use the public GitHub API default.</span>
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">API Token</span>
-          <input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="portal-form-input" />
-        </label>
-      </div>
+      <div class="portal-settings-section-head"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>GitHub</h6></div><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Enabled</span></div></div>
+      <div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">GitHub API Base URL</span><input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="portal-form-input" /><span class="portal-form-hint">Leave blank to use the public GitHub API default.</span></label><label class="portal-form-label"><span class="portal-form-label">API Token</span><input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="portal-form-input" /></label></div>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="github">Test GitHub</button><div class="portal-inline-state" data-test-result="github"></div></div>
     </section>
 
-    <!-- Git Section -->
-    <section class="portal-panel-section">
-      <div class="portal-settings-section-title">
-        <span class="portal-section-accent" aria-hidden="true"></span>
-        <h6>Git</h6>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">User Name</span>
-          <input type="text" name="git_user_name" value="{{ git.get('user', {}).get('name', '') }}" class="portal-form-input" />
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">User Email</span>
-          <input type="text" name="git_user_email" value="{{ git.get('user', {}).get('email', '') }}" class="portal-form-input" />
-        </label>
-      </div>
-    </section>
+    <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Git</h6></div><div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">User Name</span><input type="text" name="git_user_name" value="{{ git.get('user', {}).get('name', '') }}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">User Email</span><input type="text" name="git_user_email" value="{{ git.get('user', {}).get('email', '') }}" class="portal-form-input" /></label></div></section>
 
-    <!-- Debug Section -->
-    <section class="portal-panel-section">
-      <div class="portal-settings-section-head">
-        <div class="portal-settings-section-title">
-          <span class="portal-section-accent" aria-hidden="true"></span>
-          <h6>Debug</h6>
-        </div>
-        <div class="portal-checkbox-row">
-          <label class="toggle-switch"><input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
-          <span>Enabled</span>
-        </div>
-      </div>
-      <label class="portal-form-label">
-        <span class="portal-form-label">Log Level</span>
-        <select name="debug_log_level" class="portal-form-select">
-          <option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option>
-          <option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option>
-          <option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option>
-          <option value="ERROR" {% if debug.get('log_level', 'INFO') == 'ERROR' %}selected{% endif %}>ERROR</option>
-        </select>
-      </label>
-    </section>
+    <section class="portal-panel-section"><div class="portal-settings-section-head"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Debug</h6></div><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Enabled</span></div></div><label class="portal-form-label"><span class="portal-form-label">Log Level</span><select name="debug_log_level" class="portal-form-select"><option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option><option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option><option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option><option value="ERROR" {% if debug.get('log_level', 'INFO') == 'ERROR' %}selected{% endif %}>ERROR</option></select></label></section>
 
-    <div class="flex items-center gap-2">
-      <button type="submit" class="portal-btn is-primary">Save Settings</button>
-      <button type="button" class="portal-btn" data-delete-runtime-profile="{{ profile_id }}">Delete Runtime Profile</button>
-    </div>
+    <div class="flex items-center gap-2"><button type="submit" class="portal-btn is-primary">Save Settings</button><button type="button" class="portal-btn" data-delete-runtime-profile="{{ profile_id }}">Delete Runtime Profile</button></div>
   </form>
-
 </div>

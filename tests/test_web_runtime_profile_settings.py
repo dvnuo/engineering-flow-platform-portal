@@ -131,6 +131,7 @@ def test_settings_save_uses_db_profile_as_merge_base_and_sanitizes(monkeypatch):
         saved = json.loads(rp.config_json)
         assert rp.revision == 2
         assert saved["llm"]["provider"] == "anthropic"
+        assert saved["llm"]["max_tokens"] == 1000
         assert "ssh" not in saved
     finally:
         cleanup()
@@ -325,5 +326,26 @@ def test_task_detail_panel_shows_bundle_and_dedupe_metadata(monkeypatch):
         assert "Bundle ID" in resp.text
         assert "Dedupe Key" in resp.text
         assert "github:issue:octo/portal:7" in resp.text
+def test_settings_test_endpoint_does_not_mutate_profile(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, config={"llm": {"provider": "openai", "model": "gpt-4o"}}, revision=7)
+
+        async def _fake_test(_target, _config):
+            return False, "expected failure"
+
+        monkeypatch.setattr("app.web.runtime_profile_test_service.run_test", _fake_test)
+        before = rp.config_json
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/test/llm",
+            data={"llm_provider": "openai", "llm_model": "gpt-4.1"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is False
+        assert body["target"] == "llm"
+        db.refresh(rp)
+        assert rp.revision == 7
+        assert rp.config_json == before
     finally:
         cleanup()

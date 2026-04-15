@@ -74,6 +74,7 @@ def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "123"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Alice"
+    assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
     assert captured["headers"] == {"content-type": "application/json"}
 
 
@@ -142,6 +143,7 @@ def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
     assert forwarded_payload["metadata"]["policy_profile_id"] == "pol-web"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "456"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Bob"
+    assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
 
 
 def test_app_chat_send_succeeds_with_standard_portal_identity_headers_only(monkeypatch):

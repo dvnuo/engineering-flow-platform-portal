@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import RuntimeProfile, User
+from app.models import Agent, RuntimeProfile, User
 
 
 def _build_client(monkeypatch):
@@ -25,6 +25,23 @@ def _build_client(monkeypatch):
 
     rp = RuntimeProfile(owner_user_id=owner.id, name="Default", description="d", config_json=json.dumps({"llm": {"provider": "openai"}}), revision=1, is_default=True)
     db.add(rp); db.commit(); db.refresh(rp)
+    running = Agent(
+        name="runner",
+        owner_user_id=owner.id,
+        runtime_profile_id=rp.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp",
+        deployment_name="dep",
+        service_name="svc",
+        pvc_name="pvc",
+        endpoint_path="/",
+        agent_type="workspace",
+    )
+    db.add(running); db.commit(); db.refresh(running)
 
     state = {"user": owner}
     monkeypatch.setattr(web_module, "SessionLocal", TestingSessionLocal)
@@ -45,15 +62,20 @@ def _build_client(monkeypatch):
     def _cleanup():
         db.close()
 
-    return TestClient(app), db, owner, other, rp, _set_user, _cleanup
+    return TestClient(app), db, owner, other, rp, running, _set_user, _cleanup
 
 
 def test_runtime_profile_panel_owner_only(monkeypatch):
-    client, _db, owner, other, rp, set_user, cleanup = _build_client(monkeypatch)
+    client, _db, owner, other, rp, running, set_user, cleanup = _build_client(monkeypatch)
     try:
         ok = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert ok.status_code == 200
         assert "Runtime Profile Metadata" in ok.text
+        assert 'data-copilot-auth-base="/api/copilot/auth"' in ok.text
+        assert 'data-copilot-agent-id=' not in ok.text
+        assert 'Copilot auth proxy' not in ok.text
+        assert f'data-test-base=\"/app/runtime-profiles/{rp.id}/test\"' in ok.text
+        assert "data-current-value=" in ok.text
 
         set_user(other)
         deny = client.get(f"/app/runtime-profiles/{rp.id}/panel")
@@ -63,7 +85,7 @@ def test_runtime_profile_panel_owner_only(monkeypatch):
 
 
 def test_runtime_profile_save_updates_and_triggers(monkeypatch):
-    client, db, owner, _other, rp, _set_user, cleanup = _build_client(monkeypatch)
+    client, db, owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
         resp = client.post(
             f"/app/runtime-profiles/{rp.id}/save",
@@ -73,6 +95,12 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
                 "is_default": "on",
                 "llm_provider": "anthropic",
                 "llm_model": "claude-sonnet-4",
+                "proxy_enabled": "",
+                "proxy_url": "",
+                "proxy_username": "",
+                "proxy_password": "",
+                "github_enabled": "",
+                "github_base_url": "",
             },
         )
         assert resp.status_code == 200
@@ -84,5 +112,9 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert rp.revision == 2
         saved = json.loads(rp.config_json)
         assert saved["llm"]["provider"] == "anthropic"
+        assert saved["llm"]["max_tokens"] == 1000
+        assert "api_key" not in saved["llm"]
+        assert "base_url" not in saved.get("github", {})
+        assert "password" not in saved.get("proxy", {})
     finally:
         cleanup()

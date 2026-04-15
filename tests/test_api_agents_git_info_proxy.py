@@ -13,6 +13,7 @@ def test_git_info_injects_trusted_portal_identity_headers(monkeypatch):
         owner_user_id=88,
         visibility="private",
         status="running",
+        name="Agent One",
     )
 
     def _override_user():
@@ -50,4 +51,5 @@ def test_git_info_injects_trusted_portal_identity_headers(monkeypatch):
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "88",
         "X-Portal-User-Name": "Owner",
+        "X-Portal-Agent-Name": "Agent One",
     }
