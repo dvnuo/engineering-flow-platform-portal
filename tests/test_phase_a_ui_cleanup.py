@@ -410,3 +410,19 @@ def test_frontend_assets_and_templates_are_syntax_valid():
     for template_path in Path("app/templates").rglob("*.html"):
         rel_path = str(template_path.relative_to("app/templates"))
         env.get_template(rel_path)
+
+
+def test_server_files_uses_native_checkboxes_not_toggle_switches():
+    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    load_start = js_source.index("async function loadServerFiles(path) {")
+    load_end = js_source.index("async function uploadToServerFiles(targetPath) {")
+    block = js_source[load_start:load_end]
+
+    assert "portal-file-checkbox" in block
+    assert 'id="sf-select-all"' in block
+    assert "toggle-switch" not in block
+    assert "toggle-slider" not in block
+    assert "closest('.toggle-switch')" not in block
+
+    css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert ".portal-file-checkbox" in css_source
