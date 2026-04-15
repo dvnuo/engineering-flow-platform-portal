@@ -1,4 +1,4 @@
-<div class="portal-panel-stack" id="runtime-profile-panel-root" data-runtime-profile-id="{{ profile_id }}" data-copilot-agent-id="{{ copilot_proxy_agent_id or '' }}" data-test-base="/app/runtime-profiles/{{ profile_id }}/test">
+<div class="portal-panel-stack" id="runtime-profile-panel-root" data-runtime-profile-id="{{ profile_id }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/runtime-profiles/{{ profile_id }}/test">
   <form id="runtime-profile-form" hx-post="/app/runtime-profiles/{{ profile_id }}/save" hx-target="#workspace-detail-content" hx-swap="innerHTML" class="portal-panel-stack">
     {% if status_message %}
       <div id="settings-status" class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}" data-settings-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
@@ -42,7 +42,7 @@
           <div class="flex items-center gap-2 mt-2"><span id="copilot_timer" class="portal-inline-note"></span></div>
         </div>
       </div>
-      {% if copilot_proxy_agent_hint %}<div class="portal-inline-note">{{ copilot_proxy_agent_hint }}</div>{% endif %}
+      <div class="portal-inline-note">Authorization runs in Portal and fills the API key field only. Save to persist.</div>
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="llm">Test LLM</button><div class="portal-inline-state" data-test-result="llm"></div></div>
     </section>
 

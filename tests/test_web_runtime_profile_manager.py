@@ -71,7 +71,9 @@ def test_runtime_profile_panel_owner_only(monkeypatch):
         ok = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert ok.status_code == 200
         assert "Runtime Profile Metadata" in ok.text
-        assert f'data-copilot-agent-id=\"{running.id}\"' in ok.text
+        assert 'data-copilot-auth-base="/api/copilot/auth"' in ok.text
+        assert 'data-copilot-agent-id=' not in ok.text
+        assert 'Copilot auth proxy' not in ok.text
         assert f'data-test-base=\"/app/runtime-profiles/{rp.id}/test\"' in ok.text
         assert "data-current-value=" in ok.text
 

@@ -3606,6 +3606,15 @@ function stopCopilotPolling(root) {
   st.timerInterval = null;
 }
 
+function getManagedCopilotAuthBase(root) {
+  return (root?.dataset?.copilotAuthBase || "").trim() || "/api/copilot/auth";
+}
+
+function getManagedGithubBaseUrl(root) {
+  const input = root?.querySelector('input[name="github_base_url"]');
+  return (input?.value || "").trim();
+}
+
 function updateModelOptions(root) {
   const providerSelect = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
@@ -3683,11 +3692,6 @@ async function runManagedSettingsTest(root, target, button) {
 }
 
 async function startCopilotAuth(root) {
-  const agentId = (root.dataset.copilotAgentId || "").trim() || state.selectedAgentId;
-  if (!agentId) {
-    showToast("Copilot authorization requires a running agent proxy. Start a running agent and try again.");
-    return;
-  }
   const authStatus = root.querySelector("#copilot_auth_status");
   const instructions = root.querySelector("#copilot_instructions");
   const statusText = root.querySelector("#copilot_status_text");
@@ -3695,45 +3699,74 @@ async function startCopilotAuth(root) {
   const deviceLink = root.querySelector("#copilot_device_link");
   const userCode = root.querySelector("#copilot_user_code");
   const timer = root.querySelector("#copilot_timer");
+
+  stopCopilotPolling(root);
+  const authBase = getManagedCopilotAuthBase(root);
+  const githubBaseUrl = getManagedGithubBaseUrl(root);
+
   try {
-    const response = await fetch(`/a/${agentId}/api/copilot/auth/start`, { method: "POST" });
+    const response = await fetch(`${authBase}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ github_base_url: githubBaseUrl }),
+    });
     const data = await response.json();
-    if (data.error) throw new Error(data.error);
+    if (!response.ok || data.error) throw new Error(data.error || data.details || "Authorization start failed");
+
     if (authStatus) authStatus.classList.remove("hidden");
     if (instructions) instructions.classList.remove("hidden");
-    if (verifyLink) { verifyLink.href = data.verification_url; verifyLink.textContent = data.verification_url; }
+    if (verifyLink) {
+      verifyLink.href = data.verification_url;
+      verifyLink.textContent = data.verification_url;
+    }
     if (deviceLink) {
-      if (data.verification_complete_url) { deviceLink.href = data.verification_complete_url; deviceLink.classList.remove("hidden"); }
-      else deviceLink.classList.add("hidden");
+      if (data.verification_complete_url) {
+        deviceLink.href = data.verification_complete_url;
+        deviceLink.classList.remove("hidden");
+      } else {
+        deviceLink.classList.add("hidden");
+      }
     }
     if (userCode) userCode.textContent = data.user_code || "";
     if (statusText) statusText.textContent = "Waiting for authorization...";
+
     let remaining = Number(data.expires_in || 600);
+    if (timer) timer.textContent = `${remaining}s`;
     const st = getManagedCopilotState(root);
-    stopCopilotPolling(root);
     st.timerInterval = setInterval(() => {
       remaining -= 1;
-      if (timer) timer.textContent = `${remaining}s`;
-      if (remaining <= 0) stopCopilotPolling(root);
-    }, 1000);
-    st.authInterval = setInterval(async () => {
-      const checkResp = await fetch(`/a/${agentId}/api/copilot/auth/check`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auth_id: data.auth_id, device_code: data.device_code }),
-      });
-      const check = await checkResp.json();
-      if (check.status === "authorized") {
+      if (timer) timer.textContent = `${Math.max(remaining, 0)}s`;
+      if (remaining <= 0) {
         stopCopilotPolling(root);
-        if (statusText) statusText.textContent = "Authorized successfully!";
-        if (instructions) instructions.classList.add("hidden");
-        const apiInput = root.querySelector('input[name="llm_api_key"]');
-        if (apiInput && check.token) apiInput.value = check.token;
-      } else if (check.status === "failed" || check.status === "expired") {
-        stopCopilotPolling(root);
-        if (statusText) statusText.textContent = check.message || check.error || "Authorization failed";
+        if (statusText) statusText.textContent = "Authorization timed out. Please start again.";
       }
-    }, 3000);
+    }, 1000);
+
+    st.authInterval = setInterval(async () => {
+      try {
+        const checkResp = await fetch(`${authBase}/check`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ auth_id: data.auth_id, device_code: data.device_code }),
+        });
+        const check = await checkResp.json();
+
+        if (check.status === "authorized") {
+          stopCopilotPolling(root);
+          if (statusText) statusText.textContent = "Authorized successfully!";
+          if (instructions) instructions.classList.add("hidden");
+          const apiInput = root.querySelector('input[name="llm_api_key"]');
+          if (apiInput && check.token) apiInput.value = check.token;
+          showToast("Copilot token inserted into API Key field. Save to persist.");
+        } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
+          stopCopilotPolling(root);
+          if (statusText) statusText.textContent = check.message || check.error || "Authorization failed";
+        }
+      } catch (error) {
+        stopCopilotPolling(root);
+        if (statusText) statusText.textContent = `Authorization check failed: ${safe(error.message)}`;
+      }
+    }, (Number(data.interval) || 5) * 1000);
   } catch (error) {
     showToast(`Copilot authorization failed: ${safe(error.message)}`);
   }
