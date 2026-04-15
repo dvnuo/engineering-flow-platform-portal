@@ -49,12 +49,15 @@ def test_normalize_github_api_base_url_cases():
     assert normalize_github_api_base_url("") == "https://api.github.com"
     assert normalize_github_api_base_url(None) == "https://api.github.com"
     assert normalize_github_api_base_url("https://github.com") == "https://api.github.com"
-    assert normalize_github_api_base_url("www.github.com") == "https://api.github.com"
     assert normalize_github_api_base_url("https://api.github.com/") == "https://api.github.com"
     assert normalize_github_api_base_url("https://github.company.com") == "https://github.company.com/api/v3"
     assert normalize_github_api_base_url("https://github.company.com/api/v3/") == "https://github.company.com/api/v3"
     assert normalize_github_api_base_url("github.company.com:8443") == "https://github.company.com:8443/api/v3"
     assert normalize_github_api_base_url("http://github.company.com") == "https://github.company.com/api/v3"
+    assert normalize_github_api_base_url("https://github.com:443") == "https://api.github.com"
+    assert normalize_github_api_base_url("https://api.github.com:443") == "https://api.github.com"
+    assert normalize_github_api_base_url("www.github.com") == "https://www.github.com/api/v3"
+    assert normalize_github_api_base_url("https://WWW.GITHUB.COM") == "https://www.github.com/api/v3"
 
 
 def test_start_uses_normalized_public_base(monkeypatch):
@@ -197,3 +200,45 @@ def test_start_fails_when_github_payload_missing_device_code(monkeypatch):
     assert payload["error"] == "GitHub authorization start failed"
     assert "device_code" in payload["details"]
     assert len(svc_module._pending_authorizations) == 0
+
+
+def test_start_uses_normalized_public_base_for_github_dot_com_with_port(monkeypatch):
+    calls = []
+
+    def _factory(_url, _headers, _json):
+        return _FakeResponse(201, {
+            "device_code": "d-port-1",
+            "user_code": "u-port-1",
+            "verification_uri": "https://github.com/login/device",
+            "verification_uri_complete": "https://github.com/login/device?x=port1",
+            "expires_in": 900,
+            "interval": 5,
+        })
+
+    monkeypatch.setattr(svc_module.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(calls, _factory))
+    service = CopilotAuthService()
+
+    status, _payload = asyncio.run(service.start_authorization("u", "https://github.com:443"))
+    assert status == 200
+    assert calls[0]["url"] == "https://api.github.com/copilot/token_verification"
+
+
+def test_start_uses_normalized_public_base_for_api_github_with_port(monkeypatch):
+    calls = []
+
+    def _factory(_url, _headers, _json):
+        return _FakeResponse(201, {
+            "device_code": "d-port-2",
+            "user_code": "u-port-2",
+            "verification_uri": "https://github.com/login/device",
+            "verification_uri_complete": "https://github.com/login/device?x=port2",
+            "expires_in": 900,
+            "interval": 5,
+        })
+
+    monkeypatch.setattr(svc_module.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(calls, _factory))
+    service = CopilotAuthService()
+
+    status, _payload = asyncio.run(service.start_authorization("u", "https://api.github.com:443"))
+    assert status == 200
+    assert calls[0]["url"] == "https://api.github.com/copilot/token_verification"
