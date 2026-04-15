@@ -5,6 +5,7 @@ import asyncio
 
 from app.services.proxy_service import (
     ProxyService,
+    build_portal_agent_identity_headers,
     build_portal_identity_fields,
     build_portal_identity_headers,
     sanitize_header_value,
@@ -135,6 +136,7 @@ def test_proxy_service_forward_includes_safe_extra_headers(monkeypatch):
         extra_headers={
             "x-portal-user-id": "42",
             "x-portal-user-name": "Taylor 😀",
+            "X-Portal-Agent-Name": "Agent One",
             "X-Portal-Author-Source": "portal",
             "Content-Type": "text/plain",
             "Host": "evil.example",
@@ -146,6 +148,7 @@ def test_proxy_service_forward_includes_safe_extra_headers(monkeypatch):
     assert captured["headers"] == {
         "content-type": "application/json",
         "X-Portal-Author-Source": "portal",
+        "X-Portal-Agent-Name": "Agent One",
         "X-Portal-User-Id": "42",
         "X-Portal-User-Name": "Taylor",
     }
@@ -190,6 +193,33 @@ def test_build_portal_identity_headers_falls_back_to_sanitized_username():
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "123",
         "X-Portal-User-Name": "alice",
+    }
+
+
+def test_build_portal_agent_identity_headers_adds_sanitized_agent_name():
+    user = SimpleNamespace(id=123, username="alice", nickname="Alice")
+    agent = SimpleNamespace(name=" Agent\r\nName ")
+
+    headers = build_portal_agent_identity_headers(user, agent)
+
+    assert headers == {
+        "X-Portal-Author-Source": "portal",
+        "X-Portal-User-Id": "123",
+        "X-Portal-User-Name": "Alice",
+        "X-Portal-Agent-Name": "AgentName",
+    }
+
+
+def test_build_portal_agent_identity_headers_omits_empty_agent_name():
+    user = SimpleNamespace(id=123, username="alice", nickname="Alice")
+    agent = SimpleNamespace(name=" \r\n\t ")
+
+    headers = build_portal_agent_identity_headers(user, agent)
+
+    assert headers == {
+        "X-Portal-Author-Source": "portal",
+        "X-Portal-User-Id": "123",
+        "X-Portal-User-Name": "Alice",
     }
 
 

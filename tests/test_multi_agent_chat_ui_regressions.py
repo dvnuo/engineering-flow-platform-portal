@@ -95,6 +95,7 @@ def test_selected_agent_hidden_success_notifies_and_merges_events():
     update_session = _extract_js_function(js_file, "updateAgentSession")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
     merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
     handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
 
     script = f"""
@@ -131,6 +132,7 @@ function loadSessionForAgent() {{ throw new Error("should not reload"); }}
 {update_session}
 {set_submitting}
 {merge_events}
+{get_selected_assistant_display_name}
 {handle_success}
 const chatState = ensureChatState("agent-A");
 chatState.activeRequest = {{ clientRequestId: "req-a" }};
@@ -361,6 +363,9 @@ def test_render_chat_history_rebuilds_attachment_history_for_selected_agent():
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
+    get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
+    get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
     render_history = _extract_js_function(js_file, "renderChatHistory")
 
     script = f"""
@@ -392,6 +397,9 @@ const document = {{
     }};
   }},
 }};
+{get_current_user_display_name}
+{get_selected_assistant_display_name}
+{get_history_message_display_name}
 {render_history}
 renderChatHistory([
   {{ role: "user", content: "u1", attachments: ["file-1"] }},
@@ -449,6 +457,149 @@ console.log(JSON.stringify({{
     data = json.loads(completed.stdout)
     assert data["attachmentHistory"] == []
     assert data["messageListHtml"] == "WELCOME"
+
+
+def test_build_user_message_article_uses_current_user_display_name():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
+    build_user_message_article = _extract_js_function(js_file, "buildUserMessageArticle")
+
+    script = f"""
+const state = {{ currentUserName: "Alice" }};
+function safe(value) {{ return String(value || ""); }}
+function escapeHtml(value) {{ return String(value || ""); }}
+function escapeHtmlAttr(value) {{ return String(value || ""); }}
+{get_current_user_display_name}
+{build_user_message_article}
+const html = buildUserMessageArticle("hello", []);
+console.log(JSON.stringify({{ html }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert 'message-author">Alice<' in data["html"]
+
+
+def test_render_chat_history_prefers_author_name_for_user_and_assistant():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
+    get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
+    get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
+    render_history = _extract_js_function(js_file, "renderChatHistory")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  selectedAgentName: "Agent A",
+  currentUserName: "Portal User",
+  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+}};
+const appendedRows = [];
+const dom = {{
+  messageList: {{
+    innerHTML: "",
+    appendChild(node) {{ appendedRows.push(node); }},
+  }},
+}};
+function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
+function clearMessageListToWelcome() {{}}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function attachThinkingToLatestAssistant() {{}}
+function scrollToBottom() {{}}
+function isTrackableThinkingEvent() {{ return false; }}
+const document = {{
+  createElement(tag) {{
+    return {{
+      tag,
+      className: "",
+      dataset: {{}},
+      textContent: "",
+      children: [],
+      appendChild(child) {{ this.children.push(child); }},
+    }};
+  }},
+}};
+{get_current_user_display_name}
+{get_selected_assistant_display_name}
+{get_history_message_display_name}
+{render_history}
+renderChatHistory([
+  {{ role: "user", content: "u", author_name: "Alice" }},
+  {{ role: "assistant", content: "a", author_name: "Portal Agent" }},
+], {{}});
+const authorLabels = appendedRows.map((row) => row.children[0].children[0].textContent);
+console.log(JSON.stringify({{ authorLabels }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["authorLabels"] == ["Alice", "Portal Agent"]
+
+
+def test_render_chat_history_assistant_falls_back_to_selected_agent_name():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
+    get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
+    get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
+    render_history = _extract_js_function(js_file, "renderChatHistory")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  selectedAgentName: "Agent A",
+  currentUserName: "Portal User",
+  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+}};
+const appendedRows = [];
+const dom = {{
+  messageList: {{
+    innerHTML: "",
+    appendChild(node) {{ appendedRows.push(node); }},
+  }},
+}};
+function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
+function clearMessageListToWelcome() {{}}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function attachThinkingToLatestAssistant() {{}}
+function scrollToBottom() {{}}
+function isTrackableThinkingEvent() {{ return false; }}
+const document = {{
+  createElement(tag) {{
+    return {{
+      tag,
+      className: "",
+      dataset: {{}},
+      textContent: "",
+      children: [],
+      appendChild(child) {{ this.children.push(child); }},
+    }};
+  }},
+}};
+{get_current_user_display_name}
+{get_selected_assistant_display_name}
+{get_history_message_display_name}
+{render_history}
+renderChatHistory([
+  {{ role: "assistant", content: "a" }},
+], {{}});
+const authorLabel = appendedRows[0].children[0].children[0].textContent;
+console.log(JSON.stringify({{ authorLabel }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["authorLabel"] == "Agent A"
 
 
 def test_ensure_event_socket_for_selected_agent_uses_active_request_id():
