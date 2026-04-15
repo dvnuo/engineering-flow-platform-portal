@@ -137,7 +137,7 @@ def test_ingest_no_matching_subscription_returns_rejected():
         assert response.status_code == 200
         body = response.json()
         assert body["accepted"] is False
-        assert body["routing_reason"] == "no_matching_subscription"
+        assert body["routing_reason"] == "no_matching_subscription_for_trigger_mode"
         assert body["created_task_id"] is None
     finally:
         cleanup()
@@ -179,7 +179,7 @@ def test_internal_ingest_reuses_routing_flow():
         assert response.status_code == 200
         body = response.json()
         assert body["accepted"] is False
-        assert body["routing_reason"] == "no_matching_subscription"
+        assert body["routing_reason"] == "no_matching_subscription_for_trigger_mode"
     finally:
         cleanup()
 
@@ -277,6 +277,7 @@ def test_ingest_rejects_when_external_system_not_allowed():
             agent_id=agent.id,
             source_type="github",
             event_type="pull_request_review_requested",
+            mode="push",
             enabled=True,
         )
         AgentIdentityBindingRepository(db).create(
@@ -320,6 +321,7 @@ def test_ingest_rejects_when_webhook_trigger_not_allowed():
             agent_id=agent.id,
             source_type="github",
             event_type="pull_request_review_requested",
+            mode="push",
             enabled=True,
         )
         AgentIdentityBindingRepository(db).create(
@@ -966,7 +968,7 @@ def test_target_ref_filtering_blocks_non_matching_target():
         )
         assert response.status_code == 200
         assert response.json()["accepted"] is False
-        assert response.json()["routing_reason"] == "no_matching_subscription"
+        assert response.json()["routing_reason"] == "no_matching_subscription_for_trigger_mode"
     finally:
         cleanup()
 
@@ -982,11 +984,17 @@ def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
             event_type="manual_trigger",
             enabled=True,
         )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="portal",
+            external_account_id="acct-5",
+            enabled=True,
+        )
 
         calls = []
 
-        def _fake_resolve_binding_decision_for_event(system_type: str, external_account_id: str, db: Session):
-            calls.append((system_type, external_account_id))
+        def _fake_resolve_agent_decision_for_event(*, agent_id: str, db: Session, reason: str = "matched_enabled_binding"):
+            calls.append((agent_id, reason))
             return RuntimeRoutingDecisionResponse(
                 matched_agent_id=agent.id,
                 matched_agent_type="workspace",
@@ -999,8 +1007,8 @@ def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
 
         monkeypatch.setattr(
             ingress_api.service.runtime_router,
-            "resolve_binding_decision_for_event",
-            _fake_resolve_binding_decision_for_event,
+            "resolve_agent_decision_for_event",
+            _fake_resolve_agent_decision_for_event,
         )
 
         response = client.post(
@@ -1013,7 +1021,7 @@ def test_runtime_router_is_used_for_agent_resolution(monkeypatch):
         )
         assert response.status_code == 200
         assert response.json()["accepted"] is True
-        assert calls == [("portal", "acct-5")]
+        assert calls == [(agent.id, "matched_enabled_binding")]
     finally:
         cleanup()
 
@@ -1501,6 +1509,57 @@ def test_github_provider_webhook_review_requested_routes_to_existing_router(monk
         cleanup()
 
 
+def test_github_provider_webhook_review_requested_routes_via_binding_username_fallback():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    original_secret = None
+    original_allow_insecure = None
+    try:
+        import app.api.provider_webhooks as provider_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            target_ref="octo/portal",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="gh-canonical-1",
+            username="alice",
+            enabled=True,
+        )
+        original_secret = provider_api.settings.github_webhook_secret
+        original_allow_insecure = provider_api.settings.allow_insecure_provider_webhooks
+        provider_api.settings.github_webhook_secret = ""
+        provider_api.settings.allow_insecure_provider_webhooks = True
+
+        response = client.post(
+            "/api/webhooks/github",
+            json={
+                "action": "review_requested",
+                "pull_request": {"number": 15, "head": {"sha": "abc123"}},
+                "repository": {"name": "portal", "owner": {"login": "octo"}},
+                "requested_reviewer": {"login": "alice"},
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["resolved_task_type"] == "github_review_task"
+        created_task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
+        assert created_task is not None
+        assert created_task.assignee_agent_id == agent.id
+    finally:
+        if original_secret is not None:
+            import app.api.provider_webhooks as provider_api
+
+            provider_api.settings.github_webhook_secret = original_secret
+            provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
+        cleanup()
+
+
 def test_github_provider_webhook_invalid_signature_returns_401(monkeypatch):
     client, _db, _agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
     original_secret = None
@@ -1656,4 +1715,650 @@ def test_provider_webhooks_return_503_when_secrets_are_unset_by_default():
             provider_api.settings.github_webhook_secret = original_gh_secret
             provider_api.settings.jira_webhook_shared_secret = original_jira_secret
             provider_api.settings.allow_insecure_provider_webhooks = original_allow_insecure
+        cleanup()
+
+
+def test_github_review_ingest_populates_triggered_work_metadata():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-meta",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acct-meta",
+                "target_ref": "octo/portal",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":42,"reviewer":"alice","head_sha":"sha999"}',
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["accepted"] is True
+
+        task = AgentTaskRepository(db).list_all()[0]
+        assert task.task_family == "triggered_work"
+        assert task.provider == "github"
+        assert task.trigger == "pull_request_review_requested"
+        assert task.bundle_id == "github:pr:octo/portal:42"
+        assert task.version_key == "sha999"
+        assert task.dedupe_key
+    finally:
+        cleanup()
+
+
+def test_generic_mention_creates_queued_task_without_auto_dispatch():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="mention",
+            mode="push",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-mention",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "mention",
+                "external_account_id": "acct-mention",
+                "target_ref": "octo/portal",
+                "payload_json": '{"owner":"octo","repo":"portal","issue_number":7}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+
+        task = AgentTaskRepository(db).list_all()[0]
+        assert task.task_type == "mention"
+        assert task.status == "queued"
+        assert task.runtime_request_id is None
+    finally:
+        cleanup()
+
+
+def test_poll_subscription_rejects_default_push_ingress():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            mode="poll",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="reviewer-1",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={"source_type": "github", "event_type": "pull_request_review_requested", "external_account_id": "reviewer-1"},
+        )
+        assert response.status_code == 200
+        assert response.json()["accepted"] is False
+        assert response.json()["routing_reason"] == "no_matching_subscription_for_trigger_mode"
+    finally:
+        cleanup()
+
+
+def test_push_subscription_rejects_internal_poll_ingress():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="mention",
+            mode="push",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-poll",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "mention",
+                "external_account_id": "acct-poll",
+                "metadata_json": '{"trigger_mode":"poll"}',
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["accepted"] is False
+        assert response.json()["routing_reason"] == "no_matching_subscription_for_trigger_mode"
+    finally:
+        cleanup()
+
+
+def test_identity_binding_requires_subscription_for_bound_agent():
+    client, db, agent_a, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        agent_b = Agent(
+            name="Router Agent B",
+            description="router-b",
+            owner_user_id=agent_a.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-b.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-router-b",
+            service_name="svc-router-b",
+            pvc_name="pvc-router-b",
+            endpoint_path="/",
+            agent_type="workspace",
+        )
+        db.add(agent_b)
+        db.commit()
+        db.refresh(agent_b)
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent_a.id,
+            source_type="github",
+            event_type="mention",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent_b.id,
+            system_type="github",
+            external_account_id="acct-b",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={"source_type": "github", "event_type": "mention", "external_account_id": "acct-b"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "no_subscription_for_bound_agent"
+    finally:
+        cleanup()
+
+
+def test_binding_scoped_subscription_rejects_other_binding_event():
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        binding_1 = AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-bind-1",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-bind-2",
+            enabled=True,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="mention",
+            binding_id=binding_1.id,
+            enabled=True,
+        )
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={"source_type": "github", "event_type": "mention", "external_account_id": "acct-bind-2"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "no_subscription_for_bound_agent"
+    finally:
+        cleanup()
+
+
+def test_jira_workflow_rule_requires_subscription_on_routed_agent():
+    client, db, agent_a, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        agent_b = Agent(
+            name="Workflow Agent B",
+            description="workflow-b",
+            owner_user_id=agent_a.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-wb.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-workflow-b",
+            service_name="svc-workflow-b",
+            pvc_name="pvc-workflow-b",
+            endpoint_path="/",
+            agent_type="workspace",
+        )
+        db.add(agent_b)
+        db.commit()
+        db.refresh(agent_b)
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent_a.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            target_agent_id=agent_b.id,
+            enabled=True,
+        )
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-901",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "no_subscription_for_routed_agent"
+    finally:
+        cleanup()
+
+
+def test_provider_webhook_normalizers_include_push_metadata():
+    from app.api.provider_webhooks import _normalize_github_review_requested, _normalize_jira_workflow_requested
+
+    github = _normalize_github_review_requested(
+        {
+            "action": "review_requested",
+            "pull_request": {"number": 7, "head": {"sha": "abc"}},
+            "repository": {"name": "portal", "owner": {"login": "octo"}},
+            "requested_reviewer": {"login": "alice"},
+        }
+    )
+    jira = _normalize_jira_workflow_requested(
+        {
+            "issue": {
+                "key": "EFP-1",
+                "fields": {
+                    "project": {"key": "EFP"},
+                    "issuetype": {"name": "Story"},
+                    "status": {"name": "In Review"},
+                    "assignee": {"accountId": "acct-1"},
+                },
+            }
+        }
+    )
+    assert github is not None
+    assert jira is not None
+    assert json.loads(github.metadata_json)["trigger_mode"] == "push"
+    assert json.loads(github.metadata_json)["source_kind"] == "github.pull_request_review_requested"
+    assert json.loads(github.metadata_json)["binding_lookup_username"] == "alice"
+    assert json.loads(jira.metadata_json)["trigger_mode"] == "push"
+    assert json.loads(jira.metadata_json)["source_kind"] == "jira.workflow_review_requested"
+
+
+def test_jira_mention_routes_via_identity_binding_without_dispatch(monkeypatch):
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.external_event_ingress as ingress_api
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="mention",
+            mode="poll",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="jira",
+            external_account_id="jira-acct-mention",
+            enabled=True,
+        )
+
+        dispatched_task_ids: list[str] = []
+        monkeypatch.setattr(
+            ingress_api.service,
+            "_dispatch_task_in_background",
+            lambda task_id: dispatched_task_ids.append(task_id),
+        )
+
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "mention",
+                "external_account_id": "jira-acct-mention",
+                "target_ref": "EFP",
+                "payload_json": '{"issue_key":"EFP-700","project_key":"EFP","comment_id":"9001"}',
+                "metadata_json": '{"trigger_mode":"poll","source_kind":"jira.mention"}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["resolved_task_type"] == "mention"
+
+        task = AgentTaskRepository(db).list_all()[0]
+        assert task.task_type == "mention"
+        assert task.status == "queued"
+        assert task.runtime_request_id is None
+        assert dispatched_task_ids == []
+    finally:
+        cleanup()
+
+
+def test_identity_binding_chooses_candidate_with_matching_subscription():
+    client, db, agent_a, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        agent_b = Agent(
+            name="Candidate Agent B",
+            description="candidate-b",
+            owner_user_id=agent_a.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-b.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-candidate-b",
+            service_name="svc-candidate-b",
+            pvc_name="pvc-candidate-b",
+            endpoint_path="/",
+            agent_type="workspace",
+        )
+        db.add(agent_b)
+        db.commit()
+        db.refresh(agent_b)
+
+        shared_external_account_id = "shared-account-key"
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent_b.id,
+            system_type="github",
+            external_account_id=shared_external_account_id,
+            enabled=True,
+        )
+        # Create this one later so it sorts first; it has no matching subscription and must be skipped.
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent_a.id,
+            system_type="github",
+            external_account_id=shared_external_account_id,
+            enabled=True,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent_b.id,
+            source_type="github",
+            event_type="mention",
+            mode="poll",
+            enabled=True,
+        )
+
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "mention",
+                "external_account_id": shared_external_account_id,
+                "metadata_json": '{"trigger_mode":"poll","source_kind":"github.mention"}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["matched_agent_id"] == agent_b.id
+        created = AgentTaskRepository(db).get_by_id(body["created_task_id"])
+        assert created is not None
+        assert created.assignee_agent_id == agent_b.id
+    finally:
+        cleanup()
+
+
+def test_identity_binding_exact_external_id_wins_over_username_fallback():
+    client, db, agent_a, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        agent_b = Agent(
+            name="Exact Match Agent B",
+            description="exact-match-b",
+            owner_user_id=agent_a.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url="https://example.com/repo-exact-b.git",
+            branch="main",
+            cpu="500m",
+            memory="1Gi",
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-exact-b",
+            service_name="svc-exact-b",
+            pvc_name="pvc-exact-b",
+            endpoint_path="/",
+            agent_type="workspace",
+        )
+        db.add(agent_b)
+        db.commit()
+        db.refresh(agent_b)
+
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent_a.id,
+            system_type="github",
+            external_account_id="alice",
+            username="alice",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent_b.id,
+            system_type="github",
+            external_account_id="gh-canonical-2",
+            username="alice",
+            enabled=True,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent_a.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            target_ref="octo/portal",
+            mode="poll",
+            enabled=True,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent_b.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            target_ref="octo/portal",
+            mode="poll",
+            enabled=True,
+        )
+        response = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "gh-canonical-2",
+                "target_ref": "octo/portal",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":12,"reviewer":"alice","head_sha":"sha-123"}',
+                "metadata_json": '{"trigger_mode":"poll","source_kind":"github.pull_request_review_requested","binding_lookup_username":"alice"}',
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["matched_agent_id"] == agent_b.id
+    finally:
+        cleanup()
+
+
+def test_github_review_stale_uses_bundle_and_version_not_shared_context_prefix(monkeypatch):
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.external_event_ingress as ingress_api
+
+        monkeypatch.setattr(ingress_api.service, "_dispatch_task_in_background", lambda *_args: None)
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request_review_requested",
+            mode="poll",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="gh-canonical-1",
+            enabled=True,
+        )
+
+        first = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "gh-canonical-1",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":15,"reviewer":"reviewer-login","head_sha":"sha-old"}',
+                "dedupe_key": "github:review:octo/portal:15:reviewer-login:sha-old",
+                "metadata_json": '{"trigger_mode":"poll","source_kind":"github.pull_request_review_requested"}',
+            },
+        )
+        second = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "gh-canonical-1",
+                "payload_json": '{"owner":"octo","repo":"portal","pull_number":15,"reviewer":"reviewer-login","head_sha":"sha-new"}',
+                "dedupe_key": "github:review:octo/portal:15:reviewer-login:sha-new",
+                "metadata_json": '{"trigger_mode":"poll","source_kind":"github.pull_request_review_requested"}',
+            },
+        )
+        assert first.status_code == 200 and second.status_code == 200
+        assert first.json()["accepted"] is True
+        assert second.json()["accepted"] is True
+
+        tasks = AgentTaskRepository(db).list_all()
+        assert len(tasks) == 2
+        first_task = AgentTaskRepository(db).get_by_id(first.json()["created_task_id"])
+        second_task = AgentTaskRepository(db).get_by_id(second.json()["created_task_id"])
+        assert first_task is not None and second_task is not None
+        assert first_task.bundle_id == second_task.bundle_id == "github:pr:octo/portal:15"
+        assert first_task.version_key == "sha-old"
+        assert second_task.version_key == "sha-new"
+        assert first_task.status == "stale"
+        assert second_task.status == "queued"
+    finally:
+        cleanup()
+
+
+def test_jira_workflow_dispatches_but_jira_mention_does_not(monkeypatch):
+    client, db, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides()
+    try:
+        import app.api.external_event_ingress as ingress_api
+
+        dispatched_task_ids: list[str] = []
+        monkeypatch.setattr(
+            ingress_api.service,
+            "_dispatch_task_in_background",
+            lambda task_id: dispatched_task_ids.append(task_id),
+        )
+
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="workflow_review_requested",
+            mode="push",
+            enabled=True,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="mention",
+            mode="poll",
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="jira",
+            external_account_id="jira-route-1",
+            enabled=True,
+        )
+        WorkflowTransitionRuleRepository(db).create(
+            system_type="jira",
+            project_key="EFP",
+            issue_type="Story",
+            trigger_status="In Review",
+            target_agent_id=agent.id,
+            enabled=True,
+        )
+
+        workflow_resp = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "workflow_review_requested",
+                "project_key": "EFP",
+                "issue_type": "Story",
+                "trigger_status": "In Review",
+                "issue_key": "EFP-950",
+                "metadata_json": '{"trigger_mode":"push","source_kind":"jira.workflow_review_requested"}',
+            },
+        )
+        mention_resp = client.post(
+            "/api/internal/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "mention",
+                "external_account_id": "jira-route-1",
+                "target_ref": "EFP",
+                "payload_json": '{"issue_key":"EFP-951","project_key":"EFP","comment_id":"c-1"}',
+                "metadata_json": '{"trigger_mode":"poll","source_kind":"jira.mention"}',
+            },
+        )
+        assert workflow_resp.status_code == 200 and mention_resp.status_code == 200
+        assert workflow_resp.json()["accepted"] is True
+        assert mention_resp.json()["accepted"] is True
+        assert len(dispatched_task_ids) == 1
+        assert dispatched_task_ids[0] == workflow_resp.json()["created_task_id"]
+        mention_task = AgentTaskRepository(db).get_by_id(mention_resp.json()["created_task_id"])
+        assert mention_task is not None
+        assert mention_task.status == "queued"
+    finally:
         cleanup()

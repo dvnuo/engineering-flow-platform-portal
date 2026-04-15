@@ -1,0 +1,35 @@
+<section class="portal-panel-section" id="agent-identity-bindings-panel">
+  <div class="portal-settings-section-title">
+    <span class="portal-section-accent" aria-hidden="true"></span>
+    <h6>External Identity Bindings</h6>
+  </div>
+
+  {% if success %}<div class="portal-inline-state is-success">{{ success }}</div>{% endif %}
+  {% if error %}<div class="portal-inline-state is-error">{{ error }}</div>{% endif %}
+
+  <form hx-post="/app/agents/{{ agent_id }}/triggered-work/bindings/create" hx-target="#agent-identity-bindings-panel" hx-swap="outerHTML" class="portal-panel-stack">
+    <div class="grid grid-cols-2 gap-2">
+      <input type="text" name="system_type" value="{{ form.get('system_type', '') }}" placeholder="system_type (github/jira/confluence)" class="portal-form-input" required />
+      <input type="text" name="external_account_id" value="{{ form.get('external_account_id', '') }}" placeholder="external_account_id" class="portal-form-input" required />
+    </div>
+    <input type="text" name="username" value="{{ form.get('username', '') }}" placeholder="username (optional)" class="portal-form-input" />
+    <textarea name="scope_json" rows="2" placeholder='scope_json (e.g. {"repos":["octo/portal"]})' class="portal-form-input">{{ form.get('scope_json', '') }}</textarea>
+    <label class="portal-checkbox-row">
+      <input type="checkbox" name="enabled" {% if form.get('enabled', True) %}checked{% endif %} /> Enabled
+    </label>
+    <button type="submit" class="portal-btn is-secondary">Create Binding</button>
+  </form>
+
+  <div class="portal-panel-stack">
+    {% for item in bindings %}
+    <div class="portal-panel-note">
+      <strong>{{ item.system_type }}</strong> · {{ item.external_account_id }} · {{ item.username or '-' }} · enabled={{ item.enabled }}
+      <form hx-post="/app/agents/{{ agent_id }}/triggered-work/bindings/{{ item.id }}/delete" hx-target="#agent-identity-bindings-panel" hx-swap="outerHTML" style="display:inline; margin-left: 8px;">
+        <button type="submit" class="portal-btn is-secondary">Delete</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="portal-panel-empty">No bindings yet.</div>
+    {% endfor %}
+  </div>
+</section>

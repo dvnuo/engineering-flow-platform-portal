@@ -15,6 +15,7 @@ from app.services.auth_service import hash_password
 def _build_client_with_overrides():
     from app.main import app
     import app.api.agents as agents_api
+    import app.api.agent_identity_bindings as bindings_api
     import app.api.external_event_subscriptions as subs_api
     import app.api.agent_tasks as tasks_api
 
@@ -114,6 +115,8 @@ def _build_client_with_overrides():
 
     app.dependency_overrides[subs_api.get_current_user] = _override_user
     app.dependency_overrides[subs_api.get_db] = _override_db
+    app.dependency_overrides[bindings_api.get_current_user] = _override_user
+    app.dependency_overrides[bindings_api.get_db] = _override_db
     app.dependency_overrides[tasks_api.get_current_user] = _override_user
     app.dependency_overrides[tasks_api.get_db] = _override_db
     app.dependency_overrides[agents_api.get_current_user] = _override_user
@@ -208,6 +211,58 @@ def test_list_external_event_subscriptions_by_agent():
         items = list_by_agent_resp.json()
         assert len(items) == 1
         assert items[0]["agent_id"] == parent_agent.id
+    finally:
+        cleanup()
+
+
+def test_create_subscription_rejects_binding_from_other_agent():
+    client, parent_agent, _assignee_agent, outsider_agent, admin_user, _owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(admin_user)
+        binding_resp = client.post(
+            f"/api/agents/{outsider_agent.id}/identity-bindings",
+            json={"system_type": "github", "external_account_id": "other-acct", "enabled": True},
+        )
+        assert binding_resp.status_code == 200
+        other_binding_id = binding_resp.json()["id"]
+        create_resp = client.post(
+            "/api/external-event-subscriptions",
+            json={
+                "agent_id": parent_agent.id,
+                "source_type": "github",
+                "event_type": "mention",
+                "binding_id": other_binding_id,
+                "enabled": True,
+            },
+        )
+        assert create_resp.status_code == 422
+        assert "binding_id must refer to a binding on the same agent and provider" in create_resp.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_create_subscription_rejects_binding_from_other_provider():
+    client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        binding_resp = client.post(
+            f"/api/agents/{parent_agent.id}/identity-bindings",
+            json={"system_type": "jira", "external_account_id": "jira-acct", "enabled": True},
+        )
+        assert binding_resp.status_code == 200
+        jira_binding_id = binding_resp.json()["id"]
+        create_resp = client.post(
+            "/api/external-event-subscriptions",
+            json={
+                "agent_id": parent_agent.id,
+                "source_type": "github",
+                "event_type": "mention",
+                "binding_id": jira_binding_id,
+                "enabled": True,
+            },
+        )
+        assert create_resp.status_code == 422
+        assert "binding_id must refer to a binding on the same agent and provider" in create_resp.json()["detail"]
     finally:
         cleanup()
 
@@ -360,5 +415,46 @@ def test_external_event_subscriptions_enforce_authorization():
             json={"agent_id": outsider_agent.id, "source_type": "jira", "event_type": "issue_updated", "enabled": True},
         )
         assert forbidden_outsider_create.status_code == 200
+    finally:
+        cleanup()
+
+
+def test_create_external_subscription_persists_new_mode_fields():
+    client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        binding_resp = client.post(
+            f"/api/agents/{parent_agent.id}/identity-bindings",
+            json={"system_type": "github", "external_account_id": "binding-123", "enabled": True},
+        )
+        assert binding_resp.status_code == 200
+        create_resp = client.post(
+            "/api/external-event-subscriptions",
+            json={
+                "agent_id": parent_agent.id,
+                "source_type": "GitHub",
+                "event_type": "mention",
+                "mode": "poll",
+                "source_kind": "github.mention",
+                "binding_id": binding_resp.json()["id"],
+                "scope_json": '{"repos":["octo/portal"]}',
+                "poll_profile_json": '{"interval_seconds":30}',
+                "enabled": True,
+            },
+        )
+        assert create_resp.status_code == 200
+        body = create_resp.json()
+        assert body["mode"] == "poll"
+        assert body["source_kind"] == "github.mention"
+        assert body["binding_id"] == binding_resp.json()["id"]
+        assert body["scope_json"] == '{"repos":["octo/portal"]}'
+        assert body["poll_profile_json"] == '{"interval_seconds":30}'
+
+        list_resp = client.get(f"/api/agents/{parent_agent.id}/external-event-subscriptions")
+        assert list_resp.status_code == 200
+        items = list_resp.json()
+        assert len(items) == 1
+        assert items[0]["mode"] == "poll"
+        assert items[0]["source_kind"] == "github.mention"
     finally:
         cleanup()

@@ -1,5 +1,6 @@
 import json
 
+from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
@@ -50,6 +51,79 @@ class ExternalEventRouterService:
         return parsed
 
     @staticmethod
+    def _parse_metadata_object(raw: str | None) -> dict | None:
+        return ExternalEventRouterService._parse_json_object(raw)
+
+    @staticmethod
+    def _resolve_trigger_mode(request: ExternalEventIngressRequest) -> str:
+        metadata = ExternalEventRouterService._parse_metadata_object(request.metadata_json)
+        if not metadata:
+            return "push"
+        trigger_mode = str(metadata.get("trigger_mode") or "").strip().lower()
+        if trigger_mode in {"push", "poll"}:
+            return trigger_mode
+        return "push"
+
+    @staticmethod
+    def _binding_lookup_username_from_metadata(request: ExternalEventIngressRequest) -> str | None:
+        metadata = ExternalEventRouterService._parse_metadata_object(request.metadata_json)
+        if not metadata:
+            return None
+        username = str(metadata.get("binding_lookup_username") or "").strip()
+        return username or None
+
+    @staticmethod
+    def _normalize_subscription_mode(mode: str | None) -> str:
+        cleaned = (mode or "").strip().lower()
+        return cleaned or "push"
+
+    @staticmethod
+    def _subscription_accepts_trigger_mode(subscription, trigger_mode: str) -> bool:
+        subscription_mode = ExternalEventRouterService._normalize_subscription_mode(subscription.mode)
+        if subscription_mode == "hybrid":
+            return True
+        if trigger_mode == "push":
+            return subscription_mode in {"push", "hybrid"}
+        if trigger_mode == "poll":
+            return subscription_mode in {"poll", "hybrid"}
+        return subscription_mode in {"push", "hybrid"}
+
+    @staticmethod
+    def _filter_subscriptions_for_trigger_mode(subscriptions: list, trigger_mode: str) -> list:
+        return [sub for sub in subscriptions if ExternalEventRouterService._subscription_accepts_trigger_mode(sub, trigger_mode)]
+
+    @staticmethod
+    def _filter_subscriptions_for_bound_agent(subscriptions: list, *, agent_id: str, binding_id: str | None) -> list:
+        filtered: list = []
+        for sub in subscriptions:
+            if sub.agent_id != agent_id:
+                continue
+            if sub.binding_id and sub.binding_id != binding_id:
+                continue
+            filtered.append(sub)
+        return filtered
+
+    @staticmethod
+    def _filter_subscriptions_for_agent(subscriptions: list, *, agent_id: str) -> list:
+        return [sub for sub in subscriptions if sub.agent_id == agent_id]
+
+    def _select_binding_subscription_pair(
+        self,
+        *,
+        binding_candidates: list,
+        matching_subscriptions: list,
+    ) -> tuple[object, object] | None:
+        for binding in binding_candidates:
+            candidate_subscriptions = self._filter_subscriptions_for_bound_agent(
+                matching_subscriptions,
+                agent_id=binding.agent_id,
+                binding_id=binding.id,
+            )
+            if candidate_subscriptions:
+                return binding, candidate_subscriptions[0]
+        return None
+
+    @staticmethod
     def _extract_github_review_payload(request: ExternalEventIngressRequest, subscription_id: str) -> tuple[dict | None, str | None]:
         payload_obj = ExternalEventRouterService._parse_json_object(request.payload_json)
         if payload_obj is None:
@@ -90,25 +164,87 @@ class ExternalEventRouterService:
         return f"github:review:{owner}/{repo}:{pull_number}:{request.external_account_id}:{head_sha}"
 
     @staticmethod
-    def _build_github_review_family_prefix(request: ExternalEventIngressRequest, payload: dict | None) -> str | None:
-        if request.source_type.strip().lower() != "github" or request.event_type != "pull_request_review_requested":
-            return None
-        if not payload:
-            return None
-        owner = payload.get("owner")
-        repo = payload.get("repo")
-        pull_number = payload.get("pull_number")
-        if not owner or not repo or pull_number is None or not request.external_account_id:
-            return None
-        return f"github:review:{owner}/{repo}:{pull_number}:{request.external_account_id}:"
+    def _build_task_family(_request: ExternalEventIngressRequest) -> str:
+        return "triggered_work"
 
     @staticmethod
-    def _extract_github_head_sha_from_dedupe_key(dedupe_key: str | None) -> str | None:
-        if not dedupe_key:
+    def _build_source_kind(
+        *,
+        source_type: str,
+        event_type: str,
+        subscription_source_kind: str | None,
+    ) -> str:
+        if subscription_source_kind and subscription_source_kind.strip():
+            return subscription_source_kind.strip()
+        return f"{source_type}.{event_type}"
+
+    @staticmethod
+    def _build_bundle_id(
+        *,
+        request: ExternalEventIngressRequest,
+        source_type: str,
+        payload_obj: dict | None,
+        task_type: str,
+    ) -> str | None:
+        target_ref = (request.target_ref or "").strip()
+
+        if source_type == "github" and task_type == "github_review_task":
+            owner = payload_obj.get("owner") if payload_obj else None
+            repo = payload_obj.get("repo") if payload_obj else None
+            pull_number = payload_obj.get("pull_number") if payload_obj else None
+            if owner and repo and pull_number is not None:
+                return f"github:pr:{owner}/{repo}:{pull_number}"
+
+        if source_type == "jira" and task_type == "jira_workflow_review_task":
+            if request.issue_key:
+                return f"jira:issue:{request.issue_key}"
+            if target_ref:
+                return f"jira:project:{target_ref}"
+
+        if request.event_type == "mention":
+            if source_type == "github":
+                owner = payload_obj.get("owner") if payload_obj else None
+                repo = payload_obj.get("repo") if payload_obj else None
+                issue_number = None
+                if payload_obj:
+                    issue_number = payload_obj.get("issue_number")
+                    if issue_number is None:
+                        issue_number = payload_obj.get("pull_number")
+                if owner and repo and issue_number is not None:
+                    return f"github:issue:{owner}/{repo}:{issue_number}"
+                if target_ref:
+                    return f"github:target:{target_ref}"
+            if source_type == "jira":
+                issue_key = request.issue_key or (payload_obj.get("issue_key") if payload_obj else None)
+                if issue_key:
+                    return f"jira:issue:{issue_key}"
+                if target_ref:
+                    return f"jira:project:{target_ref}"
+            if source_type == "confluence":
+                page_id = payload_obj.get("page_id") if payload_obj else None
+                if page_id:
+                    return f"confluence:page:{page_id}"
+                if target_ref:
+                    return f"confluence:space:{target_ref}"
+
+        fallback = target_ref or request.external_account_id or request.event_type
+        return f"{source_type}:{fallback}" if fallback else None
+
+    @staticmethod
+    def _build_version_key(
+        *,
+        request: ExternalEventIngressRequest,
+        source_type: str,
+        payload_obj: dict | None,
+        task_type: str,
+    ) -> str | None:
+        if source_type == "github" and task_type == "github_review_task":
+            if payload_obj and payload_obj.get("head_sha"):
+                return str(payload_obj.get("head_sha"))
             return None
-        if not dedupe_key.startswith("github:review:"):
-            return None
-        return dedupe_key.rsplit(":", 1)[-1]
+        if source_type == "jira" and task_type == "jira_workflow_review_task" and request.issue_key:
+            return f"{request.issue_key}:{request.trigger_status}" if request.trigger_status else request.issue_key
+        return None
 
     @staticmethod
     def _build_github_superseded_payload(*, superseding_task_id: str, new_head_sha: str | None) -> str:
@@ -122,31 +258,31 @@ class ExternalEventRouterService:
             }
         )
 
-    def _stale_superseded_github_review_tasks(
+    def _stale_superseded_github_review_tasks_for_bundle(
         self,
         *,
         task_repo: AgentTaskRepository,
         assignee_agent_id: str,
-        family_prefix: str | None,
-        new_dedupe_key: str | None,
-        new_head_sha: str | None,
+        bundle_id: str | None,
+        new_version_key: str | None,
         superseding_task_id: str,
     ) -> None:
-        if not family_prefix:
+        if not bundle_id:
             return
-        candidates = task_repo.list_active_github_review_tasks_for_family(
+        candidates = task_repo.list_active_tasks_for_bundle(
             assignee_agent_id=assignee_agent_id,
-            family_prefix=family_prefix,
+            bundle_id=bundle_id,
+            task_type="github_review_task",
         )
         stale_payload = self._build_github_superseded_payload(
             superseding_task_id=superseding_task_id,
-            new_head_sha=new_head_sha,
+            new_head_sha=new_version_key,
         )
         to_update = []
         for task in candidates:
             if task.id == superseding_task_id:
                 continue
-            if new_dedupe_key and task.shared_context_ref == new_dedupe_key:
+            if new_version_key and task.version_key == new_version_key:
                 continue
             task.status = "stale"
             task.result_payload_json = stale_payload
@@ -212,6 +348,8 @@ class ExternalEventRouterService:
 
         subscriptions = subscription_repo.list_enabled_for_source(source_type=source_type, event_type=request.event_type)
         matching_subscriptions = [sub for sub in subscriptions if self._matches_target_ref(sub, request.target_ref)]
+        trigger_mode = self._resolve_trigger_mode(request)
+        matching_subscriptions = self._filter_subscriptions_for_trigger_mode(matching_subscriptions, trigger_mode)
         matching_subscriptions.sort(key=lambda item: item.id)
         matched_subscription_ids = [sub.id for sub in matching_subscriptions]
 
@@ -219,16 +357,16 @@ class ExternalEventRouterService:
             return ExternalEventIngressResponse(
                 accepted=False,
                 matched_subscription_ids=[],
-                routing_reason="no_matching_subscription",
+                routing_reason="no_matching_subscription_for_trigger_mode",
                 resolved_task_type=None,
-                message="No enabled subscription matched source/event/target_ref",
+                message=f"No enabled subscription matched source/event/target_ref for trigger_mode={trigger_mode}",
             )
 
         matched_agent_id = None
         matched_workflow_rule_id = None
         selected_subscription = matching_subscriptions[0]
 
-        if source_type == "jira":
+        if source_type == "jira" and request.event_type == "workflow_review_requested":
             if not request.project_key or not request.issue_type or not request.trigger_status:
                 return ExternalEventIngressResponse(
                     accepted=False,
@@ -254,6 +392,21 @@ class ExternalEventRouterService:
             matched_workflow_rule_id = matched_rule.id
             matched_agent_id = matched_rule.target_agent_id
             task_type = "jira_workflow_review_task"
+            agent_subscriptions = self._filter_subscriptions_for_agent(
+                matching_subscriptions,
+                agent_id=matched_agent_id,
+            )
+            if not agent_subscriptions:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="no_subscription_for_routed_agent",
+                    matched_agent_id=matched_agent_id,
+                    matched_workflow_rule_id=matched_workflow_rule_id,
+                    resolved_task_type=task_type,
+                    message="Workflow rule matched an agent, but that agent has no matching enabled subscription",
+                )
+            selected_subscription = agent_subscriptions[0]
             matched_agent = AgentRepository(db).get_by_id(matched_agent_id) if matched_agent_id else None
             gate_rejection = self._evaluate_capability_profile_event_gate(
                 agent=matched_agent,
@@ -311,21 +464,47 @@ class ExternalEventRouterService:
                     message="external_account_id is required for identity binding based routing",
                 )
 
-            routing_decision = self.runtime_router.resolve_binding_decision_for_event(
+            binding_repo = AgentIdentityBindingRepository(db)
+            binding_candidates = binding_repo.list_bindings_for_key(
                 system_type=source_type,
                 external_account_id=request.external_account_id,
-                db=db,
             )
-            if not routing_decision.matched_agent_id:
+            lookup_username = self._binding_lookup_username_from_metadata(request)
+            if not binding_candidates and lookup_username:
+                binding_candidates = binding_repo.list_bindings_for_username(
+                    system_type=source_type,
+                    username=lookup_username,
+                )
+            if not binding_candidates:
                 return ExternalEventIngressResponse(
                     accepted=False,
                     matched_subscription_ids=matched_subscription_ids,
-                    routing_reason=routing_decision.reason,
+                    routing_reason="no_enabled_binding",
                     matched_agent_id=None,
                     message="No agent matched the provided identity binding",
                 )
 
-            matched_agent_id = routing_decision.matched_agent_id
+            selected_pair = self._select_binding_subscription_pair(
+                binding_candidates=binding_candidates,
+                matching_subscriptions=matching_subscriptions,
+            )
+            if not selected_pair:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=matched_subscription_ids,
+                    routing_reason="no_subscription_for_bound_agent",
+                    matched_agent_id=None,
+                    message="Identity binding candidates exist, but no candidate binding has a matching enabled subscription",
+                )
+            selected_binding, selected_subscription = selected_pair
+            matched_agent_id = selected_binding.agent_id
+
+            routing_decision = self.runtime_router.resolve_agent_decision_for_event(
+                agent_id=matched_agent_id,
+                db=db,
+                reason="matched_enabled_binding",
+            )
+
             matched_agent = AgentRepository(db).get_by_id(matched_agent_id)
             gate_rejection = self._evaluate_capability_profile_event_gate(
                 agent=matched_agent,
@@ -369,13 +548,13 @@ class ExternalEventRouterService:
             routing_reason = routing_decision.reason
 
         dedupe_hint = request.dedupe_key
-        github_family_prefix = None
+        payload_obj = self._parse_json_object(input_payload_json)
         if source_type == "jira":
             shared_context_ref = request.issue_key or request.dedupe_key or request.target_ref
+            if not dedupe_hint:
+                dedupe_hint = shared_context_ref
         else:
-            payload_obj = self._parse_json_object(input_payload_json)
             dedupe_hint = self._build_github_dedupe_hint(request, payload_obj) or request.dedupe_key
-            github_family_prefix = self._build_github_review_family_prefix(request, payload_obj)
             shared_context_ref = dedupe_hint or request.target_ref
 
         if dedupe_hint:
@@ -399,6 +578,28 @@ class ExternalEventRouterService:
                     message="Duplicate event detected; existing task reused",
                 )
 
+        task_family = self._build_task_family(request)
+        provider = source_type
+        trigger = request.event_type
+        source_kind = self._build_source_kind(
+            source_type=source_type,
+            event_type=request.event_type,
+            subscription_source_kind=selected_subscription.source_kind,
+        )
+        bundle_id = self._build_bundle_id(
+            request=request,
+            source_type=source_type,
+            payload_obj=payload_obj,
+            task_type=task_type,
+        )
+        version_key = self._build_version_key(
+            request=request,
+            source_type=source_type,
+            payload_obj=payload_obj,
+            task_type=task_type,
+        )
+        dedupe_key = dedupe_hint
+
         task = task_repo.create(
             parent_agent_id=None,
             assignee_agent_id=matched_agent_id,
@@ -408,22 +609,29 @@ class ExternalEventRouterService:
             task_type=task_type,
             input_payload_json=input_payload_json,
             shared_context_ref=shared_context_ref,
+            task_family=task_family,
+            provider=provider,
+            trigger=trigger,
+            bundle_id=bundle_id,
+            version_key=version_key,
+            dedupe_key=dedupe_key,
             status="queued",
             result_payload_json=None,
             retry_count=0,
         )
 
         if source_type == "github" and request.event_type == "pull_request_review_requested":
-            self._stale_superseded_github_review_tasks(
+            self._stale_superseded_github_review_tasks_for_bundle(
                 task_repo=task_repo,
                 assignee_agent_id=matched_agent_id,
-                family_prefix=github_family_prefix,
-                new_dedupe_key=dedupe_hint,
-                new_head_sha=self._extract_github_head_sha_from_dedupe_key(dedupe_hint),
+                bundle_id=bundle_id,
+                new_version_key=version_key,
                 superseding_task_id=task.id,
             )
 
-        should_dispatch = source_type == "jira" or (source_type == "github" and request.event_type == "pull_request_review_requested")
+        should_dispatch = task_type == "jira_workflow_review_task" or (
+            task_type == "github_review_task" and request.event_type == "pull_request_review_requested"
+        )
         if should_dispatch:
             self._dispatch_task_in_background(task.id)
 
@@ -436,7 +644,7 @@ class ExternalEventRouterService:
                 matched_workflow_rule_id=matched_workflow_rule_id,
                 resolved_task_type=task_type,
                 deduped=False,
-                message="Event routed, task created, and scheduled for background dispatch",
+                message=f"Event routed, task created, and scheduled for background dispatch ({source_kind})",
             )
 
         return ExternalEventIngressResponse(
@@ -448,7 +656,7 @@ class ExternalEventRouterService:
             matched_workflow_rule_id=matched_workflow_rule_id,
             resolved_task_type=task_type,
             deduped=False,
-            message="Event routed and task created",
+            message=f"Event routed and task created ({source_kind})",
         )
 
     def _dispatch_task_in_background(self, task_id: str) -> None:

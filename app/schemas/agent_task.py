@@ -12,6 +12,12 @@ class AgentTaskCreateRequest(BaseModel):
     task_type: str
     input_payload_json: Optional[str] = None
     shared_context_ref: Optional[str] = None
+    task_family: Optional[str] = None
+    provider: Optional[str] = None
+    trigger: Optional[str] = None
+    bundle_id: Optional[str] = None
+    version_key: Optional[str] = None
+    dedupe_key: Optional[str] = None
     status: str = "queued"
     result_payload_json: Optional[str] = None
     retry_count: int = 0
@@ -26,6 +32,12 @@ class AgentTaskResponse(BaseModel):
     task_type: str
     input_payload_json: Optional[str] = None
     shared_context_ref: Optional[str] = None
+    task_family: Optional[str] = None
+    provider: Optional[str] = None
+    trigger: Optional[str] = None
+    bundle_id: Optional[str] = None
+    version_key: Optional[str] = None
+    dedupe_key: Optional[str] = None
     status: str
     owner_user_id: Optional[int] = None
     created_by_user_id: Optional[int] = None

@@ -107,4 +107,311 @@
     <button type="submit" class="portal-btn is-primary">Save Settings</button>
     {% endif %}
   </form>
+
+  {% if not profile_missing_message %}
+  <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Identity Bindings</h6></div><div
+    id="settings-bindings-panel-container"
+    hx-get="/app/agents/{{ agent_id }}/triggered-work/bindings/panel"
+    hx-trigger="load"
+    hx-target="this"
+    hx-swap="innerHTML"
+  ></div></section>
+
+  <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Event Subscriptions</h6></div><div
+    id="settings-subscriptions-panel-container"
+    hx-get="/app/agents/{{ agent_id }}/triggered-work/subscriptions/panel"
+    hx-trigger="load"
+    hx-target="this"
+    hx-swap="innerHTML"
+  ></div></section>
+  {% endif %}
+
+  {% if not profile_missing_message %}
+  <script>
+  (function() {
+    // Provider-Model mapping (from EFP) - define only once
+    if (typeof window.providerModels === 'undefined') {
+      window.providerModels = {
+      github_copilot: [
+        { value: 'gpt-4o', label: 'GPT-4o' },
+        { value: 'gpt-4.1', label: 'GPT-4.1' },
+        { value: 'gpt-5-mini', label: 'GPT-5 mini' },
+        { value: 'gpt-5.3-codex', label: 'GPT-5.3-Codex' },
+        { value: 'gpt-5.4', label: 'GPT-5.4' },
+        { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      ],
+      openai: [
+        { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+        { value: 'gpt-4', label: 'GPT-4' },
+        { value: 'gpt-4o', label: 'GPT-4o' },
+        { value: 'gpt-4.1', label: 'GPT-4.1' },
+        { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+        { value: 'gpt-5-mini', label: 'GPT-5 mini' },
+        { value: 'gpt-5', label: 'GPT-5' },
+      ],
+      anthropic: [
+        { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+        { value: 'claude-haiku-4-20250514', label: 'Claude Haiku 4' },
+        { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+      ],
+    };
+    }  // end if typeof window.providerModels
+
+    const currentModel = "{{ llm.get('model', '') }}";
+    const currentProvider = "{{ llm.get('provider', 'openai') }}";
+
+    let copilotAuthInterval = null;
+    let copilotTimerInterval = null;
+
+    function updateModelOptions() {
+      const provider = document.getElementById('llm_provider').value;
+      const modelSelect = document.getElementById('llm_model');
+      const models = window.providerModels[provider] || [];
+      
+      modelSelect.innerHTML = '';
+      models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.value;
+        option.textContent = model.label;
+        if (model.value === currentModel && provider === currentProvider) {
+          option.selected = true;
+        }
+        modelSelect.appendChild(option);
+      });
+
+      // Show/hide GitHub Copilot auth button
+      const copilotBtn = document.getElementById('copilot_auth_btn');
+      if (copilotBtn) {
+        copilotBtn.classList.toggle('hidden', provider !== 'github_copilot');
+      }
+      
+      // Hide auth status when switching away
+      if (provider !== 'github_copilot') {
+        const authStatus = document.getElementById('copilot_auth_status');
+        if (authStatus) authStatus.classList.add('hidden');
+        stopCopilotPolling();
+      }
+    }
+
+    function stopCopilotPolling() {
+      if (copilotAuthInterval) {
+        clearInterval(copilotAuthInterval);
+        copilotAuthInterval = null;
+      }
+      if (copilotTimerInterval) {
+        clearInterval(copilotTimerInterval);
+        copilotTimerInterval = null;
+      }
+    }
+
+    async function startCopilotAuth() {
+      const authStatus = document.getElementById('copilot_auth_status');
+      const instructions = document.getElementById('copilot_instructions');
+      const statusText = document.getElementById('copilot_status_text');
+      const verifyLink = document.getElementById('copilot_verify_link');
+      const deviceLink = document.getElementById('copilot_device_link');
+      const userCode = document.getElementById('copilot_user_code');
+      const timer = document.getElementById('copilot_timer');
+      
+      try {
+        if (!state.selectedAgentId) {
+          if (typeof showToast === 'function') showToast('Please select an assistant first');
+          return;
+        }
+        // Capture agentId to avoid drift during polling
+        const agentId = state.selectedAgentId;
+        
+        const response = await fetch('/a/' + agentId + '/api/copilot/auth/start', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.error) {
+          if (typeof showToast === 'function') showToast('Failed: ' + data.error);
+          return;
+        }
+
+        // Store auth data
+        authStatus.dataset.authId = data.auth_id;
+        authStatus.dataset.deviceCode = data.device_code;
+
+        // Show status section
+        authStatus.classList.remove('hidden');
+        instructions.classList.remove('hidden');
+        
+        // Update UI
+        verifyLink.href = data.verification_url;
+        verifyLink.textContent = data.verification_url;
+        if (deviceLink) {
+          if (data.verification_complete_url) {
+            deviceLink.href = data.verification_complete_url;
+            deviceLink.classList.remove('hidden');
+          } else {
+            deviceLink.classList.add('hidden');
+          }
+        }
+        userCode.textContent = data.user_code;
+        timer.textContent = data.expires_in + 's';
+        statusText.textContent = 'Waiting for authorization...';
+        statusText.className = 'portal-inline-note';
+
+        // Start countdown timer
+        let currentTimer = data.expires_in || 600;
+        if (copilotTimerInterval) clearInterval(copilotTimerInterval);
+        copilotTimerInterval = setInterval(() => {
+          currentTimer--;
+          timer.textContent = currentTimer + 's';
+          if (currentTimer <= 0) {
+            clearInterval(copilotTimerInterval);
+            statusText.textContent = 'Authorization timed out. Please try again.';
+            statusText.className = 'portal-inline-error';
+          }
+        }, 1000);
+
+        // Start polling for authorization status - use fixed agentId
+        if (copilotAuthInterval) clearInterval(copilotAuthInterval);
+        copilotAuthInterval = setInterval(async () => {
+          try {
+            const checkResponse = await fetch('/a/' + agentId + '/api/copilot/auth/check', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                auth_id: data.auth_id,
+                device_code: data.device_code
+              })
+            });
+            const checkData = await checkResponse.json();
+
+            if (checkData.status === 'authorized') {
+              clearInterval(copilotAuthInterval);
+              clearInterval(copilotTimerInterval);
+              statusText.textContent = 'Authorized successfully!';
+              statusText.className = 'portal-inline-success';
+              instructions.classList.add('hidden');
+              
+              // Store token in API key field
+              const apiKeyInput = document.querySelector('input[name="llm_api_key"]');
+              if (apiKeyInput && checkData.token) {
+                apiKeyInput.value = checkData.token;
+              }
+            } else if (checkData.status === 'failed' || checkData.status === 'expired') {
+              clearInterval(copilotAuthInterval);
+              clearInterval(copilotTimerInterval);
+              statusText.textContent = checkData.message || 'Authorization failed';
+              statusText.className = 'portal-inline-error';
+            }
+          } catch (e) {
+            console.error('Polling error:', e);
+          }
+        }, (data.interval || 5) * 1000);
+
+      } catch (e) {
+        if (typeof showToast === 'function') showToast('Failed: ' + e);
+      }
+    }
+
+    // Copy code function
+    function copyCode() {
+      const code = document.getElementById('copilot_user_code').textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copilot_copy_btn');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 2000);
+      });
+    }
+
+    // Initialize immediately
+    function initSettings() {
+      updateModelOptions();
+      
+      // Listen for provider changes
+      const providerSelect = document.getElementById('llm_provider');
+      if (providerSelect) {
+        providerSelect.addEventListener('change', updateModelOptions);
+      }
+      
+      // Handle Authorize button click
+      const authBtn = document.getElementById('copilot_auth_btn');
+      if (authBtn) {
+        authBtn.addEventListener('click', startCopilotAuth);
+      }
+      
+      // Handle copy button
+      const copyBtn = document.getElementById('copilot_copy_btn');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', copyCode);
+      }
+    }
+    
+    // Password toggle functionality - expose globally for dynamic content
+    window.initPasswordToggles = function() {
+      document.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach(function(input) {
+        input.classList.add('pr-6', 'password-toggle-initialized');
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'relative';
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+        
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.tabIndex = 0;
+        toggle.setAttribute('aria-label', 'Toggle password visibility');
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.className = 'portal-password-toggle';
+        toggle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+        toggle.addEventListener('click', function() {
+          if (input.type === 'password') {
+            input.type = 'text';
+            toggle.setAttribute('aria-pressed', 'true');
+            toggle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>';
+          } else {
+            input.type = 'password';
+            toggle.setAttribute('aria-pressed', 'false');
+            toggle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+          }
+        });
+        wrapper.appendChild(toggle);
+      });
+    }
+    
+    // Initialize existing password toggles
+    initPasswordToggles();
+    
+    // Re-initialize after htmx swaps (only once, scoped to settings panel)
+    if (!window.__passwordToggleBound) {
+      window.__passwordToggleBound = true;
+      document.body.addEventListener('htmx:afterSwap', function(event) {
+        const settingsPanel = document.getElementById('settings-panel-root');
+        if (settingsPanel && settingsPanel.contains(event.target)) {
+          initPasswordToggles();
+        }
+      });
+    }
+    
+    initSettings();
+
+    const settingsStatus = document.getElementById('settings-status');
+    if (settingsStatus) {
+      const kind = settingsStatus.dataset.settingsStatus || '';
+      const message = (settingsStatus.textContent || '').trim();
+
+      if (kind === 'success') {
+        if (typeof showToast === 'function' && message) {
+          showToast(message);
+        }
+        if (typeof closeToolPanel === 'function') {
+          closeToolPanel();
+        }
+        return;
+      }
+
+      if (kind === 'error') {
+        if (typeof settingsStatus.focus === 'function') {
+          settingsStatus.focus();
+        }
+      }
+    }
+  })();
+  </script>
+  {% endif %}
 </div>

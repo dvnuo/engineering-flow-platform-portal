@@ -15,6 +15,8 @@ from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
+from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
@@ -139,6 +141,41 @@ def _pretty_json_text(raw: str | None) -> str:
     if parsed is None:
         return raw
     return json.dumps(parsed, indent=2, ensure_ascii=False)
+
+
+def _parse_json_textarea(raw: str | None, *, field_name: str) -> tuple[str | None, str | None]:
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        return None, None
+    try:
+        parsed = json.loads(cleaned)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None, f"{field_name} must be valid JSON"
+    if not isinstance(parsed, dict):
+        return None, f"{field_name} must be a JSON object"
+    return json.dumps(parsed, ensure_ascii=False), None
+
+
+def _parse_form_bool(value) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "on", "yes"}
+
+
+def _build_settings_panel_context(*, request: Request, agent_id: str, base_context: dict, db, triggered_work_state: dict | None = None) -> dict:
+    bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+    subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
+    triggered_state = triggered_work_state or {}
+    context = {
+        **base_context,
+        "request": request,
+        "agent_id": agent_id,
+        "identity_bindings": bindings,
+        "event_subscriptions": subscriptions,
+        "triggered_work_error": triggered_state.get("error", ""),
+        "triggered_work_success": triggered_state.get("success", ""),
+        "binding_form": triggered_state.get("binding_form", {}),
+        "subscription_form": triggered_state.get("subscription_form", {}),
+    }
+    return context
 
 
 def _short_sha(value: str | None) -> str:
@@ -322,6 +359,9 @@ def _build_task_detail_view_model(task) -> dict:
 
     context_items = [
         ("Task Type", getattr(task, "task_type", None) or "-"),
+        ("Task Family", getattr(task, "task_family", None) or "-"),
+        ("Provider", getattr(task, "provider", None) or "-"),
+        ("Trigger", getattr(task, "trigger", None) or "-"),
         ("Template", template_label),
         ("Action", action_label or (action_id or "-")),
         ("Bundle Path", bundle_path or "-"),
@@ -334,6 +374,9 @@ def _build_task_detail_view_model(task) -> dict:
     ]
     metadata_items = [
         ("Task ID", getattr(task, "id", "-")),
+        ("Bundle ID", getattr(task, "bundle_id", None) or "-"),
+        ("Version Key", getattr(task, "version_key", None) or "-"),
+        ("Dedupe Key", getattr(task, "dedupe_key", None) or "-"),
         ("Runtime Request ID", getattr(task, "runtime_request_id", None) or "-"),
         ("Group ID", getattr(task, "group_id", None) or "-"),
         ("Owner User ID", getattr(task, "owner_user_id", None) or "-"),
@@ -356,6 +399,12 @@ def _build_task_detail_view_model(task) -> dict:
         "created_by_user_id": getattr(task, "created_by_user_id", None) or "-",
         "runtime_request_id": getattr(task, "runtime_request_id", None) or "-",
         "task_type": getattr(task, "task_type", None) or "-",
+        "task_family": getattr(task, "task_family", None) or "-",
+        "provider": getattr(task, "provider", None) or "-",
+        "trigger": getattr(task, "trigger", None) or "-",
+        "bundle_id": getattr(task, "bundle_id", None) or "-",
+        "version_key": getattr(task, "version_key", None) or "-",
+        "dedupe_key": getattr(task, "dedupe_key", None) or "-",
         "source": getattr(task, "source", None) or "-",
         "created_at": getattr(task, "created_at", None) or "-",
         "started_at": getattr(task, "started_at", None) or "-",
@@ -2199,6 +2248,286 @@ async def app_group_shared_context_detail_panel(request: Request, group_id: str,
                 "request": request,
                 "group_id": group_id,
                 "item": snapshot,
+            },
+        )
+    finally:
+        db.close()
+
+
+def _triggered_work_authorize(db, user, agent_id: str):
+    agent = AgentRepository(db).get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if not _can_access(agent, user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return agent
+
+
+@router.get("/app/agents/{agent_id}/triggered-work/bindings/panel")
+async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        _triggered_work_authorize(db, user, agent_id)
+        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+        return templates.TemplateResponse(
+            "partials/agent_identity_bindings_panel.html",
+            {
+                "request": request,
+                "agent_id": agent_id,
+                "bindings": bindings,
+                "error": "",
+                "success": "",
+                "form": {},
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/agents/{agent_id}/triggered-work/bindings/create")
+async def app_agent_triggered_work_bindings_create(request: Request, agent_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = _triggered_work_authorize(db, user, agent_id)
+        if not _can_write(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        form = await request.form()
+        form_data = {
+            "system_type": str(form.get("system_type") or "").strip().lower(),
+            "external_account_id": str(form.get("external_account_id") or "").strip(),
+            "username": str(form.get("username") or "").strip() or None,
+            "scope_json": str(form.get("scope_json") or "").strip(),
+            "enabled": _parse_form_bool(form.get("enabled")),
+        }
+        error = ""
+        scope_json, scope_error = _parse_json_textarea(form_data["scope_json"], field_name="scope_json")
+        if not form_data["system_type"] or not form_data["external_account_id"]:
+            error = "system_type and external_account_id are required"
+        elif scope_error:
+            error = scope_error
+        else:
+            existing = AgentIdentityBindingRepository(db).get_by_agent_and_binding_key(
+                agent_id=agent_id,
+                system_type=form_data["system_type"],
+                external_account_id=form_data["external_account_id"],
+                enabled_only=False,
+            )
+            if existing:
+                error = "Identity binding already exists for this agent/system/account"
+
+        if not error:
+            AgentIdentityBindingRepository(db).create(
+                agent_id=agent_id,
+                system_type=form_data["system_type"],
+                external_account_id=form_data["external_account_id"],
+                username=form_data["username"],
+                scope_json=scope_json,
+                enabled=form_data["enabled"],
+            )
+
+        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+        return templates.TemplateResponse(
+            "partials/agent_identity_bindings_panel.html",
+            {
+                "request": request,
+                "agent_id": agent_id,
+                "bindings": bindings,
+                "error": error,
+                "success": "Binding created" if not error else "",
+                "form": form_data,
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/agents/{agent_id}/triggered-work/bindings/{binding_id}/delete")
+async def app_agent_triggered_work_bindings_delete(request: Request, agent_id: str, binding_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = _triggered_work_authorize(db, user, agent_id)
+        if not _can_write(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        repo = AgentIdentityBindingRepository(db)
+        binding = repo.get_by_id(binding_id)
+        if binding and binding.agent_id == agent_id:
+            repo.delete(binding)
+
+        bindings = repo.list_by_agent(agent_id)
+        return templates.TemplateResponse(
+            "partials/agent_identity_bindings_panel.html",
+            {
+                "request": request,
+                "agent_id": agent_id,
+                "bindings": bindings,
+                "error": "",
+                "success": "Binding deleted",
+                "form": {},
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/agents/{agent_id}/triggered-work/subscriptions/panel")
+async def app_agent_triggered_work_subscriptions_panel(request: Request, agent_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        _triggered_work_authorize(db, user, agent_id)
+        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+        subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
+        return templates.TemplateResponse(
+            "partials/external_event_subscriptions_panel.html",
+            {
+                "request": request,
+                "agent_id": agent_id,
+                "bindings": bindings,
+                "subscriptions": subscriptions,
+                "error": "",
+                "success": "",
+                "form": {},
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/agents/{agent_id}/triggered-work/subscriptions/create")
+async def app_agent_triggered_work_subscriptions_create(request: Request, agent_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = _triggered_work_authorize(db, user, agent_id)
+        if not _can_write(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        form = await request.form()
+        form_data = {
+            "source_type": str(form.get("source_type") or "").strip().lower(),
+            "event_type": str(form.get("event_type") or "").strip(),
+            "mode": str(form.get("mode") or "push").strip().lower() or "push",
+            "source_kind": str(form.get("source_kind") or "").strip(),
+            "target_ref": str(form.get("target_ref") or "").strip() or None,
+            "binding_id": str(form.get("binding_id") or "").strip() or None,
+            "scope_json": str(form.get("scope_json") or "").strip(),
+            "matcher_json": str(form.get("matcher_json") or "").strip(),
+            "routing_json": str(form.get("routing_json") or "").strip(),
+            "poll_profile_json": str(form.get("poll_profile_json") or "").strip(),
+            "config_json": str(form.get("config_json") or "").strip(),
+            "dedupe_key_template": str(form.get("dedupe_key_template") or "").strip() or None,
+            "enabled": _parse_form_bool(form.get("enabled")),
+        }
+        error = ""
+        if not form_data["source_type"] or not form_data["event_type"]:
+            error = "source_type and event_type are required"
+        if form_data["mode"] not in {"push", "poll", "hybrid"}:
+            error = "mode must be push, poll, or hybrid"
+        if not error and form_data["binding_id"]:
+            binding = AgentIdentityBindingRepository(db).get_by_id(form_data["binding_id"])
+            if (
+                not binding
+                or binding.agent_id != agent_id
+                or (binding.system_type or "").strip().lower() != form_data["source_type"]
+            ):
+                error = "binding_id must refer to a binding on the same agent and provider"
+
+        scope_json, scope_error = _parse_json_textarea(form_data["scope_json"], field_name="scope_json")
+        matcher_json, matcher_error = _parse_json_textarea(form_data["matcher_json"], field_name="matcher_json")
+        routing_json, routing_error = _parse_json_textarea(form_data["routing_json"], field_name="routing_json")
+        poll_profile_json, poll_profile_error = _parse_json_textarea(form_data["poll_profile_json"], field_name="poll_profile_json")
+        config_json, config_error = _parse_json_textarea(form_data["config_json"], field_name="config_json")
+
+        json_errors = [msg for msg in [scope_error, matcher_error, routing_error, poll_profile_error, config_error] if msg]
+        if not error and json_errors:
+            error = json_errors[0]
+
+        if not error:
+            repo = ExternalEventSubscriptionRepository(db)
+            repo.create(
+                agent_id=agent_id,
+                source_type=form_data["source_type"],
+                event_type=form_data["event_type"],
+                target_ref=form_data["target_ref"],
+                enabled=form_data["enabled"],
+                config_json=config_json,
+                dedupe_key_template=form_data["dedupe_key_template"],
+                mode=form_data["mode"],
+                source_kind=form_data["source_kind"] or None,
+                binding_id=form_data["binding_id"],
+                scope_json=scope_json,
+                matcher_json=matcher_json,
+                routing_json=routing_json,
+                poll_profile_json=poll_profile_json,
+            )
+
+        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+        subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
+        return templates.TemplateResponse(
+            "partials/external_event_subscriptions_panel.html",
+            {
+                "request": request,
+                "agent_id": agent_id,
+                "bindings": bindings,
+                "subscriptions": subscriptions,
+                "error": error,
+                "success": "Subscription created" if not error else "",
+                "form": form_data,
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/agents/{agent_id}/triggered-work/subscriptions/{subscription_id}/delete")
+async def app_agent_triggered_work_subscriptions_delete(request: Request, agent_id: str, subscription_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    db = SessionLocal()
+    try:
+        agent = _triggered_work_authorize(db, user, agent_id)
+        if not _can_write(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        repo = ExternalEventSubscriptionRepository(db)
+        subscription = repo.get_by_id(subscription_id)
+        if subscription and subscription.agent_id == agent_id:
+            repo.delete(subscription)
+
+        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+        subscriptions = repo.list_by_agent(agent_id)
+        return templates.TemplateResponse(
+            "partials/external_event_subscriptions_panel.html",
+            {
+                "request": request,
+                "agent_id": agent_id,
+                "bindings": bindings,
+                "subscriptions": subscriptions,
+                "error": "",
+                "success": "Subscription deleted",
+                "form": {},
             },
         )
     finally:
