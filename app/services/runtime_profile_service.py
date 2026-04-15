@@ -17,7 +17,22 @@ class RuntimeProfileService:
     @staticmethod
     def default_profile_config() -> dict:
         return {
-            "llm": {"provider": "openai", "model": "gpt-4.1"},
+            "llm": {
+                "provider": "openai",
+                "model": "gpt-3.5-turbo",
+                "max_tokens": 1000,
+                "temperature": 0.7,
+                "max_retries": 3,
+                "retry_delay": 1,
+                "system-prompt": {
+                    "soul": {"enabled": True},
+                    "user": {"enabled": True},
+                    "agents": {"enabled": True},
+                    "tools": {"enabled": True},
+                    "memory": {"enabled": True},
+                    "daily_notes": {"enabled": True},
+                },
+            },
             "proxy": {"enabled": False},
             "jira": {"enabled": False, "instances": []},
             "confluence": {"enabled": False, "instances": []},
@@ -25,6 +40,29 @@ class RuntimeProfileService:
             "git": {"user": {}},
             "debug": {"enabled": False, "log_level": "INFO"},
         }
+
+    @staticmethod
+    def _deep_merge_dicts(base: dict, overlay: dict) -> dict:
+        merged: dict = {}
+        for key, base_value in base.items():
+            if key not in overlay:
+                merged[key] = base_value
+                continue
+            overlay_value = overlay[key]
+            if isinstance(base_value, dict) and isinstance(overlay_value, dict):
+                merged[key] = RuntimeProfileService._deep_merge_dicts(base_value, overlay_value)
+            else:
+                merged[key] = overlay_value
+
+        for key, overlay_value in overlay.items():
+            if key not in merged:
+                merged[key] = overlay_value
+        return merged
+
+    @staticmethod
+    def merge_with_managed_defaults(config_dict: dict | None) -> dict:
+        overlay = config_dict if isinstance(config_dict, dict) else {}
+        return RuntimeProfileService._deep_merge_dicts(RuntimeProfileService.default_profile_config(), overlay)
 
     def list_for_user(self, user) -> list[RuntimeProfile]:
         return self.repo.list_by_owner_newest_first(user.id)

@@ -116,6 +116,116 @@ def test_agent_runtime_delete():
     assert response.status_code in [200, 401, 403, 404]
 
 
+def test_managed_settings_initializer_hooks_present():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "function initializeManagedSettingsPanels()" in js
+    assert 'event.target?.id === "workspace-detail-content"' in js
+    assert "initializeManagedSettingsPanels();" in js
+    assert "loadRuntimeProfilePanelContent(profileId)" in js
+
+
+def test_update_model_options_keeps_unknown_initial_but_not_cross_provider_leak():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping managed settings model behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    update_model_options_fn = _extract_js_function(js_file, "updateModelOptions")
+
+    marker = "const managedProviderModels ="
+    start = js_file.find(marker)
+    assert start >= 0, "managedProviderModels block not found"
+    brace_start = js_file.find("{", start)
+    assert brace_start >= 0, "managedProviderModels block start not found"
+    depth = 0
+    end = -1
+    for idx in range(brace_start, len(js_file)):
+        char = js_file[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                end = idx
+                break
+    assert end > brace_start, "managedProviderModels block end not found"
+    managed_models_block = js_file[start:end + 2]
+
+    script = f"""
+{managed_models_block}
+{update_model_options_fn}
+
+const noop = () => {{}};
+function makeOption() {{
+  return {{ value: "", textContent: "" }};
+}}
+const document = {{ createElement: makeOption }};
+global.document = document;
+let stopCalled = 0;
+function stopCopilotPolling(_root) {{ stopCalled += 1; }}
+
+function makeSelect(initialValue = "") {{
+  return {{
+    value: initialValue,
+    innerHTML: "",
+    dataset: {{}},
+    options: [],
+    appendChild(option) {{ this.options.push(option); }},
+    classList: {{ toggle: noop, add: noop }},
+  }};
+}}
+
+function makeRoot(providerValue, modelValue) {{
+  const provider = makeSelect(providerValue);
+  provider.dataset.initialProvider = providerValue;
+  const model = makeSelect(modelValue);
+  model.dataset.initialValue = modelValue;
+  model.dataset.currentValue = modelValue;
+  model.dataset.lastProvider = providerValue;
+  const copilotBtn = {{ classList: {{ toggle: noop }} }};
+  const authStatus = {{ classList: {{ add: noop }} }};
+  return {{
+    provider,
+    model,
+    querySelector(sel) {{
+      if (sel === "#llm_provider") return provider;
+      if (sel === "#llm_model") return model;
+      if (sel === "#copilot_auth_btn") return copilotBtn;
+      if (sel === "#copilot_auth_status") return authStatus;
+      return null;
+    }},
+  }};
+}}
+
+const rootA = makeRoot("openai", "custom-unknown-model");
+updateModelOptions(rootA);
+const scenarioA = {{
+  selected: rootA.model.value,
+  hasCurrent: rootA.model.options.some((o) => o.textContent === "custom-unknown-model (Current)"),
+}};
+
+const rootB = makeRoot("openai", "gpt-4.1");
+updateModelOptions(rootB);
+rootB.provider.value = "anthropic";
+updateModelOptions(rootB);
+const scenarioB = {{
+  selected: rootB.model.value,
+  hasLeakedCurrent: rootB.model.options.some((o) => o.textContent === "gpt-4.1 (Current)"),
+  options: rootB.model.options.map((o) => o.value),
+}};
+
+console.log(JSON.stringify({{ scenarioA, scenarioB }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    result = json.loads(completed.stdout.strip())
+
+    assert result["scenarioA"]["selected"] == "custom-unknown-model"
+    assert result["scenarioA"]["hasCurrent"] is True
+    assert result["scenarioB"]["selected"] != "gpt-4.1"
+    assert result["scenarioB"]["hasLeakedCurrent"] is False
+    assert result["scenarioB"]["selected"] in result["scenarioB"]["options"]
+
+
 def test_agent_defaults():
     """Test agent defaults endpoint."""
     from app.main import app

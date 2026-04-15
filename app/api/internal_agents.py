@@ -7,6 +7,7 @@ from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.schemas.runtime_router import AgentRuntimeContextResponse, RuntimeCapabilityContextResponse, RuntimePolicyContextResponse, RuntimeProfileContextResponse
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_router import RuntimeRouterService
 
 router = APIRouter(tags=["internal-agents"])
@@ -26,7 +27,9 @@ def get_agent_runtime_context(agent_id: str, db: Session = Depends(get_db)):
     if agent.runtime_profile_id:
         runtime_profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
         if runtime_profile:
-            config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+            config = RuntimeProfileService.merge_with_managed_defaults(
+                parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+            )
             runtime_profile_context = RuntimeProfileContextResponse(
                 runtime_profile_id=runtime_profile.id,
                 name=runtime_profile.name,

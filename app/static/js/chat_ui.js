@@ -2127,7 +2127,9 @@ function decodeHtml(text) {
 // ===== markdown + icons lifecycle =====
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
-    if (event.target?.id === "tool-panel-body") initializeSettingsPanel();
+    if (event.target?.id === "tool-panel-body" || event.target?.id === "workspace-detail-content") {
+      initializeManagedSettingsPanels();
+    }
     renderIcons();
   });
 }
@@ -3494,14 +3496,41 @@ async function openMyUploads() {
 }
 
 
-function normalizeInstanceInputs(group) {
-  const container = dom.toolPanelBody?.querySelector(`[data-instance-container="${group}"]`);
-  const countInput = dom.toolPanelBody?.querySelector(`[data-instance-count="${group}"]`);
+const managedProviderModels = {
+  github_copilot: [
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-4.1", label: "GPT-4.1" },
+    { value: "gpt-5-mini", label: "GPT-5 mini" },
+    { value: "gpt-5.3-codex", label: "GPT-5.3-Codex" },
+    { value: "gpt-5.4", label: "GPT-5.4" },
+    { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
+    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  ],
+  openai: [
+    { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
+    { value: "gpt-4", label: "GPT-4" },
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-4.1", label: "GPT-4.1" },
+    { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+    { value: "gpt-5-mini", label: "GPT-5 mini" },
+    { value: "gpt-5", label: "GPT-5" },
+  ],
+  anthropic: [
+    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+    { value: "claude-haiku-4-20250514", label: "Claude Haiku 4" },
+    { value: "claude-opus-4-20250514", label: "Claude Opus 4" },
+  ],
+};
+const managedSettingsActionSelector = "[data-settings-action]";
+
+function normalizeInstanceInputs(root, group) {
+  const container = root?.querySelector(`[data-instance-container="${group}"]`);
+  const countInput = root?.querySelector(`[data-instance-count="${group}"]`);
   if (!container || !countInput) return;
 
   const items = Array.from(container.querySelectorAll(`[data-instance-item="${group}"]`));
   items.forEach((item, idx) => {
-    const title = item.querySelector("span");
+    const title = item.querySelector(".portal-settings-instance-title");
     if (title) title.textContent = `Instance ${idx + 1}`;
     item.querySelectorAll("input[data-field]").forEach((input) => {
       const field = input.dataset.field;
@@ -3511,8 +3540,8 @@ function normalizeInstanceInputs(group) {
   countInput.value = String(items.length);
 }
 
-function addInstanceRow(group) {
-  const container = dom.toolPanelBody?.querySelector(`[data-instance-container="${group}"]`);
+function addInstanceRow(root, group) {
+  const container = root?.querySelector(`[data-instance-container="${group}"]`);
   if (!container) return;
 
   const div = document.createElement("div");
@@ -3536,36 +3565,253 @@ function addInstanceRow(group) {
     <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API Token" class="portal-form-input" />${projectHtml}</div>
   `;
   container.append(div);
-  normalizeInstanceInputs(group);
+  normalizeInstanceInputs(root, group);
 
-  // Initialize password toggles for newly added inputs
-  if (window.initPasswordToggles) {
-    window.initPasswordToggles();
+  if (window.initPasswordToggles) window.initPasswordToggles(root);
+}
+
+window.initPasswordToggles = function(root = document) {
+  root.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach((input) => {
+    input.classList.add("pr-6", "password-toggle-initialized");
+    const wrapper = document.createElement("div");
+    wrapper.className = "relative";
+    input.parentNode.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.tabIndex = 0;
+    toggle.setAttribute("aria-label", "Toggle password visibility");
+    toggle.setAttribute("aria-pressed", "false");
+    toggle.className = "portal-password-toggle";
+    toggle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+    toggle.addEventListener("click", () => {
+      const visible = input.type === "password";
+      input.type = visible ? "text" : "password";
+      toggle.setAttribute("aria-pressed", visible ? "true" : "false");
+    });
+    wrapper.appendChild(toggle);
+  });
+};
+
+function getManagedCopilotState(root) {
+  if (!root.__managedCopilotState) root.__managedCopilotState = { authInterval: null, timerInterval: null };
+  return root.__managedCopilotState;
+}
+
+function stopCopilotPolling(root) {
+  const st = getManagedCopilotState(root);
+  if (st.authInterval) clearInterval(st.authInterval);
+  if (st.timerInterval) clearInterval(st.timerInterval);
+  st.authInterval = null;
+  st.timerInterval = null;
+}
+
+function updateModelOptions(root) {
+  const providerSelect = root.querySelector("#llm_provider");
+  const modelSelect = root.querySelector("#llm_model");
+  if (!providerSelect || !modelSelect) return;
+  const provider = providerSelect.value || "openai";
+  const initialProvider = providerSelect.dataset.initialProvider || provider;
+  const initialValue = modelSelect.dataset.initialValue || modelSelect.dataset.currentValue || "";
+  const lastProvider = modelSelect.dataset.lastProvider || initialProvider;
+  const previousValue = modelSelect.value || "";
+  const models = managedProviderModels[provider] || [];
+  modelSelect.innerHTML = "";
+  models.forEach((model) => {
+    const option = document.createElement("option");
+    option.value = model.value;
+    option.textContent = model.label;
+    modelSelect.appendChild(option);
+  });
+  const hasModel = (value) => !!value && models.some((m) => m.value === value);
+
+  let preferred = "";
+  if (provider === initialProvider && lastProvider === initialProvider) {
+    preferred = initialValue;
+    if (preferred && !hasModel(preferred)) {
+      const extra = document.createElement("option");
+      extra.value = preferred;
+      extra.textContent = `${preferred} (Current)`;
+      modelSelect.appendChild(extra);
+    }
+  } else if (provider !== lastProvider) {
+    preferred = hasModel(previousValue) ? previousValue : (models[0]?.value || "");
+  } else {
+    preferred = hasModel(previousValue) ? previousValue : (models[0]?.value || "");
+  }
+  if (preferred) modelSelect.value = preferred;
+  if (!modelSelect.value && models[0]?.value) modelSelect.value = models[0].value;
+  modelSelect.dataset.currentValue = modelSelect.value || "";
+  modelSelect.dataset.lastProvider = provider;
+
+  const copilotBtn = root.querySelector("#copilot_auth_btn");
+  const authStatus = root.querySelector("#copilot_auth_status");
+  const isCopilot = provider === "github_copilot";
+  if (copilotBtn) copilotBtn.classList.toggle("hidden", !isCopilot);
+  if (authStatus && !isCopilot) authStatus.classList.add("hidden");
+  if (!isCopilot) stopCopilotPolling(root);
+}
+
+async function runManagedSettingsTest(root, target, button) {
+  const form = root.querySelector("form");
+  if (!form) return;
+  const testBase = root.dataset.testBase || "";
+  if (!testBase) return;
+  const resultEl = root.querySelector(`[data-test-result="${target}"]`);
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Testing...";
+  try {
+    const resp = await fetch(`${testBase}/${target}`, { method: "POST", body: new FormData(form) });
+    const data = await resp.json();
+    const ok = !!data.ok;
+    if (resultEl) {
+      resultEl.className = `portal-inline-state ${ok ? "is-success" : "is-error"}`;
+      resultEl.textContent = data.message || "";
+    }
+    showToast(data.message || `${target} test completed`);
+  } catch (error) {
+    if (resultEl) {
+      resultEl.className = "portal-inline-state is-error";
+      resultEl.textContent = safe(error.message);
+    }
+    showToast(`Test failed: ${safe(error.message)}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
   }
 }
 
+async function startCopilotAuth(root) {
+  const agentId = (root.dataset.copilotAgentId || "").trim() || state.selectedAgentId;
+  if (!agentId) {
+    showToast("Copilot authorization requires a running agent proxy. Start a running agent and try again.");
+    return;
+  }
+  const authStatus = root.querySelector("#copilot_auth_status");
+  const instructions = root.querySelector("#copilot_instructions");
+  const statusText = root.querySelector("#copilot_status_text");
+  const verifyLink = root.querySelector("#copilot_verify_link");
+  const deviceLink = root.querySelector("#copilot_device_link");
+  const userCode = root.querySelector("#copilot_user_code");
+  const timer = root.querySelector("#copilot_timer");
+  try {
+    const response = await fetch(`/a/${agentId}/api/copilot/auth/start`, { method: "POST" });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    if (authStatus) authStatus.classList.remove("hidden");
+    if (instructions) instructions.classList.remove("hidden");
+    if (verifyLink) { verifyLink.href = data.verification_url; verifyLink.textContent = data.verification_url; }
+    if (deviceLink) {
+      if (data.verification_complete_url) { deviceLink.href = data.verification_complete_url; deviceLink.classList.remove("hidden"); }
+      else deviceLink.classList.add("hidden");
+    }
+    if (userCode) userCode.textContent = data.user_code || "";
+    if (statusText) statusText.textContent = "Waiting for authorization...";
+    let remaining = Number(data.expires_in || 600);
+    const st = getManagedCopilotState(root);
+    stopCopilotPolling(root);
+    st.timerInterval = setInterval(() => {
+      remaining -= 1;
+      if (timer) timer.textContent = `${remaining}s`;
+      if (remaining <= 0) stopCopilotPolling(root);
+    }, 1000);
+    st.authInterval = setInterval(async () => {
+      const checkResp = await fetch(`/a/${agentId}/api/copilot/auth/check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auth_id: data.auth_id, device_code: data.device_code }),
+      });
+      const check = await checkResp.json();
+      if (check.status === "authorized") {
+        stopCopilotPolling(root);
+        if (statusText) statusText.textContent = "Authorized successfully!";
+        if (instructions) instructions.classList.add("hidden");
+        const apiInput = root.querySelector('input[name="llm_api_key"]');
+        if (apiInput && check.token) apiInput.value = check.token;
+      } else if (check.status === "failed" || check.status === "expired") {
+        stopCopilotPolling(root);
+        if (statusText) statusText.textContent = check.message || check.error || "Authorization failed";
+      }
+    }, 3000);
+  } catch (error) {
+    showToast(`Copilot authorization failed: ${safe(error.message)}`);
+  }
+}
 
-function initializeSettingsPanel() {
-  const root = dom.toolPanelBody?.querySelector("#settings-panel-root");
-  if (!root || !dom.toolPanelBody?.querySelector("#settings-form")) return;
-
-  normalizeInstanceInputs("jira");
-  normalizeInstanceInputs("confluence");
-
+function initializeManagedSettingsRoot(root) {
+  if (!root) return;
+  normalizeInstanceInputs(root, "jira");
+  normalizeInstanceInputs(root, "confluence");
+  window.initPasswordToggles(root);
+  const provider = root.querySelector("#llm_provider");
+  const modelSelect = root.querySelector("#llm_model");
+  if (provider && !provider.dataset.initialProvider) provider.dataset.initialProvider = provider.value || "openai";
+  if (modelSelect && !modelSelect.dataset.initialValue) {
+    modelSelect.dataset.initialValue = modelSelect.dataset.currentValue || "";
+    modelSelect.dataset.lastProvider = provider?.value || "openai";
+  }
+  updateModelOptions(root);
+  const settingsStatus = root.querySelector("#settings-status");
+  if (settingsStatus && settingsStatus.dataset.handled !== "1") {
+    settingsStatus.dataset.handled = "1";
+    const kind = settingsStatus.dataset.settingsStatus || "";
+    const message = (settingsStatus.textContent || "").trim();
+    if (kind === "success" && message) {
+      showToast(message);
+      if (root.id === "settings-panel-root") closeToolPanel();
+    }
+    if (kind === "error" && typeof settingsStatus.focus === "function") settingsStatus.focus();
+  }
   if (root.dataset.actionsBound === "1") return;
   root.dataset.actionsBound = "1";
-
+  root.addEventListener("change", (event) => {
+    if (event.target?.id === "llm_provider") updateModelOptions(root);
+  });
   root.addEventListener("click", async (event) => {
-    const btn = event.target.closest("[data-settings-action]");
-    if (!btn) return;
-    event.preventDefault();
-
-    const agentId = root.dataset.agentId || state.selectedAgentId;
-    if (!agentId) {
-      showToast("Please select an assistant first");
+    const addBtn = event.target.closest('[data-action="add-instance"]');
+    if (addBtn) {
+      event.preventDefault();
+      addInstanceRow(root, addBtn.dataset.group || "jira");
       return;
     }
+    const removeBtn = event.target.closest('[data-action="remove-instance"]');
+    if (removeBtn) {
+      event.preventDefault();
+      const group = removeBtn.dataset.group || "jira";
+      removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
+      normalizeInstanceInputs(root, group);
+      return;
+    }
+    const testBtn = event.target.closest("[data-test-target]");
+    if (testBtn) {
+      event.preventDefault();
+      await runManagedSettingsTest(root, testBtn.dataset.testTarget, testBtn);
+      return;
+    }
+    if (event.target.closest("#copilot_auth_btn")) {
+      event.preventDefault();
+      await startCopilotAuth(root);
+      return;
+    }
+    if (event.target.closest("#copilot_copy_btn")) {
+      event.preventDefault();
+      const code = root.querySelector("#copilot_user_code")?.textContent || "";
+      if (code && navigator.clipboard) {
+        await navigator.clipboard.writeText(code);
+        showToast("Code copied!");
+      }
+    }
   });
+}
+
+function initializeManagedSettingsPanels() {
+  initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
+  initializeManagedSettingsRoot(document.getElementById("runtime-profile-panel-root"));
+}
+
+function initializeSettingsPanel() {
+  initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
 }
 
 async function openSettings() {
@@ -3731,6 +3977,7 @@ async function loadRuntimeProfilePanelContent(profileId) {
   state.selectedRuntimeProfileId = profileId;
   renderRuntimeProfileList();
   await htmx.ajax("GET", `/app/runtime-profiles/${encodeURIComponent(profileId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
+  if (typeof initializeManagedSettingsPanels === "function") initializeManagedSettingsPanels();
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "runtime-profile-detail";
   syncMainHeader();
@@ -4200,20 +4447,6 @@ function bindEvents() {
       return;
     }
 
-    const addBtn = event.target.closest('[data-action="add-instance"]');
-    if (addBtn) {
-      event.preventDefault();
-      addInstanceRow(addBtn.dataset.group || "jira");
-      return;
-    }
-
-    const removeBtn = event.target.closest('[data-action="remove-instance"]');
-    if (removeBtn) {
-      event.preventDefault();
-      const group = removeBtn.dataset.group || "jira";
-      removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
-      normalizeInstanceInputs(group);
-    }
   });
 
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
