@@ -473,23 +473,11 @@ def _runtime_profile_panel_context(
     status_type: str = "",
     status_message: str = "",
 ) -> dict:
-    from app.models.agent import Agent
-
     bound_count = profile_repo.count_bound_agents(profile.id)
     config_data = RuntimeProfileService.merge_with_managed_defaults(
         parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
     )
     view_data = _settings_view_payload(config_data)
-    proxy_agent = profile_repo.db.query(Agent).filter(
-        Agent.runtime_profile_id == profile.id,
-        Agent.status == "running",
-    ).order_by(Agent.updated_at.desc(), Agent.created_at.desc()).first()
-    copilot_proxy_agent_id = proxy_agent.id if proxy_agent else ""
-    copilot_proxy_agent_hint = (
-        f"Using running agent {copilot_proxy_agent_id} as Copilot auth proxy."
-        if copilot_proxy_agent_id
-        else "No running bound agent available for Copilot auth proxy."
-    )
     return {
         "request": request,
         "profile_id": profile.id,
@@ -500,8 +488,6 @@ def _runtime_profile_panel_context(
         "profile_revision": profile.revision,
         "profile_is_default": bool(profile.is_default),
         "profile_bound_agent_count": bound_count,
-        "copilot_proxy_agent_id": copilot_proxy_agent_id,
-        "copilot_proxy_agent_hint": copilot_proxy_agent_hint,
         **view_data,
     }
 

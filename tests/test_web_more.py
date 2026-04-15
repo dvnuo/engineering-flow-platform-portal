@@ -1224,3 +1224,264 @@ def test_thinking_process_template_prefers_normalized_fields():
     template = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
     assert template.find("event.event_type or event.type") != -1
     assert template.find("event.summary") < template.find("event.data and event.data.message")
+
+
+def test_copilot_auth_no_runtime_proxy_strings():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "/a/${agentId}/api/copilot/auth/start" not in js
+    assert "/a/${agentId}/api/copilot/auth/check" not in js
+
+
+def test_start_copilot_auth_uses_portal_endpoints_and_stops_on_declined():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping copilot auth behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
+    stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
+    get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
+    get_github_base_fn = _extract_js_function(js_file, "getManagedGithubBaseUrl")
+    finish_fn = _extract_js_function(js_file, "finishCopilotAuthWithMessage")
+    start_copilot_fn = _extract_js_function(js_file, "startCopilotAuth")
+
+    script = f"""
+const fetchCalls = [];
+const intervalCalls = [];
+const clearedIntervals = [];
+const toasts = [];
+
+let intervalId = 1;
+function setIntervalStub(fn, ms) {{
+  const id = intervalId++;
+  intervalCalls.push({{ id, ms, fn }});
+  return id;
+}}
+function clearIntervalStub(id) {{
+  clearedIntervals.push(id);
+}}
+
+global.setInterval = setIntervalStub;
+global.clearInterval = clearIntervalStub;
+
+function safe(v) {{ return String(v || ""); }}
+function showToast(msg) {{ toasts.push(msg); }}
+
+const classes = () => ({{ add() {{}}, remove() {{}}, toggle() {{}} }});
+const elements = {{
+  authStatus: {{ classList: classes() }},
+  instructions: {{ classList: classes() }},
+  statusText: {{ textContent: "" }},
+  verifyLink: {{ href: "", textContent: "" }},
+  deviceLink: {{ href: "", classList: classes() }},
+  userCode: {{ textContent: "" }},
+  timer: {{ textContent: "" }},
+  apiKey: {{ value: "" }},
+  githubBase: {{ value: "https://github.company.com" }},
+}};
+
+const root = {{
+  dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
+  querySelector(sel) {{
+    if (sel === '#copilot_auth_status') return elements.authStatus;
+    if (sel === '#copilot_instructions') return elements.instructions;
+    if (sel === '#copilot_status_text') return elements.statusText;
+    if (sel === '#copilot_verify_link') return elements.verifyLink;
+    if (sel === '#copilot_device_link') return elements.deviceLink;
+    if (sel === '#copilot_user_code') return elements.userCode;
+    if (sel === '#copilot_timer') return elements.timer;
+    if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
+    if (sel === 'input[name="github_base_url"]') return elements.githubBase;
+    return null;
+  }}
+}};
+
+async function fetch(url, options) {{
+  fetchCalls.push({{ url, options }});
+  if (url.endsWith('/start')) {{
+    return {{
+      ok: true,
+      async json() {{
+        return {{
+          auth_id: 'auth-1',
+          device_code: 'device-1',
+          user_code: 'CODE1',
+          verification_url: 'https://github.com/login/device',
+          verification_complete_url: 'https://github.com/login/device?user_code=CODE1',
+          expires_in: 60,
+          interval: 7,
+        }};
+      }}
+    }};
+  }}
+  if (url.endsWith('/check')) {{
+    return {{ ok: true, async json() {{ return {{ status: 'declined', message: 'nope' }}; }} }};
+  }}
+  throw new Error('unexpected url');
+}}
+
+global.fetch = fetch;
+
+{get_state_fn}
+{stop_polling_fn}
+{get_auth_base_fn}
+{get_github_base_fn}
+{finish_fn}
+{start_copilot_fn}
+
+(async () => {{
+  await startCopilotAuth(root);
+  await intervalCalls.find((x) => x.ms === 7000).fn();
+
+  console.log(JSON.stringify({{
+    fetchCalls,
+    intervalMs: intervalCalls.map((x) => x.ms),
+    clearedIntervals,
+    toasts,
+    statusText: elements.statusText.textContent,
+    startBody: JSON.parse(fetchCalls[0].options.body),
+  }}));
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+
+    assert data["fetchCalls"][0]["url"] == "/api/copilot/auth/start"
+    assert data["startBody"]["github_base_url"] == "https://github.company.com"
+    assert 7000 in data["intervalMs"]
+    assert data["fetchCalls"][1]["url"] == "/api/copilot/auth/check"
+    assert data["statusText"] == "nope"
+    assert len(data["clearedIntervals"]) >= 2
+
+
+def test_start_copilot_auth_stops_on_check_http_error_or_missing_status():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping copilot auth behavior test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
+    stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
+    get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
+    get_github_base_fn = _extract_js_function(js_file, "getManagedGithubBaseUrl")
+    finish_fn = _extract_js_function(js_file, "finishCopilotAuthWithMessage")
+    start_copilot_fn = _extract_js_function(js_file, "startCopilotAuth")
+
+    script = f"""
+async function runScenario(mode) {{
+  const fetchCalls = [];
+  const intervalCalls = [];
+  const clearedIntervals = [];
+
+  let intervalId = 1;
+  function setIntervalStub(fn, ms) {{
+    const id = intervalId++;
+    intervalCalls.push({{ id, ms, fn }});
+    return id;
+  }}
+  function clearIntervalStub(id) {{
+    clearedIntervals.push(id);
+  }}
+
+  global.setInterval = setIntervalStub;
+  global.clearInterval = clearIntervalStub;
+
+  function safe(v) {{ return String(v || ""); }}
+  function showToast(_msg) {{}}
+
+  const classes = () => ({{ add() {{}}, remove() {{}}, toggle() {{}} }});
+  const elements = {{
+    authStatus: {{ classList: classes() }},
+    instructions: {{ classList: classes() }},
+    statusText: {{ textContent: "" }},
+    verifyLink: {{ href: "", textContent: "" }},
+    deviceLink: {{ href: "", classList: classes() }},
+    userCode: {{ textContent: "" }},
+    timer: {{ textContent: "" }},
+    apiKey: {{ value: "" }},
+    githubBase: {{ value: "https://github.company.com" }},
+  }};
+
+  const root = {{
+    dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
+    querySelector(sel) {{
+      if (sel === '#copilot_auth_status') return elements.authStatus;
+      if (sel === '#copilot_instructions') return elements.instructions;
+      if (sel === '#copilot_status_text') return elements.statusText;
+      if (sel === '#copilot_verify_link') return elements.verifyLink;
+      if (sel === '#copilot_device_link') return elements.deviceLink;
+      if (sel === '#copilot_user_code') return elements.userCode;
+      if (sel === '#copilot_timer') return elements.timer;
+      if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
+      if (sel === 'input[name="github_base_url"]') return elements.githubBase;
+      return null;
+    }}
+  }};
+
+  async function fetch(url, options) {{
+    fetchCalls.push({{ url, options }});
+    if (url.endsWith('/start')) {{
+      return {{
+        ok: true,
+        async json() {{
+          return {{
+            auth_id: 'auth-1',
+            device_code: 'device-1',
+            user_code: 'CODE1',
+            verification_url: 'https://github.com/login/device',
+            verification_complete_url: 'https://github.com/login/device?user_code=CODE1',
+            expires_in: 60,
+            interval: 7,
+          }};
+        }}
+      }};
+    }}
+    if (mode === 'http_error') {{
+      return {{ ok: false, status: 404, async json() {{ return {{ error: 'Authorization not found or expired' }}; }} }};
+    }}
+    return {{ ok: true, status: 200, async json() {{ return {{ message: 'missing status from server' }}; }} }};
+  }}
+
+  global.fetch = fetch;
+
+  {get_state_fn}
+  {stop_polling_fn}
+  {get_auth_base_fn}
+  {get_github_base_fn}
+  {finish_fn}
+  {start_copilot_fn}
+
+  await startCopilotAuth(root);
+  await intervalCalls.find((x) => x.ms === 7000).fn();
+
+  return {{
+    fetchCalls,
+    clearedIntervals,
+    statusText: elements.statusText.textContent,
+  }};
+}}
+
+(async () => {{
+  const httpError = await runScenario('http_error');
+  const missingStatus = await runScenario('missing_status');
+  console.log(JSON.stringify({{ httpError, missingStatus }}));
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+
+    assert len(data["httpError"]["clearedIntervals"]) >= 2
+    assert data["httpError"]["statusText"] != "Waiting for authorization..."
+    assert "Authorization not found or expired" in data["httpError"]["statusText"]
+
+    assert len(data["missingStatus"]["clearedIntervals"]) >= 2
+    assert data["missingStatus"]["statusText"] != "Waiting for authorization..."
+    assert "missing status" in data["missingStatus"]["statusText"]

@@ -64,6 +64,11 @@ def test_app_template_contains_new_portal_shell():
     assert "toggle-slider" in runtime_panel
     assert 'data-test-base="/app/runtime-profiles/{{ profile_id }}/test"' in runtime_panel
     assert 'data-test-base="/app/agents/{{ agent_id }}/settings/test"' in settings_panel
+    assert 'data-copilot-auth-base="/api/copilot/auth"' in runtime_panel
+    assert 'data-copilot-auth-base="/api/copilot/auth"' in settings_panel
+    assert 'data-copilot-agent-id' not in runtime_panel
+    assert 'data-copilot-agent-id' not in settings_panel
+    assert 'copilot_proxy_agent_hint' not in runtime_panel
     assert 'data-current-value="{{ llm.get(\'model\', \'\') }}"' in runtime_panel
     assert 'data-current-value="{{ llm.get(\'model\', \'\') }}"' in settings_panel
     assert 'data-test-target="proxy"' in runtime_panel

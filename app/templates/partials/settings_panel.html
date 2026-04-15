@@ -1,4 +1,4 @@
-<div class="portal-panel-stack" id="settings-panel-root" data-agent-id="{{ agent_id }}" data-copilot-agent-id="{{ agent_id }}" data-test-base="/app/agents/{{ agent_id }}/settings/test">
+<div class="portal-panel-stack" id="settings-panel-root" data-agent-id="{{ agent_id }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/agents/{{ agent_id }}/settings/test">
   <!-- Please select an assistant first -->
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
     {% if status_message %}
