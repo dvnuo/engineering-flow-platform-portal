@@ -4,6 +4,15 @@ import shutil
 import subprocess
 from pathlib import Path
 
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _chat_ui_js_source() -> str:
+    chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
+    return chat_ui_path.read_text(encoding="utf-8")
 from fastapi.testclient import TestClient
 import pytest
 from _js_extract_helpers import _extract_js_function, _extract_js_helper_block
@@ -117,7 +126,7 @@ def test_agent_runtime_delete():
 
 
 def test_managed_settings_initializer_hooks_present():
-    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js = _chat_ui_js_source()
     assert "function initializeManagedSettingsPanels()" in js
     assert 'event.target?.id === "workspace-detail-content"' in js
     assert "initializeManagedSettingsPanels();" in js
@@ -129,7 +138,7 @@ def test_update_model_options_keeps_unknown_initial_but_not_cross_provider_leak(
     if not node_bin:
         pytest.skip("node is not installed; skipping managed settings model behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     update_model_options_fn = _extract_js_function(js_file, "updateModelOptions")
 
     marker = "const managedProviderModels ="
@@ -248,7 +257,7 @@ def test_chat_ui_display_block_helpers_behavior():
     if not node_bin:
         pytest.skip("node is not installed; skipping display block helper test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     meaningful_text_block = _extract_js_function(js_file, "isMeaningfulText")
     pick_value_block = _extract_js_function(js_file, "pickFirstMeaningfulBlockValue")
     has_renderable_block = _extract_js_function(js_file, "hasRenderableDisplayBlock")
@@ -413,7 +422,7 @@ def test_chat_ui_runtime_event_helpers_behavior():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     normalize_block = _extract_js_helper_block(js_file, "normalizeRuntimeEvent")
     completion_block = _extract_js_helper_block(js_file, "completionRuntimeState")
 
@@ -525,7 +534,7 @@ def test_update_agent_session_is_isolated_per_agent():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
@@ -565,7 +574,7 @@ def test_chat_ui_set_active_nav_section_loads_cached_bundles_without_refreshing(
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
 
     script = f"""
@@ -802,7 +811,7 @@ def test_chat_ui_set_active_nav_section_runtime_profiles_prefers_default_and_emp
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
     load_runtime_profile_panel_content_fn = _extract_js_function(js_file, "loadRuntimeProfilePanelContent")
 
@@ -958,7 +967,7 @@ def test_chat_ui_runtime_profiles_reopen_prefers_default_profile():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
     load_runtime_profile_panel_content_fn = _extract_js_function(js_file, "loadRuntimeProfilePanelContent")
 
@@ -1076,7 +1085,7 @@ def test_chat_ui_refresh_requirement_bundles_treats_empty_cached_list_as_cache()
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     show_bundles_empty_main_view_fn = _extract_js_function(js_file, "showBundlesEmptyMainView")
     refresh_requirement_bundles_fn = _extract_js_function(js_file, "refreshRequirementBundles")
 
@@ -1227,7 +1236,7 @@ def test_thinking_process_template_prefers_normalized_fields():
 
 
 def test_copilot_auth_no_runtime_proxy_strings():
-    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js = _chat_ui_js_source()
     assert "/a/${agentId}/api/copilot/auth/start" not in js
     assert "/a/${agentId}/api/copilot/auth/check" not in js
 
@@ -1237,7 +1246,7 @@ def test_start_copilot_auth_uses_portal_endpoints_and_stops_on_declined():
     if not node_bin:
         pytest.skip("node is not installed; skipping copilot auth behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
     stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
     get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
@@ -1363,7 +1372,7 @@ def test_start_copilot_auth_stops_on_check_http_error_or_missing_status():
     if not node_bin:
         pytest.skip("node is not installed; skipping copilot auth behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
     stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
     get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
