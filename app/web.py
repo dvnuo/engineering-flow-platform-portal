@@ -1351,12 +1351,19 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        can_manage_sessions = _can_write(agent, user)
 
         # When K8s is disabled, return empty sessions
         if not settings.k8s_enabled:
             return templates.TemplateResponse(
                 "partials/sessions_panel.html",
-                {"request": request, "agent_id": agent_id, "sessions": [], "current_session_id": current_session_id},
+                {
+                    "request": request,
+                    "agent_id": agent_id,
+                    "sessions": [],
+                    "current_session_id": current_session_id,
+                    "can_manage_sessions": can_manage_sessions,
+                },
             )
 
         status_code, content, _ = await _forward_runtime(
@@ -1378,6 +1385,7 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
                 "request": request,
                 "sessions": payload.get("sessions") or [],
                 "current_session_id": current_session_id,
+                "can_manage_sessions": can_manage_sessions,
             },
         )
     finally:
