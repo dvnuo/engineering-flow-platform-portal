@@ -103,3 +103,41 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert "api_token" not in cfg["github"]
     assert "base_url" not in cfg["github"]
     assert "password" not in cfg["proxy"]
+    assert "url" not in cfg["proxy"]
+    assert cfg["jira"]["instances"] == []
+    assert cfg["confluence"]["instances"] == []
+
+
+def test_creation_profile_config_has_business_seed_defaults():
+    cfg = RuntimeProfileService.creation_profile_config()
+    assert cfg["proxy"]["enabled"] is False
+    assert cfg["proxy"]["url"] == "https://proxy.com:80"
+    assert cfg["jira"]["enabled"] is False
+    assert len(cfg["jira"]["instances"]) == 2
+    assert cfg["confluence"]["enabled"] is False
+    assert len(cfg["confluence"]["instances"]) == 2
+
+    for instance in cfg["jira"]["instances"] + cfg["confluence"]["instances"]:
+        assert "password" not in instance
+        assert "token" not in instance
+
+
+def test_create_for_user_materializes_creation_defaults_when_config_is_empty():
+    db = _session()
+    user = User(username="u1", password_hash="test", role="user", is_active=True)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    profile = RuntimeProfileService(db).create_for_user(
+        user,
+        name="Seeded",
+        description="materialized on create",
+        config_json="{}",
+        is_default=False,
+    )
+    saved = json.loads(profile.config_json)
+    assert saved["proxy"]["url"] == "https://proxy.com:80"
+    assert len(saved["jira"]["instances"]) == 2
+    assert len(saved["confluence"]["instances"]) == 2
+    assert saved["llm"]["provider"] == "openai"

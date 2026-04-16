@@ -134,3 +134,29 @@ def test_runtime_profiles_scoped_and_defaults(monkeypatch):
         assert del_used.status_code == 409
     finally:
         cleanup()
+
+
+def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch):
+    client, _db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        no_config = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Seeded-Implicit", "description": "d", "is_default": False},
+        )
+        assert no_config.status_code == 200
+        no_config_payload = json.loads(no_config.json()["config_json"])
+        assert no_config_payload["proxy"]["url"] == "https://proxy.com:80"
+        assert len(no_config_payload["jira"]["instances"]) == 2
+        assert len(no_config_payload["confluence"]["instances"]) == 2
+
+        empty_config = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Seeded-Empty", "description": "d", "is_default": False, "config_json": "{}"},
+        )
+        assert empty_config.status_code == 200
+        empty_config_payload = json.loads(empty_config.json()["config_json"])
+        assert empty_config_payload["proxy"]["url"] == "https://proxy.com:80"
+        assert len(empty_config_payload["jira"]["instances"]) == 2
+        assert len(empty_config_payload["confluence"]["instances"]) == 2
+    finally:
+        cleanup()

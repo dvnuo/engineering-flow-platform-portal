@@ -118,3 +118,42 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert "password" not in saved.get("proxy", {})
     finally:
         cleanup()
+
+
+def test_runtime_profile_panel_renders_materialized_seed_defaults(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps(
+            {
+                "proxy": {"enabled": False, "url": "https://proxy.com:80"},
+                "jira": {
+                    "enabled": False,
+                    "instances": [
+                        {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
+                        {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
+                    ],
+                },
+                "confluence": {
+                    "enabled": False,
+                    "instances": [
+                        {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
+                        {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
+                    ],
+                },
+            }
+        )
+        db.add(rp)
+        db.commit()
+
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert "https://proxy.com:80" in resp.text
+        assert 'data-instance-count="jira"' in resp.text
+        assert 'name="jira_instance_count" value="2"' in resp.text
+        assert "https://yourcompany.atlassian.net" in resp.text
+        assert "https://yourcompany2.atlassian.net" in resp.text
+        assert 'name="confluence_instance_count" value="2"' in resp.text
+        assert "https://yourcompany.atlassian.net/wiki" in resp.text
+        assert "https://yourcompany2.atlassian.net/wiki" in resp.text
+    finally:
+        cleanup()

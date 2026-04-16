@@ -6,7 +6,7 @@ from app.models.agent import Agent
 from app.models.runtime_profile import RuntimeProfile
 from app.models.user import User
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
-from app.schemas.runtime_profile import dump_runtime_profile_config_json
+from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
 
 
 class RuntimeProfileService:
@@ -40,6 +40,41 @@ class RuntimeProfileService:
             "git": {"user": {}},
             "debug": {"enabled": False, "log_level": "INFO"},
         }
+
+    @staticmethod
+    def creation_profile_config() -> dict:
+        return RuntimeProfileService._deep_merge_dicts(
+            RuntimeProfileService.default_profile_config(),
+            {
+                "proxy": {
+                    "enabled": False,
+                    "url": "https://proxy.com:80",
+                },
+                "jira": {
+                    "enabled": False,
+                    "instances": [
+                        {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
+                        {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
+                    ],
+                },
+                "confluence": {
+                    "enabled": False,
+                    "instances": [
+                        {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
+                        {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
+                    ],
+                },
+            },
+        )
+
+    @staticmethod
+    def materialize_create_config_json(config_json: str | None) -> str:
+        overlay = parse_runtime_profile_config_json(config_json, fallback_to_empty=True)
+        merged = RuntimeProfileService._deep_merge_dicts(
+            RuntimeProfileService.creation_profile_config(),
+            overlay,
+        )
+        return dump_runtime_profile_config_json(merged)
 
     @staticmethod
     def _deep_merge_dicts(base: dict, overlay: dict) -> dict:
@@ -90,7 +125,7 @@ class RuntimeProfileService:
                 owner_user_id=user.id,
                 name="Default",
                 description="Auto-created default runtime profile",
-                config_json=dump_runtime_profile_config_json(self.default_profile_config()),
+                config_json=self.materialize_create_config_json(None),
                 is_default=True,
             )
 
@@ -161,7 +196,7 @@ class RuntimeProfileService:
                 owner_user_id=user.id,
                 name=name,
                 description=description,
-                config_json=config_json or dump_runtime_profile_config_json(self.default_profile_config()),
+                config_json=self.materialize_create_config_json(config_json),
                 is_default=bool(is_default),
             )
         except IntegrityError as exc:
