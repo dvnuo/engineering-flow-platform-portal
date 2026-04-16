@@ -18,9 +18,9 @@ class RuntimeProfileService:
     def default_profile_config() -> dict:
         return {
             "llm": {
-                "provider": "openai",
-                "model": "gpt-3.5-turbo",
-                "max_tokens": 1000,
+                "provider": "github_copilot",
+                "model": "gpt-5-mini",
+                "max_tokens": 64000,
                 "temperature": 0.7,
                 "max_retries": 3,
                 "retry_delay": 1,
