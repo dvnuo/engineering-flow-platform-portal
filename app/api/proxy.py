@@ -43,7 +43,16 @@ def _can_write(agent, user) -> bool:
 
 def _requires_write_access(method: str, subpath: str) -> bool:
     normalized = (subpath or "").strip("/").lower()
+    method_upper = method.upper()
     if normalized.startswith("api/server-files"):
+        return True
+    if method_upper == "DELETE" and normalized.startswith("api/sessions/"):
+        return True
+    if (
+        method_upper in {"POST", "PATCH", "PUT"}
+        and normalized.startswith("api/sessions/")
+        and normalized.endswith("/rename")
+    ):
         return True
     return False
 
