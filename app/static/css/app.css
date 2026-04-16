@@ -723,6 +723,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   border-radius: 14px;
   padding: 10px 12px;
   font-size: 12px;
+  display: none;
 }
 
 .portal-inline-state.is-error {
@@ -730,6 +731,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 60%);
   background: color-mix(in srgb, var(--portal-danger) 8%, var(--portal-surface));
   color: var(--portal-danger);
+  display: block;
 }
 
 .portal-inline-state.is-success {
@@ -737,6 +739,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 60%);
   background: color-mix(in srgb, var(--portal-success) 8%, var(--portal-surface));
   color: var(--portal-success);
+  display: block;
 }
 
 .portal-modal-copy {
