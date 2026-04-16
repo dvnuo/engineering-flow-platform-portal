@@ -19,6 +19,10 @@ def _parse_config_json(raw: str | None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _items_response(items: list[dict]) -> dict:
+    return {"items": items}
+
+
 @router.get("/api/internal/workflow-transition-rules")
 def list_internal_workflow_transition_rules(
     system_type: str | None = Query(default=None),
@@ -65,7 +69,7 @@ def list_internal_workflow_transition_rules(
                 "enabled": item.enabled,
             }
         )
-    return data
+    return _items_response(data)
 
 
 @router.get("/api/internal/agent-identity-bindings")
@@ -80,7 +84,7 @@ def list_internal_agent_identity_bindings(
         enabled=enabled,
     )
 
-    return [
+    items = [
         {
             "id": item.id,
             "agent_id": item.agent_id,
@@ -94,5 +98,5 @@ def list_internal_agent_identity_bindings(
         }
         for item in bindings
     ]
-
+    return _items_response(items)
 

@@ -94,13 +94,16 @@ def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
     try:
         rules_resp = client.get("/api/internal/workflow-transition-rules?system_type=jira&enabled=true&project_key=EFP")
         assert rules_resp.status_code == 200
-        assert len(rules_resp.json()) == 1
+        rules_body = rules_resp.json()
+        assert isinstance(rules_body, dict)
+        assert len(rules_body["items"]) == 1
 
         bindings_resp = client.get("/api/internal/agent-identity-bindings?system_type=jira&enabled=true")
         assert bindings_resp.status_code == 200
-        bindings = bindings_resp.json()
-        assert len(bindings) == 1
-        assert bindings[0]["external_account_id"] == "jira-acct-1"
+        bindings_body = bindings_resp.json()
+        assert isinstance(bindings_body, dict)
+        assert len(bindings_body["items"]) == 1
+        assert bindings_body["items"][0]["external_account_id"] == "jira-acct-1"
 
         no_subs = client.get("/api/internal/external-event-subscriptions")
         assert no_subs.status_code == 404
