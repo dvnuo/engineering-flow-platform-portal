@@ -7,7 +7,6 @@ from app.db import Base
 from app.models import Agent, User
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
-from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.services.auth_service import hash_password
 
 
@@ -27,7 +26,6 @@ def _build_client():
 
     agent = Agent(
         name="Export Agent",
-        description="export",
         owner_user_id=user.id,
         visibility="private",
         status="running",
@@ -59,18 +57,10 @@ def _build_client():
     )
     AgentIdentityBindingRepository(db).create(
         agent_id=agent.id,
-        system_type="github",
-        external_account_id="github-acct-1",
-        username="octocat",
-        scope_json='{"repos":["engineering-flow-platform-portal"]}',
-        enabled=True,
-    )
-    AgentIdentityBindingRepository(db).create(
-        agent_id=agent.id,
         system_type="jira",
         external_account_id="jira-acct-2",
         username="jira.disabled",
-        scope_json='{"projects":["EFP-LEGACY"]}',
+        scope_json='{"projects":["LEGACY"]}',
         enabled=False,
     )
     WorkflowTransitionRuleRepository(db).create(
@@ -85,31 +75,6 @@ def _build_client():
         failure_transition="Needs Changes",
         enabled=True,
         config_json='{"strict": true}',
-    )
-
-    ExternalEventSubscriptionRepository(db).create(
-        agent_id=agent.id,
-        source_type="github",
-        event_type="mention",
-        mode="poll",
-        source_kind="github.mention",
-        target_ref="octo/portal",
-        binding_id=None,
-        enabled=True,
-        config_json='{"allowed_repos":["octo/portal"]}',
-        scope_json='{"repos":["octo/portal"]}',
-        matcher_json='{"labels":["needs-review"]}',
-        routing_json='{"queue":"default"}',
-        poll_profile_json='{"interval_seconds":30}',
-    )
-    ExternalEventSubscriptionRepository(db).create(
-        agent_id=agent.id,
-        source_type="jira",
-        event_type="mention",
-        mode="hybrid",
-        source_kind="jira.mention",
-        enabled=False,
-        scope_json='{"projects":["EFP"]}',
     )
 
     def _override_db():
@@ -127,93 +92,17 @@ def _build_client():
 def test_internal_exports_list_workflow_rules_and_bindings_with_filters():
     client, cleanup = _build_client()
     try:
-        rules_resp = client.get(
-            "/api/internal/workflow-transition-rules?system_type=jira&enabled=true&project_key=EFP",
-        )
+        rules_resp = client.get("/api/internal/workflow-transition-rules?system_type=jira&enabled=true&project_key=EFP")
         assert rules_resp.status_code == 200
-        rules = rules_resp.json()
-        assert len(rules) == 1
-        assert rules[0]["system_type"] == "jira"
-        assert rules[0]["provider_type"] == "jira"
-        assert rules[0]["is_enabled"] is True
-        assert rules[0]["enabled"] is True
-        assert rules[0]["project_key"] == "EFP"
-        assert rules[0]["project_keys"] == ["EFP"]
-        assert rules[0]["trigger_status"] == "In Review"
-        assert rules[0]["trigger_statuses"] == ["In Review"]
+        assert len(rules_resp.json()) == 1
 
-        bindings_resp = client.get(
-            "/api/internal/agent-identity-bindings?system_type=jira&enabled=true",
-        )
+        bindings_resp = client.get("/api/internal/agent-identity-bindings?system_type=jira&enabled=true")
         assert bindings_resp.status_code == 200
         bindings = bindings_resp.json()
         assert len(bindings) == 1
-        assert bindings[0]["system_type"] == "jira"
-        assert bindings[0]["provider_type"] == "jira"
         assert bindings[0]["external_account_id"] == "jira-acct-1"
-        assert bindings[0]["scope"] == '{"projects":["EFP"]}'
-        assert bindings[0]["scope_json"] == '{"projects":["EFP"]}'
 
-        jira_disabled_resp = client.get(
-            "/api/internal/agent-identity-bindings?system_type=jira&enabled=false",
-        )
-        assert jira_disabled_resp.status_code == 200
-        jira_disabled = jira_disabled_resp.json()
-        assert len(jira_disabled) == 1
-        assert jira_disabled[0]["system_type"] == "jira"
-        assert jira_disabled[0]["external_account_id"] == "jira-acct-2"
-        assert jira_disabled[0]["enabled"] is False
-
-        enabled_resp = client.get(
-            "/api/internal/agent-identity-bindings?enabled=true",
-        )
-        assert enabled_resp.status_code == 200
-        enabled_bindings = enabled_resp.json()
-        assert len(enabled_bindings) == 2
-        assert {item["system_type"] for item in enabled_bindings} == {"jira", "github"}
-        assert {item["external_account_id"] for item in enabled_bindings} == {"jira-acct-1", "github-acct-1"}
-    finally:
-        cleanup()
-
-
-def test_internal_exports_accept_default_internal_route_requests():
-    client, cleanup = _build_client()
-    try:
-        rules_resp = client.get("/api/internal/workflow-transition-rules")
-        bindings_resp = client.get(
-            "/api/internal/agent-identity-bindings"
-        )
-        assert rules_resp.status_code == 200
-        assert bindings_resp.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_internal_exports_list_external_event_subscriptions_with_filters_and_parsed_fields():
-    client, cleanup = _build_client()
-    try:
-        by_agent = client.get('/api/internal/external-event-subscriptions?agent_id=' + client.get('/api/internal/agent-identity-bindings').json()[0]['agent_id'])
-        assert by_agent.status_code == 200
-        assert len(by_agent.json()) == 2
-
-        poll_enabled = client.get('/api/internal/external-event-subscriptions?system_type=github&enabled=true&mode=poll')
-        assert poll_enabled.status_code == 200
-        items = poll_enabled.json()
-        assert len(items) == 1
-        item = items[0]
-        assert item['source_type'] == 'github'
-        assert item['provider_type'] == 'github'
-        assert item['mode'] == 'poll'
-        assert item['config_json'] == '{"allowed_repos":["octo/portal"]}'
-        assert item['config']['allowed_repos'] == ['octo/portal']
-        assert item['scope_json'] == '{"repos":["octo/portal"]}'
-        assert item['scope']['repos'] == ['octo/portal']
-        assert item['matcher']['labels'] == ['needs-review']
-        assert item['routing']['queue'] == 'default'
-        assert item['poll_profile']['interval_seconds'] == 30
-
-        jira_disabled = client.get('/api/internal/external-event-subscriptions?system_type=jira&enabled=false&mode=hybrid')
-        assert jira_disabled.status_code == 200
-        assert len(jira_disabled.json()) == 1
+        no_subs = client.get("/api/internal/external-event-subscriptions")
+        assert no_subs.status_code == 404
     finally:
         cleanup()

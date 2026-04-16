@@ -9,7 +9,6 @@ from app.models.agent_coordination_run import AgentCoordinationRun
 from app.models.group_shared_context_snapshot import GroupSharedContextSnapshot
 from app.models.agent_identity_binding import AgentIdentityBinding
 from app.models.capability_profile import CapabilityProfile
-from app.models.external_event_subscription import ExternalEventSubscription
 from app.models.policy_profile import PolicyProfile
 from app.models.runtime_profile import RuntimeProfile
 from app.models.user import User
@@ -26,7 +25,6 @@ __all__ = [
     "PolicyProfile",
     "RuntimeProfile",
     "AgentIdentityBinding",
-    "ExternalEventSubscription",
     "AgentTask",
     "AgentSessionMetadata",
     "AgentDelegation",

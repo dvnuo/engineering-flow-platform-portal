@@ -16,7 +16,6 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
-from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
@@ -56,7 +55,6 @@ requirement_bundle_service = RequirementBundleGithubService()
 runtime_profile_sync_service = RuntimeProfileSyncService(proxy_service=proxy_service)
 runtime_profile_test_service = RuntimeProfileTestService()
 base_uri = settings.base_uri
-TRIGGERED_WORK_PROFILE_REQUIRED_MESSAGE = "Bind a runtime profile before configuring bindings or subscriptions."
 
 
 def _current_user_from_cookie(request: Request):
@@ -163,18 +161,15 @@ def _parse_form_bool(value) -> bool:
 
 def _build_settings_panel_context(*, request: Request, agent_id: str, base_context: dict, db, triggered_work_state: dict | None = None) -> dict:
     bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-    subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
     triggered_state = triggered_work_state or {}
     context = {
         **base_context,
         "request": request,
         "agent_id": agent_id,
         "identity_bindings": bindings,
-        "event_subscriptions": subscriptions,
         "triggered_work_error": triggered_state.get("error", ""),
         "triggered_work_success": triggered_state.get("success", ""),
         "binding_form": triggered_state.get("binding_form", {}),
-        "subscription_form": triggered_state.get("subscription_form", {}),
     }
     return context
 
@@ -522,12 +517,9 @@ def _settings_error_response(
 
 def _settings_triggered_work_summary(db, agent_id: str) -> dict[str, int]:
     bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-    subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
     return {
         "binding_total_count": len(bindings),
         "binding_enabled_count": sum(1 for item in bindings if item.enabled),
-        "subscription_total_count": len(subscriptions),
-        "subscription_enabled_count": sum(1 for item in subscriptions if item.enabled),
     }
 
 
@@ -645,6 +637,20 @@ def _settings_parse_instances(
     return instances
 
 
+
+
+def _parse_multiline_csv_list(raw: str | None) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    normalized = (raw or "").replace(",", "\n")
+    for item in normalized.splitlines():
+        cleaned = item.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        values.append(cleaned)
+    return values
+
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
@@ -705,6 +711,16 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             existing_instances=existing_jira_instances,
             preserve_blank_fields={"password", "token"},
         )
+    jira_automation = (jira.get("automation") if isinstance(jira.get("automation"), dict) else {}).copy()
+    jira_automation["assignments"] = {
+        "enabled": as_bool(form.get("jira_assignments_enabled")),
+        "projects": _parse_multiline_csv_list(form.get("jira_assignments_projects")),
+    }
+    jira_automation["mentions"] = {
+        "enabled": as_bool(form.get("jira_mentions_enabled")),
+        "projects": _parse_multiline_csv_list(form.get("jira_mentions_projects")),
+    }
+    jira["automation"] = jira_automation
 
     confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
     confluence["enabled"] = as_bool(form.get("confluence_enabled"))
@@ -716,6 +732,12 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             existing_instances=existing_confluence_instances,
             preserve_blank_fields={"password", "token"},
         )
+    confluence_automation = (confluence.get("automation") if isinstance(confluence.get("automation"), dict) else {}).copy()
+    confluence_automation["mentions"] = {
+        "enabled": as_bool(form.get("confluence_mentions_enabled")),
+        "spaces": _parse_multiline_csv_list(form.get("confluence_mentions_spaces")),
+    }
+    confluence["automation"] = confluence_automation
 
     github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
     github_cfg["enabled"] = as_bool(form.get("github_enabled"))
@@ -728,6 +750,18 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             github_cfg["base_url"] = github_base_url_value
         else:
             github_cfg.pop("base_url", None)
+
+    github_automation = (github_cfg.get("automation") if isinstance(github_cfg.get("automation"), dict) else {}).copy()
+    github_automation["review_requests"] = {
+        "enabled": as_bool(form.get("github_review_requests_enabled")),
+        "repos": _parse_multiline_csv_list(form.get("github_review_requests_repos")),
+    }
+    github_automation["mentions"] = {
+        "enabled": as_bool(form.get("github_mentions_enabled")),
+        "repos": _parse_multiline_csv_list(form.get("github_mentions_repos")),
+        "include_review_comments": as_bool(form.get("github_mentions_include_review_comments")),
+    }
+    github_cfg["automation"] = github_automation
 
     git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
     git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
@@ -2361,10 +2395,6 @@ def _triggered_work_authorize(db, user, agent_id: str):
     return agent
 
 
-def _triggered_work_profile_required_message(agent) -> str | None:
-    return None if agent.runtime_profile_id else TRIGGERED_WORK_PROFILE_REQUIRED_MESSAGE
-
-
 def _render_agent_identity_bindings_panel(
     request: Request,
     *,
@@ -2385,35 +2415,10 @@ def _render_agent_identity_bindings_panel(
             "success": success,
             "form": form or {},
             "read_only": not _can_write(agent, user),
-            "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
+            "profile_missing_message": "",
         },
     )
 
-
-def _render_external_event_subscriptions_panel(
-    request: Request,
-    *,
-    agent,
-    user,
-    db,
-    error: str = "",
-    success: str = "",
-    form: dict | None = None,
-):
-    return templates.TemplateResponse(
-        "partials/external_event_subscriptions_panel.html",
-        {
-            "request": request,
-            "agent_id": agent.id,
-            "bindings": AgentIdentityBindingRepository(db).list_by_agent(agent.id),
-            "subscriptions": ExternalEventSubscriptionRepository(db).list_by_agent(agent.id),
-            "error": error,
-            "success": success,
-            "form": form or {},
-            "read_only": not _can_write(agent, user),
-            "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
-        },
-    )
 
 
 @router.get("/app/agents/{agent_id}/triggered-work/bindings/panel")
@@ -2441,15 +2446,6 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
         agent = _triggered_work_authorize(db, user, agent_id)
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
-        profile_missing_message = _triggered_work_profile_required_message(agent)
-        if profile_missing_message:
-            return _render_agent_identity_bindings_panel(
-                request,
-                agent=agent,
-                user=user,
-                db=db,
-                error=profile_missing_message,
-            )
 
         form = await request.form()
         form_data = {
@@ -2521,140 +2517,6 @@ async def app_agent_triggered_work_bindings_delete(request: Request, agent_id: s
             user=user,
             db=db,
             success="Binding deleted",
-        )
-    finally:
-        db.close()
-
-
-@router.get("/app/agents/{agent_id}/triggered-work/subscriptions/panel")
-async def app_agent_triggered_work_subscriptions_panel(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        return _render_external_event_subscriptions_panel(request, agent=agent, user=user, db=db)
-    finally:
-        db.close()
-
-
-@router.post("/app/agents/{agent_id}/triggered-work/subscriptions/create")
-async def app_agent_triggered_work_subscriptions_create(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-        profile_missing_message = _triggered_work_profile_required_message(agent)
-        if profile_missing_message:
-            return _render_external_event_subscriptions_panel(
-                request,
-                agent=agent,
-                user=user,
-                db=db,
-                error=profile_missing_message,
-            )
-
-        form = await request.form()
-        form_data = {
-            "source_type": str(form.get("source_type") or "").strip().lower(),
-            "event_type": str(form.get("event_type") or "").strip(),
-            "mode": str(form.get("mode") or "push").strip().lower() or "push",
-            "source_kind": str(form.get("source_kind") or "").strip(),
-            "target_ref": str(form.get("target_ref") or "").strip() or None,
-            "binding_id": str(form.get("binding_id") or "").strip() or None,
-            "scope_json": str(form.get("scope_json") or "").strip(),
-            "matcher_json": str(form.get("matcher_json") or "").strip(),
-            "routing_json": str(form.get("routing_json") or "").strip(),
-            "poll_profile_json": str(form.get("poll_profile_json") or "").strip(),
-            "config_json": str(form.get("config_json") or "").strip(),
-            "dedupe_key_template": str(form.get("dedupe_key_template") or "").strip() or None,
-            "enabled": _parse_form_bool(form.get("enabled")),
-        }
-        error = ""
-        if not form_data["source_type"] or not form_data["event_type"]:
-            error = "source_type and event_type are required"
-        if form_data["mode"] not in {"push", "poll", "hybrid"}:
-            error = "mode must be push, poll, or hybrid"
-        if not error and form_data["binding_id"]:
-            binding = AgentIdentityBindingRepository(db).get_by_id(form_data["binding_id"])
-            if (
-                not binding
-                or binding.agent_id != agent_id
-                or (binding.system_type or "").strip().lower() != form_data["source_type"]
-            ):
-                error = "binding_id must refer to a binding on the same agent and provider"
-
-        scope_json, scope_error = _parse_json_textarea(form_data["scope_json"], field_name="scope_json")
-        matcher_json, matcher_error = _parse_json_textarea(form_data["matcher_json"], field_name="matcher_json")
-        routing_json, routing_error = _parse_json_textarea(form_data["routing_json"], field_name="routing_json")
-        poll_profile_json, poll_profile_error = _parse_json_textarea(form_data["poll_profile_json"], field_name="poll_profile_json")
-        config_json, config_error = _parse_json_textarea(form_data["config_json"], field_name="config_json")
-
-        json_errors = [msg for msg in [scope_error, matcher_error, routing_error, poll_profile_error, config_error] if msg]
-        if not error and json_errors:
-            error = json_errors[0]
-
-        if not error:
-            ExternalEventSubscriptionRepository(db).create(
-                agent_id=agent_id,
-                source_type=form_data["source_type"],
-                event_type=form_data["event_type"],
-                target_ref=form_data["target_ref"],
-                enabled=form_data["enabled"],
-                config_json=config_json,
-                dedupe_key_template=form_data["dedupe_key_template"],
-                mode=form_data["mode"],
-                source_kind=form_data["source_kind"] or None,
-                binding_id=form_data["binding_id"],
-                scope_json=scope_json,
-                matcher_json=matcher_json,
-                routing_json=routing_json,
-                poll_profile_json=poll_profile_json,
-            )
-
-        return _render_external_event_subscriptions_panel(
-            request,
-            agent=agent,
-            user=user,
-            db=db,
-            error=error,
-            success="Subscription created" if not error else "",
-            form=form_data,
-        )
-    finally:
-        db.close()
-
-
-@router.post("/app/agents/{agent_id}/triggered-work/subscriptions/{subscription_id}/delete")
-async def app_agent_triggered_work_subscriptions_delete(request: Request, agent_id: str, subscription_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        repo = ExternalEventSubscriptionRepository(db)
-        subscription = repo.get_by_id(subscription_id)
-        if subscription and subscription.agent_id == agent_id:
-            repo.delete(subscription)
-
-        return _render_external_event_subscriptions_panel(
-            request,
-            agent=agent,
-            user=user,
-            db=db,
-            success="Subscription deleted",
         )
     finally:
         db.close()

@@ -10,7 +10,6 @@ from app.api.policy_profiles import router as policy_profiles_router
 from app.api.runtime_profiles import router as runtime_profiles_router
 from app.api.agent_identity_bindings import router as agent_identity_bindings_router
 from app.api.runtime_router import router as runtime_router
-from app.api.external_event_subscriptions import router as external_event_subscriptions_router
 from app.api.agent_tasks import router as agent_tasks_router
 from app.api.agent_groups import router as agent_groups_router
 from app.api.agent_delegations import router as agent_delegations_router
@@ -115,7 +114,6 @@ app.include_router(proxy_router)
 app.include_router(copilot_router)
 app.include_router(requirement_bundles_router)
 app.include_router(runtime_router)
-app.include_router(external_event_subscriptions_router)
 app.include_router(agent_tasks_router)
 app.include_router(agent_groups_router)
 app.include_router(agent_delegations_router)
