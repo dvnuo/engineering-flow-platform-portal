@@ -1744,7 +1744,7 @@ function renderAgentActions(agent, status) {
   if (!writable) {
     const note = document.createElement("div");
     note.className = "portal-detail-note";
-    note.textContent = "Read-only for shared assistant.";
+    note.textContent = "Read-only assistant.";
     container.append(note);
   }
 

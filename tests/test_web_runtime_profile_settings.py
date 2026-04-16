@@ -695,6 +695,55 @@ def test_shared_non_owner_settings_and_triggered_work_panels_are_read_only(monke
         cleanup()
 
 
+def test_public_non_owner_settings_panel_keeps_read_only_and_summary(monkeypatch):
+    client, db, agent, cleanup = _build_client(
+        monkeypatch,
+        current_user_username="viewer",
+        agent_visibility="public",
+    )
+    try:
+        _bind_profile(db, agent, name="rp-public-summary", config={"llm": {"provider": "openai"}}, revision=1)
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="public-binding",
+            username="public-user",
+            scope_json=None,
+            enabled=True,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="mention",
+            enabled=True,
+            mode="push",
+            source_kind="github.mention",
+        )
+        db.add(
+            AgentTask(
+                assignee_agent_id=agent.id,
+                parent_agent_id=agent.id,
+                owner_user_id=agent.owner_user_id,
+                source="github",
+                task_type="github_review_task",
+                status="done",
+            )
+        )
+        db.commit()
+
+        settings_resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert settings_resp.status_code == 200
+        assert "only the owner or an admin can modify them" in settings_resp.text
+        assert "Bindings:" in settings_resp.text
+        assert "Subscriptions:" in settings_resp.text
+        assert "Last triggered task" in settings_resp.text
+        assert "Last external event task accepted" in settings_resp.text
+        assert 'id="settings-form"' not in settings_resp.text
+        assert "This agent has no runtime profile" not in settings_resp.text
+    finally:
+        cleanup()
+
+
 def test_shared_non_owner_triggered_work_post_create_delete_forbidden(monkeypatch):
     client, db, agent, cleanup = _build_client(
         monkeypatch,
