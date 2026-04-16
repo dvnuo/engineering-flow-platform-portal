@@ -11,6 +11,8 @@ from app.db import Base
 from app.models import Agent, User
 from app.models.agent_task import AgentTask
 from app.models.runtime_profile import RuntimeProfile
+from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
+from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 
 
 def _build_client(
@@ -324,6 +326,89 @@ def test_settings_panel_includes_triggered_work_sections(monkeypatch):
         assert resp.status_code == 200
         assert "External Identity Bindings" in resp.text
         assert "External Event Subscriptions" in resp.text
+    finally:
+        cleanup()
+
+
+def test_triggered_work_bindings_create_requires_runtime_profile_for_owner(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        response = client.post(
+            f"/app/agents/{agent.id}/triggered-work/bindings/create",
+            data={"system_type": "github", "external_account_id": "owner-acct", "enabled": "on"},
+        )
+        assert response.status_code == 200
+        assert "Bind a runtime profile before configuring bindings or subscriptions." in response.text
+        assert "Binding created" not in response.text
+        assert len(AgentIdentityBindingRepository(db).list_by_agent(agent.id)) == 0
+    finally:
+        cleanup()
+
+
+def test_triggered_work_subscriptions_create_requires_runtime_profile_for_owner(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        response = client.post(
+            f"/app/agents/{agent.id}/triggered-work/subscriptions/create",
+            data={"source_type": "github", "event_type": "mention", "mode": "push", "enabled": "on"},
+        )
+        assert response.status_code == 200
+        assert "Bind a runtime profile before configuring bindings or subscriptions." in response.text
+        assert "Subscription created" not in response.text
+        assert len(ExternalEventSubscriptionRepository(db).list_by_agent(agent.id)) == 0
+    finally:
+        cleanup()
+
+
+def test_settings_panel_shows_triggered_work_summary_counts(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        _bind_profile(db, agent, name="rp-summary", config={"llm": {"provider": "openai"}}, revision=1)
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-enabled",
+            username="enabled-user",
+            scope_json=None,
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="acct-disabled",
+            username="disabled-user",
+            scope_json=None,
+            enabled=False,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="mention",
+            enabled=True,
+            mode="push",
+            source_kind="github.mention",
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="push",
+            enabled=True,
+            mode="push",
+            source_kind="github.push",
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="pull_request",
+            enabled=False,
+            mode="push",
+            source_kind="github.pull_request",
+        )
+
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        assert "Bindings: <strong>1</strong> enabled / <strong>2</strong> total" in resp.text
+        assert "Subscriptions: <strong>2</strong> enabled / <strong>3</strong> total" in resp.text
     finally:
         cleanup()
 

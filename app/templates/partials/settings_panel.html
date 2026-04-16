@@ -21,6 +21,10 @@
         Runtime Profile: <strong>{{ profile_name }}</strong> · Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong>.
       </div>
     {% endif %}
+    <div class="portal-inline-state">
+      Bindings: <strong>{{ binding_enabled_count }}</strong> enabled / <strong>{{ binding_total_count }}</strong> total ·
+      Subscriptions: <strong>{{ subscription_enabled_count }}</strong> enabled / <strong>{{ subscription_total_count }}</strong> total.
+    </div>
   {% else %}
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
     {% if status_message %}
@@ -42,6 +46,10 @@
         Changes here update a shared RuntimeProfile and affect all bound agents.
       </div>
     {% endif %}
+    <div class="portal-inline-state">
+      Bindings: <strong>{{ binding_enabled_count }}</strong> enabled / <strong>{{ binding_total_count }}</strong> total ·
+      Subscriptions: <strong>{{ subscription_enabled_count }}</strong> enabled / <strong>{{ subscription_total_count }}</strong> total.
+    </div>
 
     {% if not profile_missing_message %}
 

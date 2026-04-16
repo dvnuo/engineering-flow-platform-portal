@@ -56,6 +56,7 @@ requirement_bundle_service = RequirementBundleGithubService()
 runtime_profile_sync_service = RuntimeProfileSyncService(proxy_service=proxy_service)
 runtime_profile_test_service = RuntimeProfileTestService()
 base_uri = settings.base_uri
+TRIGGERED_WORK_PROFILE_REQUIRED_MESSAGE = "Bind a runtime profile before configuring bindings or subscriptions."
 
 
 def _current_user_from_cookie(request: Request):
@@ -1770,6 +1771,12 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
         read_only = not _can_write(agent, user)
+        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+        subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
+        binding_total_count = len(bindings)
+        binding_enabled_count = sum(1 for item in bindings if item.enabled)
+        subscription_total_count = len(subscriptions)
+        subscription_enabled_count = sum(1 for item in subscriptions if item.enabled)
 
         runtime_profile = None
         bound_agent_count = 0
@@ -1795,6 +1802,10 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "profile_bound_agent_count": 0,
                     "config": {},
                     "read_only": read_only,
+                    "binding_total_count": binding_total_count,
+                    "binding_enabled_count": binding_enabled_count,
+                    "subscription_total_count": subscription_total_count,
+                    "subscription_enabled_count": subscription_enabled_count,
                 },
             )
 
@@ -1814,6 +1825,10 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": bound_agent_count,
                 "read_only": read_only,
+                "binding_total_count": binding_total_count,
+                "binding_enabled_count": binding_enabled_count,
+                "subscription_total_count": subscription_total_count,
+                "subscription_enabled_count": subscription_enabled_count,
                 **view_data,
             },
         )
@@ -2269,6 +2284,10 @@ def _triggered_work_authorize(db, user, agent_id: str):
     return agent
 
 
+def _triggered_work_profile_required_message(agent) -> str | None:
+    return None if agent.runtime_profile_id else TRIGGERED_WORK_PROFILE_REQUIRED_MESSAGE
+
+
 @router.get("/app/agents/{agent_id}/triggered-work/bindings/panel")
 async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
@@ -2289,9 +2308,7 @@ async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: st
                 "success": "",
                 "form": {},
                 "read_only": not _can_write(agent, user),
-                "profile_missing_message": ""
-                if agent.runtime_profile_id
-                else "Bind a runtime profile before configuring bindings or subscriptions.",
+                "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
             },
         )
     finally:
@@ -2309,6 +2326,23 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
         agent = _triggered_work_authorize(db, user, agent_id)
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        profile_missing_message = _triggered_work_profile_required_message(agent)
+        repo = AgentIdentityBindingRepository(db)
+        if profile_missing_message:
+            bindings = repo.list_by_agent(agent_id)
+            return templates.TemplateResponse(
+                "partials/agent_identity_bindings_panel.html",
+                {
+                    "request": request,
+                    "agent_id": agent_id,
+                    "bindings": bindings,
+                    "error": profile_missing_message,
+                    "success": "",
+                    "form": {},
+                    "read_only": False,
+                    "profile_missing_message": profile_missing_message,
+                },
+            )
 
         form = await request.form()
         form_data = {
@@ -2335,7 +2369,7 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
                 error = "Identity binding already exists for this agent/system/account"
 
         if not error:
-            AgentIdentityBindingRepository(db).create(
+            repo.create(
                 agent_id=agent_id,
                 system_type=form_data["system_type"],
                 external_account_id=form_data["external_account_id"],
@@ -2344,7 +2378,7 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
                 enabled=form_data["enabled"],
             )
 
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+        bindings = repo.list_by_agent(agent_id)
         return templates.TemplateResponse(
             "partials/agent_identity_bindings_panel.html",
             {
@@ -2354,6 +2388,8 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
                 "error": error,
                 "success": "Binding created" if not error else "",
                 "form": form_data,
+                "read_only": False,
+                "profile_missing_message": profile_missing_message or "",
             },
         )
     finally:
@@ -2415,9 +2451,7 @@ async def app_agent_triggered_work_subscriptions_panel(request: Request, agent_i
                 "success": "",
                 "form": {},
                 "read_only": not _can_write(agent, user),
-                "profile_missing_message": ""
-                if agent.runtime_profile_id
-                else "Bind a runtime profile before configuring bindings or subscriptions.",
+                "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
             },
         )
     finally:
@@ -2435,6 +2469,24 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
         agent = _triggered_work_authorize(db, user, agent_id)
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        profile_missing_message = _triggered_work_profile_required_message(agent)
+        bindings_repo = AgentIdentityBindingRepository(db)
+        subscriptions_repo = ExternalEventSubscriptionRepository(db)
+        if profile_missing_message:
+            return templates.TemplateResponse(
+                "partials/external_event_subscriptions_panel.html",
+                {
+                    "request": request,
+                    "agent_id": agent_id,
+                    "bindings": bindings_repo.list_by_agent(agent_id),
+                    "subscriptions": subscriptions_repo.list_by_agent(agent_id),
+                    "error": profile_missing_message,
+                    "success": "",
+                    "form": {},
+                    "read_only": False,
+                    "profile_missing_message": profile_missing_message,
+                },
+            )
 
         form = await request.form()
         form_data = {
@@ -2477,8 +2529,7 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
             error = json_errors[0]
 
         if not error:
-            repo = ExternalEventSubscriptionRepository(db)
-            repo.create(
+            subscriptions_repo.create(
                 agent_id=agent_id,
                 source_type=form_data["source_type"],
                 event_type=form_data["event_type"],
@@ -2495,8 +2546,8 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
                 poll_profile_json=poll_profile_json,
             )
 
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
+        bindings = bindings_repo.list_by_agent(agent_id)
+        subscriptions = subscriptions_repo.list_by_agent(agent_id)
         return templates.TemplateResponse(
             "partials/external_event_subscriptions_panel.html",
             {
@@ -2507,6 +2558,8 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
                 "error": error,
                 "success": "Subscription created" if not error else "",
                 "form": form_data,
+                "read_only": False,
+                "profile_missing_message": profile_missing_message or "",
             },
         )
     finally:
