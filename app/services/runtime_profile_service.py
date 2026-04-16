@@ -69,6 +69,7 @@ class RuntimeProfileService:
             "llm": {
                 "provider": "github_copilot",
                 "model": "gpt-5-mini",
+                "tools": ["*"],
                 "max_tokens": 64000,
                 "temperature": 0.7,
                 "max_retries": 3,

@@ -106,6 +106,8 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
                 "is_default": "on",
                 "llm_provider": "anthropic",
                 "llm_model": "claude-sonnet-4",
+                "llm_tools_mode": "all",
+                "llm_tools_count": "0",
                 "proxy_enabled": "",
                 "proxy_url": "",
                 "proxy_username": "",
@@ -123,7 +125,8 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert rp.revision == 2
         saved = json.loads(rp.config_json)
         assert saved["llm"]["provider"] == "anthropic"
-        assert saved["llm"]["max_tokens"] == 1000
+        assert saved["llm"]["tools"] == ["*"]
+        assert saved["llm"]["max_tokens"] == RuntimeProfileService.default_profile_config()["llm"]["max_tokens"]
         assert "api_key" not in saved["llm"]
         assert "base_url" not in saved.get("github", {})
         assert "password" not in saved.get("proxy", {})

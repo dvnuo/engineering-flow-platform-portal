@@ -42,7 +42,24 @@
           <div class="flex items-center gap-2 mt-2"><span id="copilot_timer" class="portal-inline-note"></span></div>
         </div>
       </div>
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Enabled Tools</h6></div>
+      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="all" {% if llm_tools_mode == 'all' %}checked{% endif %} /> All tools</label></div>
+      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="none" {% if llm_tools_mode == 'none' %}checked{% endif %} /> No tools</label></div>
+      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="custom" {% if llm_tools_mode == 'custom' %}checked{% endif %} /> Custom patterns</label></div>
+      <div data-llm-tools-editor class="space-y-2 {% if llm_tools_mode != 'custom' %}hidden{% endif %}">
+        <input type="hidden" name="llm_tools_count" value="{{ llm_tools_patterns|length }}" data-llm-tools-count />
+        <div class="space-y-2" data-llm-tools-container>
+          {% for pattern in llm_tools_patterns %}
+            <div class="flex items-center gap-2" data-llm-tools-item>
+              <input type="text" value="{{ pattern }}" placeholder="e.g. git_clone or jira_*" class="portal-form-input" />
+              <button type="button" class="portal-btn is-secondary" data-action="remove-llm-tool-pattern">Remove</button>
+            </div>
+          {% endfor %}
+        </div>
+        <button type="button" class="portal-btn is-secondary" data-action="add-llm-tool-pattern">+ Add pattern</button>
+      </div>
       <div class="portal-inline-note">Authorization runs in Portal and fills the API key field only. Save to persist.</div>
+      <div class="portal-inline-note">Supports * wildcard (examples: git_clone, jira_*). This controls runtime tools, not prompt rendering (system-prompt.tools.enabled is separate). Empty custom rows are ignored.</div>
     </section>
 
     <section class="portal-panel-section" data-instance-group="jira">
