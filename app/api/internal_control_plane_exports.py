@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
-from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 
 router = APIRouter(tags=["internal-control-plane-exports"])
@@ -18,6 +17,10 @@ def _parse_config_json(raw: str | None) -> dict:
     except Exception:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _items_response(items: list[dict]) -> dict:
+    return {"items": items}
 
 
 @router.get("/api/internal/workflow-transition-rules")
@@ -66,7 +69,7 @@ def list_internal_workflow_transition_rules(
                 "enabled": item.enabled,
             }
         )
-    return data
+    return _items_response(data)
 
 
 @router.get("/api/internal/agent-identity-bindings")
@@ -81,7 +84,7 @@ def list_internal_agent_identity_bindings(
         enabled=enabled,
     )
 
-    return [
+    items = [
         {
             "id": item.id,
             "agent_id": item.agent_id,
@@ -95,49 +98,5 @@ def list_internal_agent_identity_bindings(
         }
         for item in bindings
     ]
+    return _items_response(items)
 
-
-@router.get("/api/internal/external-event-subscriptions")
-def list_internal_external_event_subscriptions(
-    agent_id: str | None = Query(default=None),
-    system_type: str | None = Query(default=None),
-    enabled: bool | None = Query(default=None),
-    mode: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-):
-    normalized_system = (system_type or "").strip().lower() or None
-    normalized_mode = (mode or "").strip().lower() or None
-
-    subscriptions = ExternalEventSubscriptionRepository(db).list_filtered(
-        agent_id=agent_id,
-        source_type=normalized_system,
-        enabled=enabled,
-        mode=normalized_mode,
-    )
-
-    return [
-        {
-            "id": item.id,
-            "agent_id": item.agent_id,
-            "source_type": item.source_type,
-            "provider_type": item.source_type,
-            "event_type": item.event_type,
-            "mode": item.mode,
-            "source_kind": item.source_kind,
-            "target_ref": item.target_ref,
-            "binding_id": item.binding_id,
-            "enabled": item.enabled,
-            "dedupe_key_template": item.dedupe_key_template,
-            "config_json": item.config_json,
-            "config": _parse_config_json(item.config_json),
-            "scope_json": item.scope_json,
-            "scope": _parse_config_json(item.scope_json),
-            "matcher_json": item.matcher_json,
-            "matcher": _parse_config_json(item.matcher_json),
-            "routing_json": item.routing_json,
-            "routing": _parse_config_json(item.routing_json),
-            "poll_profile_json": item.poll_profile_json,
-            "poll_profile": _parse_config_json(item.poll_profile_json),
-        }
-        for item in subscriptions
-    ]

@@ -10,7 +10,6 @@ from app.schemas.agent_identity_binding import AgentIdentityBindingCreateRequest
 
 router = APIRouter(prefix="/api/agents", tags=["agent-identity-bindings"])
 DUPLICATE_BINDING_DETAIL = "Identity binding already exists for this agent/system/account"
-PROFILE_REQUIRED_DETAIL = "Bind a runtime profile before configuring bindings or subscriptions."
 
 
 def _can_write(agent, user) -> bool:
@@ -33,9 +32,6 @@ def create_identity_binding(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if not _can_write(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    if not agent.runtime_profile_id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=PROFILE_REQUIRED_DETAIL)
-
     repo = AgentIdentityBindingRepository(db)
     normalized_system_type = _normalize_system_type(payload.system_type)
     existing_binding = repo.get_by_agent_and_binding_key(

@@ -7,7 +7,6 @@ REQUIRED_NEW_TABLES = {
     "agent_tasks",
     "capability_profiles",
     "policy_profiles",
-    "external_event_subscriptions",
     "workflow_transition_rules",
     "runtime_capability_catalog_snapshots",
     "agent_identity_bindings",

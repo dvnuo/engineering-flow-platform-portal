@@ -1,16 +1,17 @@
 import json
 
+from sqlalchemy.orm import Session
+
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
+from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.external_event_ingress import ExternalEventIngressRequest, ExternalEventIngressResponse
 from app.services.capability_context_service import CapabilityContextService
 from app.services.runtime_router import RuntimeRouterService
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.workflow_rule_config import parse_workflow_rule_config
-from sqlalchemy.orm import Session
 
 
 class ExternalEventRouterService:
@@ -24,21 +25,6 @@ class ExternalEventRouterService:
         return (source_type or "").strip().lower()
 
     @staticmethod
-    def _derive_task_type(source_type: str, event_type: str) -> str:
-        table = {
-            ("jira", "issue_updated"): "jira_event_task",
-            ("jira", "workflow_review_requested"): "jira_workflow_review_task",
-            ("github", "pull_request_review_requested"): "github_review_task",
-        }
-        return table.get((source_type, event_type), event_type)
-
-    @staticmethod
-    def _matches_target_ref(subscription, target_ref: str | None) -> bool:
-        if not subscription.target_ref:
-            return True
-        return subscription.target_ref == target_ref
-
-    @staticmethod
     def _parse_json_object(raw: str | None) -> dict | None:
         if raw is None or not raw.strip():
             return None
@@ -46,23 +32,11 @@ class ExternalEventRouterService:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             return None
-        if not isinstance(parsed, dict):
-            return None
-        return parsed
+        return parsed if isinstance(parsed, dict) else None
 
     @staticmethod
     def _parse_metadata_object(raw: str | None) -> dict | None:
         return ExternalEventRouterService._parse_json_object(raw)
-
-    @staticmethod
-    def _resolve_trigger_mode(request: ExternalEventIngressRequest) -> str:
-        metadata = ExternalEventRouterService._parse_metadata_object(request.metadata_json)
-        if not metadata:
-            return "push"
-        trigger_mode = str(metadata.get("trigger_mode") or "").strip().lower()
-        if trigger_mode in {"push", "poll"}:
-            return trigger_mode
-        return "push"
 
     @staticmethod
     def _binding_lookup_username_from_metadata(request: ExternalEventIngressRequest) -> str | None:
@@ -73,58 +47,198 @@ class ExternalEventRouterService:
         return username or None
 
     @staticmethod
-    def _normalize_subscription_mode(mode: str | None) -> str:
-        cleaned = (mode or "").strip().lower()
-        return cleaned or "push"
+    def _automation_rule_for_event(source_type: str, event_type: str) -> dict | None:
+        rules = {
+            ("github", "pull_request_review_requested"): {
+                "task_type": "github_review_task",
+                "provider": "github",
+                "automation_path": ("review_requests",),
+                "scope_key": "repos",
+                "dispatch": True,
+                "source_kind": "github.pull_request_review_requested",
+                "automation_rule": "github.review_requests",
+            },
+            ("github", "mention"): {
+                "task_type": "triggered_event_task",
+                "provider": "github",
+                "automation_path": ("mentions",),
+                "scope_key": "repos",
+                "dispatch": True,
+                "source_kind": "github.mention",
+                "automation_rule": "github.mentions",
+            },
+            ("jira", "assigned"): {
+                "task_type": "triggered_event_task",
+                "provider": "jira",
+                "automation_path": ("assignments",),
+                "scope_key": "projects",
+                "dispatch": True,
+                "source_kind": "jira.assigned",
+                "automation_rule": "jira.assignments",
+            },
+            ("jira", "mention"): {
+                "task_type": "triggered_event_task",
+                "provider": "jira",
+                "automation_path": ("mentions",),
+                "scope_key": "projects",
+                "dispatch": True,
+                "source_kind": "jira.mention",
+                "automation_rule": "jira.mentions",
+            },
+            ("confluence", "mention"): {
+                "task_type": "triggered_event_task",
+                "provider": "confluence",
+                "automation_path": ("mentions",),
+                "scope_key": "spaces",
+                "dispatch": True,
+                "source_kind": "confluence.mention",
+                "automation_rule": "confluence.mentions",
+            },
+        }
+        return rules.get((source_type, event_type))
 
     @staticmethod
-    def _subscription_accepts_trigger_mode(subscription, trigger_mode: str) -> bool:
-        subscription_mode = ExternalEventRouterService._normalize_subscription_mode(subscription.mode)
-        if subscription_mode == "hybrid":
-            return True
-        if trigger_mode == "push":
-            return subscription_mode in {"push", "hybrid"}
-        if trigger_mode == "poll":
-            return subscription_mode in {"poll", "hybrid"}
-        return subscription_mode in {"push", "hybrid"}
+    def _parse_event_payload_object(request: ExternalEventIngressRequest) -> dict | None:
+        return ExternalEventRouterService._parse_json_object(request.payload_json)
 
-    @staticmethod
-    def _filter_subscriptions_for_trigger_mode(subscriptions: list, trigger_mode: str) -> list:
-        return [sub for sub in subscriptions if ExternalEventRouterService._subscription_accepts_trigger_mode(sub, trigger_mode)]
-
-    @staticmethod
-    def _filter_subscriptions_for_bound_agent(subscriptions: list, *, agent_id: str, binding_id: str | None) -> list:
-        filtered: list = []
-        for sub in subscriptions:
-            if sub.agent_id != agent_id:
-                continue
-            if sub.binding_id and sub.binding_id != binding_id:
-                continue
-            filtered.append(sub)
-        return filtered
-
-    @staticmethod
-    def _filter_subscriptions_for_agent(subscriptions: list, *, agent_id: str) -> list:
-        return [sub for sub in subscriptions if sub.agent_id == agent_id]
-
-    def _select_binding_subscription_pair(
+    def _build_triggered_event_input_payload(
         self,
-        *,
-        binding_candidates: list,
-        matching_subscriptions: list,
-    ) -> tuple[object, object] | None:
-        for binding in binding_candidates:
-            candidate_subscriptions = self._filter_subscriptions_for_bound_agent(
-                matching_subscriptions,
-                agent_id=binding.agent_id,
-                binding_id=binding.id,
-            )
-            if candidate_subscriptions:
-                return binding, candidate_subscriptions[0]
+        request: ExternalEventIngressRequest,
+        rule: dict,
+        binding,
+    ) -> tuple[dict | None, str | None]:
+        payload_obj = self._parse_event_payload_object(request)
+        if not payload_obj:
+            return None, "payload_json must be a non-empty JSON object for triggered_event_task routing"
+
+        source_type = self._normalize_source_type(request.source_type)
+        merged_payload = dict(payload_obj)
+        merged_payload["source_kind"] = rule["source_kind"]
+        merged_payload["source_type"] = source_type
+        merged_payload["event_type"] = request.event_type
+        merged_payload["external_account_id"] = request.external_account_id
+        merged_payload["binding_id"] = binding.id
+        merged_payload["automation_rule"] = rule["automation_rule"]
+
+        metadata_obj = self._parse_metadata_object(request.metadata_json)
+        if isinstance(metadata_obj, dict) and metadata_obj.get("trigger_mode"):
+            merged_payload["trigger_mode"] = metadata_obj.get("trigger_mode")
+
+        source_kind = rule["source_kind"]
+        if source_kind == "github.mention":
+            if not merged_payload.get("owner"):
+                return None, "github mention payload requires owner"
+            if not merged_payload.get("repo"):
+                return None, "github mention payload requires repo"
+            if merged_payload.get("issue_number") is None and merged_payload.get("pull_number") is None:
+                return None, "github mention payload requires issue_number or pull_number"
+        elif source_kind == "jira.assigned":
+            if not merged_payload.get("issue_key"):
+                return None, "jira assigned payload requires issue_key"
+            if not merged_payload.get("project_key"):
+                return None, "jira assigned payload requires project_key"
+        elif source_kind == "jira.mention":
+            if not merged_payload.get("issue_key"):
+                return None, "jira mention payload requires issue_key"
+            if not merged_payload.get("project_key"):
+                return None, "jira mention payload requires project_key"
+        elif source_kind == "confluence.mention":
+            if not merged_payload.get("page_id"):
+                return None, "confluence mention payload requires page_id"
+            if not merged_payload.get("space_key") and not merged_payload.get("space"):
+                return None, "confluence mention payload requires space_key or space"
+
+        return merged_payload, None
+
+    @staticmethod
+    def _load_runtime_profile_config_for_agent(*, db: Session, agent) -> dict:
+        if not agent or not agent.runtime_profile_id:
+            return {}
+        profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
+        if not profile:
+            return {}
+        return ExternalEventRouterService._parse_json_object(profile.config_json) or {}
+
+    @staticmethod
+    def _automation_enabled_for_config(config: dict, source_type: str, event_type: str) -> bool:
+        rule = ExternalEventRouterService._automation_rule_for_event(source_type, event_type)
+        if not rule:
+            return False
+        provider_cfg = config.get(rule["provider"]) if isinstance(config, dict) else None
+        if not isinstance(provider_cfg, dict) or not provider_cfg.get("enabled"):
+            return False
+        automation_cfg = provider_cfg.get("automation")
+        if not isinstance(automation_cfg, dict):
+            return False
+        target = automation_cfg
+        for key in rule["automation_path"]:
+            target = target.get(key) if isinstance(target, dict) else None
+        return isinstance(target, dict) and bool(target.get("enabled"))
+
+    @staticmethod
+    def _effective_scope_for_binding_and_config(binding, config: dict, source_type: str, event_type: str) -> list[str]:
+        rule = ExternalEventRouterService._automation_rule_for_event(source_type, event_type)
+        if not rule:
+            return []
+        scope_key = rule["scope_key"]
+        binding_scope_obj = ExternalEventRouterService._parse_json_object(getattr(binding, "scope_json", None)) or {}
+        binding_scope = binding_scope_obj.get(scope_key)
+        if isinstance(binding_scope, list):
+            cleaned = [str(item).strip() for item in binding_scope if str(item).strip()]
+            if cleaned:
+                return cleaned
+
+        provider_cfg = config.get(rule["provider"]) if isinstance(config, dict) else {}
+        automation_cfg = provider_cfg.get("automation") if isinstance(provider_cfg, dict) else {}
+        target = automation_cfg
+        for key in rule["automation_path"]:
+            target = target.get(key) if isinstance(target, dict) else {}
+        configured_scope = target.get(scope_key) if isinstance(target, dict) else []
+        if isinstance(configured_scope, list):
+            return [str(item).strip() for item in configured_scope if str(item).strip()]
+        return []
+
+    @staticmethod
+    def _event_scope_value(event: ExternalEventIngressRequest, source_type: str, payload_obj: dict | None) -> str | None:
+        if source_type == "github":
+            if payload_obj and payload_obj.get("owner") and payload_obj.get("repo"):
+                return f"{payload_obj.get('owner')}/{payload_obj.get('repo')}"
+            if event.target_ref and "/" in event.target_ref:
+                return event.target_ref.strip()
+            return None
+        if source_type == "jira":
+            if event.project_key:
+                return event.project_key.strip()
+            if event.target_ref:
+                return event.target_ref.strip()
+            if event.issue_key and "-" in event.issue_key:
+                return event.issue_key.split("-", 1)[0]
+            if payload_obj and payload_obj.get("project_key"):
+                return str(payload_obj.get("project_key")).strip()
+            return None
+        if source_type == "confluence":
+            if event.target_ref:
+                return event.target_ref.strip()
+            if payload_obj and payload_obj.get("space"):
+                return str(payload_obj.get("space")).strip()
+            if payload_obj and payload_obj.get("space_key"):
+                return str(payload_obj.get("space_key")).strip()
+            return None
         return None
 
     @staticmethod
-    def _extract_github_review_payload(request: ExternalEventIngressRequest, subscription_id: str) -> tuple[dict | None, str | None]:
+    def _is_event_in_effective_scope(event: ExternalEventIngressRequest, source_type: str, event_type: str, effective_scope: list[str]) -> bool:
+        _ = event_type
+        if not effective_scope:
+            return True
+        payload_obj = ExternalEventRouterService._parse_json_object(event.payload_json)
+        value = ExternalEventRouterService._event_scope_value(event, source_type, payload_obj)
+        if not value:
+            return False
+        return value in set(effective_scope)
+
+    @staticmethod
+    def _extract_github_review_payload(request: ExternalEventIngressRequest) -> tuple[dict | None, str | None]:
         payload_obj = ExternalEventRouterService._parse_json_object(request.payload_json)
         if payload_obj is None:
             return None, "payload_json must be a JSON object for github pull_request_review_requested"
@@ -143,7 +257,6 @@ class ExternalEventRouterService:
             "head_sha": payload_obj.get("head_sha"),
             "comment": payload_obj.get("comment"),
             "event_type": request.event_type,
-            "subscription_id": subscription_id,
             "metadata_json": request.metadata_json,
         }, None
 
@@ -164,28 +277,7 @@ class ExternalEventRouterService:
         return f"github:review:{owner}/{repo}:{pull_number}:{request.external_account_id}:{head_sha}"
 
     @staticmethod
-    def _build_task_family(_request: ExternalEventIngressRequest) -> str:
-        return "triggered_work"
-
-    @staticmethod
-    def _build_source_kind(
-        *,
-        source_type: str,
-        event_type: str,
-        subscription_source_kind: str | None,
-    ) -> str:
-        if subscription_source_kind and subscription_source_kind.strip():
-            return subscription_source_kind.strip()
-        return f"{source_type}.{event_type}"
-
-    @staticmethod
-    def _build_bundle_id(
-        *,
-        request: ExternalEventIngressRequest,
-        source_type: str,
-        payload_obj: dict | None,
-        task_type: str,
-    ) -> str | None:
+    def _build_bundle_id(*, request: ExternalEventIngressRequest, source_type: str, payload_obj: dict | None, task_type: str) -> str | None:
         target_ref = (request.target_ref or "").strip()
 
         if source_type == "github" and task_type == "github_review_task":
@@ -201,43 +293,11 @@ class ExternalEventRouterService:
             if target_ref:
                 return f"jira:project:{target_ref}"
 
-        if request.event_type == "mention":
-            if source_type == "github":
-                owner = payload_obj.get("owner") if payload_obj else None
-                repo = payload_obj.get("repo") if payload_obj else None
-                issue_number = None
-                if payload_obj:
-                    issue_number = payload_obj.get("issue_number")
-                    if issue_number is None:
-                        issue_number = payload_obj.get("pull_number")
-                if owner and repo and issue_number is not None:
-                    return f"github:issue:{owner}/{repo}:{issue_number}"
-                if target_ref:
-                    return f"github:target:{target_ref}"
-            if source_type == "jira":
-                issue_key = request.issue_key or (payload_obj.get("issue_key") if payload_obj else None)
-                if issue_key:
-                    return f"jira:issue:{issue_key}"
-                if target_ref:
-                    return f"jira:project:{target_ref}"
-            if source_type == "confluence":
-                page_id = payload_obj.get("page_id") if payload_obj else None
-                if page_id:
-                    return f"confluence:page:{page_id}"
-                if target_ref:
-                    return f"confluence:space:{target_ref}"
-
         fallback = target_ref or request.external_account_id or request.event_type
         return f"{source_type}:{fallback}" if fallback else None
 
     @staticmethod
-    def _build_version_key(
-        *,
-        request: ExternalEventIngressRequest,
-        source_type: str,
-        payload_obj: dict | None,
-        task_type: str,
-    ) -> str | None:
+    def _build_version_key(*, request: ExternalEventIngressRequest, source_type: str, payload_obj: dict | None, task_type: str) -> str | None:
         if source_type == "github" and task_type == "github_review_task":
             if payload_obj and payload_obj.get("head_sha"):
                 return str(payload_obj.get("head_sha"))
@@ -258,15 +318,7 @@ class ExternalEventRouterService:
             }
         )
 
-    def _stale_superseded_github_review_tasks_for_bundle(
-        self,
-        *,
-        task_repo: AgentTaskRepository,
-        assignee_agent_id: str,
-        bundle_id: str | None,
-        new_version_key: str | None,
-        superseding_task_id: str,
-    ) -> None:
+    def _stale_superseded_github_review_tasks_for_bundle(self, *, task_repo: AgentTaskRepository, assignee_agent_id: str, bundle_id: str | None, new_version_key: str | None, superseding_task_id: str) -> None:
         if not bundle_id:
             return
         candidates = task_repo.list_active_tasks_for_bundle(
@@ -289,38 +341,13 @@ class ExternalEventRouterService:
             to_update.append(task)
         task_repo.save_all(to_update)
 
-    @staticmethod
-    def _is_allowed_github_repo(subscription, owner: str, repo: str) -> bool:
-        config_obj = ExternalEventRouterService._parse_json_object(subscription.config_json)
-        if not config_obj:
-            return True
-        allowed_repos = config_obj.get("allowed_repos")
-        if allowed_repos is None:
-            return True
-        if not isinstance(allowed_repos, list):
-            return False
-        target = f"{owner}/{repo}"
-        return any(isinstance(item, str) and item == target for item in allowed_repos)
-
-    def _evaluate_capability_profile_event_gate(
-        self,
-        *,
-        agent,
-        source_type: str,
-        event_type: str,
-        db: Session,
-        capability_context=None,
-    ) -> dict | None:
+    def _evaluate_capability_profile_event_gate(self, *, agent, source_type: str, event_type: str, db: Session, capability_context=None) -> dict | None:
         if not agent:
             return None
-
         context = capability_context
         if context is None:
             profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
-            context = self.capability_context_service.build_runtime_capability_context(
-                profile_id, resolved_profile, db=db, agent_id=agent.id
-            )
-
+            context = self.capability_context_service.build_runtime_capability_context(profile_id, resolved_profile, db=db, agent_id=agent.id)
         if isinstance(context, dict):
             allowed_external_systems = context.get("allowed_external_systems", [])
             allowed_webhook_triggers = context.get("allowed_webhook_triggers", [])
@@ -329,51 +356,20 @@ class ExternalEventRouterService:
             allowed_webhook_triggers = getattr(context, "allowed_webhook_triggers", []) or []
 
         if allowed_external_systems and source_type not in allowed_external_systems:
-            return {
-                "routing_reason": "external_system_not_allowed",
-                "message": "Matched agent capability profile does not allow this source_type",
-            }
+            return {"routing_reason": "external_system_not_allowed", "message": "Matched agent capability profile does not allow this source_type"}
         if allowed_webhook_triggers and event_type not in allowed_webhook_triggers:
-            return {
-                "routing_reason": "webhook_trigger_not_allowed",
-                "message": "Matched agent capability profile does not allow this event_type",
-            }
+            return {"routing_reason": "webhook_trigger_not_allowed", "message": "Matched agent capability profile does not allow this event_type"}
         return None
 
     def route_external_event(self, request: ExternalEventIngressRequest, db: Session) -> ExternalEventIngressResponse:
         source_type = self._normalize_source_type(request.source_type)
-        subscription_repo = ExternalEventSubscriptionRepository(db)
-        workflow_rule_repo = WorkflowTransitionRuleRepository(db)
         task_repo = AgentTaskRepository(db)
-
-        subscriptions = subscription_repo.list_enabled_for_source(source_type=source_type, event_type=request.event_type)
-        matching_subscriptions = [sub for sub in subscriptions if self._matches_target_ref(sub, request.target_ref)]
-        trigger_mode = self._resolve_trigger_mode(request)
-        matching_subscriptions = self._filter_subscriptions_for_trigger_mode(matching_subscriptions, trigger_mode)
-        matching_subscriptions.sort(key=lambda item: item.id)
-        matched_subscription_ids = [sub.id for sub in matching_subscriptions]
-
-        if not matching_subscriptions:
-            return ExternalEventIngressResponse(
-                accepted=False,
-                matched_subscription_ids=[],
-                routing_reason="no_matching_subscription_for_trigger_mode",
-                resolved_task_type=None,
-                message=f"No enabled subscription matched source/event/target_ref for trigger_mode={trigger_mode}",
-            )
-
-        matched_agent_id = None
-        matched_workflow_rule_id = None
-        selected_subscription = matching_subscriptions[0]
+        workflow_rule_repo = WorkflowTransitionRuleRepository(db)
+        agent_repo = AgentRepository(db)
 
         if source_type == "jira" and request.event_type == "workflow_review_requested":
             if not request.project_key or not request.issue_type or not request.trigger_status:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="missing_jira_workflow_context",
-                    message="project_key, issue_type, and trigger_status are required for jira workflow routing",
-                )
+                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="missing_jira_workflow_context", message="project_key, issue_type, and trigger_status are required for jira workflow routing")
 
             matched_rule = workflow_rule_repo.find_matching_jira_rule(
                 project_key=request.project_key,
@@ -382,177 +378,126 @@ class ExternalEventRouterService:
                 assignee_binding=request.issue_assignee,
             )
             if not matched_rule:
+                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="no_matching_workflow_rule", message="No enabled jira workflow transition rule matched the event context")
+
+            matched_agent = agent_repo.get_by_id(matched_rule.target_agent_id)
+            gate_rejection = self._evaluate_capability_profile_event_gate(agent=matched_agent, source_type=source_type, event_type=request.event_type, db=db)
+            if gate_rejection:
                 return ExternalEventIngressResponse(
                     accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="no_matching_workflow_rule",
-                    message="No enabled jira workflow transition rule matched the event context",
+                    matched_subscription_ids=[],
+                    routing_reason=gate_rejection["routing_reason"],
+                    matched_agent_id=matched_rule.target_agent_id,
+                    matched_workflow_rule_id=matched_rule.id,
+                    resolved_task_type="jira_workflow_review_task",
+                    message=gate_rejection["message"],
                 )
 
-            matched_workflow_rule_id = matched_rule.id
+            _cfg, parsed_workflow_context, config_error = parse_workflow_rule_config(matched_rule.config_json)
+            if config_error:
+                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="invalid_workflow_rule_config", matched_workflow_rule_id=matched_rule.id, resolved_task_type="jira_workflow_review_task", message="Matched workflow rule has invalid config_json")
+
+            input_payload_json = json.dumps(
+                {
+                    "issue_key": request.issue_key,
+                    "project_key": request.project_key,
+                    "issue_type": request.issue_type,
+                    "trigger_status": request.trigger_status,
+                    "issue_assignee": request.issue_assignee,
+                    "skill_name": matched_rule.skill_name,
+                    "success_transition": matched_rule.success_transition,
+                    "failure_transition": matched_rule.failure_transition,
+                    "success_reassign_to": matched_rule.success_reassign_to,
+                    "failure_reassign_to": matched_rule.failure_reassign_to,
+                    "explicit_success_assignee": matched_rule.explicit_success_assignee,
+                    "explicit_failure_assignee": matched_rule.explicit_failure_assignee,
+                    "workflow_rule_id": matched_rule.id,
+                    "workflow_context": parsed_workflow_context or {},
+                    "payload_json": request.payload_json,
+                    "metadata_json": request.metadata_json,
+                }
+            )
             matched_agent_id = matched_rule.target_agent_id
             task_type = "jira_workflow_review_task"
-            agent_subscriptions = self._filter_subscriptions_for_agent(
-                matching_subscriptions,
-                agent_id=matched_agent_id,
-            )
-            if not agent_subscriptions:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="no_subscription_for_routed_agent",
-                    matched_agent_id=matched_agent_id,
-                    matched_workflow_rule_id=matched_workflow_rule_id,
-                    resolved_task_type=task_type,
-                    message="Workflow rule matched an agent, but that agent has no matching enabled subscription",
-                )
-            selected_subscription = agent_subscriptions[0]
-            matched_agent = AgentRepository(db).get_by_id(matched_agent_id) if matched_agent_id else None
-            gate_rejection = self._evaluate_capability_profile_event_gate(
-                agent=matched_agent,
-                source_type=source_type,
-                event_type=request.event_type,
-                db=db,
-            )
-            if gate_rejection:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason=gate_rejection["routing_reason"],
-                    matched_agent_id=matched_agent_id,
-                    matched_workflow_rule_id=matched_workflow_rule_id,
-                    resolved_task_type=task_type,
-                    message=gate_rejection["message"],
-                )
-            _normalized_config_json, parsed_workflow_context, config_error = parse_workflow_rule_config(matched_rule.config_json)
-            if config_error:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="invalid_workflow_rule_config",
-                    matched_workflow_rule_id=matched_rule.id,
-                    resolved_task_type=task_type,
-                    message="Matched workflow rule has invalid config_json",
-                )
-
-            payload = {
-                "issue_key": request.issue_key,
-                "project_key": request.project_key,
-                "issue_type": request.issue_type,
-                "trigger_status": request.trigger_status,
-                "issue_assignee": request.issue_assignee,
-                "skill_name": matched_rule.skill_name,
-                "success_transition": matched_rule.success_transition,
-                "failure_transition": matched_rule.failure_transition,
-                "success_reassign_to": matched_rule.success_reassign_to,
-                "failure_reassign_to": matched_rule.failure_reassign_to,
-                "explicit_success_assignee": matched_rule.explicit_success_assignee,
-                "explicit_failure_assignee": matched_rule.explicit_failure_assignee,
-                "workflow_rule_id": matched_rule.id,
-                "workflow_context": parsed_workflow_context or {},
-                "payload_json": request.payload_json,
-                "metadata_json": request.metadata_json,
-            }
-            input_payload_json = json.dumps(payload)
             routing_reason = "matched_workflow_rule"
+            matched_workflow_rule_id = matched_rule.id
         else:
+            rule = self._automation_rule_for_event(source_type, request.event_type)
+            if not rule:
+                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="unsupported_automation_event", message="No automation rule configured for this source_type/event_type")
             if not request.external_account_id:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="missing_external_account_id",
-                    message="external_account_id is required for identity binding based routing",
-                )
+                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="missing_external_account_id", message="external_account_id is required for identity binding based routing")
 
             binding_repo = AgentIdentityBindingRepository(db)
-            binding_candidates = binding_repo.list_bindings_for_key(
-                system_type=source_type,
-                external_account_id=request.external_account_id,
-            )
-            lookup_username = self._binding_lookup_username_from_metadata(request)
-            if not binding_candidates and lookup_username:
-                binding_candidates = binding_repo.list_bindings_for_username(
-                    system_type=source_type,
-                    username=lookup_username,
-                )
-            if not binding_candidates:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="no_enabled_binding",
-                    matched_agent_id=None,
-                    message="No agent matched the provided identity binding",
-                )
+            bindings = binding_repo.list_bindings_for_key(system_type=source_type, external_account_id=request.external_account_id)
+            if not bindings:
+                lookup_username = self._binding_lookup_username_from_metadata(request)
+                if lookup_username:
+                    bindings = binding_repo.list_bindings_for_username(system_type=source_type, username=lookup_username)
+            if not bindings:
+                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="no_enabled_binding", message="No agent matched the provided identity binding")
 
-            selected_pair = self._select_binding_subscription_pair(
-                binding_candidates=binding_candidates,
-                matching_subscriptions=matching_subscriptions,
-            )
-            if not selected_pair:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="no_subscription_for_bound_agent",
-                    matched_agent_id=None,
-                    message="Identity binding candidates exist, but no candidate binding has a matching enabled subscription",
+            selected_binding = None
+            matched_agent = None
+            routing_reason = "matched_enabled_binding"
+            for binding in bindings:
+                candidate_agent = agent_repo.get_by_id(binding.agent_id)
+                if not candidate_agent:
+                    continue
+                routing_decision = self.runtime_router.resolve_agent_decision_for_event(agent_id=binding.agent_id, db=db, reason="matched_enabled_binding")
+                gate_rejection = self._evaluate_capability_profile_event_gate(
+                    agent=candidate_agent,
+                    source_type=source_type,
+                    event_type=request.event_type,
+                    db=db,
+                    capability_context=routing_decision.capability_context,
                 )
-            selected_binding, selected_subscription = selected_pair
+                if gate_rejection:
+                    continue
+                config = self._load_runtime_profile_config_for_agent(db=db, agent=candidate_agent)
+                if not self._automation_enabled_for_config(config, source_type, request.event_type):
+                    continue
+                effective_scope = self._effective_scope_for_binding_and_config(binding, config, source_type, request.event_type)
+                if not self._is_event_in_effective_scope(request, source_type, request.event_type, effective_scope):
+                    continue
+                selected_binding = binding
+                matched_agent = candidate_agent
+                routing_reason = routing_decision.reason
+                break
+
+            if not selected_binding or not matched_agent:
+                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="automation_not_enabled_or_scope_mismatch", message="No bound agent has enabled automation for this event in effective scope")
+
             matched_agent_id = selected_binding.agent_id
+            matched_workflow_rule_id = None
+            task_type = rule["task_type"]
 
-            routing_decision = self.runtime_router.resolve_agent_decision_for_event(
-                agent_id=matched_agent_id,
-                db=db,
-                reason="matched_enabled_binding",
-            )
-
-            matched_agent = AgentRepository(db).get_by_id(matched_agent_id)
-            gate_rejection = self._evaluate_capability_profile_event_gate(
-                agent=matched_agent,
-                source_type=source_type,
-                event_type=request.event_type,
-                db=db,
-                capability_context=routing_decision.capability_context,
-            )
-            if gate_rejection:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason=gate_rejection["routing_reason"],
-                    matched_agent_id=matched_agent_id,
-                    message=gate_rejection["message"],
-                )
-            task_type = self._derive_task_type(source_type, request.event_type)
             if source_type == "github" and request.event_type == "pull_request_review_requested":
-                github_payload, github_error = self._extract_github_review_payload(request, selected_subscription.id)
+                github_payload, github_error = self._extract_github_review_payload(request)
                 if github_error:
-                    return ExternalEventIngressResponse(
-                        accepted=False,
-                        matched_subscription_ids=matched_subscription_ids,
-                        routing_reason="invalid_github_event_payload",
-                        matched_agent_id=matched_agent_id,
-                        resolved_task_type=task_type,
-                        message=github_error,
-                    )
-                if not self._is_allowed_github_repo(selected_subscription, github_payload["owner"], github_payload["repo"]):
-                    return ExternalEventIngressResponse(
-                        accepted=False,
-                        matched_subscription_ids=matched_subscription_ids,
-                        routing_reason="repo_not_allowed",
-                        matched_agent_id=matched_agent_id,
-                        resolved_task_type=task_type,
-                        message="Repository is not allowed by subscription config_json.allowed_repos",
-                    )
+                    return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="invalid_github_event_payload", matched_agent_id=matched_agent_id, resolved_task_type=task_type, message=github_error)
                 input_payload_json = json.dumps(github_payload)
             else:
-                input_payload_json = request.payload_json
-            routing_reason = routing_decision.reason
+                triggered_payload, triggered_payload_error = self._build_triggered_event_input_payload(
+                    request=request,
+                    rule=rule,
+                    binding=selected_binding,
+                )
+                if triggered_payload_error:
+                    return ExternalEventIngressResponse(
+                        accepted=False,
+                        matched_subscription_ids=[],
+                        routing_reason="invalid_triggered_event_payload",
+                        matched_agent_id=matched_agent_id,
+                        resolved_task_type=task_type,
+                        message=triggered_payload_error,
+                    )
+                input_payload_json = json.dumps(triggered_payload, ensure_ascii=False)
 
-        dedupe_hint = request.dedupe_key
         payload_obj = self._parse_json_object(input_payload_json)
         if source_type == "jira":
+            dedupe_hint = request.dedupe_key or request.issue_key or request.target_ref
             shared_context_ref = request.issue_key or request.dedupe_key or request.target_ref
-            if not dedupe_hint:
-                dedupe_hint = shared_context_ref
         else:
             dedupe_hint = self._build_github_dedupe_hint(request, payload_obj) or request.dedupe_key
             shared_context_ref = dedupe_hint or request.target_ref
@@ -566,39 +511,10 @@ class ExternalEventRouterService:
                 input_payload_json=input_payload_json,
             )
             if duplicate:
-                return ExternalEventIngressResponse(
-                    accepted=True,
-                    matched_subscription_ids=matched_subscription_ids,
-                    routing_reason="duplicate_task",
-                    matched_agent_id=matched_agent_id,
-                    created_task_id=duplicate.id,
-                    matched_workflow_rule_id=matched_workflow_rule_id,
-                    resolved_task_type=task_type,
-                    deduped=True,
-                    message="Duplicate event detected; existing task reused",
-                )
+                return ExternalEventIngressResponse(accepted=True, matched_subscription_ids=[], routing_reason="duplicate_task", matched_agent_id=matched_agent_id, created_task_id=duplicate.id, matched_workflow_rule_id=matched_workflow_rule_id, resolved_task_type=task_type, deduped=True, message="Duplicate event detected; existing task reused")
 
-        task_family = self._build_task_family(request)
-        provider = source_type
-        trigger = request.event_type
-        source_kind = self._build_source_kind(
-            source_type=source_type,
-            event_type=request.event_type,
-            subscription_source_kind=selected_subscription.source_kind,
-        )
-        bundle_id = self._build_bundle_id(
-            request=request,
-            source_type=source_type,
-            payload_obj=payload_obj,
-            task_type=task_type,
-        )
-        version_key = self._build_version_key(
-            request=request,
-            source_type=source_type,
-            payload_obj=payload_obj,
-            task_type=task_type,
-        )
-        dedupe_key = dedupe_hint
+        bundle_id = self._build_bundle_id(request=request, source_type=source_type, payload_obj=payload_obj, task_type=task_type)
+        version_key = self._build_version_key(request=request, source_type=source_type, payload_obj=payload_obj, task_type=task_type)
 
         task = task_repo.create(
             parent_agent_id=None,
@@ -609,12 +525,12 @@ class ExternalEventRouterService:
             task_type=task_type,
             input_payload_json=input_payload_json,
             shared_context_ref=shared_context_ref,
-            task_family=task_family,
-            provider=provider,
-            trigger=trigger,
+            task_family="triggered_work",
+            provider=source_type,
+            trigger=request.event_type,
             bundle_id=bundle_id,
             version_key=version_key,
-            dedupe_key=dedupe_key,
+            dedupe_key=dedupe_hint,
             status="queued",
             result_payload_json=None,
             retry_count=0,
@@ -629,34 +545,23 @@ class ExternalEventRouterService:
                 superseding_task_id=task.id,
             )
 
-        should_dispatch = task_type == "jira_workflow_review_task" or (
-            task_type == "github_review_task" and request.event_type == "pull_request_review_requested"
-        )
+        should_dispatch = task_type in {"jira_workflow_review_task", "github_review_task", "triggered_event_task"}
         if should_dispatch:
             self._dispatch_task_in_background(task.id)
-
-            return ExternalEventIngressResponse(
-                accepted=True,
-                matched_subscription_ids=matched_subscription_ids,
-                routing_reason=routing_reason,
-                matched_agent_id=matched_agent_id,
-                created_task_id=task.id,
-                matched_workflow_rule_id=matched_workflow_rule_id,
-                resolved_task_type=task_type,
-                deduped=False,
-                message=f"Event routed, task created, and scheduled for background dispatch ({source_kind})",
-            )
+            message = "Event routed, task created, and scheduled for background dispatch"
+        else:
+            message = "Event routed and task created"
 
         return ExternalEventIngressResponse(
             accepted=True,
-            matched_subscription_ids=matched_subscription_ids,
+            matched_subscription_ids=[],
             routing_reason=routing_reason,
             matched_agent_id=matched_agent_id,
             created_task_id=task.id,
             matched_workflow_rule_id=matched_workflow_rule_id,
             resolved_task_type=task_type,
             deduped=False,
-            message=f"Event routed and task created ({source_kind})",
+            message=message,
         )
 
     def _dispatch_task_in_background(self, task_id: str) -> None:

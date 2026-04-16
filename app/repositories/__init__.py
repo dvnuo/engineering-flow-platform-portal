@@ -9,7 +9,6 @@ from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRep
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.capability_profile_repo import CapabilityProfileRepository
-from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
@@ -23,7 +22,6 @@ __all__ = [
     "CapabilityProfileRepository",
     "PolicyProfileRepository",
     "AgentIdentityBindingRepository",
-    "ExternalEventSubscriptionRepository",
     "AgentTaskRepository",
     "AgentSessionMetadataRepository",
     "AgentDelegationRepository",

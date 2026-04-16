@@ -15,7 +15,6 @@ REQUIRED_PORTAL_TABLES = (
     "runtime_profiles",
     "agent_identity_bindings",
     "workflow_transition_rules",
-    "external_event_subscriptions",
     "runtime_capability_catalog_snapshots",
     "agent_groups",
     "agent_group_members",
