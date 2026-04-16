@@ -553,6 +553,51 @@ function setButtonDisabled(button, disabled, disabledTitle = "") {
   }
 }
 
+function getFormSubmitButton(form) {
+  if (!form) return null;
+  return form.querySelector('button[type="submit"]');
+}
+
+function setModalFormBusyState(form, busy, { pendingText = "", closeButton = null } = {}) {
+  if (!form) return;
+  const submitButton = getFormSubmitButton(form);
+
+  if (busy) {
+    form.dataset.submitting = "true";
+    form.setAttribute("aria-busy", "true");
+    if (submitButton) {
+      if (!submitButton.dataset.originalText) {
+        submitButton.dataset.originalText = submitButton.textContent || "";
+      }
+      if (pendingText) submitButton.textContent = pendingText;
+      setButtonDisabled(submitButton, true);
+    }
+    if (closeButton) setButtonDisabled(closeButton, true);
+    return;
+  }
+
+  delete form.dataset.submitting;
+  form.removeAttribute("aria-busy");
+  if (submitButton) {
+    if (submitButton.dataset.originalText) {
+      submitButton.textContent = submitButton.dataset.originalText;
+    }
+    setButtonDisabled(submitButton, false);
+  }
+  if (closeButton) setButtonDisabled(closeButton, false);
+}
+
+function beginSingleSubmit(form, options = {}) {
+  if (!form) return false;
+  if (form.dataset.submitting === "true") return false;
+  setModalFormBusyState(form, true, options);
+  return true;
+}
+
+function endSingleSubmit(form, options = {}) {
+  setModalFormBusyState(form, false, options);
+}
+
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
   const assistantName = String(state.selectedAgentName || "").trim();
@@ -4608,6 +4653,7 @@ function bindEvents() {
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
 
   dom.addBundleBtn?.addEventListener("click", () => {
+    endSingleSubmit(dom.createBundleForm, { closeButton: dom.closeCreateBundleModal });
     dom.createBundleModal?.classList.remove("hidden");
     dom.createBundleModal?.setAttribute("aria-hidden", "false");
     if (dom.createBundleMsg) {
@@ -4620,12 +4666,14 @@ function bindEvents() {
   });
 
   dom.addRuntimeProfileBtn?.addEventListener("click", () => {
+    endSingleSubmit(dom.createRuntimeProfileForm, { closeButton: dom.closeCreateRuntimeProfileModal });
     dom.createRuntimeProfileModal?.classList.remove("hidden");
     dom.createRuntimeProfileModal?.setAttribute("aria-hidden", "false");
     if (dom.createRuntimeProfileMsg) setModalFeedback(dom.createRuntimeProfileMsg, "", "");
   });
 
   dom.closeCreateRuntimeProfileModal?.addEventListener("click", () => {
+    if (dom.createRuntimeProfileForm?.dataset.submitting === "true") return;
     dom.createRuntimeProfileModal?.classList.add("hidden");
     dom.createRuntimeProfileModal?.setAttribute("aria-hidden", "true");
   });
@@ -4633,6 +4681,7 @@ function bindEvents() {
   dom.createRuntimeProfileForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
+    if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: dom.closeCreateRuntimeProfileModal })) return;
     const formData = new FormData(form);
     try {
       const resp = await fetch('/api/runtime-profiles', {
@@ -4654,12 +4703,15 @@ function bindEvents() {
       form.reset();
       dom.createRuntimeProfileModal?.classList.add('hidden');
       dom.createRuntimeProfileModal?.setAttribute('aria-hidden', 'true');
+      endSingleSubmit(form, { closeButton: dom.closeCreateRuntimeProfileModal });
     } catch (err) {
       if (dom.createRuntimeProfileMsg) setModalFeedback(dom.createRuntimeProfileMsg, 'error', err.message);
+      endSingleSubmit(form, { closeButton: dom.closeCreateRuntimeProfileModal });
     }
   });
 
   dom.closeCreateBundleModal?.addEventListener("click", () => {
+    if (dom.createBundleForm?.dataset.submitting === "true") return;
     dom.createBundleModal?.classList.add("hidden");
     dom.createBundleModal?.setAttribute("aria-hidden", "true");
   });
@@ -4668,6 +4720,7 @@ function bindEvents() {
     const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
     const createForm = document.getElementById("create-form");
     if (createForm) {
+      endSingleSubmit(createForm, { closeButton: document.getElementById("close-create-modal") });
       createForm.reset();
       applyCreateAgentDefaults(createForm, defaults);
     }
@@ -4683,6 +4736,7 @@ function bindEvents() {
   });
 
   document.getElementById("close-create-modal")?.addEventListener("click", () => {
+    if (document.getElementById("create-form")?.dataset.submitting === "true") return;
     document.getElementById("create-modal")?.classList.add("hidden");
     document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
   });
@@ -4690,6 +4744,7 @@ function bindEvents() {
   document.getElementById("create-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
+    if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: document.getElementById("close-create-modal") })) return;
     const formData = new FormData(form);
     const name = formData.get("name");
     const repoUrl = (formData.get("repo_url") || "").toString().trim();
@@ -4736,17 +4791,20 @@ function bindEvents() {
       setTimeout(() => {
         document.getElementById("create-modal")?.classList.add("hidden");
         document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
+        endSingleSubmit(form, { closeButton: document.getElementById("close-create-modal") });
         refreshAll();
       }, 1000);
     } catch (err) {
       msgEl.textContent = err.message;
       setModalFeedback(msgEl, "error", msgEl.textContent);
+      endSingleSubmit(form, { closeButton: document.getElementById("close-create-modal") });
     }
   });
 
   dom.createBundleForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
+    if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: dom.closeCreateBundleModal })) return;
     const formData = new FormData(form);
     const payload = {
       template_id: String(formData.get("template_id") || "requirement.v1"),
@@ -4780,6 +4838,7 @@ function bindEvents() {
       form.querySelector('[name="template_id"]').value = 'requirement.v1';
       dom.createBundleModal?.classList.add("hidden");
       dom.createBundleModal?.setAttribute("aria-hidden", "true");
+      endSingleSubmit(form, { closeButton: dom.closeCreateBundleModal });
       upsertRequirementBundleListItem(bundleListItemFromDetail(detail));
       await setActiveNavSection("bundles", { toggleIfSame: false });
       state.selectedBundleKey = bundleKeyFromRef(detail.bundle_ref);
@@ -4790,6 +4849,7 @@ function bindEvents() {
         dom.createBundleMsg.textContent = err.message;
         setModalFeedback(dom.createBundleMsg, "error", dom.createBundleMsg.textContent);
       }
+      endSingleSubmit(form, { closeButton: dom.closeCreateBundleModal });
     }
   });
 

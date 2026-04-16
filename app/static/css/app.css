@@ -1508,6 +1508,18 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   background: var(--portal-surface-soft);
 }
 
+.portal-btn:disabled,
+.portal-btn[aria-disabled="true"],
+.portal-modal-close:disabled,
+.portal-modal-close[aria-disabled="true"],
+.stack button:disabled,
+.stack button[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
 .portal-btn.is-primary {
   background: var(--portal-cta-bg);
   color: var(--portal-cta-text);
