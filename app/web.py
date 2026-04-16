@@ -1907,7 +1907,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "",
                     "status_message": "",
-                    "profile_missing_message": "This agent has no runtime profile. Assign one from Edit Assistant first.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -1967,8 +1967,8 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "request": request,
                     "agent_id": agent_id,
                     "status_type": "error",
-                    "status_message": "This agent has no runtime profile. Assign one from Edit Assistant first.",
-                    "profile_missing_message": "This agent has no runtime profile. Assign one from Edit Assistant first.",
+                    "status_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -1988,7 +1988,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "error",
                     "status_message": "Assigned runtime profile was not found.",
-                    "profile_missing_message": "This agent has no runtime profile. Assign one from Edit Assistant first.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2415,7 +2415,6 @@ def _render_agent_identity_bindings_panel(
             "success": success,
             "form": form or {},
             "read_only": not _can_write(agent, user),
-            "profile_missing_message": "",
         },
     )
 
@@ -2469,7 +2468,7 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
                 enabled_only=False,
             )
             if existing:
-                error = "Identity binding already exists for this agent/system/account"
+                error = "External identity already exists for this agent/system/account"
 
         if not error:
             AgentIdentityBindingRepository(db).create(
@@ -2487,7 +2486,7 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
             user=user,
             db=db,
             error=error,
-            success="Binding created" if not error else "",
+            success="External identity added" if not error else "",
             form=form_data,
         )
     finally:
