@@ -413,6 +413,159 @@ def test_settings_panel_shows_triggered_work_summary_counts(monkeypatch):
         cleanup()
 
 
+def test_settings_save_success_keeps_triggered_work_summary_counts(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        _bind_profile(db, agent, name="rp-save-summary", config={"llm": {"provider": "openai"}}, revision=1)
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="save-binding-1",
+            username="save-user-1",
+            scope_json=None,
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="jira",
+            external_account_id="save-binding-2",
+            username="save-user-2",
+            scope_json=None,
+            enabled=False,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="push",
+            enabled=True,
+            mode="push",
+            source_kind="github.push",
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="mention",
+            enabled=True,
+            mode="push",
+            source_kind="github.mention",
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="issue_updated",
+            enabled=False,
+            mode="push",
+            source_kind="jira.issue_updated",
+        )
+
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"llm_provider": "anthropic", "llm_model": "claude-sonnet-4"},
+        )
+        assert resp.status_code == 200
+        assert "Bindings: <strong>1</strong> enabled / <strong>2</strong> total" in resp.text
+        assert "Subscriptions: <strong>2</strong> enabled / <strong>3</strong> total" in resp.text
+    finally:
+        cleanup()
+
+
+def test_settings_save_error_response_keeps_triggered_work_summary_counts(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        _bind_profile(db, agent, name="rp-save-error-summary", config={"llm": {"provider": "openai"}}, revision=1)
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="err-binding-1",
+            username="err-user-1",
+            scope_json=None,
+            enabled=True,
+        )
+        AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="jira",
+            external_account_id="err-binding-2",
+            username="err-user-2",
+            scope_json=None,
+            enabled=False,
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="push",
+            enabled=True,
+            mode="push",
+            source_kind="github.push",
+        )
+        ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="jira",
+            event_type="issue_updated",
+            enabled=False,
+            mode="push",
+            source_kind="jira.issue_updated",
+        )
+
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"llm_temperature": "not-a-number"},
+        )
+        assert resp.status_code == 200
+        assert "Temperature must be a number." in resp.text
+        assert "Bindings: <strong>1</strong> enabled / <strong>2</strong> total" in resp.text
+        assert "Subscriptions: <strong>1</strong> enabled / <strong>2</strong> total" in resp.text
+    finally:
+        cleanup()
+
+
+def test_bindings_delete_keeps_profile_missing_guard_after_deleting_legacy_binding(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        _bind_profile(db, agent, name="rp-legacy-binding", config={"llm": {"provider": "openai"}}, revision=1)
+        legacy_binding = AgentIdentityBindingRepository(db).create(
+            agent_id=agent.id,
+            system_type="github",
+            external_account_id="legacy-binding",
+            username="legacy-user",
+            scope_json=None,
+            enabled=True,
+        )
+        agent.runtime_profile_id = None
+        db.add(agent)
+        db.commit()
+
+        resp = client.post(f"/app/agents/{agent.id}/triggered-work/bindings/{legacy_binding.id}/delete")
+        assert resp.status_code == 200
+        assert "Bind a runtime profile before configuring bindings or subscriptions." in resp.text
+        assert "/triggered-work/bindings/create" not in resp.text
+    finally:
+        cleanup()
+
+
+def test_subscriptions_delete_keeps_profile_missing_guard_after_deleting_legacy_subscription(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        _bind_profile(db, agent, name="rp-legacy-subscription", config={"llm": {"provider": "openai"}}, revision=1)
+        legacy_subscription = ExternalEventSubscriptionRepository(db).create(
+            agent_id=agent.id,
+            source_type="github",
+            event_type="mention",
+            enabled=True,
+            mode="push",
+            source_kind="github.mention",
+        )
+        agent.runtime_profile_id = None
+        db.add(agent)
+        db.commit()
+
+        resp = client.post(f"/app/agents/{agent.id}/triggered-work/subscriptions/{legacy_subscription.id}/delete")
+        assert resp.status_code == 200
+        assert "Bind a runtime profile before configuring bindings or subscriptions." in resp.text
+        assert "/triggered-work/subscriptions/create" not in resp.text
+    finally:
+        cleanup()
+
+
 def test_shared_non_owner_settings_and_triggered_work_panels_are_read_only(monkeypatch):
     client, db, agent, cleanup = _build_client(
         monkeypatch,

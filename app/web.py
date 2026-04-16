@@ -490,6 +490,7 @@ def _settings_view_payload(config_data: dict) -> dict:
 
 def _settings_error_response(
     request: Request,
+    db,
     agent_id: str,
     config_payload: dict,
     message: str,
@@ -497,8 +498,10 @@ def _settings_error_response(
     profile_name: str | None = None,
     profile_revision: int | None = None,
     profile_bound_agent_count: int = 0,
+    read_only: bool = False,
 ):
     view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
+    summary = _settings_triggered_work_summary(db, agent_id)
     return templates.TemplateResponse(
         "partials/settings_panel.html",
         {
@@ -510,9 +513,22 @@ def _settings_error_response(
             "profile_name": profile_name,
             "profile_revision": profile_revision,
             "profile_bound_agent_count": profile_bound_agent_count,
+            "read_only": read_only,
+            **summary,
             **view_data,
         },
     )
+
+
+def _settings_triggered_work_summary(db, agent_id: str) -> dict[str, int]:
+    bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+    subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
+    return {
+        "binding_total_count": len(bindings),
+        "binding_enabled_count": sum(1 for item in bindings if item.enabled),
+        "subscription_total_count": len(subscriptions),
+        "subscription_enabled_count": sum(1 for item in subscriptions if item.enabled),
+    }
 
 
 def _runtime_profile_panel_context(
@@ -1771,12 +1787,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
         read_only = not _can_write(agent, user)
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
-        binding_total_count = len(bindings)
-        binding_enabled_count = sum(1 for item in bindings if item.enabled)
-        subscription_total_count = len(subscriptions)
-        subscription_enabled_count = sum(1 for item in subscriptions if item.enabled)
+        summary = _settings_triggered_work_summary(db, agent_id)
 
         runtime_profile = None
         bound_agent_count = 0
@@ -1802,10 +1813,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "profile_bound_agent_count": 0,
                     "config": {},
                     "read_only": read_only,
-                    "binding_total_count": binding_total_count,
-                    "binding_enabled_count": binding_enabled_count,
-                    "subscription_total_count": subscription_total_count,
-                    "subscription_enabled_count": subscription_enabled_count,
+                    **summary,
                 },
             )
 
@@ -1825,10 +1833,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": bound_agent_count,
                 "read_only": read_only,
-                "binding_total_count": binding_total_count,
-                "binding_enabled_count": binding_enabled_count,
-                "subscription_total_count": subscription_total_count,
-                "subscription_enabled_count": subscription_enabled_count,
+                **summary,
                 **view_data,
             },
         )
@@ -1853,6 +1858,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        summary = _settings_triggered_work_summary(db, agent_id)
 
         if not agent.runtime_profile_id:
             return templates.TemplateResponse(
@@ -1868,6 +1874,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "profile_bound_agent_count": 0,
                     "config": {},
                     "read_only": False,
+                    **summary,
                 },
             )
 
@@ -1887,6 +1894,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "profile_bound_agent_count": 0,
                     "config": {},
                     "read_only": False,
+                    **summary,
                 },
             )
 
@@ -1898,12 +1906,14 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         if merge_error:
             return _settings_error_response(
                 request,
+                db,
                 agent_id,
                 config_payload,
                 merge_error,
                 profile_name=runtime_profile.name,
                 profile_revision=runtime_profile.revision,
                 profile_bound_agent_count=profile_bound_agent_count,
+                read_only=False,
             )
 
         sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
@@ -1946,6 +1956,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": profile_bound_agent_count,
                 "read_only": False,
+                **summary,
                 **view_data,
             },
         )
@@ -2288,6 +2299,57 @@ def _triggered_work_profile_required_message(agent) -> str | None:
     return None if agent.runtime_profile_id else TRIGGERED_WORK_PROFILE_REQUIRED_MESSAGE
 
 
+def _render_agent_identity_bindings_panel(
+    request: Request,
+    *,
+    agent,
+    user,
+    db,
+    error: str = "",
+    success: str = "",
+    form: dict | None = None,
+):
+    return templates.TemplateResponse(
+        "partials/agent_identity_bindings_panel.html",
+        {
+            "request": request,
+            "agent_id": agent.id,
+            "bindings": AgentIdentityBindingRepository(db).list_by_agent(agent.id),
+            "error": error,
+            "success": success,
+            "form": form or {},
+            "read_only": not _can_write(agent, user),
+            "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
+        },
+    )
+
+
+def _render_external_event_subscriptions_panel(
+    request: Request,
+    *,
+    agent,
+    user,
+    db,
+    error: str = "",
+    success: str = "",
+    form: dict | None = None,
+):
+    return templates.TemplateResponse(
+        "partials/external_event_subscriptions_panel.html",
+        {
+            "request": request,
+            "agent_id": agent.id,
+            "bindings": AgentIdentityBindingRepository(db).list_by_agent(agent.id),
+            "subscriptions": ExternalEventSubscriptionRepository(db).list_by_agent(agent.id),
+            "error": error,
+            "success": success,
+            "form": form or {},
+            "read_only": not _can_write(agent, user),
+            "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
+        },
+    )
+
+
 @router.get("/app/agents/{agent_id}/triggered-work/bindings/panel")
 async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
@@ -2297,20 +2359,7 @@ async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: st
     db = SessionLocal()
     try:
         agent = _triggered_work_authorize(db, user, agent_id)
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/agent_identity_bindings_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "error": "",
-                "success": "",
-                "form": {},
-                "read_only": not _can_write(agent, user),
-                "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
-            },
-        )
+        return _render_agent_identity_bindings_panel(request, agent=agent, user=user, db=db)
     finally:
         db.close()
 
@@ -2327,21 +2376,13 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
         profile_missing_message = _triggered_work_profile_required_message(agent)
-        repo = AgentIdentityBindingRepository(db)
         if profile_missing_message:
-            bindings = repo.list_by_agent(agent_id)
-            return templates.TemplateResponse(
-                "partials/agent_identity_bindings_panel.html",
-                {
-                    "request": request,
-                    "agent_id": agent_id,
-                    "bindings": bindings,
-                    "error": profile_missing_message,
-                    "success": "",
-                    "form": {},
-                    "read_only": False,
-                    "profile_missing_message": profile_missing_message,
-                },
+            return _render_agent_identity_bindings_panel(
+                request,
+                agent=agent,
+                user=user,
+                db=db,
+                error=profile_missing_message,
             )
 
         form = await request.form()
@@ -2369,7 +2410,7 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
                 error = "Identity binding already exists for this agent/system/account"
 
         if not error:
-            repo.create(
+            AgentIdentityBindingRepository(db).create(
                 agent_id=agent_id,
                 system_type=form_data["system_type"],
                 external_account_id=form_data["external_account_id"],
@@ -2378,19 +2419,14 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
                 enabled=form_data["enabled"],
             )
 
-        bindings = repo.list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/agent_identity_bindings_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "error": error,
-                "success": "Binding created" if not error else "",
-                "form": form_data,
-                "read_only": False,
-                "profile_missing_message": profile_missing_message or "",
-            },
+        return _render_agent_identity_bindings_panel(
+            request,
+            agent=agent,
+            user=user,
+            db=db,
+            error=error,
+            success="Binding created" if not error else "",
+            form=form_data,
         )
     finally:
         db.close()
@@ -2413,17 +2449,12 @@ async def app_agent_triggered_work_bindings_delete(request: Request, agent_id: s
         if binding and binding.agent_id == agent_id:
             repo.delete(binding)
 
-        bindings = repo.list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/agent_identity_bindings_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "error": "",
-                "success": "Binding deleted",
-                "form": {},
-            },
+        return _render_agent_identity_bindings_panel(
+            request,
+            agent=agent,
+            user=user,
+            db=db,
+            success="Binding deleted",
         )
     finally:
         db.close()
@@ -2438,22 +2469,7 @@ async def app_agent_triggered_work_subscriptions_panel(request: Request, agent_i
     db = SessionLocal()
     try:
         agent = _triggered_work_authorize(db, user, agent_id)
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/external_event_subscriptions_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "subscriptions": subscriptions,
-                "error": "",
-                "success": "",
-                "form": {},
-                "read_only": not _can_write(agent, user),
-                "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
-            },
-        )
+        return _render_external_event_subscriptions_panel(request, agent=agent, user=user, db=db)
     finally:
         db.close()
 
@@ -2470,22 +2486,13 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
         profile_missing_message = _triggered_work_profile_required_message(agent)
-        bindings_repo = AgentIdentityBindingRepository(db)
-        subscriptions_repo = ExternalEventSubscriptionRepository(db)
         if profile_missing_message:
-            return templates.TemplateResponse(
-                "partials/external_event_subscriptions_panel.html",
-                {
-                    "request": request,
-                    "agent_id": agent_id,
-                    "bindings": bindings_repo.list_by_agent(agent_id),
-                    "subscriptions": subscriptions_repo.list_by_agent(agent_id),
-                    "error": profile_missing_message,
-                    "success": "",
-                    "form": {},
-                    "read_only": False,
-                    "profile_missing_message": profile_missing_message,
-                },
+            return _render_external_event_subscriptions_panel(
+                request,
+                agent=agent,
+                user=user,
+                db=db,
+                error=profile_missing_message,
             )
 
         form = await request.form()
@@ -2529,7 +2536,7 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
             error = json_errors[0]
 
         if not error:
-            subscriptions_repo.create(
+            ExternalEventSubscriptionRepository(db).create(
                 agent_id=agent_id,
                 source_type=form_data["source_type"],
                 event_type=form_data["event_type"],
@@ -2546,21 +2553,14 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
                 poll_profile_json=poll_profile_json,
             )
 
-        bindings = bindings_repo.list_by_agent(agent_id)
-        subscriptions = subscriptions_repo.list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/external_event_subscriptions_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "subscriptions": subscriptions,
-                "error": error,
-                "success": "Subscription created" if not error else "",
-                "form": form_data,
-                "read_only": False,
-                "profile_missing_message": profile_missing_message or "",
-            },
+        return _render_external_event_subscriptions_panel(
+            request,
+            agent=agent,
+            user=user,
+            db=db,
+            error=error,
+            success="Subscription created" if not error else "",
+            form=form_data,
         )
     finally:
         db.close()
@@ -2583,19 +2583,12 @@ async def app_agent_triggered_work_subscriptions_delete(request: Request, agent_
         if subscription and subscription.agent_id == agent_id:
             repo.delete(subscription)
 
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        subscriptions = repo.list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/external_event_subscriptions_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "subscriptions": subscriptions,
-                "error": "",
-                "success": "Subscription deleted",
-                "form": {},
-            },
+        return _render_external_event_subscriptions_panel(
+            request,
+            agent=agent,
+            user=user,
+            db=db,
+            success="Subscription deleted",
         )
     finally:
         db.close()
