@@ -9,6 +9,16 @@ from app.db import Base
 from app.models import Agent, RuntimeProfile, User
 from app.services.runtime_profile_service import RuntimeProfileService
 
+EXPECTED_PROXY_URL = "https://proxy.com:80"
+EXPECTED_JIRA_INSTANCES = [
+    {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
+    {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
+]
+EXPECTED_CONFLUENCE_INSTANCES = [
+    {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
+    {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
+]
+
 
 def _session():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -33,6 +43,11 @@ def test_ensure_user_has_default_profile_creates_default():
     profile = RuntimeProfileService(db).ensure_user_has_default_profile(user)
     assert profile.name == "Default"
     assert profile.is_default is True
+    saved = json.loads(profile.config_json)
+    assert saved["proxy"]["url"] == "https://proxy.com:80"
+    assert len(saved["jira"]["instances"]) == 2
+    assert len(saved["confluence"]["instances"]) == 2
+    assert saved["llm"]["provider"] == "openai"
 
 
 def test_switch_default_keeps_exactly_one_default():
@@ -103,3 +118,83 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert "api_token" not in cfg["github"]
     assert "base_url" not in cfg["github"]
     assert "password" not in cfg["proxy"]
+    assert "url" not in cfg["proxy"]
+    assert cfg["jira"]["instances"] == []
+    assert cfg["confluence"]["instances"] == []
+
+
+def test_creation_profile_config_has_business_seed_defaults():
+    cfg = RuntimeProfileService.creation_profile_config()
+    assert cfg["proxy"]["enabled"] is False
+    assert cfg["proxy"]["url"] == EXPECTED_PROXY_URL
+    assert cfg["jira"]["enabled"] is False
+    assert cfg["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
+    assert cfg["confluence"]["enabled"] is False
+    assert cfg["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
+
+    for instance in cfg["jira"]["instances"] + cfg["confluence"]["instances"]:
+        assert "password" not in instance
+        assert "token" not in instance
+
+
+def test_create_for_user_materializes_creation_defaults_when_config_is_empty():
+    db = _session()
+    user = User(username="u1", password_hash="test", role="user", is_active=True)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    profile = RuntimeProfileService(db).create_for_user(
+        user,
+        name="Seeded",
+        description="materialized on create",
+        config_json="{}",
+        is_default=False,
+    )
+    saved = json.loads(profile.config_json)
+    assert saved["proxy"]["url"] == EXPECTED_PROXY_URL
+    assert saved["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
+    assert saved["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
+    assert saved["llm"]["provider"] == "openai"
+
+
+def test_materialize_create_config_json_preserves_explicit_overlay_and_fills_missing_seed():
+    materialized = RuntimeProfileService.materialize_create_config_json(
+        json.dumps(
+            {
+                "proxy": {"enabled": True, "url": "https://custom-proxy.example:8443"},
+                "jira": {
+                    "enabled": True,
+                    "instances": [
+                        {"name": "Custom Jira", "url": "https://jira.custom.example"},
+                    ],
+                },
+            }
+        )
+    )
+    saved = json.loads(materialized)
+    assert saved["proxy"]["enabled"] is True
+    assert saved["proxy"]["url"] == "https://custom-proxy.example:8443"
+    assert saved["jira"]["enabled"] is True
+    assert saved["jira"]["instances"] == [{"name": "Custom Jira", "url": "https://jira.custom.example"}]
+    assert len(saved["confluence"]["instances"]) == 2
+
+    assert "llm" in saved
+    assert "debug" in saved
+    assert "git" in saved
+    assert "github" in saved
+
+    for instance in saved["jira"]["instances"] + saved["confluence"]["instances"]:
+        assert "password" not in instance
+        assert "token" not in instance
+
+
+def test_merge_with_managed_defaults_does_not_apply_creation_seed_to_legacy_sparse_profile():
+    cfg = RuntimeProfileService.merge_with_managed_defaults({})
+    assert cfg["proxy"]["enabled"] is False
+    assert "url" not in cfg["proxy"]
+    assert cfg["jira"]["enabled"] is False
+    assert cfg["jira"]["instances"] == []
+    assert cfg["confluence"]["enabled"] is False
+    assert cfg["confluence"]["instances"] == []
+    assert cfg["llm"]["provider"] == "openai"

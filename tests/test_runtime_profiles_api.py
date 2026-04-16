@@ -9,6 +9,16 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.models import Agent, User
 
+EXPECTED_PROXY_URL = "https://proxy.com:80"
+EXPECTED_JIRA_INSTANCES = [
+    {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
+    {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
+]
+EXPECTED_CONFLUENCE_INSTANCES = [
+    {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
+    {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
+]
+
 
 def _build_client(monkeypatch):
     from app.main import app
@@ -132,5 +142,31 @@ def test_runtime_profiles_scoped_and_defaults(monkeypatch):
 
         del_used = client.delete(f"/api/runtime-profiles/{p['id']}")
         assert del_used.status_code == 409
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch):
+    client, _db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        no_config = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Seeded-Implicit", "description": "d", "is_default": False},
+        )
+        assert no_config.status_code == 200
+        no_config_payload = json.loads(no_config.json()["config_json"])
+        assert no_config_payload["proxy"]["url"] == EXPECTED_PROXY_URL
+        assert no_config_payload["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
+        assert no_config_payload["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
+
+        empty_config = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Seeded-Empty", "description": "d", "is_default": False, "config_json": "{}"},
+        )
+        assert empty_config.status_code == 200
+        empty_config_payload = json.loads(empty_config.json()["config_json"])
+        assert empty_config_payload["proxy"]["url"] == EXPECTED_PROXY_URL
+        assert empty_config_payload["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
+        assert empty_config_payload["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
     finally:
         cleanup()

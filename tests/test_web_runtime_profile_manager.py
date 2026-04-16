@@ -8,6 +8,17 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
+from app.services.runtime_profile_service import RuntimeProfileService
+
+EXPECTED_PROXY_URL = "https://proxy.com:80"
+EXPECTED_JIRA_URLS = [
+    "https://yourcompany.atlassian.net",
+    "https://yourcompany2.atlassian.net",
+]
+EXPECTED_CONFLUENCE_URLS = [
+    "https://yourcompany.atlassian.net/wiki",
+    "https://yourcompany2.atlassian.net/wiki",
+]
 
 
 def _build_client(monkeypatch):
@@ -116,5 +127,26 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert "api_key" not in saved["llm"]
         assert "base_url" not in saved.get("github", {})
         assert "password" not in saved.get("proxy", {})
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_panel_renders_materialized_seed_defaults(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = RuntimeProfileService.materialize_create_config_json("{}")
+        db.add(rp)
+        db.commit()
+
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert EXPECTED_PROXY_URL in resp.text
+        assert 'data-instance-count="jira"' in resp.text
+        assert 'name="jira_instance_count" value="2"' in resp.text
+        assert EXPECTED_JIRA_URLS[0] in resp.text
+        assert EXPECTED_JIRA_URLS[1] in resp.text
+        assert 'name="confluence_instance_count" value="2"' in resp.text
+        assert EXPECTED_CONFLUENCE_URLS[0] in resp.text
+        assert EXPECTED_CONFLUENCE_URLS[1] in resp.text
     finally:
         cleanup()
