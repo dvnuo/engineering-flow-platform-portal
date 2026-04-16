@@ -153,3 +153,20 @@ def test_runtime_profile_panel_renders_materialized_seed_defaults(monkeypatch):
         assert EXPECTED_CONFLUENCE_URLS[1] in resp.text
     finally:
         cleanup()
+
+
+def test_runtime_profile_panel_get_renders_llm_tools_custom_patterns(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps({"llm": {"tools": ["git_clone", "jira_*"]}})
+        db.add(rp)
+        db.commit()
+
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_tools_mode" value="custom" checked' in resp.text
+        assert "git_clone" in resp.text
+        assert "jira_*" in resp.text
+        assert 'data-action="add-llm-tool-pattern"' in resp.text
+    finally:
+        cleanup()

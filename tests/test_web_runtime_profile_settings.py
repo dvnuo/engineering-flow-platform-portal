@@ -94,6 +94,33 @@ def test_settings_panel_removes_subscriptions_ui(monkeypatch):
         cleanup()
 
 
+def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(db, agent, {"llm": {"provider": "openai"}})
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_tools_mode"' in resp.text
+        assert 'name="llm_tools_mode" value="all" checked' in resp.text
+        assert 'data-llm-tools-editor class="space-y-2 hidden"' in resp.text
+    finally:
+        cleanup()
+
+
+def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(db, agent, {"llm": {"tools": ["git_clone", "jira_*"]}})
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_tools_mode" value="custom" checked' in resp.text
+        assert 'name="llm_tools_count"' in resp.text
+        assert "git_clone" in resp.text
+        assert "jira_*" in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_save_and_echoes_automation(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:

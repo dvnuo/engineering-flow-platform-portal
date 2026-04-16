@@ -1,4 +1,6 @@
-from app.web import _settings_merge_payload
+import pytest
+
+from app.web import _settings_llm_tools_view, _settings_merge_payload
 
 
 def test_settings_merge_github_base_url_blank_removes_existing_value():
@@ -91,3 +93,18 @@ def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_promp
     assert error is None
     assert merged["llm"]["tools"] == ["git_clone", "jira_*"]
     assert merged["llm"]["system-prompt"]["tools"]["enabled"] is True
+
+
+@pytest.mark.parametrize(
+    ("llm", "expected"),
+    [
+        ({}, ("all", [])),
+        ({"tools": ["*"]}, ("all", [])),
+        ({"tools": []}, ("none", [])),
+        ({"tools": None}, ("none", [])),
+        ({"tools": ""}, ("none", [])),
+        ({"tools": ["git_clone", "jira_*"]}, ("custom", ["git_clone", "jira_*"])),
+    ],
+)
+def test_settings_llm_tools_view_modes(llm, expected):
+    assert _settings_llm_tools_view(llm) == expected
