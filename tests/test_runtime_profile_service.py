@@ -9,6 +9,16 @@ from app.db import Base
 from app.models import Agent, RuntimeProfile, User
 from app.services.runtime_profile_service import RuntimeProfileService
 
+EXPECTED_PROXY_URL = "https://proxy.com:80"
+EXPECTED_JIRA_INSTANCES = [
+    {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
+    {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
+]
+EXPECTED_CONFLUENCE_INSTANCES = [
+    {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
+    {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
+]
+
 
 def _session():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -116,11 +126,11 @@ def test_default_profile_config_has_safe_managed_defaults():
 def test_creation_profile_config_has_business_seed_defaults():
     cfg = RuntimeProfileService.creation_profile_config()
     assert cfg["proxy"]["enabled"] is False
-    assert cfg["proxy"]["url"] == "https://proxy.com:80"
+    assert cfg["proxy"]["url"] == EXPECTED_PROXY_URL
     assert cfg["jira"]["enabled"] is False
-    assert len(cfg["jira"]["instances"]) == 2
+    assert cfg["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
     assert cfg["confluence"]["enabled"] is False
-    assert len(cfg["confluence"]["instances"]) == 2
+    assert cfg["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
 
     for instance in cfg["jira"]["instances"] + cfg["confluence"]["instances"]:
         assert "password" not in instance
@@ -142,9 +152,9 @@ def test_create_for_user_materializes_creation_defaults_when_config_is_empty():
         is_default=False,
     )
     saved = json.loads(profile.config_json)
-    assert saved["proxy"]["url"] == "https://proxy.com:80"
-    assert len(saved["jira"]["instances"]) == 2
-    assert len(saved["confluence"]["instances"]) == 2
+    assert saved["proxy"]["url"] == EXPECTED_PROXY_URL
+    assert saved["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
+    assert saved["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
     assert saved["llm"]["provider"] == "openai"
 
 

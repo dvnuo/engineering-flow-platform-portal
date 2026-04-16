@@ -11,6 +11,16 @@ from app.models.runtime_profile import RuntimeProfile
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 
+EXPECTED_PROXY_URL = "https://proxy.com:80"
+EXPECTED_JIRA_INSTANCES = [
+    {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
+    {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
+]
+EXPECTED_CONFLUENCE_INSTANCES = [
+    {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
+    {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
+]
+
 
 def _build_db():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -139,9 +149,9 @@ def test_build_apply_payload_from_profile_keeps_shape_and_includes_materialized_
         assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
         assert payload["runtime_profile_id"] == rp.id
         assert payload["revision"] == rp.revision
-        assert payload["config"]["proxy"]["url"] == "https://proxy.com:80"
-        assert len(payload["config"]["jira"]["instances"]) == 2
-        assert len(payload["config"]["confluence"]["instances"]) == 2
+        assert payload["config"]["proxy"]["url"] == EXPECTED_PROXY_URL
+        assert payload["config"]["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
+        assert payload["config"]["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
     finally:
         db.close()
 

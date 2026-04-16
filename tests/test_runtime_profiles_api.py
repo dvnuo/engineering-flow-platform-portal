@@ -9,6 +9,16 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.models import Agent, User
 
+EXPECTED_PROXY_URL = "https://proxy.com:80"
+EXPECTED_JIRA_INSTANCES = [
+    {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
+    {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
+]
+EXPECTED_CONFLUENCE_INSTANCES = [
+    {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
+    {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
+]
+
 
 def _build_client(monkeypatch):
     from app.main import app
@@ -145,9 +155,9 @@ def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch)
         )
         assert no_config.status_code == 200
         no_config_payload = json.loads(no_config.json()["config_json"])
-        assert no_config_payload["proxy"]["url"] == "https://proxy.com:80"
-        assert len(no_config_payload["jira"]["instances"]) == 2
-        assert len(no_config_payload["confluence"]["instances"]) == 2
+        assert no_config_payload["proxy"]["url"] == EXPECTED_PROXY_URL
+        assert no_config_payload["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
+        assert no_config_payload["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
 
         empty_config = client.post(
             "/api/runtime-profiles",
@@ -155,8 +165,8 @@ def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch)
         )
         assert empty_config.status_code == 200
         empty_config_payload = json.loads(empty_config.json()["config_json"])
-        assert empty_config_payload["proxy"]["url"] == "https://proxy.com:80"
-        assert len(empty_config_payload["jira"]["instances"]) == 2
-        assert len(empty_config_payload["confluence"]["instances"]) == 2
+        assert empty_config_payload["proxy"]["url"] == EXPECTED_PROXY_URL
+        assert empty_config_payload["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
+        assert empty_config_payload["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
     finally:
         cleanup()
