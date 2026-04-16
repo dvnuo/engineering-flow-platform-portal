@@ -501,7 +501,7 @@ def _settings_error_response(
     read_only: bool = False,
 ):
     view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
-    summary = _settings_triggered_work_summary(db, agent_id)
+    summary = _settings_triggered_work_panel_summary(db, agent_id)
     return templates.TemplateResponse(
         "partials/settings_panel.html",
         {
@@ -528,6 +528,64 @@ def _settings_triggered_work_summary(db, agent_id: str) -> dict[str, int]:
         "binding_enabled_count": sum(1 for item in bindings if item.enabled),
         "subscription_total_count": len(subscriptions),
         "subscription_enabled_count": sum(1 for item in subscriptions if item.enabled),
+    }
+
+
+def _format_utc_timestamp(value) -> str | None:
+    if not value:
+        return None
+    return f"{value.strftime('%Y-%m-%d %H:%M')} UTC"
+
+
+def _is_external_trigger_task(task) -> bool:
+    source = (task.source or "").strip().lower()
+    task_type = (task.task_type or "").strip().lower()
+    external_sources = {"github", "jira", "confluence", "cron", "internal", "external_event"}
+    external_task_types = {"github_review_task", "jira_workflow_review_task"}
+    return source in external_sources or task_type in external_task_types
+
+
+def _task_activity_time(task):
+    return task.finished_at or task.started_at or task.updated_at or task.created_at
+
+
+def _settings_triggered_work_activity_summary(db, agent_id: str) -> dict[str, str]:
+    tasks = [task for task in AgentTaskRepository(db).list_by_agent(agent_id) if _is_external_trigger_task(task)]
+    if not tasks:
+        return {
+            "last_triggered_task_at_text": "No triggered-work activity yet.",
+            "last_external_event_task_accepted_at_text": "No triggered-work activity yet.",
+            "recent_failed_trigger_summary": "No recent failed triggers.",
+        }
+
+    latest_task = max(tasks, key=lambda task: _task_activity_time(task) or datetime.min)
+    latest_accepted_task = max(tasks, key=lambda task: task.created_at or datetime.min)
+
+    last_triggered_text = _format_utc_timestamp(_task_activity_time(latest_task)) or "No triggered-work activity yet."
+    last_accepted_text = _format_utc_timestamp(latest_accepted_task.created_at) or "No triggered-work activity yet."
+
+    failed_tasks = [task for task in tasks if (task.status or "").strip().lower() == "failed" or bool((task.error_message or "").strip())]
+    recent_failed_trigger_summary = "No recent failed triggers."
+    if failed_tasks:
+        latest_failed = max(failed_tasks, key=lambda task: _task_activity_time(task) or datetime.min)
+        summary_text = (
+            (latest_failed.error_message or "").strip()
+            or (latest_failed.summary or "").strip()
+            or f"{latest_failed.task_type} ({latest_failed.status})"
+        )
+        recent_failed_trigger_summary = summary_text
+
+    return {
+        "last_triggered_task_at_text": last_triggered_text,
+        "last_external_event_task_accepted_at_text": last_accepted_text,
+        "recent_failed_trigger_summary": recent_failed_trigger_summary,
+    }
+
+
+def _settings_triggered_work_panel_summary(db, agent_id: str) -> dict:
+    return {
+        **_settings_triggered_work_summary(db, agent_id),
+        **_settings_triggered_work_activity_summary(db, agent_id),
     }
 
 
@@ -1787,7 +1845,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
         read_only = not _can_write(agent, user)
-        summary = _settings_triggered_work_summary(db, agent_id)
+        summary = _settings_triggered_work_panel_summary(db, agent_id)
 
         runtime_profile = None
         bound_agent_count = 0
@@ -1858,7 +1916,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
-        summary = _settings_triggered_work_summary(db, agent_id)
+        summary = _settings_triggered_work_panel_summary(db, agent_id)
 
         if not agent.runtime_profile_id:
             return templates.TemplateResponse(

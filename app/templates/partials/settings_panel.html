@@ -25,6 +25,11 @@
       Bindings: <strong>{{ binding_enabled_count }}</strong> enabled / <strong>{{ binding_total_count }}</strong> total ·
       Subscriptions: <strong>{{ subscription_enabled_count }}</strong> enabled / <strong>{{ subscription_total_count }}</strong> total.
     </div>
+    <div class="portal-inline-state">
+      Last triggered task: <strong>{{ last_triggered_task_at_text }}</strong> ·
+      Last external event task accepted: <strong>{{ last_external_event_task_accepted_at_text }}</strong> ·
+      Recent failed trigger: <strong>{{ recent_failed_trigger_summary }}</strong>
+    </div>
   {% else %}
   <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
     {% if status_message %}
@@ -49,6 +54,11 @@
     <div class="portal-inline-state">
       Bindings: <strong>{{ binding_enabled_count }}</strong> enabled / <strong>{{ binding_total_count }}</strong> total ·
       Subscriptions: <strong>{{ subscription_enabled_count }}</strong> enabled / <strong>{{ subscription_total_count }}</strong> total.
+    </div>
+    <div class="portal-inline-state">
+      Last triggered task: <strong>{{ last_triggered_task_at_text }}</strong> ·
+      Last external event task accepted: <strong>{{ last_external_event_task_accepted_at_text }}</strong> ·
+      Recent failed trigger: <strong>{{ recent_failed_trigger_summary }}</strong>
     </div>
 
     {% if not profile_missing_message %}

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -413,6 +414,48 @@ def test_settings_panel_shows_triggered_work_summary_counts(monkeypatch):
         cleanup()
 
 
+def test_settings_panel_shows_triggered_work_activity_summary(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        _bind_profile(db, agent, name="rp-activity", config={"llm": {"provider": "openai"}}, revision=1)
+        now = datetime.utcnow()
+        db.add(
+            AgentTask(
+                assignee_agent_id=agent.id,
+                parent_agent_id=agent.id,
+                owner_user_id=agent.owner_user_id,
+                source="github",
+                task_type="github_review_task",
+                status="done",
+                created_at=now - timedelta(hours=2),
+                updated_at=now - timedelta(hours=2),
+            )
+        )
+        db.add(
+            AgentTask(
+                assignee_agent_id=agent.id,
+                parent_agent_id=agent.id,
+                owner_user_id=agent.owner_user_id,
+                source="jira",
+                task_type="jira_workflow_review_task",
+                status="failed",
+                error_message="Transition denied",
+                created_at=now - timedelta(hours=1),
+                updated_at=now - timedelta(hours=1),
+            )
+        )
+        db.commit()
+
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        assert "Last triggered task" in resp.text
+        assert "Last external event task accepted" in resp.text
+        assert "Recent failed trigger" in resp.text
+        assert "Transition denied" in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_save_success_keeps_triggered_work_summary_counts(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
     try:
@@ -469,6 +512,33 @@ def test_settings_save_success_keeps_triggered_work_summary_counts(monkeypatch):
         cleanup()
 
 
+def test_settings_save_success_keeps_triggered_work_activity_summary(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        _bind_profile(db, agent, name="rp-save-activity", config={"llm": {"provider": "openai"}}, revision=1)
+        db.add(
+            AgentTask(
+                assignee_agent_id=agent.id,
+                parent_agent_id=agent.id,
+                owner_user_id=agent.owner_user_id,
+                source="github",
+                task_type="github_review_task",
+                status="done",
+            )
+        )
+        db.commit()
+
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"llm_provider": "anthropic", "llm_model": "claude-sonnet-4"},
+        )
+        assert resp.status_code == 200
+        assert "Last triggered task" in resp.text
+        assert "Last external event task accepted" in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_save_error_response_keeps_triggered_work_summary_counts(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
     try:
@@ -514,6 +584,36 @@ def test_settings_save_error_response_keeps_triggered_work_summary_counts(monkey
         assert "Temperature must be a number." in resp.text
         assert "Bindings: <strong>1</strong> enabled / <strong>2</strong> total" in resp.text
         assert "Subscriptions: <strong>1</strong> enabled / <strong>2</strong> total" in resp.text
+    finally:
+        cleanup()
+
+
+def test_settings_save_error_keeps_triggered_work_activity_summary(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch, current_user_username="owner")
+    try:
+        _bind_profile(db, agent, name="rp-save-error-activity", config={"llm": {"provider": "openai"}}, revision=1)
+        db.add(
+            AgentTask(
+                assignee_agent_id=agent.id,
+                parent_agent_id=agent.id,
+                owner_user_id=agent.owner_user_id,
+                source="jira",
+                task_type="jira_workflow_review_task",
+                status="failed",
+                error_message="Transition denied",
+            )
+        )
+        db.commit()
+
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"llm_temperature": "not-a-number"},
+        )
+        assert resp.status_code == 200
+        assert "Temperature must be a number." in resp.text
+        assert "Last triggered task" in resp.text
+        assert "Last external event task accepted" in resp.text
+        assert "Recent failed trigger" in resp.text
     finally:
         cleanup()
 
