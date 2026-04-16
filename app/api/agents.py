@@ -11,12 +11,14 @@ from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.agent import (
     ALLOWED_AGENT_TYPES,
+    AgentChatModelProfileResponse,
     AgentCreateRequest,
     AgentDeleteResponse,
     AgentResponse,
     AgentStatusResponse,
     AgentUpdateRequest,
 )
+from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.k8s_service import K8sService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
@@ -271,6 +273,38 @@ def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depen
     if not _can_read(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return AgentResponse.model_validate(agent)
+
+
+@router.get("/{agent_id}/chat-model-profile", response_model=AgentChatModelProfileResponse)
+def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    agent = AgentRepository(db).get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not _can_read(agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    runtime_profile_id = str(agent.runtime_profile_id or "").strip()
+    if not runtime_profile_id:
+        return AgentChatModelProfileResponse()
+
+    profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
+    if not profile:
+        return AgentChatModelProfileResponse()
+
+    parsed = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    merged = RuntimeProfileService.merge_with_managed_defaults(parsed)
+    llm = merged.get("llm") if isinstance(merged, dict) else {}
+    if not isinstance(llm, dict):
+        llm = {}
+    provider = RuntimeProfileService.normalize_managed_llm_provider(str(llm.get("provider") or ""))
+    current_model = str(llm.get("model") or "").strip()
+
+    return {
+        "runtime_profile_id": profile.id,
+        "revision": profile.revision,
+        "provider": provider,
+        "current_model": current_model,
+    }
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)

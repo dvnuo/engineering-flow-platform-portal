@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 from app.services.proxy_service import build_runtime_trace_headers
 
@@ -259,6 +260,60 @@ def test_proxy_agent_returns_410_for_removed_legacy_ssh_paths(monkeypatch):
     assert write_resp.status_code == 410
     assert read_resp.json()["detail"] == "Legacy SSH runtime endpoints have been removed"
     assert write_resp.json()["detail"] == "Legacy SSH runtime endpoints have been removed"
+
+
+def test_enrich_chat_payload_replaces_metadata_but_keeps_model_override():
+    from app.api.proxy import _enrich_chat_payload_with_runtime_metadata
+
+    payload = {
+        "message": "hello",
+        "metadata": {"client": "browser"},
+        "model_override": "gpt-5",
+    }
+    runtime_metadata = {"capability_profile_id": "cap-1", "policy_profile_id": "pol-1"}
+
+    enriched = _enrich_chat_payload_with_runtime_metadata(payload, runtime_metadata, user=None)
+
+    assert enriched["metadata"] == runtime_metadata
+    assert enriched["model_override"] == "gpt-5"
+    assert "client" not in enriched["metadata"]
+
+
+def test_normalize_and_validate_model_override_accepts_trimmed_allowed_value(monkeypatch):
+    import app.api.proxy as proxy_module
+
+    fake_agent = SimpleNamespace(runtime_profile_id="rp-1")
+    fake_profile = SimpleNamespace(config_json='{"llm": {"provider": "openai", "model": "gpt-5-mini"}}')
+    monkeypatch.setattr(
+        proxy_module,
+        "RuntimeProfileRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _profile_id: fake_profile),
+    )
+
+    payload = {"message": "hi", "model_override": "  gpt-5  "}
+    normalized = proxy_module._normalize_and_validate_model_override_for_agent(payload, agent=fake_agent, db=object())
+    assert normalized["model_override"] == "gpt-5"
+
+
+def test_normalize_and_validate_model_override_rejects_model_not_allowed_for_provider(monkeypatch):
+    import app.api.proxy as proxy_module
+
+    fake_agent = SimpleNamespace(runtime_profile_id="rp-1")
+    fake_profile = SimpleNamespace(config_json='{"llm": {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}}')
+    monkeypatch.setattr(
+        proxy_module,
+        "RuntimeProfileRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _profile_id: fake_profile),
+    )
+
+    with pytest.raises(proxy_module.HTTPException) as exc:
+        proxy_module._normalize_and_validate_model_override_for_agent(
+            {"message": "hi", "model_override": "gpt-5"},
+            agent=fake_agent,
+            db=object(),
+        )
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "model_override is not allowed for the agent's current runtime profile provider"
 
 
 def test_proxy_agent_blocks_server_files_endpoints_for_non_owner(monkeypatch):

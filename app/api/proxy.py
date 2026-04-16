@@ -17,6 +17,7 @@ from app.db import SessionLocal
 from app.deps import get_current_user
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, get_log_context, reset_log_context
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
 from app.services.proxy_service import (
@@ -25,6 +26,8 @@ from app.services.proxy_service import (
     build_runtime_trace_headers,
 )
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+from app.services.runtime_profile_service import RuntimeProfileService
+from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.redaction import sanitize_exception_message
 
 router = APIRouter(tags=["proxy"])
@@ -102,6 +105,53 @@ def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: 
 
     enriched["metadata"] = runtime_metadata
     return enriched
+
+
+def _normalize_and_validate_model_override_for_agent(
+    payload: dict,
+    *,
+    agent,
+    db: Session,
+) -> dict:
+    normalized = dict(payload)
+    if "model_override" not in normalized:
+        return normalized
+
+    override = normalized.get("model_override")
+    if override is None:
+        normalized.pop("model_override", None)
+        return normalized
+    if not isinstance(override, str):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="model_override must be a string")
+
+    trimmed = override.strip()
+    if not trimmed:
+        normalized.pop("model_override", None)
+        return normalized
+
+    runtime_profile_id = str(getattr(agent, "runtime_profile_id", "") or "").strip()
+    allowed = False
+    if runtime_profile_id:
+        profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
+        if profile:
+            parsed = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+            merged = RuntimeProfileService.merge_with_managed_defaults(parsed)
+            llm = merged.get("llm") if isinstance(merged, dict) else {}
+            if not isinstance(llm, dict):
+                llm = {}
+            provider = RuntimeProfileService.normalize_managed_llm_provider(llm.get("provider"))
+            allowed = RuntimeProfileService.is_managed_model_allowed(provider, trimmed)
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="model_override is not allowed for the agent's current runtime profile provider",
+        )
+
+    normalized["model_override"] = trimmed
+    return normalized
+
+
 @router.api_route("/a/{agent_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @router.api_route("/a/{agent_id}/{subpath:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_agent(
@@ -158,6 +208,11 @@ async def proxy_agent(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
             if not isinstance(parsed_payload, dict):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON payload must be an object")
+            parsed_payload = _normalize_and_validate_model_override_for_agent(
+                parsed_payload,
+                agent=agent,
+                db=db,
+            )
             runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
             parsed_payload = _enrich_chat_payload_with_runtime_metadata(parsed_payload, runtime_metadata, user)
             request_body = json.dumps(parsed_payload).encode("utf-8")

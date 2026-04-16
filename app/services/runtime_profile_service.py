@@ -10,9 +10,58 @@ from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_
 
 
 class RuntimeProfileService:
+    _MANAGED_PROVIDER_MODELS = {
+        "github_copilot": (
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-5-mini",
+            "gpt-5.3-codex",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gemini-2.5-pro",
+        ),
+        "openai": (
+            "gpt-3.5-turbo",
+            "gpt-4",
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-4o-mini",
+            "gpt-5-mini",
+            "gpt-5",
+        ),
+        "anthropic": (
+            "claude-sonnet-4-20250514",
+            "claude-haiku-4-20250514",
+            "claude-opus-4-20250514",
+        ),
+    }
+
     def __init__(self, db: Session):
         self.db = db
         self.repo = RuntimeProfileRepository(db)
+
+    @staticmethod
+    def normalize_managed_llm_provider(value: str | None) -> str:
+        provider = str(value or "").strip().lower()
+        aliases = {
+            "claude": "anthropic",
+            "github": "github_copilot",
+            "github-copilot": "github_copilot",
+            "copilot": "github_copilot",
+        }
+        return aliases.get(provider, provider)
+
+    @staticmethod
+    def managed_model_values_for_provider(provider: str | None) -> tuple[str, ...]:
+        normalized = RuntimeProfileService.normalize_managed_llm_provider(provider)
+        return RuntimeProfileService._MANAGED_PROVIDER_MODELS.get(normalized, ())
+
+    @staticmethod
+    def is_managed_model_allowed(provider: str | None, model: str | None) -> bool:
+        trimmed = str(model or "").strip()
+        if not trimmed:
+            return False
+        return trimmed in RuntimeProfileService.managed_model_values_for_provider(provider)
 
     @staticmethod
     def default_profile_config() -> dict:

@@ -238,6 +238,23 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .portal-composer-toolbar-left,
 .portal-composer-toolbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
+.composer-model-wrap {
+  min-width: 0;
+  max-width: min(320px, 100%);
+}
+
+.composer-model-select {
+  min-height: 40px;
+  max-width: 100%;
+  border-radius: 999px;
+  border: 1px solid var(--portal-border);
+  background: var(--portal-surface);
+  color: var(--portal-text-secondary);
+  padding: 0 34px 0 14px;
+  font: inherit;
+  line-height: 1.2;
+}
+
 .composer-pill-btn {
   min-height: 40px;
   padding: 0 14px;
@@ -364,6 +381,15 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 
   .portal-composer-toolbar-right {
     justify-content: flex-end;
+  }
+
+  .composer-model-wrap {
+    flex: 1;
+    max-width: 100%;
+  }
+
+  .composer-model-select {
+    width: 100%;
   }
 
   #chat-input {

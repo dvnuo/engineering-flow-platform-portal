@@ -295,6 +295,90 @@ def test_create_agent_with_other_users_runtime_profile_is_404(monkeypatch):
         cleanup()
 
 
+def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        from app.models.runtime_profile import RuntimeProfile
+
+        profile = RuntimeProfile(
+            owner_user_id=1,
+            name="profile-with-secrets",
+            revision=7,
+            is_default=True,
+            config_json='{"llm":{"provider":"claude","model":"claude-sonnet-4-20250514"},"github":{"token":"ghp_secret"},"proxy":{"password":"secret"}}',
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+
+        create_resp = client.post(
+            "/api/agents",
+            json={"name": "summary-agent", "image": "example/image:latest", "runtime_profile_id": profile.id},
+        )
+        assert create_resp.status_code == 200
+        agent_id = create_resp.json()["id"]
+
+        resp = client.get(f"/api/agents/{agent_id}/chat-model-profile")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body == {
+            "runtime_profile_id": profile.id,
+            "revision": 7,
+            "provider": "anthropic",
+            "current_model": "claude-sonnet-4-20250514",
+        }
+        assert "config_json" not in body
+        assert "token" not in body
+        assert "password" not in body
+    finally:
+        cleanup()
+
+
+def test_agent_chat_model_profile_endpoint_returns_empty_when_profile_missing(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+
+        with_profile = client.post(
+            "/api/agents",
+            json={"name": "missing-profile-agent", "image": "example/image:latest"},
+        )
+        assert with_profile.status_code == 200
+        agent_id = with_profile.json()["id"]
+
+        from app.models.agent import Agent
+
+        agent_row = db.query(Agent).filter(Agent.id == agent_id).one()
+        agent_row.runtime_profile_id = None
+        db.add(agent_row)
+        db.commit()
+
+        resp_none = client.get(f"/api/agents/{agent_id}/chat-model-profile")
+        assert resp_none.status_code == 200
+        assert resp_none.json() == {
+            "runtime_profile_id": None,
+            "revision": None,
+            "provider": "",
+            "current_model": "",
+        }
+
+        agent_row.runtime_profile_id = "missing-profile-id"
+        db.add(agent_row)
+        db.commit()
+
+        resp_missing = client.get(f"/api/agents/{agent_id}/chat-model-profile")
+        assert resp_missing.status_code == 200
+        assert resp_missing.json() == {
+            "runtime_profile_id": None,
+            "revision": None,
+            "provider": "",
+            "current_model": "",
+        }
+    finally:
+        cleanup()
+
+
 def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:

@@ -61,6 +61,8 @@ const dom = {
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   composerAttachBtn: document.getElementById("composer-attach-btn"),
+  chatModelWrap: document.getElementById("composer-model-wrap"),
+  chatModelSelect: document.getElementById("composer-model-select"),
   homeTitle: document.getElementById("home-title"),
   homeSubtitle: document.getElementById("home-subtitle"),
   homeAgentSummary: document.getElementById("home-agent-summary"),
@@ -251,6 +253,9 @@ function createDefaultChatState() {
     unreadCount: 0,
     backgroundStatus: "",
     lastCompletedRequestId: "",
+    profileProvider: "",
+    profileDefaultModel: "",
+    modelOverride: "",
   };
 }
 
@@ -1481,6 +1486,7 @@ function restoreComposerForAgent(agentId) {
   if (attachmentsInput) attachmentsInput.value = chatState.draftAttachmentsValue || "";
   syncChatInputHeight();
   renderInputPreview();
+  renderComposerModelSelectorForAgent(agentId);
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = !!chatState.isSubmitting;
 }
 
@@ -1846,6 +1852,8 @@ async function syncSelectedAgentState() {
     state.selectedAgentName = null;
     updateChatInputPlaceholder();
     syncMainHeader();
+    if (dom.chatModelSelect) dom.chatModelSelect.innerHTML = "";
+    dom.chatModelWrap?.classList.add("hidden");
     return;
   }
 
@@ -1869,6 +1877,7 @@ async function syncSelectedAgentState() {
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
   syncHiddenSessionInputFromState();
+  await refreshComposerModelProfile(agent.id);
 
   renderAgentMeta(agent);
   renderAgentActions(agent, status);
@@ -2013,6 +2022,15 @@ async function submitChatForSelectedAgent() {
   };
 
   maybeRequestNotificationPermission();
+  const modelOverride = (chatState.modelOverride || dom.chatModelSelect?.value || "").trim();
+  const defaultModel = (chatState.profileDefaultModel || "").trim();
+  const requestBody = {
+    message: messageAtSend,
+    session_id: sessionIdAtSend || undefined,
+    attachments: attachmentsAtSend,
+    client_request_id: clientRequestId,
+    ...(modelOverride && modelOverride !== defaultModel ? { model_override: modelOverride } : {}),
+  };
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   removeWelcomeMessageIfPresent();
   removeTemporaryAssistantRows();
@@ -2050,12 +2068,7 @@ async function submitChatForSelectedAgent() {
     const resp = await fetch(`/a/${agentIdAtSend}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: messageAtSend,
-        session_id: sessionIdAtSend || undefined,
-        attachments: attachmentsAtSend,
-        client_request_id: clientRequestId,
-      }),
+      body: JSON.stringify(requestBody),
     });
     if (!resp.ok) throw new Error(await handleErrorResponse(resp));
     const payload = await resp.json();
@@ -3658,6 +3671,87 @@ const managedProviderModels = {
     { value: "claude-opus-4-20250514", label: "Claude Opus 4" },
   ],
 };
+
+function renderComposerModelSelectorForAgent(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!dom.chatModelWrap || !dom.chatModelSelect) return;
+  if (!chatState) {
+    dom.chatModelSelect.innerHTML = "";
+    dom.chatModelWrap.classList.add("hidden");
+    return;
+  }
+
+  const provider = (chatState.profileProvider || "").trim();
+  if (!provider || !Object.prototype.hasOwnProperty.call(managedProviderModels, provider)) {
+    dom.chatModelSelect.innerHTML = "";
+    dom.chatModelWrap.classList.add("hidden");
+    return;
+  }
+
+  const currentModel = (chatState.profileDefaultModel || "").trim();
+  const models = managedProviderModels[provider] || [];
+  dom.chatModelSelect.innerHTML = "";
+
+  models.forEach((model) => {
+    const option = document.createElement("option");
+    option.value = model.value;
+    option.textContent = model.label;
+    dom.chatModelSelect.appendChild(option);
+  });
+
+  if (currentModel && !models.some((model) => model.value === currentModel)) {
+    const extra = document.createElement("option");
+    extra.value = currentModel;
+    extra.textContent = `${currentModel} (Current)`;
+    dom.chatModelSelect.appendChild(extra);
+  }
+
+  const allowedValues = new Set(models.map((model) => model.value));
+  if (currentModel) allowedValues.add(currentModel);
+  if (chatState.modelOverride && !allowedValues.has(chatState.modelOverride)) {
+    chatState.modelOverride = "";
+  }
+
+  const selectedValue = chatState.modelOverride || currentModel || models[0]?.value || "";
+  if (!selectedValue) {
+    dom.chatModelSelect.innerHTML = "";
+    dom.chatModelWrap.classList.add("hidden");
+    return;
+  }
+
+  dom.chatModelSelect.value = selectedValue;
+  if (dom.chatModelSelect.value !== selectedValue) {
+    const fallbackValue = currentModel || models[0]?.value || "";
+    dom.chatModelSelect.value = fallbackValue;
+  }
+  dom.chatModelWrap.classList.remove("hidden");
+}
+
+async function refreshComposerModelProfile(agentId) {
+  if (!agentId) {
+    if (dom.chatModelSelect) dom.chatModelSelect.innerHTML = "";
+    dom.chatModelWrap?.classList.add("hidden");
+    return;
+  }
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+
+  try {
+    const payload = await api(`/api/agents/${agentId}/chat-model-profile`);
+    chatState.profileProvider = (payload?.provider || "").trim();
+    chatState.profileDefaultModel = (payload?.current_model || "").trim();
+    if (agentId !== state.selectedAgentId) return;
+    renderComposerModelSelectorForAgent(agentId);
+  } catch (error) {
+    console.warn("Failed to refresh composer chat model profile", error);
+    chatState.profileProvider = "";
+    chatState.profileDefaultModel = "";
+    if (agentId !== state.selectedAgentId) return;
+    if (dom.chatModelSelect) dom.chatModelSelect.innerHTML = "";
+    dom.chatModelWrap?.classList.add("hidden");
+  }
+}
+
 const managedSettingsActionSelector = "[data-settings-action]";
 
 function normalizeInstanceInputs(root, group) {
@@ -4593,6 +4687,13 @@ function bindEvents() {
   });
 
   dom.composerAttachBtn?.addEventListener("click", () => dom.uploadInput?.click());
+  dom.chatModelSelect?.addEventListener("change", () => {
+    const selectedAgentId = state.selectedAgentId;
+    if (!selectedAgentId) return;
+    const chatState = ensureChatState(selectedAgentId);
+    if (!chatState) return;
+    chatState.modelOverride = (dom.chatModelSelect?.value || "").trim();
+  });
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.railAssistantsBtn?.addEventListener("click", () => setActiveNavSection("assistants"));
   dom.bundlesMenuBtn?.addEventListener("click", () => setActiveNavSection("bundles"));
