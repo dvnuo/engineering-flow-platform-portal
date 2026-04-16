@@ -80,6 +80,13 @@ class AgentStatusResponse(BaseModel):
     last_error: Optional[str] = None
 
 
+class AgentChatModelProfileResponse(BaseModel):
+    runtime_profile_id: Optional[str] = None
+    revision: Optional[int] = None
+    provider: str = ""
+    current_model: str = ""
+
+
 class AgentResponse(BaseModel):
     id: str
     name: str

@@ -27,6 +27,166 @@ def test_chat_ui_includes_display_block_renderer_helpers():
     assert "function enhanceMarkdownBlock(" in js_source
 
 
+def test_composer_model_selector_keeps_per_agent_model_override_isolated():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    render_selector = _extract_js_function(js_file, "renderComposerModelSelectorForAgent")
+
+    script = f"""
+const managedProviderModels = {{
+  openai: [
+    {{ value: "gpt-5-mini", label: "GPT-5 mini" }},
+    {{ value: "gpt-5", label: "GPT-5" }},
+  ],
+  anthropic: [
+    {{ value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" }},
+    {{ value: "claude-haiku-4-20250514", label: "Claude Haiku 4" }},
+  ],
+}};
+const state = {{ chatStatesByAgent: new Map(), agentSessionIds: new Map() }};
+function makeClassList() {{
+  const classes = new Set(["hidden"]);
+  return {{
+    add(name) {{ classes.add(name); }},
+    remove(name) {{ classes.delete(name); }},
+    contains(name) {{ return classes.has(name); }},
+  }};
+}}
+function makeSelect() {{
+  return {{
+    options: [],
+    _value: "",
+    get value() {{ return this._value; }},
+    set value(v) {{
+      const exists = this.options.some((opt) => opt.value === v);
+      this._value = exists ? v : "";
+    }},
+    set innerHTML(v) {{
+      if (v === "") {{
+        this.options = [];
+        this._value = "";
+      }}
+    }},
+    appendChild(opt) {{ this.options.push(opt); }},
+  }};
+}}
+const dom = {{
+  chatModelWrap: {{ classList: makeClassList() }},
+  chatModelSelect: makeSelect(),
+}};
+const document = {{
+  createElement(tag) {{
+    return {{ tagName: tag, value: "", textContent: "" }};
+  }}
+}};
+{create_state}
+{ensure_state}
+{render_selector}
+const a = ensureChatState("agent-A");
+a.profileProvider = "openai";
+a.profileDefaultModel = "gpt-5-mini";
+a.modelOverride = "gpt-5";
+const b = ensureChatState("agent-B");
+b.profileProvider = "anthropic";
+b.profileDefaultModel = "claude-sonnet-4-20250514";
+b.modelOverride = "claude-haiku-4-20250514";
+renderComposerModelSelectorForAgent("agent-A");
+const selectedA = dom.chatModelSelect.value;
+renderComposerModelSelectorForAgent("agent-B");
+const selectedB = dom.chatModelSelect.value;
+renderComposerModelSelectorForAgent("agent-A");
+const selectedA2 = dom.chatModelSelect.value;
+console.log(JSON.stringify({{
+  selectedA,
+  selectedB,
+  selectedA2,
+  modelOverrideA: ensureChatState("agent-A").modelOverride,
+  modelOverrideB: ensureChatState("agent-B").modelOverride,
+  hidden: dom.chatModelWrap.classList.contains("hidden"),
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["selectedA"] == "gpt-5"
+    assert data["selectedB"] == "claude-haiku-4-20250514"
+    assert data["selectedA2"] == "gpt-5"
+    assert data["modelOverrideA"] == "gpt-5"
+    assert data["modelOverrideB"] == "claude-haiku-4-20250514"
+    assert data["hidden"] is False
+
+
+def test_composer_model_selector_appends_unknown_current_model_option():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    render_selector = _extract_js_function(js_file, "renderComposerModelSelectorForAgent")
+
+    script = f"""
+const managedProviderModels = {{
+  openai: [{{ value: "gpt-5-mini", label: "GPT-5 mini" }}],
+}};
+const state = {{ chatStatesByAgent: new Map(), agentSessionIds: new Map() }};
+function makeClassList() {{
+  const classes = new Set(["hidden"]);
+  return {{
+    add(name) {{ classes.add(name); }},
+    remove(name) {{ classes.delete(name); }},
+    contains(name) {{ return classes.has(name); }},
+  }};
+}}
+const dom = {{
+  chatModelWrap: {{ classList: makeClassList() }},
+  chatModelSelect: {{
+    options: [],
+    _value: "",
+    get value() {{ return this._value; }},
+    set value(v) {{
+      const exists = this.options.some((opt) => opt.value === v);
+      this._value = exists ? v : "";
+    }},
+    set innerHTML(v) {{
+      if (v === "") {{
+        this.options = [];
+        this._value = "";
+      }}
+    }},
+    appendChild(opt) {{ this.options.push(opt); }},
+  }},
+}};
+const document = {{
+  createElement(tag) {{
+    return {{ tagName: tag, value: "", textContent: "" }};
+  }}
+}};
+{create_state}
+{ensure_state}
+{render_selector}
+const chatState = ensureChatState("agent-X");
+chatState.profileProvider = "openai";
+chatState.profileDefaultModel = "gpt-unknown-custom";
+renderComposerModelSelectorForAgent("agent-X");
+console.log(JSON.stringify({{
+  selected: dom.chatModelSelect.value,
+  options: dom.chatModelSelect.options.map((opt) => [opt.value, opt.textContent]),
+  hidden: dom.chatModelWrap.classList.contains("hidden"),
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["selected"] == "gpt-unknown-custom"
+    assert ["gpt-unknown-custom", "gpt-unknown-custom (Current)"] in data["options"]
+    assert data["hidden"] is False
+
+
 def test_background_success_does_not_render_into_current_dom():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -938,6 +1098,7 @@ const document = {{
 }};
 function syncChatInputHeight() {{}}
 function renderInputPreview() {{}}
+function renderComposerModelSelectorForAgent() {{}}
 {create_state}
 {ensure_state}
 {set_submitting}

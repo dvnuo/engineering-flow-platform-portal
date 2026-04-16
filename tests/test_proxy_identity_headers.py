@@ -258,7 +258,23 @@ def test_proxy_agent_returns_410_for_removed_legacy_ssh_paths(monkeypatch):
     assert read_resp.status_code == 410
     assert write_resp.status_code == 410
     assert read_resp.json()["detail"] == "Legacy SSH runtime endpoints have been removed"
-    assert write_resp.json()["detail"] == "Legacy SSH runtime endpoints have been removed"
+
+
+def test_enrich_chat_payload_replaces_metadata_but_keeps_model_override():
+    from app.api.proxy import _enrich_chat_payload_with_runtime_metadata
+
+    payload = {
+        "message": "hello",
+        "metadata": {"client": "browser"},
+        "model_override": "gpt-5",
+    }
+    runtime_metadata = {"capability_profile_id": "cap-1", "policy_profile_id": "pol-1"}
+
+    enriched = _enrich_chat_payload_with_runtime_metadata(payload, runtime_metadata, user=None)
+
+    assert enriched["metadata"] == runtime_metadata
+    assert enriched["model_override"] == "gpt-5"
+    assert "client" not in enriched["metadata"]
 
 
 def test_proxy_agent_blocks_server_files_endpoints_for_non_owner(monkeypatch):
