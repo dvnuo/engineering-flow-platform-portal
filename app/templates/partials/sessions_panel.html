@@ -10,46 +10,16 @@
   {% if sessions %}
     <div id="sessions-list" class="sessions-list">
       {% for session in sessions %}
-        <div class="sessions-item {{ 'is-active' if session.session_id == current_session_id else '' }}">
-          <button
-            type="button"
-            class="sessions-item-main"
-            data-session-id="{{ session.session_id }}"
-            data-session-name="{{ session.name or 'New Chat' }}"
-            title="{{ session.name or 'New Chat' }}"
-          >
-            <div class="sessions-item-copy">
-              <div class="sessions-item-title">{{ session.name or 'New Chat' }}</div>
-              <div class="sessions-item-preview">{{ session.last_message or 'No messages yet' }}</div>
-            </div>
-          </button>
-          {% if can_manage_sessions %}
-            <div class="sessions-item-actions">
-              <button
-                type="button"
-                class="sessions-item-action"
-                data-session-action="rename"
-                data-session-id="{{ session.session_id }}"
-                data-session-name="{{ session.name or 'New Chat' }}"
-                aria-label="Rename session"
-                title="Rename session"
-              >
-                <i data-lucide="pencil" class="w-3 h-3"></i>
-              </button>
-              <button
-                type="button"
-                class="sessions-item-action is-danger"
-                data-session-action="delete"
-                data-session-id="{{ session.session_id }}"
-                data-session-name="{{ session.name or 'New Chat' }}"
-                aria-label="Delete session"
-                title="Delete session"
-              >
-                <i data-lucide="trash-2" class="w-3 h-3"></i>
-              </button>
-            </div>
-          {% endif %}
-        </div>
+        <button
+          type="button"
+          class="sessions-item {{ 'is-active' if session.session_id == current_session_id else '' }}"
+          data-session-id="{{ session.session_id }}"
+          data-session-name="{{ session.name or 'New Chat' }}"
+          title="{{ session.name or 'New Chat' }}"
+        >
+          <div class="sessions-item-title">{{ session.name or 'New Chat' }}</div>
+          <div class="sessions-item-preview">{{ session.last_message or 'No messages yet' }}</div>
+        </button>
       {% endfor %}
     </div>
   {% else %}

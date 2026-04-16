@@ -3100,67 +3100,6 @@ async function loadSession(sessionId) {
   return loadSessionForAgent(state.selectedAgentId, sessionId, { render: true });
 }
 
-async function renameSessionForAgent(agentId, sessionId, currentName) {
-  const normalizedSessionId = (sessionId || "").trim();
-  if (!agentId || !normalizedSessionId) return;
-
-  const defaultName = String(currentName || "").trim();
-  const proposedName = prompt("Rename session", defaultName || "");
-  if (proposedName === null) return;
-
-  const nextName = proposedName.trim();
-  if (!nextName) {
-    showToast("Session name cannot be empty");
-    return;
-  }
-  if (nextName === defaultName) return;
-
-  try {
-    const resp = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(normalizedSessionId)}/rename`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nextName }),
-    });
-    if (!resp.ok) throw new Error(await handleErrorResponse(resp));
-    showToast("Session renamed");
-    await openSessionsPanel();
-    renderIcons();
-  } catch (error) {
-    showToast(`Rename failed: ${safe(error.message)}`);
-  }
-}
-
-async function deleteSessionForAgent(agentId, sessionId) {
-  const normalizedSessionId = (sessionId || "").trim();
-  if (!agentId || !normalizedSessionId) return;
-  if (!confirm("Delete this session? This cannot be undone.")) return;
-
-  try {
-    const resp = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(normalizedSessionId)}`, {
-      method: "DELETE",
-    });
-    if (!resp.ok) throw new Error(await handleErrorResponse(resp));
-
-    if (normalizedSessionId === currentSessionIdForAgent(agentId)) {
-      updateAgentSession(agentId, "");
-      if (agentId === state.selectedAgentId) {
-        const chatState = getChatState();
-        if (chatState) chatState.inflightThinking = null;
-        removeTemporaryAssistantRows();
-        clearMessageListToWelcome();
-        resetChatInputHeight();
-        setChatStatus("Session deleted");
-      }
-    }
-
-    showToast("Session deleted");
-    await openSessionsPanel();
-    renderIcons();
-  } catch (error) {
-    showToast(`Delete failed: ${safe(error.message)}`);
-  }
-}
-
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
@@ -4613,22 +4552,6 @@ function bindEvents() {
       event.preventDefault();
       closeSessionsDrawer();
       await startNewChatForSelectedAgent();
-      return;
-    }
-
-    const actionBtn = event.target.closest("[data-session-action]");
-    if (actionBtn) {
-      event.preventDefault();
-      const action = actionBtn.dataset.sessionAction || "";
-      const sessionId = actionBtn.dataset.sessionId || "";
-      const sessionName = actionBtn.dataset.sessionName || "";
-      const agentId = state.selectedAgentId;
-      if (!agentId || !sessionId) return;
-      if (action === "rename") {
-        await renameSessionForAgent(agentId, sessionId, sessionName);
-      } else if (action === "delete") {
-        await deleteSessionForAgent(agentId, sessionId);
-      }
       return;
     }
 

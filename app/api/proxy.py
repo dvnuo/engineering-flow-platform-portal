@@ -43,11 +43,8 @@ def _can_write(agent, user) -> bool:
 
 def _requires_write_access(method: str, subpath: str) -> bool:
     normalized = (subpath or "").strip("/").lower()
-    method_upper = method.upper()
     if normalized.startswith("api/server-files"):
         return True
-    if normalized == "api/sessions" or normalized.startswith("api/sessions/"):
-        return method_upper not in {"GET", "HEAD", "OPTIONS"}
     return False
 
 
