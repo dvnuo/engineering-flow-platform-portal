@@ -16,6 +16,15 @@ from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRep
 from app.repositories.external_event_subscription_repo import ExternalEventSubscriptionRepository
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _chat_ui_js_source() -> str:
+    chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
+    return chat_ui_path.read_text(encoding="utf-8")
+
+
 def _build_client(
     monkeypatch,
     *,
@@ -296,7 +305,7 @@ def test_settings_panel_without_runtime_profile_shows_message(monkeypatch):
 
 
 def test_render_agent_actions_includes_settings_after_edit_and_before_share():
-    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_source = _chat_ui_js_source()
     start = js_source.find("const actions = [")
     end = js_source.find("if (writable) {", start)
     assert start != -1 and end != -1
@@ -313,7 +322,7 @@ def test_render_agent_actions_includes_settings_after_edit_and_before_share():
 
 
 def test_render_agent_actions_keeps_settings_tied_to_writable_gate():
-    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_source = _chat_ui_js_source()
     assert "if (writable) {" in js_source
     assert "actions.splice(4, 0" in js_source
     assert 'label: "Settings"' in js_source
