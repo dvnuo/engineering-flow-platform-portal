@@ -46,14 +46,8 @@ def _requires_write_access(method: str, subpath: str) -> bool:
     method_upper = method.upper()
     if normalized.startswith("api/server-files"):
         return True
-    if method_upper == "DELETE" and normalized.startswith("api/sessions/"):
-        return True
-    if (
-        method_upper in {"POST", "PATCH", "PUT"}
-        and normalized.startswith("api/sessions/")
-        and normalized.endswith("/rename")
-    ):
-        return True
+    if normalized == "api/sessions" or normalized.startswith("api/sessions/"):
+        return method_upper not in {"GET", "HEAD", "OPTIONS"}
     return False
 
 

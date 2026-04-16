@@ -373,8 +373,11 @@ def test_requires_write_access_normalizes_slashes():
     assert proxy_module._requires_write_access("DELETE", "/api/sessions/s-1/")
     assert proxy_module._requires_write_access("POST", "api/sessions/s-1/rename")
     assert proxy_module._requires_write_access("POST", "/api/sessions/s-1/rename/")
+    assert proxy_module._requires_write_access("POST", "api/sessions/s-1/messages/m-1/edit")
+    assert proxy_module._requires_write_access("POST", "api/sessions/s-1/messages/m-1/delete-from-here")
     assert not proxy_module._requires_write_access("GET", "api/sessions")
     assert not proxy_module._requires_write_access("GET", "api/sessions/s-1")
+    assert not proxy_module._requires_write_access("GET", "api/sessions/s-1/chatlog")
     assert not proxy_module._requires_write_access("POST", "api/files/upload")
     assert not proxy_module._requires_write_access("POST", "api/chat")
 
@@ -417,11 +420,21 @@ def test_proxy_agent_blocks_session_manage_endpoints_for_non_owner(monkeypatch):
             "/a/agent-1/api/sessions/s-1/rename",
             json={"name": "Renamed"},
         )
+        edit_resp = client.post(
+            "/a/agent-1/api/sessions/s-1/messages/m-1/edit",
+            json={"content": "edited"},
+        )
+        delete_from_here_resp = client.post(
+            "/a/agent-1/api/sessions/s-1/messages/m-1/delete-from-here",
+            json={},
+        )
     finally:
         app.dependency_overrides.clear()
 
     assert delete_resp.status_code == 403
     assert rename_resp.status_code == 403
+    assert edit_resp.status_code == 403
+    assert delete_from_here_resp.status_code == 403
 
 
 def test_proxy_agent_allows_session_manage_endpoints_for_owner(monkeypatch):
@@ -472,13 +485,25 @@ def test_proxy_agent_allows_session_manage_endpoints_for_owner(monkeypatch):
             "/a/agent-1/api/sessions/s-1/rename",
             json={"name": "Renamed"},
         )
+        edit_resp = client.post(
+            "/a/agent-1/api/sessions/s-1/messages/m-1/edit",
+            json={"content": "edited"},
+        )
+        delete_from_here_resp = client.post(
+            "/a/agent-1/api/sessions/s-1/messages/m-1/delete-from-here",
+            json={},
+        )
     finally:
         app.dependency_overrides.clear()
 
     assert delete_resp.status_code == 200
     assert rename_resp.status_code == 200
+    assert edit_resp.status_code == 200
+    assert delete_from_here_resp.status_code == 200
     assert captured[0]["subpath"] == "api/sessions/s-1"
     assert captured[1]["subpath"] == "api/sessions/s-1/rename"
+    assert captured[2]["subpath"] == "api/sessions/s-1/messages/m-1/edit"
+    assert captured[3]["subpath"] == "api/sessions/s-1/messages/m-1/delete-from-here"
 
 
 def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context(monkeypatch):
