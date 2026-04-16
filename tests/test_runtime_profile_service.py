@@ -33,6 +33,11 @@ def test_ensure_user_has_default_profile_creates_default():
     profile = RuntimeProfileService(db).ensure_user_has_default_profile(user)
     assert profile.name == "Default"
     assert profile.is_default is True
+    saved = json.loads(profile.config_json)
+    assert saved["proxy"]["url"] == "https://proxy.com:80"
+    assert len(saved["jira"]["instances"]) == 2
+    assert len(saved["confluence"]["instances"]) == 2
+    assert saved["llm"]["provider"] == "openai"
 
 
 def test_switch_default_keeps_exactly_one_default():
@@ -141,3 +146,34 @@ def test_create_for_user_materializes_creation_defaults_when_config_is_empty():
     assert len(saved["jira"]["instances"]) == 2
     assert len(saved["confluence"]["instances"]) == 2
     assert saved["llm"]["provider"] == "openai"
+
+
+def test_materialize_create_config_json_preserves_explicit_overlay_and_fills_missing_seed():
+    materialized = RuntimeProfileService.materialize_create_config_json(
+        json.dumps(
+            {
+                "proxy": {"enabled": True, "url": "https://custom-proxy.example:8443"},
+                "jira": {
+                    "enabled": True,
+                    "instances": [
+                        {"name": "Custom Jira", "url": "https://jira.custom.example"},
+                    ],
+                },
+            }
+        )
+    )
+    saved = json.loads(materialized)
+    assert saved["proxy"]["enabled"] is True
+    assert saved["proxy"]["url"] == "https://custom-proxy.example:8443"
+    assert saved["jira"]["enabled"] is True
+    assert saved["jira"]["instances"] == [{"name": "Custom Jira", "url": "https://jira.custom.example"}]
+    assert len(saved["confluence"]["instances"]) == 2
+
+    assert "llm" in saved
+    assert "debug" in saved
+    assert "git" in saved
+    assert "github" in saved
+
+    for instance in saved["jira"]["instances"] + saved["confluence"]["instances"]:
+        assert "password" not in instance
+        assert "token" not in instance
