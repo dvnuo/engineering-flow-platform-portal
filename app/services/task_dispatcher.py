@@ -698,9 +698,17 @@ class TaskDispatcherService:
                 workflow_rule_id = input_payload.get("workflow_rule_id")
                 if workflow_rule_id:
                     metadata["portal_workflow_rule_id"] = workflow_rule_id
-                subscription_id = input_payload.get("subscription_id")
-                if subscription_id:
-                    metadata["portal_subscription_id"] = subscription_id
+                source_kind = input_payload.get("source_kind")
+                if source_kind:
+                    metadata["source_kind"] = source_kind
+                binding_id = input_payload.get("binding_id")
+                if binding_id:
+                    metadata["portal_binding_id"] = binding_id
+                automation_rule = input_payload.get("automation_rule")
+                if automation_rule:
+                    metadata["portal_automation_rule"] = automation_rule
+                if task.trigger:
+                    metadata["portal_task_trigger"] = task.trigger
                 head_sha = input_payload.get("head_sha")
                 if head_sha:
                     metadata["portal_head_sha"] = head_sha

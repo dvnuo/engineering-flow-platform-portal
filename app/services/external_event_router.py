@@ -55,6 +55,8 @@ class ExternalEventRouterService:
                 "automation_path": ("review_requests",),
                 "scope_key": "repos",
                 "dispatch": True,
+                "source_kind": "github.pull_request_review_requested",
+                "automation_rule": "github.review_requests",
             },
             ("github", "mention"): {
                 "task_type": "triggered_event_task",
@@ -62,6 +64,8 @@ class ExternalEventRouterService:
                 "automation_path": ("mentions",),
                 "scope_key": "repos",
                 "dispatch": True,
+                "source_kind": "github.mention",
+                "automation_rule": "github.mentions",
             },
             ("jira", "assigned"): {
                 "task_type": "triggered_event_task",
@@ -69,6 +73,8 @@ class ExternalEventRouterService:
                 "automation_path": ("assignments",),
                 "scope_key": "projects",
                 "dispatch": True,
+                "source_kind": "jira.assigned",
+                "automation_rule": "jira.assignments",
             },
             ("jira", "mention"): {
                 "task_type": "triggered_event_task",
@@ -76,6 +82,8 @@ class ExternalEventRouterService:
                 "automation_path": ("mentions",),
                 "scope_key": "projects",
                 "dispatch": True,
+                "source_kind": "jira.mention",
+                "automation_rule": "jira.mentions",
             },
             ("confluence", "mention"): {
                 "task_type": "triggered_event_task",
@@ -83,9 +91,64 @@ class ExternalEventRouterService:
                 "automation_path": ("mentions",),
                 "scope_key": "spaces",
                 "dispatch": True,
+                "source_kind": "confluence.mention",
+                "automation_rule": "confluence.mentions",
             },
         }
         return rules.get((source_type, event_type))
+
+    @staticmethod
+    def _parse_event_payload_object(request: ExternalEventIngressRequest) -> dict | None:
+        return ExternalEventRouterService._parse_json_object(request.payload_json)
+
+    def _build_triggered_event_input_payload(
+        self,
+        request: ExternalEventIngressRequest,
+        rule: dict,
+        binding,
+    ) -> tuple[dict | None, str | None]:
+        payload_obj = self._parse_event_payload_object(request)
+        if not payload_obj:
+            return None, "payload_json must be a non-empty JSON object for triggered_event_task routing"
+
+        source_type = self._normalize_source_type(request.source_type)
+        merged_payload = dict(payload_obj)
+        merged_payload["source_kind"] = rule["source_kind"]
+        merged_payload["source_type"] = source_type
+        merged_payload["event_type"] = request.event_type
+        merged_payload["external_account_id"] = request.external_account_id
+        merged_payload["binding_id"] = binding.id
+        merged_payload["automation_rule"] = rule["automation_rule"]
+
+        metadata_obj = self._parse_metadata_object(request.metadata_json)
+        if isinstance(metadata_obj, dict) and metadata_obj.get("trigger_mode"):
+            merged_payload["trigger_mode"] = metadata_obj.get("trigger_mode")
+
+        source_kind = rule["source_kind"]
+        if source_kind == "github.mention":
+            if not merged_payload.get("owner"):
+                return None, "github mention payload requires owner"
+            if not merged_payload.get("repo"):
+                return None, "github mention payload requires repo"
+            if merged_payload.get("issue_number") is None and merged_payload.get("pull_number") is None:
+                return None, "github mention payload requires issue_number or pull_number"
+        elif source_kind == "jira.assigned":
+            if not merged_payload.get("issue_key"):
+                return None, "jira assigned payload requires issue_key"
+            if not merged_payload.get("project_key"):
+                return None, "jira assigned payload requires project_key"
+        elif source_kind == "jira.mention":
+            if not merged_payload.get("issue_key"):
+                return None, "jira mention payload requires issue_key"
+            if not merged_payload.get("project_key"):
+                return None, "jira mention payload requires project_key"
+        elif source_kind == "confluence.mention":
+            if not merged_payload.get("page_id"):
+                return None, "confluence mention payload requires page_id"
+            if not merged_payload.get("space_key") and not merged_payload.get("space"):
+                return None, "confluence mention payload requires space_key or space"
+
+        return merged_payload, None
 
     @staticmethod
     def _load_runtime_profile_config_for_agent(*, db: Session, agent) -> dict:
@@ -415,7 +478,21 @@ class ExternalEventRouterService:
                     return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="invalid_github_event_payload", matched_agent_id=matched_agent_id, resolved_task_type=task_type, message=github_error)
                 input_payload_json = json.dumps(github_payload)
             else:
-                input_payload_json = request.payload_json
+                triggered_payload, triggered_payload_error = self._build_triggered_event_input_payload(
+                    request=request,
+                    rule=rule,
+                    binding=selected_binding,
+                )
+                if triggered_payload_error:
+                    return ExternalEventIngressResponse(
+                        accepted=False,
+                        matched_subscription_ids=[],
+                        routing_reason="invalid_triggered_event_payload",
+                        matched_agent_id=matched_agent_id,
+                        resolved_task_type=task_type,
+                        message=triggered_payload_error,
+                    )
+                input_payload_json = json.dumps(triggered_payload, ensure_ascii=False)
 
         payload_obj = self._parse_json_object(input_payload_json)
         if source_type == "jira":

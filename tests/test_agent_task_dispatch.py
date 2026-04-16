@@ -443,3 +443,58 @@ def test_dispatch_task_in_background_rebinds_parent_context(monkeypatch):
     assert seen["context"]["span_id"] == "span-bg-1"
     assert seen["context"]["path"] == "/app/requirement-bundles"
     assert seen["context"]["agent_id"] == "agent-9"
+
+
+def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypatch, db_session):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        owner_user_id=1,
+        source="jira",
+        task_type="triggered_event_task",
+        trigger="mention",
+        input_payload_json=json.dumps(
+            {
+                "source_kind": "jira.mention",
+                "binding_id": "binding-1",
+                "automation_rule": "jira.mentions",
+                "issue_key": "ENG-1",
+                "project_key": "ENG",
+                "body": "@agent ping",
+            }
+        ),
+        shared_context_ref="ENG-1",
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "ok"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
+
+    async def fake_post(_url, body):
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+
+    metadata = captured["body"]["metadata"]
+    assert "portal_subscription_id" not in metadata
+    assert metadata["source_kind"] == "jira.mention"
+    assert metadata["portal_binding_id"] == "binding-1"
+    assert metadata["portal_automation_rule"] == "jira.mentions"
+    assert metadata["portal_task_trigger"] == "mention"

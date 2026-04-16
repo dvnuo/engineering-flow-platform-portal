@@ -130,13 +130,112 @@ def test_binding_driven_events_create_expected_tasks_and_dispatch(monkeypatch):
         repo.create(agent_id=agent.id, system_type="confluence", external_account_id="conf-1", enabled=True)
 
         cases = [
-            ({"source_type": "github", "event_type": "pull_request_review_requested", "external_account_id": "gh-1", "payload_json": json.dumps({"owner": "octo", "repo": "portal", "pull_number": 1, "head_sha": "abc"})}, "github_review_task"),
-            ({"source_type": "github", "event_type": "mention", "external_account_id": "gh-1", "payload_json": json.dumps({"owner": "octo", "repo": "portal", "issue_number": 2})}, "triggered_event_task"),
-            ({"source_type": "jira", "event_type": "assigned", "external_account_id": "jira-1", "project_key": "ENG"}, "triggered_event_task"),
-            ({"source_type": "jira", "event_type": "mention", "external_account_id": "jira-1", "project_key": "ENG"}, "triggered_event_task"),
-            ({"source_type": "confluence", "event_type": "mention", "external_account_id": "conf-1", "target_ref": "DEV"}, "triggered_event_task"),
+            (
+                {
+                    "source_type": "github",
+                    "event_type": "pull_request_review_requested",
+                    "external_account_id": "gh-1",
+                    "payload_json": json.dumps({"owner": "octo", "repo": "portal", "pull_number": 1, "head_sha": "abc"}),
+                },
+                "github_review_task",
+                None,
+            ),
+            (
+                {
+                    "source_type": "github",
+                    "event_type": "mention",
+                    "external_account_id": "gh-1",
+                    "payload_json": json.dumps(
+                        {
+                            "owner": "octo",
+                            "repo": "portal",
+                            "issue_number": 2,
+                            "comment_id": "c-1",
+                            "body": "@agent please review",
+                            "html_url": "https://github.local/octo/portal/issues/2#issuecomment-1",
+                        }
+                    ),
+                },
+                "triggered_event_task",
+                {
+                    "source_kind": "github.mention",
+                    "automation_rule": "github.mentions",
+                    "retained_field": ("issue_number", 2),
+                },
+            ),
+            (
+                {
+                    "source_type": "jira",
+                    "event_type": "assigned",
+                    "external_account_id": "jira-1",
+                    "project_key": "ENG",
+                    "payload_json": json.dumps(
+                        {
+                            "issue_key": "ENG-1",
+                            "project_key": "ENG",
+                            "summary": "Implement feature",
+                            "status": "In Progress",
+                            "assignee": "jira-1",
+                            "issue_url": "https://jira.local/browse/ENG-1",
+                        }
+                    ),
+                },
+                "triggered_event_task",
+                {
+                    "source_kind": "jira.assigned",
+                    "automation_rule": "jira.assignments",
+                    "retained_field": ("issue_key", "ENG-1"),
+                },
+            ),
+            (
+                {
+                    "source_type": "jira",
+                    "event_type": "mention",
+                    "external_account_id": "jira-1",
+                    "project_key": "ENG",
+                    "payload_json": json.dumps(
+                        {
+                            "issue_key": "ENG-2",
+                            "project_key": "ENG",
+                            "comment_id": "1001",
+                            "author": "alice",
+                            "body": "@agent please check",
+                        }
+                    ),
+                },
+                "triggered_event_task",
+                {
+                    "source_kind": "jira.mention",
+                    "automation_rule": "jira.mentions",
+                    "retained_field": ("issue_key", "ENG-2"),
+                },
+            ),
+            (
+                {
+                    "source_type": "confluence",
+                    "event_type": "mention",
+                    "external_account_id": "conf-1",
+                    "target_ref": "DEV",
+                    "payload_json": json.dumps(
+                        {
+                            "page_id": "12345",
+                            "space_key": "DEV",
+                            "comment_id": "c-9",
+                            "title": "Architecture Notes",
+                            "author": "bob",
+                            "body": "@agent can you answer this?",
+                        }
+                    ),
+                },
+                "triggered_event_task",
+                {
+                    "source_kind": "confluence.mention",
+                    "automation_rule": "confluence.mentions",
+                    "retained_field": ("page_id", "12345"),
+                },
+            ),
         ]
-        for payload, expected_task_type in cases:
+        for payload, expected_task_type, expected_triggered in cases:
             resp = client.post("/api/external-events/ingest", json=payload)
             assert resp.status_code == 200
             body = resp.json()
@@ -144,6 +243,14 @@ def test_binding_driven_events_create_expected_tasks_and_dispatch(monkeypatch):
             assert body["resolved_task_type"] == expected_task_type
             assert body["matched_subscription_ids"] == []
             assert body["created_task_id"] in state["dispatches"]
+            task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
+            saved_payload = json.loads(task.input_payload_json or "{}")
+            if expected_task_type == "triggered_event_task":
+                assert saved_payload["source_kind"] == expected_triggered["source_kind"]
+                assert saved_payload["binding_id"]
+                assert saved_payload["automation_rule"] == expected_triggered["automation_rule"]
+                retained_key, retained_value = expected_triggered["retained_field"]
+                assert saved_payload[retained_key] == retained_value
 
         tasks = AgentTaskRepository(db).list_all()
         assert len(tasks) == 5
@@ -181,6 +288,56 @@ def test_automation_disabled_or_scope_mismatch_rejects(monkeypatch):
         )
         assert resp2.status_code == 200
         assert resp2.json()["accepted"] is False
+    finally:
+        cleanup()
+
+
+def test_invalid_triggered_event_payloads_are_rejected(monkeypatch):
+    client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        agent = _create_agent(db, admin_user.id, _base_automation_config())
+        repo = AgentIdentityBindingRepository(db)
+        repo.create(agent_id=agent.id, system_type="jira", external_account_id="jira-1", enabled=True)
+        repo.create(agent_id=agent.id, system_type="confluence", external_account_id="conf-1", enabled=True)
+
+        initial_tasks = len(AgentTaskRepository(db).list_all())
+
+        missing_payload_resp = client.post(
+            "/api/external-events/ingest",
+            json={"source_type": "jira", "event_type": "assigned", "external_account_id": "jira-1", "project_key": "ENG"},
+        )
+        assert missing_payload_resp.status_code == 200
+        assert missing_payload_resp.json()["accepted"] is False
+        assert missing_payload_resp.json()["routing_reason"] == "invalid_triggered_event_payload"
+
+        non_object_resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "jira",
+                "event_type": "mention",
+                "external_account_id": "jira-1",
+                "payload_json": "[]",
+                "project_key": "ENG",
+            },
+        )
+        assert non_object_resp.status_code == 200
+        assert non_object_resp.json()["accepted"] is False
+        assert non_object_resp.json()["routing_reason"] == "invalid_triggered_event_payload"
+
+        missing_required_field_resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "confluence",
+                "event_type": "mention",
+                "external_account_id": "conf-1",
+                "payload_json": json.dumps({"space_key": "DEV", "comment_id": "c-9"}),
+            },
+        )
+        assert missing_required_field_resp.status_code == 200
+        assert missing_required_field_resp.json()["accepted"] is False
+        assert missing_required_field_resp.json()["routing_reason"] == "invalid_triggered_event_payload"
+
+        assert len(AgentTaskRepository(db).list_all()) == initial_tasks
     finally:
         cleanup()
 
