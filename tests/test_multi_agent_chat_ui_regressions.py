@@ -187,6 +187,108 @@ console.log(JSON.stringify({{
     assert data["hidden"] is False
 
 
+def test_refresh_composer_model_profile_ignores_stale_agent_response_for_dom_render():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    render_selector = _extract_js_function(js_file, "renderComposerModelSelectorForAgent")
+    refresh_profile = _extract_js_function(js_file, "refreshComposerModelProfile")
+
+    script = f"""
+const managedProviderModels = {{
+  openai: [
+    {{ value: "gpt-5-mini", label: "GPT-5 mini" }},
+    {{ value: "gpt-5", label: "GPT-5" }},
+  ],
+  anthropic: [
+    {{ value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" }},
+    {{ value: "claude-haiku-4-20250514", label: "Claude Haiku 4" }},
+  ],
+}};
+const state = {{ selectedAgentId: "agent-A", chatStatesByAgent: new Map(), agentSessionIds: new Map() }};
+function makeClassList() {{
+  const classes = new Set(["hidden"]);
+  return {{
+    add(name) {{ classes.add(name); }},
+    remove(name) {{ classes.delete(name); }},
+    contains(name) {{ return classes.has(name); }},
+  }};
+}}
+const dom = {{
+  chatModelWrap: {{ classList: makeClassList() }},
+  chatModelSelect: {{
+    options: [],
+    _value: "",
+    get value() {{ return this._value; }},
+    set value(v) {{
+      const exists = this.options.some((opt) => opt.value === v);
+      this._value = exists ? v : "";
+    }},
+    set innerHTML(v) {{
+      if (v === "") {{
+        this.options = [];
+        this._value = "";
+      }}
+    }},
+    appendChild(opt) {{ this.options.push(opt); }},
+  }},
+}};
+const document = {{
+  createElement(tag) {{
+    return {{ tagName: tag, value: "", textContent: "" }};
+  }}
+}};
+const pending = {{}};
+function deferred() {{
+  let resolve;
+  const promise = new Promise((res) => {{ resolve = res; }});
+  return {{ promise, resolve }};
+}}
+async function api(url) {{
+  if (!pending[url]) pending[url] = deferred();
+  return pending[url].promise;
+}}
+const console = {{ warn() {{}}, log: globalThis.console.log }};
+{create_state}
+{ensure_state}
+{render_selector}
+{refresh_profile}
+(async () => {{
+  const reqA = refreshComposerModelProfile("agent-A");
+  state.selectedAgentId = "agent-B";
+  const reqB = refreshComposerModelProfile("agent-B");
+  pending["/api/agents/agent-B/chat-model-profile"].resolve({{
+    provider: "anthropic",
+    current_model: "claude-sonnet-4-20250514",
+  }});
+  await reqB;
+  pending["/api/agents/agent-A/chat-model-profile"].resolve({{
+    provider: "openai",
+    current_model: "gpt-5-mini",
+  }});
+  await reqA;
+  console.log(JSON.stringify({{
+    selectedAgentId: state.selectedAgentId,
+    domValue: dom.chatModelSelect.value,
+    domOptions: dom.chatModelSelect.options.map((opt) => opt.value),
+    providerA: ensureChatState("agent-A").profileProvider,
+    providerB: ensureChatState("agent-B").profileProvider,
+  }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["selectedAgentId"] == "agent-B"
+    assert data["domValue"] == "claude-sonnet-4-20250514"
+    assert data["domOptions"] == ["claude-sonnet-4-20250514", "claude-haiku-4-20250514"]
+    assert data["providerA"] == "openai"
+    assert data["providerB"] == "anthropic"
+
+
 def test_background_success_does_not_render_into_current_dom():
     node_bin = shutil.which("node")
     if not node_bin:

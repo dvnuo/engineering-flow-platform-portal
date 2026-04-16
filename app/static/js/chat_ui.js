@@ -3740,11 +3740,13 @@ async function refreshComposerModelProfile(agentId) {
     const payload = await api(`/api/agents/${agentId}/chat-model-profile`);
     chatState.profileProvider = (payload?.provider || "").trim();
     chatState.profileDefaultModel = (payload?.current_model || "").trim();
+    if (agentId !== state.selectedAgentId) return;
     renderComposerModelSelectorForAgent(agentId);
   } catch (error) {
     console.warn("Failed to refresh composer chat model profile", error);
     chatState.profileProvider = "";
     chatState.profileDefaultModel = "";
+    if (agentId !== state.selectedAgentId) return;
     if (dom.chatModelSelect) dom.chatModelSelect.innerHTML = "";
     dom.chatModelWrap?.classList.add("hidden");
   }

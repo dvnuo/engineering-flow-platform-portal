@@ -124,17 +124,6 @@ def _default_agent_image() -> str:
     return f"{settings.default_agent_image_repo}:{settings.default_agent_image_tag}"
 
 
-def _normalize_llm_provider_for_managed_models(value: str | None) -> str:
-    provider = str(value or "").strip().lower()
-    aliases = {
-        "claude": "anthropic",
-        "github": "github_copilot",
-        "github-copilot": "github_copilot",
-        "copilot": "github_copilot",
-    }
-    return aliases.get(provider, provider)
-
-
 def _resolve_create_repo_url(payload: AgentCreateRequest) -> str | None:
     if "repo_url" in payload.model_fields_set:
         return payload.repo_url
@@ -307,7 +296,7 @@ def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), 
     llm = merged.get("llm") if isinstance(merged, dict) else {}
     if not isinstance(llm, dict):
         llm = {}
-    provider = _normalize_llm_provider_for_managed_models(str(llm.get("provider") or ""))
+    provider = RuntimeProfileService.normalize_managed_llm_provider(str(llm.get("provider") or ""))
     current_model = str(llm.get("model") or "").strip()
 
     return {
