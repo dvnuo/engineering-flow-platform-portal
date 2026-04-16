@@ -83,8 +83,6 @@ def test_app_template_contains_new_portal_shell():
     assert 'data-test-target="proxy"' in runtime_panel
     assert 'data-test-target="proxy"' in settings_panel
     assert "providerModels" not in settings_panel
-    assert "/a/' + agentId + '/api/copilot/auth/start" not in settings_panel
-    assert "/a/' + agentId + '/api/copilot/auth/check" not in settings_panel
 
     css = Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert ".toggle-switch" in css

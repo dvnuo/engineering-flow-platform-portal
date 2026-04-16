@@ -1774,8 +1774,14 @@ html[data-theme="dark"] .portal-thinking-block {
 .sessions-panel-head h5 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--portal-text-muted); }
 .sessions-new-chat-btn { border: 1px solid var(--portal-border); background: var(--portal-surface-soft); color: var(--portal-text-secondary); border-radius: 12px; height: 32px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; }
 .sessions-list { display: flex; flex-direction: column; gap: 8px; }
-.sessions-item { width: 100%; text-align: left; border: 1px solid var(--portal-border); background: var(--portal-surface-muted); border-radius: var(--portal-radius-md); padding: 10px 12px; }
+.sessions-item { width: 100%; display: flex; align-items: stretch; gap: 8px; border: 1px solid var(--portal-border); background: var(--portal-surface-muted); border-radius: var(--portal-radius-md); padding: 8px; }
+.sessions-item-main { flex: 1 1 auto; min-width: 0; text-align: left; border: 0; background: transparent; color: inherit; border-radius: calc(var(--portal-radius-md) - 2px); padding: 2px 4px; }
+.sessions-item-copy { min-width: 0; }
 .sessions-item.is-active { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 60%); background: var(--portal-accent-soft); }
+.sessions-item-actions { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
+.sessions-item-action { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); color: var(--portal-text-secondary); display: inline-flex; align-items: center; justify-content: center; }
+.sessions-item-action:hover { background: var(--portal-surface); color: var(--portal-text); }
+.sessions-item-action.is-danger:hover { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 40%); background: color-mix(in srgb, var(--portal-danger), transparent 88%); color: var(--portal-danger); }
 .sessions-item-title { font-size: 14px; font-weight: 500; color: var(--portal-text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .sessions-item-preview { font-size: 12px; color: var(--portal-text-muted); margin-top: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .sessions-empty { border: 1px dashed var(--portal-border-strong); border-radius: 14px; padding: 14px; text-align: center; color: var(--portal-text-muted); font-size: 12px; }

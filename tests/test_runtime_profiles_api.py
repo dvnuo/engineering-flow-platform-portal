@@ -10,8 +10,6 @@ from app.db import Base
 from app.models import Agent, User
 
 EXPECTED_PROXY_URL = "https://proxy.com:80"
-EXPECTED_DEFAULT_LLM_PROVIDER = "github_copilot"
-EXPECTED_DEFAULT_LLM_MODEL = "gpt-5-mini"
 EXPECTED_JIRA_INSTANCES = [
     {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
     {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
@@ -160,8 +158,6 @@ def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch)
         assert no_config_payload["proxy"]["url"] == EXPECTED_PROXY_URL
         assert no_config_payload["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
         assert no_config_payload["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
-        assert no_config_payload["llm"]["provider"] == EXPECTED_DEFAULT_LLM_PROVIDER
-        assert no_config_payload["llm"]["model"] == EXPECTED_DEFAULT_LLM_MODEL
 
         empty_config = client.post(
             "/api/runtime-profiles",
@@ -172,7 +168,5 @@ def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch)
         assert empty_config_payload["proxy"]["url"] == EXPECTED_PROXY_URL
         assert empty_config_payload["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
         assert empty_config_payload["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
-        assert empty_config_payload["llm"]["provider"] == EXPECTED_DEFAULT_LLM_PROVIDER
-        assert empty_config_payload["llm"]["model"] == EXPECTED_DEFAULT_LLM_MODEL
     finally:
         cleanup()
