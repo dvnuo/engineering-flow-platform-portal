@@ -12,6 +12,8 @@ from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 
 EXPECTED_PROXY_URL = "https://proxy.com:80"
+EXPECTED_DEFAULT_LLM_PROVIDER = "github_copilot"
+EXPECTED_DEFAULT_LLM_MODEL = "gpt-5-mini"
 EXPECTED_JIRA_INSTANCES = [
     {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
     {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
@@ -152,6 +154,8 @@ def test_build_apply_payload_from_profile_keeps_shape_and_includes_materialized_
         assert payload["config"]["proxy"]["url"] == EXPECTED_PROXY_URL
         assert payload["config"]["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
         assert payload["config"]["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
+        assert payload["config"]["llm"]["provider"] == EXPECTED_DEFAULT_LLM_PROVIDER
+        assert payload["config"]["llm"]["model"] == EXPECTED_DEFAULT_LLM_MODEL
     finally:
         db.close()
 
@@ -169,5 +173,7 @@ def test_build_apply_payload_from_sparse_legacy_profile_does_not_backfill_creati
         assert "url" not in payload["config"]["proxy"]
         assert payload["config"]["jira"]["instances"] == []
         assert payload["config"]["confluence"]["instances"] == []
+        assert payload["config"]["llm"]["provider"] == EXPECTED_DEFAULT_LLM_PROVIDER
+        assert payload["config"]["llm"]["model"] == EXPECTED_DEFAULT_LLM_MODEL
     finally:
         db.close()

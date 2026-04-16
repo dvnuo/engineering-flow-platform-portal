@@ -235,6 +235,95 @@ console.log(JSON.stringify({{ scenarioA, scenarioB }}));
     assert result["scenarioB"]["selected"] in result["scenarioB"]["options"]
 
 
+def test_update_model_options_shows_copilot_auth_for_initial_copilot_default():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping managed settings copilot default visibility test")
+
+    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    marker = "const managedProviderModels ="
+    start = js_file.find(marker)
+    assert start >= 0, "managedProviderModels block not found"
+    brace_start = js_file.find("{", start)
+    assert brace_start >= 0, "managedProviderModels block start not found"
+    depth = 0
+    end = -1
+    for idx in range(brace_start, len(js_file)):
+        char = js_file[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                end = idx
+                break
+    assert end > brace_start, "managedProviderModels block end not found"
+    managed_models_block = js_file[start:end + 2]
+    update_model_options_fn = _extract_js_function(js_file, "updateModelOptions")
+
+    script = f"""
+{managed_models_block}
+{update_model_options_fn}
+
+function makeOption() {{
+  return {{ value: "", textContent: "" }};
+}}
+global.document = {{ createElement: makeOption }};
+
+const toggleCalls = [];
+const addCalls = [];
+let stopCalled = 0;
+function stopCopilotPolling(_root) {{ stopCalled += 1; }}
+
+function makeSelect(initialValue = "") {{
+  return {{
+    value: initialValue,
+    innerHTML: "",
+    dataset: {{}},
+    options: [],
+    appendChild(option) {{ this.options.push(option); }},
+    classList: {{ toggle() {{}}, add() {{}} }},
+  }};
+}}
+
+const provider = makeSelect("github_copilot");
+provider.dataset.initialProvider = "github_copilot";
+const model = makeSelect("gpt-5-mini");
+model.dataset.initialValue = "gpt-5-mini";
+model.dataset.currentValue = "gpt-5-mini";
+model.dataset.lastProvider = "github_copilot";
+const copilotBtn = {{ classList: {{ toggle: (...args) => toggleCalls.push(args) }} }};
+const authStatus = {{ classList: {{ add: (...args) => addCalls.push(args) }} }};
+
+const root = {{
+  provider,
+  model,
+  querySelector(sel) {{
+    if (sel === "#llm_provider") return provider;
+    if (sel === "#llm_model") return model;
+    if (sel === "#copilot_auth_btn") return copilotBtn;
+    if (sel === "#copilot_auth_status") return authStatus;
+    return null;
+  }},
+}};
+
+updateModelOptions(root);
+
+console.log(JSON.stringify({{
+  modelValue: model.value,
+  toggleCalls,
+  addCalls,
+  stopCalled,
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    result = json.loads(completed.stdout.strip())
+
+    assert result["modelValue"] == "gpt-5-mini"
+    assert ["hidden", False] in result["toggleCalls"]
+    assert result["stopCalled"] == 0
+
+
 def test_agent_defaults():
     """Test agent defaults endpoint."""
     from app.main import app
