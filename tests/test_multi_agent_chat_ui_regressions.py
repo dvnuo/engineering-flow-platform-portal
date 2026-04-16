@@ -3,13 +3,22 @@ import shutil
 import subprocess
 from pathlib import Path
 
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _chat_ui_js_source() -> str:
+    chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
+    return chat_ui_path.read_text(encoding="utf-8")
 import pytest
 
 from _js_extract_helpers import _extract_js_function
 
 
 def test_chat_ui_includes_display_block_renderer_helpers():
-    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_source = _chat_ui_js_source()
     assert "function parseDisplayBlocks(" in js_source
     assert "function renderDisplayBlocksToHtml(" in js_source
     assert "function renderSingleDisplayBlock(" in js_source
@@ -22,7 +31,7 @@ def test_background_success_does_not_render_into_current_dom():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
@@ -89,7 +98,7 @@ def test_selected_agent_hidden_success_notifies_and_merges_events():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
@@ -162,7 +171,7 @@ def test_success_without_optimistic_row_reloads_session():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
@@ -219,7 +228,7 @@ def test_failure_restores_hidden_attachments_and_hidden_tab_notifies():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
@@ -283,7 +292,7 @@ def test_background_failure_restores_original_agent_draft_state_only():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
@@ -362,7 +371,7 @@ def test_render_chat_history_rebuilds_attachment_history_for_selected_agent():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     get_non_blank_author_name = _extract_js_function(js_file, "getNonBlankAuthorName")
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
@@ -422,7 +431,7 @@ def test_render_chat_history_empty_clears_attachment_history():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     render_history = _extract_js_function(js_file, "renderChatHistory")
 
     script = f"""
@@ -466,7 +475,7 @@ def test_build_user_message_article_uses_current_user_display_name():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     build_user_message_article = _extract_js_function(js_file, "buildUserMessageArticle")
 
@@ -490,7 +499,7 @@ def test_render_chat_history_prefers_author_name_for_user_and_assistant():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     get_non_blank_author_name = _extract_js_function(js_file, "getNonBlankAuthorName")
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
@@ -552,7 +561,7 @@ def test_render_chat_history_assistant_falls_back_to_selected_agent_name():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     get_non_blank_author_name = _extract_js_function(js_file, "getNonBlankAuthorName")
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
@@ -613,7 +622,7 @@ def test_render_chat_history_blank_author_name_falls_back_to_current_names():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     get_non_blank_author_name = _extract_js_function(js_file, "getNonBlankAuthorName")
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
@@ -675,7 +684,7 @@ def test_handle_agent_chat_success_passes_selected_assistant_name_to_final_messa
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
@@ -744,7 +753,7 @@ def test_ensure_event_socket_for_selected_agent_uses_active_request_id():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     ensure_socket_for_agent_fn = _extract_js_function(js_file, "ensureEventSocketForAgent")
     ensure_socket_fn = _extract_js_function(js_file, "ensureEventSocketForSelectedAgent")
 
@@ -786,7 +795,7 @@ def test_chat_ui_event_socket_replaces_stale_connecting_session():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     ensure_socket_for_agent_fn = _extract_js_function(js_file, "ensureEventSocketForAgent")
     ensure_socket_fn = _extract_js_function(js_file, "ensureEventSocketForSelectedAgent")
 
@@ -904,7 +913,7 @@ def test_switching_to_b_while_a_submitting_reenables_send_for_b():
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
-    js_file = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")

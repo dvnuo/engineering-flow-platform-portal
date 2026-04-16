@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -7,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, User
+from app.models.runtime_profile import RuntimeProfile
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.services.auth_service import hash_password
@@ -132,9 +134,42 @@ def _build_client_with_overrides():
     return TestClient(app), parent_agent, assignee_agent, outsider_agent, admin_user, owner_user, other_user, _set_user, _cleanup
 
 
+def _attach_runtime_profile(db, agent, owner_user_id, name="rp-test", config_json='{"llm": {"provider": "openai"}}'):
+    profile = RuntimeProfile(
+        owner_user_id=owner_user_id,
+        name=name,
+        config_json=config_json,
+        revision=1,
+        is_default=False,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    agent.runtime_profile_id = profile.id
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    return profile
+
+
+@contextmanager
+def _override_db_session():
+    from app.main import app
+    import app.api.external_event_subscriptions as subs_api
+
+    db_gen = app.dependency_overrides[subs_api.get_db]()
+    db = next(db_gen)
+    try:
+        yield db
+    finally:
+        db_gen.close()
+
+
 def test_create_and_list_external_event_subscriptions():
     client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        with _override_db_session() as db:
+            _attach_runtime_profile(db, parent_agent, parent_agent.owner_user_id, name="rp-parent")
         set_user(owner_user)
         create_resp = client.post(
             "/api/external-event-subscriptions",
@@ -166,6 +201,8 @@ def test_create_and_list_external_event_subscriptions():
 def test_create_github_review_subscription_persists_config_json():
     client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        with _override_db_session() as db:
+            _attach_runtime_profile(db, parent_agent, parent_agent.owner_user_id, name="rp-review")
         set_user(owner_user)
         create_resp = client.post(
             "/api/external-event-subscriptions",
@@ -194,6 +231,9 @@ def test_create_github_review_subscription_persists_config_json():
 def test_list_external_event_subscriptions_by_agent():
     client, parent_agent, assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        with _override_db_session() as db:
+            _attach_runtime_profile(db, parent_agent, parent_agent.owner_user_id, name="rp-parent-list")
+            _attach_runtime_profile(db, assignee_agent, assignee_agent.owner_user_id, name="rp-assignee-list")
         set_user(owner_user)
         create_1 = client.post(
             "/api/external-event-subscriptions",
@@ -218,6 +258,9 @@ def test_list_external_event_subscriptions_by_agent():
 def test_create_subscription_rejects_binding_from_other_agent():
     client, parent_agent, _assignee_agent, outsider_agent, admin_user, _owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        with _override_db_session() as db:
+            _attach_runtime_profile(db, parent_agent, parent_agent.owner_user_id, name="rp-parent-other-agent")
+            _attach_runtime_profile(db, outsider_agent, outsider_agent.owner_user_id, name="rp-outsider-other-agent")
         set_user(admin_user)
         binding_resp = client.post(
             f"/api/agents/{outsider_agent.id}/identity-bindings",
@@ -244,6 +287,8 @@ def test_create_subscription_rejects_binding_from_other_agent():
 def test_create_subscription_rejects_binding_from_other_provider():
     client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        with _override_db_session() as db:
+            _attach_runtime_profile(db, parent_agent, parent_agent.owner_user_id, name="rp-provider")
         set_user(owner_user)
         binding_resp = client.post(
             f"/api/agents/{parent_agent.id}/identity-bindings",
@@ -377,6 +422,9 @@ def test_list_agent_tasks_by_group_id_and_response_includes_group_id():
 def test_external_event_subscriptions_enforce_authorization():
     client, parent_agent, _assignee_agent, outsider_agent, admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        with _override_db_session() as db:
+            _attach_runtime_profile(db, parent_agent, parent_agent.owner_user_id, name="rp-auth-parent")
+            _attach_runtime_profile(db, outsider_agent, outsider_agent.owner_user_id, name="rp-auth-outsider")
         set_user(other_user)
         forbidden_create = client.post(
             "/api/external-event-subscriptions",
@@ -422,6 +470,8 @@ def test_external_event_subscriptions_enforce_authorization():
 def test_create_external_subscription_persists_new_mode_fields():
     client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
     try:
+        with _override_db_session() as db:
+            _attach_runtime_profile(db, parent_agent, parent_agent.owner_user_id, name="rp-mode")
         set_user(owner_user)
         binding_resp = client.post(
             f"/api/agents/{parent_agent.id}/identity-bindings",
@@ -456,5 +506,33 @@ def test_create_external_subscription_persists_new_mode_fields():
         assert len(items) == 1
         assert items[0]["mode"] == "poll"
         assert items[0]["source_kind"] == "github.mention"
+    finally:
+        cleanup()
+
+
+def test_create_identity_binding_requires_runtime_profile():
+    client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        resp = client.post(
+            f"/api/agents/{parent_agent.id}/identity-bindings",
+            json={"system_type": "github", "external_account_id": "acct-without-profile", "enabled": True},
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Bind a runtime profile before configuring bindings or subscriptions."
+    finally:
+        cleanup()
+
+
+def test_create_external_event_subscription_requires_runtime_profile():
+    client, parent_agent, _assignee_agent, _outsider_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        set_user(owner_user)
+        resp = client.post(
+            "/api/external-event-subscriptions",
+            json={"agent_id": parent_agent.id, "source_type": "github", "event_type": "push", "enabled": True},
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Bind a runtime profile before configuring bindings or subscriptions."
     finally:
         cleanup()

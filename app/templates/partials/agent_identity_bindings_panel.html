@@ -6,7 +6,14 @@
 
   {% if success %}<div class="portal-inline-state is-success">{{ success }}</div>{% endif %}
   {% if error %}<div class="portal-inline-state is-error">{{ error }}</div>{% endif %}
+  {% if profile_missing_message %}<div class="portal-inline-state">{{ profile_missing_message }}</div>{% endif %}
+  {% if read_only %}
+    <div class="portal-inline-state">
+      You can view bindings for this assistant, but only the owner or an admin can modify them.
+    </div>
+  {% endif %}
 
+  {% if not read_only and not profile_missing_message %}
   <form hx-post="/app/agents/{{ agent_id }}/triggered-work/bindings/create" hx-target="#agent-identity-bindings-panel" hx-swap="outerHTML" class="portal-panel-stack">
     <div class="grid grid-cols-2 gap-2">
       <input type="text" name="system_type" value="{{ form.get('system_type', '') }}" placeholder="system_type (github/jira/confluence)" class="portal-form-input" required />
@@ -19,17 +26,20 @@
     </label>
     <button type="submit" class="portal-btn is-secondary">Create Binding</button>
   </form>
+  {% endif %}
 
   <div class="portal-panel-stack">
     {% for item in bindings %}
     <div class="portal-panel-note">
       <strong>{{ item.system_type }}</strong> · {{ item.external_account_id }} · {{ item.username or '-' }} · enabled={{ item.enabled }}
+      {% if not read_only and not profile_missing_message %}
       <form hx-post="/app/agents/{{ agent_id }}/triggered-work/bindings/{{ item.id }}/delete" hx-target="#agent-identity-bindings-panel" hx-swap="outerHTML" style="display:inline; margin-left: 8px;">
         <button type="submit" class="portal-btn is-secondary">Delete</button>
       </form>
+      {% endif %}
     </div>
     {% else %}
-    <div class="portal-panel-empty">No bindings yet.</div>
+    <div class="portal-panel-empty">{% if read_only %}No bindings configured.{% else %}No bindings yet.{% endif %}</div>
     {% endfor %}
   </div>
 </section>

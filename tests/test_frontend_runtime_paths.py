@@ -1,8 +1,17 @@
 from pathlib import Path
 
 
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _chat_ui_js_source() -> str:
+    chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
+    return chat_ui_path.read_text(encoding="utf-8")
+
 def test_chat_ui_uses_canonical_runtime_proxy_paths():
-    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js = _chat_ui_js_source()
     assert "/a/${agentId}/api/git-info" in js
     assert "/a/${agentId}/api/usage" in js
     assert "/api/agents/${agentId}/git-info" not in js

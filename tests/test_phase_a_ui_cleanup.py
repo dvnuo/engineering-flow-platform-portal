@@ -5,6 +5,15 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _chat_ui_js_source() -> str:
+    chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
+    return chat_ui_path.read_text(encoding="utf-8")
+
 def test_app_template_contains_new_portal_shell():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
     assert "portal-shell" in html
@@ -81,7 +90,7 @@ def test_app_template_contains_new_portal_shell():
 
 
 def test_chat_submit_primary_path_is_fetch_runtime():
-    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js = _chat_ui_js_source()
     assert "async function submitChatForSelectedAgent()" in js
     assert 'fetch(`/a/${agentIdAtSend}/api/chat`' in js
     assert '"runtime-profiles"' in js
@@ -104,7 +113,7 @@ def test_chat_response_partial_contract():
 
 
 def test_frontend_assets_include_phase_b_fixups():
-    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_source = _chat_ui_js_source()
     css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
     web_source = Path("app/web.py").read_text(encoding="utf-8")
 
@@ -250,7 +259,7 @@ def test_frontend_assets_include_phase_b_fixups():
 
 
 def test_templates_portalized_for_panel_visual_consistency():
-    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_source = _chat_ui_js_source()
     app_html = Path("app/templates/app.html").read_text(encoding="utf-8")
     thinking_html = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
     tasks_html = Path("app/templates/partials/my_tasks_panel.html").read_text(encoding="utf-8")
@@ -413,7 +422,7 @@ def test_frontend_assets_and_templates_are_syntax_valid():
 
 
 def test_server_files_uses_native_checkboxes_not_toggle_switches():
-    js_source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    js_source = _chat_ui_js_source()
     load_start = js_source.index("async function loadServerFiles(path) {")
     load_end = js_source.index("async function uploadToServerFiles(targetPath) {")
     block = js_source[load_start:load_end]

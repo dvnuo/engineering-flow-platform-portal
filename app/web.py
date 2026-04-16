@@ -56,6 +56,7 @@ requirement_bundle_service = RequirementBundleGithubService()
 runtime_profile_sync_service = RuntimeProfileSyncService(proxy_service=proxy_service)
 runtime_profile_test_service = RuntimeProfileTestService()
 base_uri = settings.base_uri
+TRIGGERED_WORK_PROFILE_REQUIRED_MESSAGE = "Bind a runtime profile before configuring bindings or subscriptions."
 
 
 def _current_user_from_cookie(request: Request):
@@ -489,6 +490,7 @@ def _settings_view_payload(config_data: dict) -> dict:
 
 def _settings_error_response(
     request: Request,
+    db,
     agent_id: str,
     config_payload: dict,
     message: str,
@@ -496,8 +498,10 @@ def _settings_error_response(
     profile_name: str | None = None,
     profile_revision: int | None = None,
     profile_bound_agent_count: int = 0,
+    read_only: bool = False,
 ):
     view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
+    summary = _settings_triggered_work_panel_summary(db, agent_id)
     return templates.TemplateResponse(
         "partials/settings_panel.html",
         {
@@ -509,9 +513,80 @@ def _settings_error_response(
             "profile_name": profile_name,
             "profile_revision": profile_revision,
             "profile_bound_agent_count": profile_bound_agent_count,
+            "read_only": read_only,
+            **summary,
             **view_data,
         },
     )
+
+
+def _settings_triggered_work_summary(db, agent_id: str) -> dict[str, int]:
+    bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
+    subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
+    return {
+        "binding_total_count": len(bindings),
+        "binding_enabled_count": sum(1 for item in bindings if item.enabled),
+        "subscription_total_count": len(subscriptions),
+        "subscription_enabled_count": sum(1 for item in subscriptions if item.enabled),
+    }
+
+
+def _format_utc_timestamp(value) -> str | None:
+    if not value:
+        return None
+    return f"{value.strftime('%Y-%m-%d %H:%M')} UTC"
+
+
+def _is_external_trigger_task(task) -> bool:
+    source = (task.source or "").strip().lower()
+    task_type = (task.task_type or "").strip().lower()
+    external_sources = {"github", "jira", "confluence", "cron", "internal", "external_event"}
+    external_task_types = {"github_review_task", "jira_workflow_review_task"}
+    return source in external_sources or task_type in external_task_types
+
+
+def _task_activity_time(task):
+    return task.finished_at or task.started_at or task.updated_at or task.created_at
+
+
+def _settings_triggered_work_activity_summary(db, agent_id: str) -> dict[str, str]:
+    tasks = [task for task in AgentTaskRepository(db).list_by_agent(agent_id) if _is_external_trigger_task(task)]
+    if not tasks:
+        return {
+            "last_triggered_task_at_text": "No triggered-work activity yet.",
+            "last_external_event_task_accepted_at_text": "No triggered-work activity yet.",
+            "recent_failed_trigger_summary": "No recent failed triggers.",
+        }
+
+    latest_task = max(tasks, key=lambda task: _task_activity_time(task) or datetime.min)
+    latest_accepted_task = max(tasks, key=lambda task: task.created_at or datetime.min)
+
+    last_triggered_text = _format_utc_timestamp(_task_activity_time(latest_task)) or "No triggered-work activity yet."
+    last_accepted_text = _format_utc_timestamp(latest_accepted_task.created_at) or "No triggered-work activity yet."
+
+    failed_tasks = [task for task in tasks if (task.status or "").strip().lower() == "failed" or bool((task.error_message or "").strip())]
+    recent_failed_trigger_summary = "No recent failed triggers."
+    if failed_tasks:
+        latest_failed = max(failed_tasks, key=lambda task: _task_activity_time(task) or datetime.min)
+        summary_text = (
+            (latest_failed.error_message or "").strip()
+            or (latest_failed.summary or "").strip()
+            or f"{latest_failed.task_type} ({latest_failed.status})"
+        )
+        recent_failed_trigger_summary = summary_text
+
+    return {
+        "last_triggered_task_at_text": last_triggered_text,
+        "last_external_event_task_accepted_at_text": last_accepted_text,
+        "recent_failed_trigger_summary": recent_failed_trigger_summary,
+    }
+
+
+def _settings_triggered_work_panel_summary(db, agent_id: str) -> dict:
+    return {
+        **_settings_triggered_work_summary(db, agent_id),
+        **_settings_triggered_work_activity_summary(db, agent_id),
+    }
 
 
 def _runtime_profile_panel_context(
@@ -1777,6 +1852,8 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        read_only = not _can_write(agent, user)
+        summary = _settings_triggered_work_panel_summary(db, agent_id)
 
         runtime_profile = None
         bound_agent_count = 0
@@ -1801,6 +1878,8 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
                     "config": {},
+                    "read_only": read_only,
+                    **summary,
                 },
             )
 
@@ -1819,6 +1898,8 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 "profile_name": runtime_profile.name,
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": bound_agent_count,
+                "read_only": read_only,
+                **summary,
                 **view_data,
             },
         )
@@ -1843,6 +1924,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        summary = _settings_triggered_work_panel_summary(db, agent_id)
 
         if not agent.runtime_profile_id:
             return templates.TemplateResponse(
@@ -1857,6 +1939,8 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
                     "config": {},
+                    "read_only": False,
+                    **summary,
                 },
             )
 
@@ -1875,6 +1959,8 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
                     "config": {},
+                    "read_only": False,
+                    **summary,
                 },
             )
 
@@ -1886,12 +1972,14 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         if merge_error:
             return _settings_error_response(
                 request,
+                db,
                 agent_id,
                 config_payload,
                 merge_error,
                 profile_name=runtime_profile.name,
                 profile_revision=runtime_profile.revision,
                 profile_bound_agent_count=profile_bound_agent_count,
+                read_only=False,
             )
 
         sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
@@ -1933,6 +2021,8 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "profile_name": runtime_profile.name,
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": profile_bound_agent_count,
+                "read_only": False,
+                **summary,
                 **view_data,
             },
         )
@@ -2271,6 +2361,61 @@ def _triggered_work_authorize(db, user, agent_id: str):
     return agent
 
 
+def _triggered_work_profile_required_message(agent) -> str | None:
+    return None if agent.runtime_profile_id else TRIGGERED_WORK_PROFILE_REQUIRED_MESSAGE
+
+
+def _render_agent_identity_bindings_panel(
+    request: Request,
+    *,
+    agent,
+    user,
+    db,
+    error: str = "",
+    success: str = "",
+    form: dict | None = None,
+):
+    return templates.TemplateResponse(
+        "partials/agent_identity_bindings_panel.html",
+        {
+            "request": request,
+            "agent_id": agent.id,
+            "bindings": AgentIdentityBindingRepository(db).list_by_agent(agent.id),
+            "error": error,
+            "success": success,
+            "form": form or {},
+            "read_only": not _can_write(agent, user),
+            "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
+        },
+    )
+
+
+def _render_external_event_subscriptions_panel(
+    request: Request,
+    *,
+    agent,
+    user,
+    db,
+    error: str = "",
+    success: str = "",
+    form: dict | None = None,
+):
+    return templates.TemplateResponse(
+        "partials/external_event_subscriptions_panel.html",
+        {
+            "request": request,
+            "agent_id": agent.id,
+            "bindings": AgentIdentityBindingRepository(db).list_by_agent(agent.id),
+            "subscriptions": ExternalEventSubscriptionRepository(db).list_by_agent(agent.id),
+            "error": error,
+            "success": success,
+            "form": form or {},
+            "read_only": not _can_write(agent, user),
+            "profile_missing_message": _triggered_work_profile_required_message(agent) or "",
+        },
+    )
+
+
 @router.get("/app/agents/{agent_id}/triggered-work/bindings/panel")
 async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
@@ -2279,19 +2424,8 @@ async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: st
 
     db = SessionLocal()
     try:
-        _triggered_work_authorize(db, user, agent_id)
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/agent_identity_bindings_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "error": "",
-                "success": "",
-                "form": {},
-            },
-        )
+        agent = _triggered_work_authorize(db, user, agent_id)
+        return _render_agent_identity_bindings_panel(request, agent=agent, user=user, db=db)
     finally:
         db.close()
 
@@ -2307,6 +2441,15 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
         agent = _triggered_work_authorize(db, user, agent_id)
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        profile_missing_message = _triggered_work_profile_required_message(agent)
+        if profile_missing_message:
+            return _render_agent_identity_bindings_panel(
+                request,
+                agent=agent,
+                user=user,
+                db=db,
+                error=profile_missing_message,
+            )
 
         form = await request.form()
         form_data = {
@@ -2342,17 +2485,14 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
                 enabled=form_data["enabled"],
             )
 
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/agent_identity_bindings_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "error": error,
-                "success": "Binding created" if not error else "",
-                "form": form_data,
-            },
+        return _render_agent_identity_bindings_panel(
+            request,
+            agent=agent,
+            user=user,
+            db=db,
+            error=error,
+            success="Binding created" if not error else "",
+            form=form_data,
         )
     finally:
         db.close()
@@ -2375,17 +2515,12 @@ async def app_agent_triggered_work_bindings_delete(request: Request, agent_id: s
         if binding and binding.agent_id == agent_id:
             repo.delete(binding)
 
-        bindings = repo.list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/agent_identity_bindings_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "error": "",
-                "success": "Binding deleted",
-                "form": {},
-            },
+        return _render_agent_identity_bindings_panel(
+            request,
+            agent=agent,
+            user=user,
+            db=db,
+            success="Binding deleted",
         )
     finally:
         db.close()
@@ -2399,21 +2534,8 @@ async def app_agent_triggered_work_subscriptions_panel(request: Request, agent_i
 
     db = SessionLocal()
     try:
-        _triggered_work_authorize(db, user, agent_id)
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/external_event_subscriptions_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "subscriptions": subscriptions,
-                "error": "",
-                "success": "",
-                "form": {},
-            },
-        )
+        agent = _triggered_work_authorize(db, user, agent_id)
+        return _render_external_event_subscriptions_panel(request, agent=agent, user=user, db=db)
     finally:
         db.close()
 
@@ -2429,6 +2551,15 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
         agent = _triggered_work_authorize(db, user, agent_id)
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        profile_missing_message = _triggered_work_profile_required_message(agent)
+        if profile_missing_message:
+            return _render_external_event_subscriptions_panel(
+                request,
+                agent=agent,
+                user=user,
+                db=db,
+                error=profile_missing_message,
+            )
 
         form = await request.form()
         form_data = {
@@ -2471,8 +2602,7 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
             error = json_errors[0]
 
         if not error:
-            repo = ExternalEventSubscriptionRepository(db)
-            repo.create(
+            ExternalEventSubscriptionRepository(db).create(
                 agent_id=agent_id,
                 source_type=form_data["source_type"],
                 event_type=form_data["event_type"],
@@ -2489,19 +2619,14 @@ async def app_agent_triggered_work_subscriptions_create(request: Request, agent_
                 poll_profile_json=poll_profile_json,
             )
 
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        subscriptions = ExternalEventSubscriptionRepository(db).list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/external_event_subscriptions_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "subscriptions": subscriptions,
-                "error": error,
-                "success": "Subscription created" if not error else "",
-                "form": form_data,
-            },
+        return _render_external_event_subscriptions_panel(
+            request,
+            agent=agent,
+            user=user,
+            db=db,
+            error=error,
+            success="Subscription created" if not error else "",
+            form=form_data,
         )
     finally:
         db.close()
@@ -2524,19 +2649,12 @@ async def app_agent_triggered_work_subscriptions_delete(request: Request, agent_
         if subscription and subscription.agent_id == agent_id:
             repo.delete(subscription)
 
-        bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-        subscriptions = repo.list_by_agent(agent_id)
-        return templates.TemplateResponse(
-            "partials/external_event_subscriptions_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "bindings": bindings,
-                "subscriptions": subscriptions,
-                "error": "",
-                "success": "Subscription deleted",
-                "form": {},
-            },
+        return _render_external_event_subscriptions_panel(
+            request,
+            agent=agent,
+            user=user,
+            db=db,
+            success="Subscription deleted",
         )
     finally:
         db.close()

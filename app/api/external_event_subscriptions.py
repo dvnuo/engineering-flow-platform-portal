@@ -9,6 +9,7 @@ from app.repositories.external_event_subscription_repo import ExternalEventSubsc
 from app.schemas.external_event_subscription import ExternalEventSubscriptionCreateRequest, ExternalEventSubscriptionResponse
 
 router = APIRouter(tags=["external-event-subscriptions"])
+PROFILE_REQUIRED_DETAIL = "Bind a runtime profile before configuring bindings or subscriptions."
 
 
 def _can_write(agent, user) -> bool:
@@ -37,6 +38,8 @@ def create_external_event_subscription(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if not _can_write(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if not agent.runtime_profile_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=PROFILE_REQUIRED_DETAIL)
 
     create_payload = payload.model_dump()
     normalized_source_type = (payload.source_type or "").strip().lower()
