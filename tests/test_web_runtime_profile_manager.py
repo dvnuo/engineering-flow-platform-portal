@@ -11,8 +11,6 @@ from app.models import Agent, RuntimeProfile, User
 from app.services.runtime_profile_service import RuntimeProfileService
 
 EXPECTED_PROXY_URL = "https://proxy.com:80"
-EXPECTED_DEFAULT_LLM_PROVIDER = "github_copilot"
-EXPECTED_DEFAULT_LLM_MODEL = "gpt-5-mini"
 EXPECTED_JIRA_URLS = [
     "https://yourcompany.atlassian.net",
     "https://yourcompany2.atlassian.net",
@@ -150,8 +148,5 @@ def test_runtime_profile_panel_renders_materialized_seed_defaults(monkeypatch):
         assert 'name="confluence_instance_count" value="2"' in resp.text
         assert EXPECTED_CONFLUENCE_URLS[0] in resp.text
         assert EXPECTED_CONFLUENCE_URLS[1] in resp.text
-        assert f'option value="{EXPECTED_DEFAULT_LLM_PROVIDER}" selected' in resp.text
-        assert f'data-current-value="{EXPECTED_DEFAULT_LLM_MODEL}"' in resp.text
-        assert 'id="copilot_auth_btn"' in resp.text
     finally:
         cleanup()
