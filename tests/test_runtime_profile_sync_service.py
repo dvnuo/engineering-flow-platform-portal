@@ -144,3 +144,20 @@ def test_build_apply_payload_from_profile_keeps_shape_and_includes_materialized_
         assert len(payload["config"]["confluence"]["instances"]) == 2
     finally:
         db.close()
+
+
+def test_build_apply_payload_from_sparse_legacy_profile_does_not_backfill_creation_seed():
+    db, rp, _running, _stopped = _build_db()
+    try:
+        rp.config_json = "{}"
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
+        assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
+        assert "url" not in payload["config"]["proxy"]
+        assert payload["config"]["jira"]["instances"] == []
+        assert payload["config"]["confluence"]["instances"] == []
+    finally:
+        db.close()

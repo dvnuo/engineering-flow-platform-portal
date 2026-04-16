@@ -177,3 +177,14 @@ def test_materialize_create_config_json_preserves_explicit_overlay_and_fills_mis
     for instance in saved["jira"]["instances"] + saved["confluence"]["instances"]:
         assert "password" not in instance
         assert "token" not in instance
+
+
+def test_merge_with_managed_defaults_does_not_apply_creation_seed_to_legacy_sparse_profile():
+    cfg = RuntimeProfileService.merge_with_managed_defaults({})
+    assert cfg["proxy"]["enabled"] is False
+    assert "url" not in cfg["proxy"]
+    assert cfg["jira"]["enabled"] is False
+    assert cfg["jira"]["instances"] == []
+    assert cfg["confluence"]["enabled"] is False
+    assert cfg["confluence"]["instances"] == []
+    assert cfg["llm"]["provider"] == "openai"
