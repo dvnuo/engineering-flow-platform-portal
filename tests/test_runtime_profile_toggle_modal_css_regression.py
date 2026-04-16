@@ -33,6 +33,17 @@ def test_stack_selectors_exclude_toggle_internals_and_slider_has_display_block()
 def test_system_prompt_editor_markup_still_uses_shared_toggle_classes():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
-    assert 'class="stack"' in js
-    assert 'class="toggle-switch"' in js
-    assert 'class="toggle-slider"' in js
+    editor_modal_match = re.search(
+        r"modal\.innerHTML\s*=\s*'(?P<html>[\s\S]*?id=\"sp-editor-title\"[\s\S]*?)';",
+        js,
+    )
+    assert editor_modal_match, "System prompt editor modal.innerHTML assignment should exist"
+
+    editor_modal_html = editor_modal_match.group("html")
+    assert '<div class="stack">' in editor_modal_html
+    assert '<label class="toggle-switch">' in editor_modal_html
+    assert 'id="sp-editor-enabled"' in editor_modal_html
+    assert '<span class="toggle-slider"></span>' in editor_modal_html
+    assert 'Enable custom prompt for this section' in editor_modal_html
+    assert 'id="sp-editor-content"' in editor_modal_html
+    assert 'id="sp-editor-save"' in editor_modal_html
