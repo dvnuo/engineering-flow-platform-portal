@@ -25,7 +25,7 @@
       External identities: <strong>{{ binding_enabled_count }}</strong> enabled / <strong>{{ binding_total_count }}</strong> total.
     </div>
     <div class="portal-inline-state">
-      Last triggered task: <strong>{{ last_triggered_task_at_text }}</strong> ·
+      Last automation task: <strong>{{ last_triggered_task_at_text }}</strong> ·
       Last external event task accepted: <strong>{{ last_external_event_task_accepted_at_text }}</strong> ·
       Recent failed trigger: <strong>{{ recent_failed_trigger_summary }}</strong>
     </div>
@@ -54,7 +54,7 @@
       External identities: <strong>{{ binding_enabled_count }}</strong> enabled / <strong>{{ binding_total_count }}</strong> total.
     </div>
     <div class="portal-inline-state">
-      Last triggered task: <strong>{{ last_triggered_task_at_text }}</strong> ·
+      Last automation task: <strong>{{ last_triggered_task_at_text }}</strong> ·
       Last external event task accepted: <strong>{{ last_external_event_task_accepted_at_text }}</strong> ·
       Recent failed trigger: <strong>{{ recent_failed_trigger_summary }}</strong>
     </div>
@@ -162,7 +162,7 @@
 
   <section class="portal-panel-section"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>External Identities</h6></div><div
     id="settings-bindings-panel-container"
-    hx-get="/app/agents/{{ agent_id }}/triggered-work/bindings/panel"
+    hx-get="/app/agents/{{ agent_id }}/external-identities/panel"
     hx-trigger="load"
     hx-target="this"
     hx-swap="innerHTML"

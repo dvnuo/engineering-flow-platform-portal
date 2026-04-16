@@ -132,7 +132,7 @@ def test_bindings_can_be_configured_without_runtime_profile(monkeypatch):
     client, _db, agent, cleanup = _build_client(monkeypatch)
     try:
         resp = client.post(
-            f"/app/agents/{agent.id}/triggered-work/bindings/create",
+            f"/app/agents/{agent.id}/external-identities/create",
             data={"system_type": "github", "external_account_id": "acct-1", "enabled": "on"},
         )
         assert resp.status_code == 200
@@ -156,7 +156,7 @@ def test_settings_panel_runtime_profile_missing_message_mentions_external_identi
 def test_bindings_panel_available_without_runtime_profile(monkeypatch):
     client, _db, agent, cleanup = _build_client(monkeypatch)
     try:
-        resp = client.get(f"/app/agents/{agent.id}/triggered-work/bindings/panel")
+        resp = client.get(f"/app/agents/{agent.id}/external-identities/panel")
         assert resp.status_code == 200
         assert "Add External Identity" in resp.text
         assert "Assign one from Edit Assistant first." not in resp.text

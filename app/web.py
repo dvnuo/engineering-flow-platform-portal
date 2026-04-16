@@ -496,7 +496,7 @@ def _settings_error_response(
     read_only: bool = False,
 ):
     view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
-    summary = _settings_triggered_work_panel_summary(db, agent_id)
+    summary = _settings_settings_panel_summary(db, agent_id)
     return templates.TemplateResponse(
         "partials/settings_panel.html",
         {
@@ -515,7 +515,7 @@ def _settings_error_response(
     )
 
 
-def _settings_triggered_work_summary(db, agent_id: str) -> dict[str, int]:
+def _settings_external_identity_summary(db, agent_id: str) -> dict[str, int]:
     bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
     return {
         "binding_total_count": len(bindings),
@@ -541,20 +541,20 @@ def _task_activity_time(task):
     return task.finished_at or task.started_at or task.updated_at or task.created_at
 
 
-def _settings_triggered_work_activity_summary(db, agent_id: str) -> dict[str, str]:
+def _settings_automation_activity_summary(db, agent_id: str) -> dict[str, str]:
     tasks = [task for task in AgentTaskRepository(db).list_by_agent(agent_id) if _is_external_trigger_task(task)]
     if not tasks:
         return {
-            "last_triggered_task_at_text": "No triggered-work activity yet.",
-            "last_external_event_task_accepted_at_text": "No triggered-work activity yet.",
+            "last_triggered_task_at_text": "No automation activity yet.",
+            "last_external_event_task_accepted_at_text": "No automation activity yet.",
             "recent_failed_trigger_summary": "No recent failed triggers.",
         }
 
     latest_task = max(tasks, key=lambda task: _task_activity_time(task) or datetime.min)
     latest_accepted_task = max(tasks, key=lambda task: task.created_at or datetime.min)
 
-    last_triggered_text = _format_utc_timestamp(_task_activity_time(latest_task)) or "No triggered-work activity yet."
-    last_accepted_text = _format_utc_timestamp(latest_accepted_task.created_at) or "No triggered-work activity yet."
+    last_triggered_text = _format_utc_timestamp(_task_activity_time(latest_task)) or "No automation activity yet."
+    last_accepted_text = _format_utc_timestamp(latest_accepted_task.created_at) or "No automation activity yet."
 
     failed_tasks = [task for task in tasks if (task.status or "").strip().lower() == "failed" or bool((task.error_message or "").strip())]
     recent_failed_trigger_summary = "No recent failed triggers."
@@ -574,10 +574,10 @@ def _settings_triggered_work_activity_summary(db, agent_id: str) -> dict[str, st
     }
 
 
-def _settings_triggered_work_panel_summary(db, agent_id: str) -> dict:
+def _settings_settings_panel_summary(db, agent_id: str) -> dict:
     return {
-        **_settings_triggered_work_summary(db, agent_id),
-        **_settings_triggered_work_activity_summary(db, agent_id),
+        **_settings_external_identity_summary(db, agent_id),
+        **_settings_automation_activity_summary(db, agent_id),
     }
 
 
@@ -1887,7 +1887,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
         read_only = not _can_write(agent, user)
-        summary = _settings_triggered_work_panel_summary(db, agent_id)
+        summary = _settings_settings_panel_summary(db, agent_id)
 
         runtime_profile = None
         bound_agent_count = 0
@@ -1958,7 +1958,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_write(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
-        summary = _settings_triggered_work_panel_summary(db, agent_id)
+        summary = _settings_settings_panel_summary(db, agent_id)
 
         if not agent.runtime_profile_id:
             return templates.TemplateResponse(
@@ -2420,7 +2420,7 @@ def _render_agent_identity_bindings_panel(
 
 
 
-@router.get("/app/agents/{agent_id}/triggered-work/bindings/panel")
+@router.get("/app/agents/{agent_id}/external-identities/panel")
 async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
     if not user:
@@ -2434,7 +2434,7 @@ async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: st
         db.close()
 
 
-@router.post("/app/agents/{agent_id}/triggered-work/bindings/create")
+@router.post("/app/agents/{agent_id}/external-identities/create")
 async def app_agent_triggered_work_bindings_create(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
     if not user:
@@ -2493,7 +2493,7 @@ async def app_agent_triggered_work_bindings_create(request: Request, agent_id: s
         db.close()
 
 
-@router.post("/app/agents/{agent_id}/triggered-work/bindings/{binding_id}/delete")
+@router.post("/app/agents/{agent_id}/external-identities/{binding_id}/delete")
 async def app_agent_triggered_work_bindings_delete(request: Request, agent_id: str, binding_id: str):
     user = _current_user_from_cookie(request)
     if not user:

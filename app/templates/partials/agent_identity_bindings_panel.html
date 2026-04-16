@@ -13,7 +13,7 @@
   {% endif %}
 
   {% if not read_only %}
-  <form hx-post="/app/agents/{{ agent_id }}/triggered-work/bindings/create" hx-target="#agent-identity-bindings-panel" hx-swap="outerHTML" class="portal-panel-stack">
+  <form hx-post="/app/agents/{{ agent_id }}/external-identities/create" hx-target="#agent-identity-bindings-panel" hx-swap="outerHTML" class="portal-panel-stack">
     <div class="grid grid-cols-2 gap-2">
       <input type="text" name="system_type" value="{{ form.get('system_type', '') }}" placeholder="system_type (github/jira/confluence)" class="portal-form-input" required />
       <input type="text" name="external_account_id" value="{{ form.get('external_account_id', '') }}" placeholder="external_account_id" class="portal-form-input" required />
@@ -32,7 +32,7 @@
     <div class="portal-panel-note">
       <strong>{{ item.system_type }}</strong> · {{ item.external_account_id }} · {{ item.username or '-' }} · enabled={{ item.enabled }}
       {% if not read_only %}
-      <form hx-post="/app/agents/{{ agent_id }}/triggered-work/bindings/{{ item.id }}/delete" hx-target="#agent-identity-bindings-panel" hx-swap="outerHTML" style="display:inline; margin-left: 8px;">
+      <form hx-post="/app/agents/{{ agent_id }}/external-identities/{{ item.id }}/delete" hx-target="#agent-identity-bindings-panel" hx-swap="outerHTML" style="display:inline; margin-left: 8px;">
         <button type="submit" class="portal-btn is-secondary">Delete</button>
       </form>
       {% endif %}
