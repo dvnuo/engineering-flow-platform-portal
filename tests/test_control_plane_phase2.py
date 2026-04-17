@@ -880,6 +880,7 @@ def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
         assert body["runtime_profile_context"]["managed_sections"] == ["llm", "proxy", "jira", "confluence", "github", "git", "debug"]
         assert body["runtime_profile_context"]["source"] == "portal.runtime_profile"
         assert "config" in body["runtime_profile_context"]
+        assert body["runtime_profile_context"]["config"] == {"llm": {"provider": "openai"}}
         assert "ssh" not in body["runtime_profile_context"]["config"]
         assert "capability_context" in body
         assert "policy_context" in body

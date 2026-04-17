@@ -195,6 +195,31 @@ def test_settings_save_persists_llm_tools_none_mode(monkeypatch):
         cleanup()
 
 
+def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"provider": "openai"}})
+        payload = {
+            "llm_model": "gpt-5",
+            "llm_tools_mode": "none",
+            "llm_tools_count": "0",
+        }
+        resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["provider"] == "openai"
+        assert cfg["llm"]["model"] == "gpt-5"
+        assert cfg["llm"]["tools"] == []
+        assert "max_retries" not in cfg["llm"]
+        assert "system-prompt" not in cfg["llm"]
+        assert "proxy" not in cfg
+        assert "jira" not in cfg
+        assert "confluence" not in cfg
+    finally:
+        cleanup()
+
+
 def test_bindings_can_be_configured_without_runtime_profile(monkeypatch):
     client, _db, agent, cleanup = _build_client(monkeypatch)
     try:

@@ -697,6 +697,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
 
     config_payload = config_payload if isinstance(config_payload, dict) else {}
     config_payload.pop("ssh", None)
+    form_keys = set(form.keys())
+
+    def has_prefix(prefix: str) -> bool:
+        return any(key.startswith(prefix) for key in form_keys)
 
     existing_proxy_password = None
     if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
@@ -717,6 +721,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         existing_confluence_instances = []
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
+    llm_updated = has_prefix("llm_")
     provider_value = (form.get("llm_provider") or "").strip()
     model_value = (form.get("llm_model") or "").strip()
     api_key_value = (form.get("llm_api_key") or "").strip()
@@ -743,120 +748,130 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     llm_tools_mode = (form.get("llm_tools_mode") or "").strip().lower()
     if llm_tools_mode == "all":
         llm["tools"] = ["*"]
+        llm_updated = True
     elif llm_tools_mode == "none":
         llm["tools"] = []
+        llm_updated = True
     elif llm_tools_mode == "custom":
         llm["tools"] = _settings_parse_llm_tools_patterns(form)
+        llm_updated = True
 
-    jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
-    jira["enabled"] = as_bool(form.get("jira_enabled"))
-    if "jira_instance_count" in form:
-        jira["instances"] = _settings_parse_instances(
-            form,
-            "jira",
-            ["name", "url", "username", "password", "token", "project"],
-            existing_instances=existing_jira_instances,
-            preserve_blank_fields={"password", "token"},
-        )
-    jira_automation = (jira.get("automation") if isinstance(jira.get("automation"), dict) else {}).copy()
-    jira_automation["assignments"] = {
-        "enabled": as_bool(form.get("jira_assignments_enabled")),
-        "projects": _parse_multiline_csv_list(form.get("jira_assignments_projects")),
-    }
-    jira_automation["mentions"] = {
-        "enabled": as_bool(form.get("jira_mentions_enabled")),
-        "projects": _parse_multiline_csv_list(form.get("jira_mentions_projects")),
-    }
-    jira["automation"] = jira_automation
+    if has_prefix("jira_"):
+        jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
+        jira["enabled"] = as_bool(form.get("jira_enabled"))
+        if "jira_instance_count" in form:
+            jira["instances"] = _settings_parse_instances(
+                form,
+                "jira",
+                ["name", "url", "username", "password", "token", "project"],
+                existing_instances=existing_jira_instances,
+                preserve_blank_fields={"password", "token"},
+            )
+        jira_automation = (jira.get("automation") if isinstance(jira.get("automation"), dict) else {}).copy()
+        jira_automation["assignments"] = {
+            "enabled": as_bool(form.get("jira_assignments_enabled")),
+            "projects": _parse_multiline_csv_list(form.get("jira_assignments_projects")),
+        }
+        jira_automation["mentions"] = {
+            "enabled": as_bool(form.get("jira_mentions_enabled")),
+            "projects": _parse_multiline_csv_list(form.get("jira_mentions_projects")),
+        }
+        jira["automation"] = jira_automation
+        config_payload["jira"] = jira
 
-    confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
-    confluence["enabled"] = as_bool(form.get("confluence_enabled"))
-    if "confluence_instance_count" in form:
-        confluence["instances"] = _settings_parse_instances(
-            form,
-            "confluence",
-            ["name", "url", "username", "password", "token", "space"],
-            existing_instances=existing_confluence_instances,
-            preserve_blank_fields={"password", "token"},
-        )
-    confluence_automation = (confluence.get("automation") if isinstance(confluence.get("automation"), dict) else {}).copy()
-    confluence_automation["mentions"] = {
-        "enabled": as_bool(form.get("confluence_mentions_enabled")),
-        "spaces": _parse_multiline_csv_list(form.get("confluence_mentions_spaces")),
-    }
-    confluence["automation"] = confluence_automation
+    if has_prefix("confluence_"):
+        confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
+        confluence["enabled"] = as_bool(form.get("confluence_enabled"))
+        if "confluence_instance_count" in form:
+            confluence["instances"] = _settings_parse_instances(
+                form,
+                "confluence",
+                ["name", "url", "username", "password", "token", "space"],
+                existing_instances=existing_confluence_instances,
+                preserve_blank_fields={"password", "token"},
+            )
+        confluence_automation = (confluence.get("automation") if isinstance(confluence.get("automation"), dict) else {}).copy()
+        confluence_automation["mentions"] = {
+            "enabled": as_bool(form.get("confluence_mentions_enabled")),
+            "spaces": _parse_multiline_csv_list(form.get("confluence_mentions_spaces")),
+        }
+        confluence["automation"] = confluence_automation
+        config_payload["confluence"] = confluence
 
-    github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
-    github_cfg["enabled"] = as_bool(form.get("github_enabled"))
-    github_token_value = (form.get("github_api_token") or "").strip()
-    github_base_url_value = (form.get("github_base_url") or "").strip()
-    if github_token_value:
-        github_cfg["api_token"] = github_token_value
-    if "github_base_url" in form:
-        if github_base_url_value:
-            github_cfg["base_url"] = github_base_url_value
-        else:
-            github_cfg.pop("base_url", None)
+    if has_prefix("github_"):
+        github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
+        github_cfg["enabled"] = as_bool(form.get("github_enabled"))
+        github_token_value = (form.get("github_api_token") or "").strip()
+        github_base_url_value = (form.get("github_base_url") or "").strip()
+        if github_token_value:
+            github_cfg["api_token"] = github_token_value
+        if "github_base_url" in form:
+            if github_base_url_value:
+                github_cfg["base_url"] = github_base_url_value
+            else:
+                github_cfg.pop("base_url", None)
 
-    github_automation = (github_cfg.get("automation") if isinstance(github_cfg.get("automation"), dict) else {}).copy()
-    github_automation["review_requests"] = {
-        "enabled": as_bool(form.get("github_review_requests_enabled")),
-        "repos": _parse_multiline_csv_list(form.get("github_review_requests_repos")),
-    }
-    github_automation["mentions"] = {
-        "enabled": as_bool(form.get("github_mentions_enabled")),
-        "repos": _parse_multiline_csv_list(form.get("github_mentions_repos")),
-        "include_review_comments": as_bool(form.get("github_mentions_include_review_comments")),
-    }
-    github_cfg["automation"] = github_automation
+        github_automation = (github_cfg.get("automation") if isinstance(github_cfg.get("automation"), dict) else {}).copy()
+        github_automation["review_requests"] = {
+            "enabled": as_bool(form.get("github_review_requests_enabled")),
+            "repos": _parse_multiline_csv_list(form.get("github_review_requests_repos")),
+        }
+        github_automation["mentions"] = {
+            "enabled": as_bool(form.get("github_mentions_enabled")),
+            "repos": _parse_multiline_csv_list(form.get("github_mentions_repos")),
+            "include_review_comments": as_bool(form.get("github_mentions_include_review_comments")),
+        }
+        github_cfg["automation"] = github_automation
+        config_payload["github"] = github_cfg
 
-    git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
-    git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
-    git_name_value = (form.get("git_user_name") or "").strip()
-    git_email_value = (form.get("git_user_email") or "").strip()
-    if git_name_value:
-        git_user["name"] = git_name_value
-    if git_email_value:
-        git_user["email"] = git_email_value
-    git_cfg["user"] = git_user
+    if has_prefix("git_"):
+        git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
+        git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
+        git_name_value = (form.get("git_user_name") or "").strip()
+        git_email_value = (form.get("git_user_email") or "").strip()
+        if git_name_value:
+            git_user["name"] = git_name_value
+        if git_email_value:
+            git_user["email"] = git_email_value
+        git_cfg["user"] = git_user
+        config_payload["git"] = git_cfg
 
-    proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
-    proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
-    proxy_url_value = (form.get("proxy_url") or "").strip()
-    proxy_username_value = (form.get("proxy_username") or "").strip()
-    if "proxy_url" in form:
-        if proxy_url_value:
-            proxy_cfg["url"] = proxy_url_value
-        else:
-            proxy_cfg.pop("url", None)
-    if "proxy_username" in form:
-        if proxy_username_value:
-            proxy_cfg["username"] = proxy_username_value
-        else:
-            proxy_cfg.pop("username", None)
-    if "proxy_password" in form:
-        new_password = (form.get("proxy_password") or "").strip()
-        if new_password:
-            proxy_cfg["password"] = new_password
-        else:
-            proxy_cfg.pop("password", None)
-    elif existing_proxy_password:
-        proxy_cfg["password"] = existing_proxy_password
+    if has_prefix("proxy_"):
+        proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
+        proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
+        proxy_url_value = (form.get("proxy_url") or "").strip()
+        proxy_username_value = (form.get("proxy_username") or "").strip()
+        if "proxy_url" in form:
+            if proxy_url_value:
+                proxy_cfg["url"] = proxy_url_value
+            else:
+                proxy_cfg.pop("url", None)
+        if "proxy_username" in form:
+            if proxy_username_value:
+                proxy_cfg["username"] = proxy_username_value
+            else:
+                proxy_cfg.pop("username", None)
+        if "proxy_password" in form:
+            new_password = (form.get("proxy_password") or "").strip()
+            if new_password:
+                proxy_cfg["password"] = new_password
+            else:
+                proxy_cfg.pop("password", None)
+        elif existing_proxy_password:
+            proxy_cfg["password"] = existing_proxy_password
+        config_payload["proxy"] = proxy_cfg
 
-    debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
-    debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
-    valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-    log_level = (form.get("debug_log_level") or "").strip()
-    if log_level in valid_log_levels:
-        debug_cfg["log_level"] = log_level
+    if has_prefix("debug_"):
+        debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
+        debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
+        valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+        log_level = (form.get("debug_log_level") or "").strip()
+        if log_level in valid_log_levels:
+            debug_cfg["log_level"] = log_level
+        config_payload["debug"] = debug_cfg
 
-    config_payload["llm"] = llm
-    config_payload["jira"] = jira
-    config_payload["confluence"] = confluence
-    config_payload["github"] = github_cfg
-    config_payload["git"] = git_cfg
-    config_payload["proxy"] = proxy_cfg
-    config_payload["debug"] = debug_cfg
+    if llm_updated or "llm" in config_payload:
+        config_payload["llm"] = llm
     config_payload.pop("ssh", None)
     return config_payload, None
 
@@ -2046,9 +2061,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             )
 
         profile_bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
-        config_base = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        )
+        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return _settings_error_response(
@@ -2143,9 +2156,7 @@ async def app_agent_settings_test(request: Request, agent_id: str, target: str):
         if not runtime_profile or runtime_profile.owner_user_id not in {user.id, agent.owner_user_id}:
             raise HTTPException(status_code=404, detail="RuntimeProfile not found")
 
-        config_base = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        )
+        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
@@ -2191,9 +2202,7 @@ async def app_runtime_profile_test(request: Request, profile_id: str, target: st
         if not profile:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
 
-        config_base = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-        )
+        config_base = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
@@ -2219,9 +2228,7 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
 
         profile_repo = RuntimeProfileRepository(db)
-        config_base = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-        )
+        config_base = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return templates.TemplateResponse(

@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
-from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.proxy_service import ProxyService
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ class RuntimeProfileSyncService:
         return {
             "runtime_profile_id": runtime_profile.id,
             "revision": runtime_profile.revision,
-            "config": RuntimeProfileService.merge_with_managed_defaults(parsed_config),
+            "config": parsed_config,
         }
 
     @staticmethod
