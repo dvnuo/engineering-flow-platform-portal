@@ -1810,15 +1810,6 @@ function renderAgentActions(agent, status) {
     { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
     { label: "Destroy", icon: "flame", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
   ];
-  if (writable) {
-    actions.splice(4, 0, {
-      label: "Settings",
-      icon: "settings",
-      variantClass: "is-neutral",
-      onClick: () => openSettings(),
-    });
-  }
-
   actions.forEach((cfg) => container.append(buildIconBtn(cfg)));
 
   if (!writable) {
@@ -5618,7 +5609,7 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-labelledby', 'sp-editor-title');
-    modal.innerHTML = '<div class="modal-backdrop" id="sp-editor-backdrop"></div><div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-editor-enabled"><span class="toggle-slider"></span></label><span>Enable custom prompt for this section</span></div><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
+    modal.innerHTML = '<div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-editor-enabled"><span class="toggle-slider"></span></label><span>Enable custom prompt for this section</span></div><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
     document.body.appendChild(modal);
 
     modal._keyHandler = function(e) {
@@ -5628,7 +5619,11 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
     };
 
     document.getElementById('sp-editor-close').addEventListener('click', closeSystemPromptEditor);
-    document.getElementById('sp-editor-backdrop').addEventListener('click', closeSystemPromptEditor);
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) {
+        closeSystemPromptEditor();
+      }
+    });
     document.getElementById('sp-editor-cancel').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-save').addEventListener('click', function() {
       var currentAgentId = modal.dataset.agentId;
