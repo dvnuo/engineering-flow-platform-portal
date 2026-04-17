@@ -32,10 +32,10 @@
     <section class="portal-panel-section" data-managed-section="llm">
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>LLM Model</h6></div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Provider</span><select name="llm_provider" id="llm_provider" class="portal-form-select"><option value="" {{ 'selected' if not llm.get('provider') else '' }}>Use runtime local default</option><option value="openai" {{ 'selected' if llm.get('provider') == 'openai' else '' }}>OpenAI</option><option value="anthropic" {{ 'selected' if llm.get('provider') == 'anthropic' else '' }}>Anthropic</option><option value="github_copilot" {{ 'selected' if llm.get('provider') == 'github_copilot' else '' }}>GitHub Copilot</option></select></label>
-        <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ llm.get('model', '') }}" data-initial-value="{{ llm.get('model', '') }}"></select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Provider</span><select name="llm_provider" id="llm_provider" class="portal-form-select"><option value="" {{ 'selected' if not raw_llm.get('provider') else '' }}>Use runtime local default</option><option value="openai" {{ 'selected' if raw_llm.get('provider') == 'openai' else '' }}>OpenAI</option><option value="anthropic" {{ 'selected' if raw_llm.get('provider') == 'anthropic' else '' }}>Anthropic</option><option value="github_copilot" {{ 'selected' if raw_llm.get('provider') == 'github_copilot' else '' }}>GitHub Copilot</option></select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ raw_llm.get('model', '') }}" data-initial-value="{{ raw_llm.get('model', '') }}"></select></label>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ llm.get('api_key', '') }}" placeholder="Enter your API key" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="Enter your API key" class="portal-form-input" /></label>
       <button type="button" id="copilot_auth_btn" class="portal-btn is-secondary hidden">Authorize GitHub Copilot</button>
       <div id="copilot_auth_status" class="portal-form-input hidden">
         <div class="portal-settings-section-head"><span class="portal-inline-note">Status:</span><span id="copilot_status_text" class="portal-inline-note">Not authorized</span></div>
@@ -50,14 +50,14 @@
         </div>
       </div>
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Enabled Tools</h6></div>
-      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="inherit" {% if llm_tools_mode == 'inherit' %}checked{% endif %} /> Use runtime local default</label></div>
-      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="all" {% if llm_tools_mode == 'all' %}checked{% endif %} /> All tools</label></div>
-      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="none" {% if llm_tools_mode == 'none' %}checked{% endif %} /> No tools</label></div>
-      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="custom" {% if llm_tools_mode == 'custom' %}checked{% endif %} /> Custom patterns</label></div>
-      <div data-llm-tools-editor class="space-y-2 {% if llm_tools_mode != 'custom' %}hidden{% endif %}">
-        <input type="hidden" name="llm_tools_count" value="{{ llm_tools_patterns|length }}" data-llm-tools-count />
+      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="inherit" {% if raw_llm_tools_mode == 'inherit' %}checked{% endif %} /> Use runtime local default</label></div>
+      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="all" {% if raw_llm_tools_mode == 'all' %}checked{% endif %} /> All tools</label></div>
+      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="none" {% if raw_llm_tools_mode == 'none' %}checked{% endif %} /> No tools</label></div>
+      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="custom" {% if raw_llm_tools_mode == 'custom' %}checked{% endif %} /> Custom patterns</label></div>
+      <div data-llm-tools-editor class="space-y-2 {% if raw_llm_tools_mode != 'custom' %}hidden{% endif %}">
+        <input type="hidden" name="llm_tools_count" value="{{ raw_llm_tools_patterns|length }}" data-llm-tools-count />
         <div class="space-y-2" data-llm-tools-container>
-          {% for pattern in llm_tools_patterns %}
+          {% for pattern in raw_llm_tools_patterns %}
             <div class="flex items-center gap-2" data-llm-tools-item>
               <input type="text" value="{{ pattern }}" placeholder="e.g. git_clone or jira_*" class="portal-form-input" />
               <button type="button" class="portal-btn is-secondary" data-action="remove-llm-tool-pattern">Remove</button>
@@ -96,7 +96,7 @@
 
     <section class="portal-panel-section" data-managed-section="github">
       <div class="portal-settings-section-head"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>GitHub</h6></div><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Enabled</span></div></div>
-      <div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">GitHub API Base URL</span><input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="portal-form-input" /><span class="portal-form-hint">Leave blank to use the public GitHub API default.</span></label><label class="portal-form-label"><span class="portal-form-label">API Token</span><input type="password" name="github_api_token" value="{{ github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="portal-form-input" /></label></div>
+      <div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">GitHub API Base URL</span><input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="portal-form-input" /><span class="portal-form-hint">Leave blank to use the public GitHub API default.</span></label><label class="portal-form-label"><span class="portal-form-label">API Token</span><input type="password" name="github_api_token" value="{{ raw_github.get('api_token', '') }}" placeholder="ghp_xxxxx" class="portal-form-input" /></label></div>
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="github">Test GitHub</button><div class="portal-inline-state" data-test-result="github"></div></div>
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Automation</h6></div>
       <div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="github_review_requests_enabled" {% if github.get('automation', {}).get('review_requests', {}).get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>PR review requests</span></div>
@@ -106,7 +106,7 @@
       <div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="github_mentions_include_review_comments" {% if github.get('automation', {}).get('mentions', {}).get('include_review_comments') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Include review comments in mentions</span></div>
     </section>
 
-    <section class="portal-panel-section" data-managed-section="git"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Git</h6></div><div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">User Name</span><input type="text" name="git_user_name" value="{{ git.get('user', {}).get('name', '') }}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">User Email</span><input type="text" name="git_user_email" value="{{ git.get('user', {}).get('email', '') }}" class="portal-form-input" /></label></div></section>
+    <section class="portal-panel-section" data-managed-section="git"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Git</h6></div><div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">User Name</span><input type="text" name="git_user_name" value="{{ raw_git.get('user', {}).get('name', '') }}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">User Email</span><input type="text" name="git_user_email" value="{{ raw_git.get('user', {}).get('email', '') }}" class="portal-form-input" /></label></div></section>
 
     <section class="portal-panel-section" data-managed-section="debug"><div class="portal-settings-section-head"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Debug</h6></div><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Enabled</span></div></div><label class="portal-form-label"><span class="portal-form-label">Log Level</span><select name="debug_log_level" class="portal-form-select"><option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option><option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option><option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option><option value="ERROR" {% if debug.get('log_level', 'INFO') == 'ERROR' %}selected{% endif %}>ERROR</option></select></label></section>
 

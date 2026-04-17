@@ -97,11 +97,13 @@ def test_settings_panel_removes_subscriptions_ui(monkeypatch):
 def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        _bind_profile(db, agent, {"llm": {"provider": "openai"}})
+        _bind_profile(db, agent, {})
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
-        assert 'name="llm_tools_mode"' in resp.text
-        assert 'name="llm_tools_mode" value="all" checked' in resp.text
+        assert 'name="llm_provider"' in resp.text
+        assert 'option value="" selected>Use runtime local default</option>' in resp.text
+        assert 'name="llm_tools_mode" value="inherit" checked' in resp.text
+        assert 'data-current-value="" data-initial-value=""' in resp.text
     finally:
         cleanup()
 
@@ -197,6 +199,29 @@ def test_settings_save_persists_llm_tools_none_mode(monkeypatch):
         cleanup()
 
 
+def test_settings_save_sparse_llm_tools_none_does_not_inject_provider_or_model(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {})
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={
+                "__touch_llm": "1",
+                "llm_provider": "",
+                "llm_model": "",
+                "llm_api_key": "",
+                "llm_tools_mode": "none",
+                "llm_tools_count": "0",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg == {"llm": {"tools": []}}
+    finally:
+        cleanup()
+
+
 def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
@@ -253,6 +278,38 @@ def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypa
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
         assert cfg == {"debug": {"enabled": True, "log_level": "DEBUG"}}
+    finally:
+        cleanup()
+
+
+def test_settings_save_touched_github_blank_api_token_clears_token(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"github": {"api_token": "secret"}})
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"__touch_github": "1", "github_api_token": "", "github_enabled": ""},
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert "api_token" not in cfg.get("github", {})
+    finally:
+        cleanup()
+
+
+def test_settings_save_touched_git_blank_name_and_email_clears_git_user(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"git": {"user": {"name": "A", "email": "a@example.com"}}})
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"__touch_git": "1", "git_user_name": "", "git_user_email": ""},
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert "git" not in cfg
     finally:
         cleanup()
 

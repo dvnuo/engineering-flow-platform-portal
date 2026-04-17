@@ -210,7 +210,42 @@ def test_runtime_profile_panel_renders_view_defaults_for_sparse_profiles(monkeyp
         assert resp.status_code == 200
         assert 'name="jira_instance_count" value="0"' in resp.text
         assert 'name="confluence_instance_count" value="0"' in resp.text
-        assert 'name="llm_provider"' in resp.text
+        assert 'option value="" selected>Use runtime local default</option>' in resp.text
+        assert 'name="llm_tools_mode" value="inherit" checked' in resp.text
+        assert 'data-current-value="" data-initial-value=""' in resp.text
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_save_sparse_llm_tools_none_does_not_inject_provider_or_model(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = "{}"
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "",
+                "llm_model": "",
+                "llm_api_key": "",
+                "llm_tools_mode": "none",
+                "llm_tools_count": "0",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        assert json.loads(rp.config_json) == {"llm": {"tools": []}}
     finally:
         cleanup()
 
