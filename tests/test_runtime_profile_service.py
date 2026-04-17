@@ -169,3 +169,19 @@ def test_create_for_user_persists_raw_snapshot_without_hidden_default_injection(
     assert "system-prompt" not in saved["llm"]
     assert "proxy" not in saved
     assert "jira" not in saved
+
+
+def test_normalize_persisted_config_json_prunes_unmanaged_nested_fields():
+    raw = json.dumps(
+        {
+            "llm": {
+                "provider": "openai",
+                "api_base": "https://example.invalid",
+                "system-prompt": {"tools": {"enabled": True}},
+            },
+            "ssh": {"enabled": True},
+        }
+    )
+    normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
+    saved = json.loads(normalized)
+    assert saved == {"llm": {"provider": "openai"}}

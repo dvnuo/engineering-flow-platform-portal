@@ -493,7 +493,7 @@ def _settings_view_payload(config_data: dict) -> dict:
 
 def _settings_llm_tools_view(llm: dict) -> tuple[str, list[str]]:
     if not isinstance(llm, dict) or "tools" not in llm:
-        return "all", []
+        return "inherit", []
     normalized = normalize_runtime_profile_llm_tools(llm.get("tools"))
     if normalized == ["*"]:
         return "all", []
@@ -514,7 +514,8 @@ def _settings_error_response(
     profile_bound_agent_count: int = 0,
     read_only: bool = False,
 ):
-    view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
+    base = config_payload if isinstance(config_payload, dict) else {}
+    view_data = _settings_view_payload(RuntimeProfileService.merge_with_managed_defaults(base))
     summary = _settings_settings_panel_summary(db, agent_id)
     return templates.TemplateResponse(
         "partials/settings_panel.html",
@@ -695,12 +696,11 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
 
+    def is_section_touched(section: str) -> bool:
+        return str(form.get(f"__touch_{section}") or "0").strip() == "1"
+
     config_payload = config_payload if isinstance(config_payload, dict) else {}
     config_payload.pop("ssh", None)
-    form_keys = set(form.keys())
-
-    def has_prefix(prefix: str) -> bool:
-        return any(key.startswith(prefix) for key in form_keys)
 
     existing_proxy_password = None
     if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
@@ -721,42 +721,53 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         existing_confluence_instances = []
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
-    llm_updated = has_prefix("llm_")
-    provider_value = (form.get("llm_provider") or "").strip()
-    model_value = (form.get("llm_model") or "").strip()
-    api_key_value = (form.get("llm_api_key") or "").strip()
-    if provider_value:
-        llm["provider"] = provider_value
-    if model_value:
-        llm["model"] = model_value
-    if api_key_value:
-        llm["api_key"] = api_key_value
+    if is_section_touched("llm"):
+        provider_value = (form.get("llm_provider") or "").strip()
+        model_value = (form.get("llm_model") or "").strip()
+        api_key_value = (form.get("llm_api_key") or "").strip()
+        if provider_value:
+            llm["provider"] = provider_value
+        else:
+            llm.pop("provider", None)
+        if model_value:
+            llm["model"] = model_value
+        else:
+            llm.pop("model", None)
+        if api_key_value:
+            llm["api_key"] = api_key_value
+        else:
+            llm.pop("api_key", None)
 
-    temperature_text = (form.get("llm_temperature") or "").strip()
-    if temperature_text:
-        try:
-            llm["temperature"] = float(temperature_text)
-        except ValueError:
-            return config_payload, "Temperature must be a number."
+        temperature_text = (form.get("llm_temperature") or "").strip()
+        if temperature_text:
+            try:
+                llm["temperature"] = float(temperature_text)
+            except ValueError:
+                return config_payload, "Temperature must be a number."
 
-    max_tokens_text = (form.get("llm_max_tokens") or "").strip()
-    if max_tokens_text:
-        try:
-            llm["max_tokens"] = int(max_tokens_text)
-        except ValueError:
-            return config_payload, "Max tokens must be an integer."
-    llm_tools_mode = (form.get("llm_tools_mode") or "").strip().lower()
-    if llm_tools_mode == "all":
-        llm["tools"] = ["*"]
-        llm_updated = True
-    elif llm_tools_mode == "none":
-        llm["tools"] = []
-        llm_updated = True
-    elif llm_tools_mode == "custom":
-        llm["tools"] = _settings_parse_llm_tools_patterns(form)
-        llm_updated = True
+        max_tokens_text = (form.get("llm_max_tokens") or "").strip()
+        if max_tokens_text:
+            try:
+                llm["max_tokens"] = int(max_tokens_text)
+            except ValueError:
+                return config_payload, "Max tokens must be an integer."
 
-    if has_prefix("jira_"):
+        llm_tools_mode = (form.get("llm_tools_mode") or "").strip().lower()
+        if llm_tools_mode == "inherit":
+            llm.pop("tools", None)
+        elif llm_tools_mode == "all":
+            llm["tools"] = ["*"]
+        elif llm_tools_mode == "none":
+            llm["tools"] = []
+        elif llm_tools_mode == "custom":
+            llm["tools"] = _settings_parse_llm_tools_patterns(form)
+
+        if llm:
+            config_payload["llm"] = llm
+        else:
+            config_payload.pop("llm", None)
+
+    if is_section_touched("jira"):
         jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
         jira["enabled"] = as_bool(form.get("jira_enabled"))
         if "jira_instance_count" in form:
@@ -779,7 +790,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         jira["automation"] = jira_automation
         config_payload["jira"] = jira
 
-    if has_prefix("confluence_"):
+    if is_section_touched("confluence"):
         confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
         confluence["enabled"] = as_bool(form.get("confluence_enabled"))
         if "confluence_instance_count" in form:
@@ -798,7 +809,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         confluence["automation"] = confluence_automation
         config_payload["confluence"] = confluence
 
-    if has_prefix("github_"):
+    if is_section_touched("github"):
         github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
         github_cfg["enabled"] = as_bool(form.get("github_enabled"))
         github_token_value = (form.get("github_api_token") or "").strip()
@@ -824,7 +835,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         github_cfg["automation"] = github_automation
         config_payload["github"] = github_cfg
 
-    if has_prefix("git_"):
+    if is_section_touched("git"):
         git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
         git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
         git_name_value = (form.get("git_user_name") or "").strip()
@@ -836,7 +847,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         git_cfg["user"] = git_user
         config_payload["git"] = git_cfg
 
-    if has_prefix("proxy_"):
+    if is_section_touched("proxy"):
         proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
         proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
         proxy_url_value = (form.get("proxy_url") or "").strip()
@@ -861,7 +872,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             proxy_cfg["password"] = existing_proxy_password
         config_payload["proxy"] = proxy_cfg
 
-    if has_prefix("debug_"):
+    if is_section_touched("debug"):
         debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
         debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
         valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -870,8 +881,6 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             debug_cfg["log_level"] = log_level
         config_payload["debug"] = debug_cfg
 
-    if llm_updated or "llm" in config_payload:
-        config_payload["llm"] = llm
     config_payload.pop("ssh", None)
     return config_payload, None
 
@@ -2103,7 +2112,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "Running agents may need retry; newly started agents will still pull from Portal on startup."
             )
 
-        view_data = _settings_view_payload(sanitized_config)
+        view_data = _settings_view_payload(RuntimeProfileService.merge_with_managed_defaults(sanitized_config))
         return templates.TemplateResponse(
             "partials/settings_panel.html",
             {

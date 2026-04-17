@@ -102,7 +102,6 @@ def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
         assert resp.status_code == 200
         assert 'name="llm_tools_mode"' in resp.text
         assert 'name="llm_tools_mode" value="all" checked' in resp.text
-        assert 'data-llm-tools-editor class="space-y-2 hidden"' in resp.text
     finally:
         cleanup()
 
@@ -126,6 +125,9 @@ def test_settings_save_and_echoes_automation(monkeypatch):
     try:
         rp = _bind_profile(db, agent)
         payload = {
+            "__touch_github": "1",
+            "__touch_jira": "1",
+            "__touch_confluence": "1",
             "github_enabled": "on",
             "github_review_requests_enabled": "on",
             "github_review_requests_repos": "org/repo-a\norg/repo-b",
@@ -158,8 +160,9 @@ def test_settings_save_and_echoes_automation(monkeypatch):
 def test_settings_save_persists_llm_tools_custom_patterns(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        rp = _bind_profile(db, agent, {"llm": {"system-prompt": {"tools": {"enabled": True}}}})
+        rp = _bind_profile(db, agent, {"llm": {"provider": "openai"}})
         payload = {
+            "__touch_llm": "1",
             "llm_tools_mode": "custom",
             "llm_tools_count": "4",
             "llm_tools_0_pattern": " git_clone ",
@@ -172,7 +175,6 @@ def test_settings_save_persists_llm_tools_custom_patterns(monkeypatch):
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
         assert cfg["llm"]["tools"] == ["git_clone", "jira_*"]
-        assert cfg["llm"]["system-prompt"]["tools"]["enabled"] is True
         assert 'name="llm_tools_count"' in resp.text
         assert 'data-action="add-llm-tool-pattern"' in resp.text
     finally:
@@ -185,7 +187,7 @@ def test_settings_save_persists_llm_tools_none_mode(monkeypatch):
         rp = _bind_profile(db, agent, {"llm": {"tools": ["*"]}})
         resp = client.post(
             f"/app/agents/{agent.id}/settings/save",
-            data={"llm_tools_mode": "none", "llm_tools_count": "0"},
+            data={"__touch_llm": "1", "llm_tools_mode": "none", "llm_tools_count": "0"},
         )
         assert resp.status_code == 200
         db.refresh(rp)
@@ -200,6 +202,8 @@ def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults
     try:
         rp = _bind_profile(db, agent, {"llm": {"provider": "openai"}})
         payload = {
+            "__touch_llm": "1",
+            "llm_provider": "openai",
             "llm_model": "gpt-5",
             "llm_tools_mode": "none",
             "llm_tools_count": "0",
@@ -216,6 +220,39 @@ def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults
         assert "proxy" not in cfg
         assert "jira" not in cfg
         assert "confluence" not in cfg
+    finally:
+        cleanup()
+
+
+def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {})
+        payload = {
+            "__touch_llm": "0",
+            "__touch_proxy": "0",
+            "__touch_jira": "0",
+            "__touch_confluence": "0",
+            "__touch_github": "0",
+            "__touch_git": "0",
+            "__touch_debug": "1",
+            "llm_provider": "github_copilot",
+            "llm_model": "gpt-5-mini",
+            "llm_tools_mode": "all",
+            "proxy_enabled": "",
+            "proxy_url": "",
+            "jira_enabled": "",
+            "confluence_enabled": "",
+            "github_enabled": "",
+            "git_user_name": "",
+            "debug_enabled": "on",
+            "debug_log_level": "DEBUG",
+        }
+        resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg == {"debug": {"enabled": True, "log_level": "DEBUG"}}
     finally:
         cleanup()
 

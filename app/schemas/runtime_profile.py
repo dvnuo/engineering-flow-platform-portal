@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import datetime
 
 from pydantic import BaseModel, field_validator
@@ -13,6 +14,89 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "git",
     "debug",
 }
+
+PORTAL_MANAGED_FIELD_TREE = {
+    "llm": {
+        "provider": True,
+        "model": True,
+        "api_key": True,
+        "temperature": True,
+        "max_tokens": True,
+        "tools": True,
+    },
+    "proxy": {
+        "enabled": True,
+        "url": True,
+        "username": True,
+        "password": True,
+    },
+    "jira": {
+        "enabled": True,
+        "instances": True,
+        "automation": {
+            "assignments": {
+                "enabled": True,
+                "projects": True,
+            },
+            "mentions": {
+                "enabled": True,
+                "projects": True,
+            },
+        },
+    },
+    "confluence": {
+        "enabled": True,
+        "instances": True,
+        "automation": {
+            "mentions": {
+                "enabled": True,
+                "spaces": True,
+            },
+        },
+    },
+    "github": {
+        "enabled": True,
+        "api_token": True,
+        "base_url": True,
+        "automation": {
+            "review_requests": {
+                "enabled": True,
+                "repos": True,
+            },
+            "mentions": {
+                "enabled": True,
+                "repos": True,
+                "include_review_comments": True,
+            },
+        },
+    },
+    "git": {
+        "user": {
+            "name": True,
+            "email": True,
+        },
+    },
+    "debug": {
+        "enabled": True,
+        "log_level": True,
+    },
+}
+
+
+def _filter_by_field_tree(data, field_tree):
+    if field_tree is True:
+        return deepcopy(data)
+    if not isinstance(field_tree, dict) or not isinstance(data, dict):
+        return None
+    filtered: dict = {}
+    for key, subtree in field_tree.items():
+        if key not in data:
+            continue
+        value = _filter_by_field_tree(data[key], subtree)
+        if value is None:
+            continue
+        filtered[key] = value
+    return filtered
 
 
 def normalize_runtime_profile_llm_tools(value) -> list[str]:
@@ -49,7 +133,8 @@ def normalize_runtime_profile_llm_tools(value) -> list[str]:
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
-    sanitized = {key: value for key, value in data.items() if key in ALLOWED_RUNTIME_PROFILE_SECTIONS}
+    top_level = {key: value for key, value in data.items() if key in ALLOWED_RUNTIME_PROFILE_SECTIONS}
+    sanitized = _filter_by_field_tree(top_level, PORTAL_MANAGED_FIELD_TREE) or {}
     llm = sanitized.get("llm")
     if isinstance(llm, dict) and "tools" in llm:
         llm_copy = llm.copy()

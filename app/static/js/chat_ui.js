@@ -3829,10 +3829,21 @@ function addLlmToolPatternRow(root, value = "") {
 }
 
 function toggleLlmToolsEditor(root) {
-  const mode = root?.querySelector('input[name="llm_tools_mode"]:checked')?.value || "all";
+  const mode = root?.querySelector('input[name="llm_tools_mode"]:checked')?.value || "inherit";
   const editor = root?.querySelector("[data-llm-tools-editor]");
   if (!editor) return;
   editor.classList.toggle("hidden", mode !== "custom");
+}
+
+function markManagedSectionTouched(root, section) {
+  if (!root || !section) return;
+  const flag = root.querySelector(`[data-touch-flag="${section}"]`);
+  if (flag) flag.value = "1";
+}
+
+function sectionNameForElement(element) {
+  const section = element?.closest?.("[data-managed-section]");
+  return section?.dataset?.managedSection || "";
 }
 
 window.initPasswordToggles = function(root = document) {
@@ -3890,13 +3901,17 @@ function updateModelOptions(root) {
   const providerSelect = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
   if (!providerSelect || !modelSelect) return;
-  const provider = providerSelect.value || "openai";
+  const provider = providerSelect.value || "";
   const initialProvider = providerSelect.dataset.initialProvider || provider;
   const initialValue = modelSelect.dataset.initialValue || modelSelect.dataset.currentValue || "";
   const lastProvider = modelSelect.dataset.lastProvider || initialProvider;
   const previousValue = modelSelect.value || "";
   const models = managedProviderModels[provider] || [];
   modelSelect.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "Use runtime local default";
+  modelSelect.appendChild(defaultOption);
   models.forEach((model) => {
     const option = document.createElement("option");
     option.value = model.value;
@@ -3920,7 +3935,7 @@ function updateModelOptions(root) {
     preferred = hasModel(previousValue) ? previousValue : (models[0]?.value || "");
   }
   if (preferred) modelSelect.value = preferred;
-  if (!modelSelect.value && models[0]?.value) modelSelect.value = models[0].value;
+  if (!modelSelect.value) modelSelect.value = "";
   modelSelect.dataset.currentValue = modelSelect.value || "";
   modelSelect.dataset.lastProvider = provider;
 
@@ -4069,7 +4084,10 @@ async function startCopilotAuth(root) {
         if (statusText) statusText.textContent = "Authorized successfully!";
         if (instructions) instructions.classList.add("hidden");
         const apiInput = root.querySelector('input[name="llm_api_key"]');
-        if (apiInput && check.token) apiInput.value = check.token;
+        if (apiInput && check.token) {
+          apiInput.value = check.token;
+          markManagedSectionTouched(root, "llm");
+        }
         showToast("Copilot token inserted into API Key field. Save to persist.");
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
         finishCopilotAuthWithMessage(root, check.message || check.error || "Authorization failed");
@@ -4092,7 +4110,7 @@ function initializeManagedSettingsRoot(root) {
   window.initPasswordToggles(root);
   const provider = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
-  if (provider && !provider.dataset.initialProvider) provider.dataset.initialProvider = provider.value || "openai";
+  if (provider && !provider.dataset.initialProvider) provider.dataset.initialProvider = provider.value || "";
   if (modelSelect && !modelSelect.dataset.initialValue) {
     modelSelect.dataset.initialValue = modelSelect.dataset.currentValue || "";
     modelSelect.dataset.lastProvider = provider?.value || "openai";
@@ -4114,12 +4132,19 @@ function initializeManagedSettingsRoot(root) {
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
     if (event.target?.name === "llm_tools_mode") toggleLlmToolsEditor(root);
+    const section = sectionNameForElement(event.target);
+    if (section) markManagedSectionTouched(root, section);
+  });
+  root.addEventListener("input", (event) => {
+    const section = sectionNameForElement(event.target);
+    if (section) markManagedSectionTouched(root, section);
   });
   root.addEventListener("click", async (event) => {
     const addToolBtn = event.target.closest('[data-action="add-llm-tool-pattern"]');
     if (addToolBtn) {
       event.preventDefault();
       addLlmToolPatternRow(root);
+      markManagedSectionTouched(root, "llm");
       return;
     }
     const removeToolBtn = event.target.closest('[data-action="remove-llm-tool-pattern"]');
@@ -4127,12 +4152,15 @@ function initializeManagedSettingsRoot(root) {
       event.preventDefault();
       removeToolBtn.closest("[data-llm-tools-item]")?.remove();
       normalizeLlmToolPatternInputs(root);
+      markManagedSectionTouched(root, "llm");
       return;
     }
     const addBtn = event.target.closest('[data-action="add-instance"]');
     if (addBtn) {
       event.preventDefault();
-      addInstanceRow(root, addBtn.dataset.group || "jira");
+      const group = addBtn.dataset.group || "jira";
+      addInstanceRow(root, group);
+      markManagedSectionTouched(root, group);
       return;
     }
     const removeBtn = event.target.closest('[data-action="remove-instance"]');
@@ -4141,6 +4169,7 @@ function initializeManagedSettingsRoot(root) {
       const group = removeBtn.dataset.group || "jira";
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(root, group);
+      markManagedSectionTouched(root, group);
       return;
     }
     const testBtn = event.target.closest("[data-test-target]");

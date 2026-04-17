@@ -89,6 +89,13 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         resp = client.post(
             f"/app/runtime-profiles/{rp.id}/save",
             data={
+                "__touch_llm": "1",
+                "__touch_proxy": "1",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "1",
+                "__touch_git": "0",
+                "__touch_debug": "0",
                 "name": "Renamed",
                 "description": "new-desc",
                 "is_default": "on",
@@ -120,6 +127,74 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert "api_key" not in saved["llm"]
         assert "base_url" not in saved.get("github", {})
         assert "password" not in saved.get("proxy", {})
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "0",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "1",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "github_copilot",
+                "llm_model": "gpt-5-mini",
+                "llm_tools_mode": "all",
+                "proxy_enabled": "",
+                "jira_enabled": "",
+                "confluence_enabled": "",
+                "github_enabled": "",
+                "debug_enabled": "on",
+                "debug_log_level": "ERROR",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        assert json.loads(rp.config_json) == {
+            "llm": {"provider": "openai"},
+            "debug": {"enabled": True, "log_level": "ERROR"},
+        }
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_name_only_save_keeps_sparse_config_unchanged(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = "{}"
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "0",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": "Metadata Only",
+                "description": "still sparse",
+                "is_default": "on",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        assert rp.name == "Metadata Only"
+        assert rp.description == "still sparse"
+        assert json.loads(rp.config_json) == {}
     finally:
         cleanup()
 
