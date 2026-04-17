@@ -1619,8 +1619,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .portal-btn[aria-disabled="true"],
 .portal-modal-close:disabled,
 .portal-modal-close[aria-disabled="true"],
-.stack button:disabled,
-.stack button[aria-disabled="true"] {
+.stack > button:not(.portal-btn):not(.portal-modal-close):disabled,
+.stack > button:not(.portal-btn):not(.portal-modal-close)[aria-disabled="true"] {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none !important;
@@ -1903,7 +1903,7 @@ html[data-theme="dark"] .portal-thinking-block {
 .stack { display: grid; gap: 1rem; }
 .stack label:not(.toggle-switch) { display: block; font-size: .875rem; color: var(--portal-text-secondary); margin-bottom: .35rem; }
 .stack input:not([type="checkbox"]):not([type="radio"]), .stack textarea { width: 100%; border-radius: .5rem; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); color: var(--portal-text); padding: .625rem .75rem; }
-.stack button { width: 100%; border-radius: .5rem; border: none; background: var(--portal-cta-bg); color: var(--portal-cta-text); font-weight: 600; padding: .75rem 1rem; }
+.stack > button:not(.portal-btn):not(.portal-modal-close) { width: 100%; border-radius: .5rem; border: none; background: var(--portal-cta-bg); color: var(--portal-cta-text); font-weight: 600; padding: .75rem 1rem; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 1050; }
 .file-preview-card { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1051; width: min(90vw, 800px); max-height: 90vh; padding: 1.5rem; background: var(--portal-surface); border: 1px solid var(--portal-border); border-radius: var(--portal-radius-lg); display: flex; flex-direction: column; box-shadow: var(--portal-shadow-lg); }

@@ -31,4 +31,4 @@ def test_disabled_styles_for_modal_buttons_exist():
 
     assert ".portal-btn:disabled" in css
     assert ".portal-modal-close:disabled" in css
-    assert ".stack button:disabled" in css
+    assert ".stack > button:not(.portal-btn):not(.portal-modal-close):disabled" in css

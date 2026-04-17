@@ -48,4 +48,15 @@ def test_system_prompt_editor_markup_still_uses_shared_toggle_classes():
     assert '<span class="toggle-slider"></span>' in editor_modal_html
     assert 'Enable custom prompt for this section' in editor_modal_html
     assert 'id="sp-editor-content"' in editor_modal_html
+    assert 'id="sp-editor-cancel"' in editor_modal_html
+    assert 'class="portal-btn is-secondary"' in editor_modal_html
     assert 'id="sp-editor-save"' in editor_modal_html
+    assert 'class="portal-btn is-primary"' in editor_modal_html
+
+
+def test_stack_button_selectors_are_narrowed_to_avoid_portal_button_overrides():
+    css = Path("app/static/css/app.css").read_text(encoding="utf-8")
+
+    assert ".stack > button:not(.portal-btn):not(.portal-modal-close)" in css
+    assert ".stack button {" not in css
+    assert ".stack button:disabled" not in css
