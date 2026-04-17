@@ -33,7 +33,7 @@ function makeJsonResponse(status, body) {{
     status,
     headers: {{ get(name) {{ return name === "content-type" ? "application/json" : ""; }} }},
     async json() {{ return body; }},
-    async text() {{ return ""; }},
+    async text() {{ return JSON.stringify(body); }},
   }};
 }}
 
@@ -56,6 +56,10 @@ function makeTextResponse(status, textBody) {{
 }}
 
 (async () => {{
+  if (typeof Response !== "function") {{
+    throw new Error("Global Response is not available in this Node runtime");
+  }}
+
   const caseA = await handleErrorResponse(makeJsonResponse(400, {{
     error: "Model output was truncated because max_output_tokens was reached.",
     error_type: "truncated_response",
@@ -91,7 +95,17 @@ function makeTextResponse(status, textBody) {{
 
   const caseJ = await handleErrorResponse(makeTextResponse(500, "   "));
 
-  console.log(JSON.stringify({{ caseA, caseB, caseC, caseD, caseE, caseF, caseG, caseH, caseI, caseJ }}));
+  const caseK = await handleErrorResponse(new Response("raw upstream body", {{
+    status: 502,
+    headers: {{ "content-type": "application/json" }},
+  }}));
+
+  const caseL = await handleErrorResponse(new Response("   ", {{
+    status: 500,
+    headers: {{ "content-type": "application/json" }},
+  }}));
+
+  console.log(JSON.stringify({{ caseA, caseB, caseC, caseD, caseE, caseF, caseG, caseH, caseI, caseJ, caseK, caseL }}));
 }})().catch((err) => {{
   console.error(err);
   process.exit(1);
@@ -111,3 +125,5 @@ function makeTextResponse(status, textBody) {{
     assert data["caseH"] == "Request failed (HTTP 500)"
     assert data["caseI"] == "Proxy upstream failure"
     assert data["caseJ"] == "Request failed (HTTP 500)"
+    assert data["caseK"] == "raw upstream body"
+    assert data["caseL"] == "Request failed (HTTP 500)"

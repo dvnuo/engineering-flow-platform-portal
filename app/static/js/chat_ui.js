@@ -1385,43 +1385,40 @@ async function api(path, options = {}) {
 async function handleErrorResponse(resp) {
   const fallbackMessage = `Request failed (HTTP ${resp.status})`;
   const contentType = resp.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    try {
-      const err = await resp.json();
-      const detail = err?.detail;
-      if (typeof detail === "string" && detail.trim()) return detail;
-      if (Array.isArray(detail)) {
-        const items = detail
-          .map((e) => {
-            if (typeof e === "string") return e;
-            if (typeof e?.msg === "string") return e.msg;
-            return JSON.stringify(e);
-          })
-          .filter((item) => typeof item === "string" && item.trim());
-        if (items.length) return items.join(", ");
-      }
-
-      if (typeof err?.error?.message === "string" && err.error.message.trim()) return err.error.message;
-      if (typeof err?.error === "string" && err.error.trim()) return err.error;
-      if (typeof err?.message === "string" && err.message.trim()) return err.message;
-
-      if (err?.error_type || err?.code) {
-        const suffix = [err?.error_type, err?.code].filter(Boolean).join(" / ");
-        return suffix ? `${fallbackMessage}: ${suffix}` : fallbackMessage;
-      }
-      return fallbackMessage;
-    } catch (_jsonParseError) {
+  try {
+    const rawText = await resp.text();
+    const trimmedText = rawText?.trim() || "";
+    if (contentType.includes("application/json")) {
+      if (!trimmedText) return fallbackMessage;
       try {
-        const text = await resp.text();
-        return text?.trim() ? text : fallbackMessage;
-      } catch (_textReadError) {
+        const err = JSON.parse(rawText);
+        const detail = err?.detail;
+        if (typeof detail === "string" && detail.trim()) return detail;
+        if (Array.isArray(detail)) {
+          const items = detail
+            .map((e) => {
+              if (typeof e === "string") return e;
+              if (typeof e?.msg === "string") return e.msg;
+              return JSON.stringify(e);
+            })
+            .filter((item) => typeof item === "string" && item.trim());
+          if (items.length) return items.join(", ");
+        }
+
+        if (typeof err?.error?.message === "string" && err.error.message.trim()) return err.error.message;
+        if (typeof err?.error === "string" && err.error.trim()) return err.error;
+        if (typeof err?.message === "string" && err.message.trim()) return err.message;
+
+        if (err?.error_type || err?.code) {
+          const suffix = [err?.error_type, err?.code].filter(Boolean).join(" / ");
+          return suffix ? `${fallbackMessage}: ${suffix}` : fallbackMessage;
+        }
         return fallbackMessage;
+      } catch (_jsonParseError) {
+        return trimmedText || fallbackMessage;
       }
     }
-  }
-  try {
-    const text = await resp.text();
-    return text?.trim() ? text : fallbackMessage;
+    return trimmedText || fallbackMessage;
   } catch (_textReadError) {
     return fallbackMessage;
   }
