@@ -170,3 +170,19 @@ def test_runtime_profile_panel_get_renders_llm_tools_custom_patterns(monkeypatch
         assert 'data-action="add-llm-tool-pattern"' in resp.text
     finally:
         cleanup()
+
+
+def test_runtime_profile_panel_get_renders_llm_tools_none_mode(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps({"llm": {"tools": []}})
+        db.add(rp)
+        db.commit()
+
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_tools_mode"' in resp.text
+        assert 'name="llm_tools_mode" value="none" checked' in resp.text
+        assert 'data-llm-tools-editor class="space-y-2 hidden"' in resp.text
+    finally:
+        cleanup()
