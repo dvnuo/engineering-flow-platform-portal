@@ -15,10 +15,47 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
 }
 
 
+def normalize_runtime_profile_llm_tools(value) -> list[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        return ["*"] if text == "*" else [text]
+
+    if not isinstance(value, list):
+        raise ValueError("llm.tools must be a string or list of strings")
+
+    normalized: list[str] = []
+    seen_lower: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("llm.tools must be a string or list of strings")
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        if cleaned == "*":
+            return ["*"]
+        dedupe_key = cleaned.lower()
+        if dedupe_key in seen_lower:
+            continue
+        seen_lower.add(dedupe_key)
+        normalized.append(cleaned)
+    return normalized
+
+
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
-    return {key: value for key, value in data.items() if key in ALLOWED_RUNTIME_PROFILE_SECTIONS}
+    sanitized = {key: value for key, value in data.items() if key in ALLOWED_RUNTIME_PROFILE_SECTIONS}
+    llm = sanitized.get("llm")
+    if isinstance(llm, dict) and "tools" in llm:
+        llm_copy = llm.copy()
+        llm_copy["tools"] = normalize_runtime_profile_llm_tools(llm_copy.get("tools"))
+        sanitized["llm"] = llm_copy
+    return sanitized
 
 
 def parse_runtime_profile_config_json(raw: str | None, *, fallback_to_empty: bool = False) -> dict:

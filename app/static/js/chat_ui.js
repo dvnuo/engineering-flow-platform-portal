@@ -3801,6 +3801,40 @@ function addInstanceRow(root, group) {
   if (window.initPasswordToggles) window.initPasswordToggles(root);
 }
 
+function normalizeLlmToolPatternInputs(root) {
+  const container = root?.querySelector("[data-llm-tools-container]");
+  const countInput = root?.querySelector("[data-llm-tools-count]");
+  if (!container || !countInput) return;
+  const items = Array.from(container.querySelectorAll("[data-llm-tools-item]"));
+  items.forEach((item, idx) => {
+    const input = item.querySelector("input");
+    if (!input) return;
+    input.name = `llm_tools_${idx}_pattern`;
+  });
+  countInput.value = String(items.length);
+}
+
+function addLlmToolPatternRow(root, value = "") {
+  const container = root?.querySelector("[data-llm-tools-container]");
+  if (!container) return;
+  const div = document.createElement("div");
+  div.className = "flex items-center gap-2";
+  div.dataset.llmToolsItem = "";
+  div.innerHTML = `
+    <input type="text" value="${safe(value)}" placeholder="e.g. git_clone or jira_*" class="portal-form-input" />
+    <button type="button" class="portal-btn is-secondary" data-action="remove-llm-tool-pattern">Remove</button>
+  `;
+  container.append(div);
+  normalizeLlmToolPatternInputs(root);
+}
+
+function toggleLlmToolsEditor(root) {
+  const mode = root?.querySelector('input[name="llm_tools_mode"]:checked')?.value || "all";
+  const editor = root?.querySelector("[data-llm-tools-editor]");
+  if (!editor) return;
+  editor.classList.toggle("hidden", mode !== "custom");
+}
+
 window.initPasswordToggles = function(root = document) {
   root.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach((input) => {
     input.classList.add("pr-6", "password-toggle-initialized");
@@ -4053,6 +4087,8 @@ function initializeManagedSettingsRoot(root) {
   if (!root) return;
   normalizeInstanceInputs(root, "jira");
   normalizeInstanceInputs(root, "confluence");
+  toggleLlmToolsEditor(root);
+  normalizeLlmToolPatternInputs(root);
   window.initPasswordToggles(root);
   const provider = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
@@ -4077,8 +4113,22 @@ function initializeManagedSettingsRoot(root) {
   root.dataset.actionsBound = "1";
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
+    if (event.target?.name === "llm_tools_mode") toggleLlmToolsEditor(root);
   });
   root.addEventListener("click", async (event) => {
+    const addToolBtn = event.target.closest('[data-action="add-llm-tool-pattern"]');
+    if (addToolBtn) {
+      event.preventDefault();
+      addLlmToolPatternRow(root);
+      return;
+    }
+    const removeToolBtn = event.target.closest('[data-action="remove-llm-tool-pattern"]');
+    if (removeToolBtn) {
+      event.preventDefault();
+      removeToolBtn.closest("[data-llm-tools-item]")?.remove();
+      normalizeLlmToolPatternInputs(root);
+      return;
+    }
     const addBtn = event.target.closest('[data-action="add-instance"]');
     if (addBtn) {
       event.preventDefault();

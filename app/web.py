@@ -19,7 +19,12 @@ from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRep
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
-from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json, sanitize_runtime_profile_config_dict
+from app.schemas.runtime_profile import (
+    dump_runtime_profile_config_json,
+    normalize_runtime_profile_llm_tools,
+    parse_runtime_profile_config_json,
+    sanitize_runtime_profile_config_dict,
+)
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
@@ -468,10 +473,13 @@ def _settings_view_payload(config_data: dict) -> dict:
     confluence = clean_config.get("confluence") if isinstance(clean_config.get("confluence"), dict) else {}
     jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []
     confluence_instances = confluence.get("instances") if isinstance(confluence.get("instances"), list) else []
+    llm_tools_mode, llm_tools_patterns = _settings_llm_tools_view(llm)
 
     return {
         "config": clean_config,
         "llm": llm,
+        "llm_tools_mode": llm_tools_mode,
+        "llm_tools_patterns": llm_tools_patterns,
         "jira": jira,
         "jira_instances": jira_instances,
         "confluence": confluence,
@@ -481,6 +489,17 @@ def _settings_view_payload(config_data: dict) -> dict:
         "proxy": clean_config.get("proxy") if isinstance(clean_config.get("proxy"), dict) else {},
         "debug": clean_config.get("debug") if isinstance(clean_config.get("debug"), dict) else {},
     }
+
+
+def _settings_llm_tools_view(llm: dict) -> tuple[str, list[str]]:
+    if not isinstance(llm, dict) or "tools" not in llm:
+        return "all", []
+    normalized = normalize_runtime_profile_llm_tools(llm.get("tools"))
+    if normalized == ["*"]:
+        return "all", []
+    if not normalized:
+        return "none", []
+    return "custom", normalized
 
 
 def _settings_error_response(
@@ -651,6 +670,27 @@ def _parse_multiline_csv_list(raw: str | None) -> list[str]:
         values.append(cleaned)
     return values
 
+
+def _settings_parse_llm_tools_patterns(form) -> list[str]:
+    count_text = (form.get("llm_tools_count") or "0").strip()
+    try:
+        count = max(0, int(count_text))
+    except ValueError:
+        count = 0
+
+    patterns: list[str] = []
+    seen_lower: set[str] = set()
+    for i in range(count):
+        value = (form.get(f"llm_tools_{i}_pattern") or "").strip()
+        if not value:
+            continue
+        dedupe_key = value.lower()
+        if dedupe_key in seen_lower:
+            continue
+        seen_lower.add(dedupe_key)
+        patterns.append(value)
+    return patterns
+
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
@@ -700,6 +740,13 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             llm["max_tokens"] = int(max_tokens_text)
         except ValueError:
             return config_payload, "Max tokens must be an integer."
+    llm_tools_mode = (form.get("llm_tools_mode") or "").strip().lower()
+    if llm_tools_mode == "all":
+        llm["tools"] = ["*"]
+    elif llm_tools_mode == "none":
+        llm["tools"] = []
+    elif llm_tools_mode == "custom":
+        llm["tools"] = _settings_parse_llm_tools_patterns(form)
 
     jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
     jira["enabled"] = as_bool(form.get("jira_enabled"))

@@ -110,6 +110,7 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert cfg["llm"]["temperature"] == 0.7
     assert cfg["llm"]["max_retries"] == 3
     assert cfg["llm"]["retry_delay"] == 1
+    assert cfg["llm"]["tools"] == ["*"]
     assert cfg["llm"]["system-prompt"]["daily_notes"]["enabled"] is True
     assert cfg["debug"]["log_level"] == "INFO"
 

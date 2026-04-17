@@ -106,6 +106,8 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
                 "is_default": "on",
                 "llm_provider": "anthropic",
                 "llm_model": "claude-sonnet-4",
+                "llm_tools_mode": "all",
+                "llm_tools_count": "0",
                 "proxy_enabled": "",
                 "proxy_url": "",
                 "proxy_username": "",
@@ -123,7 +125,8 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert rp.revision == 2
         saved = json.loads(rp.config_json)
         assert saved["llm"]["provider"] == "anthropic"
-        assert saved["llm"]["max_tokens"] == 1000
+        assert saved["llm"]["tools"] == ["*"]
+        assert saved["llm"]["max_tokens"] == RuntimeProfileService.default_profile_config()["llm"]["max_tokens"]
         assert "api_key" not in saved["llm"]
         assert "base_url" not in saved.get("github", {})
         assert "password" not in saved.get("proxy", {})
@@ -148,5 +151,38 @@ def test_runtime_profile_panel_renders_materialized_seed_defaults(monkeypatch):
         assert 'name="confluence_instance_count" value="2"' in resp.text
         assert EXPECTED_CONFLUENCE_URLS[0] in resp.text
         assert EXPECTED_CONFLUENCE_URLS[1] in resp.text
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_panel_get_renders_llm_tools_custom_patterns(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps({"llm": {"tools": ["git_clone", "jira_*"]}})
+        db.add(rp)
+        db.commit()
+
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_tools_mode" value="custom" checked' in resp.text
+        assert "git_clone" in resp.text
+        assert "jira_*" in resp.text
+        assert 'data-action="add-llm-tool-pattern"' in resp.text
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_panel_get_renders_llm_tools_none_mode(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps({"llm": {"tools": []}})
+        db.add(rp)
+        db.commit()
+
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_tools_mode"' in resp.text
+        assert 'name="llm_tools_mode" value="none" checked' in resp.text
+        assert 'data-llm-tools-editor class="space-y-2 hidden"' in resp.text
     finally:
         cleanup()

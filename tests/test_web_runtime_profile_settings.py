@@ -94,6 +94,33 @@ def test_settings_panel_removes_subscriptions_ui(monkeypatch):
         cleanup()
 
 
+def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(db, agent, {"llm": {"provider": "openai"}})
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_tools_mode"' in resp.text
+        assert 'name="llm_tools_mode" value="all" checked' in resp.text
+        assert 'data-llm-tools-editor class="space-y-2 hidden"' in resp.text
+    finally:
+        cleanup()
+
+
+def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(db, agent, {"llm": {"tools": ["git_clone", "jira_*"]}})
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_tools_mode" value="custom" checked' in resp.text
+        assert 'name="llm_tools_count"' in resp.text
+        assert "git_clone" in resp.text
+        assert "jira_*" in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_save_and_echoes_automation(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
@@ -124,6 +151,46 @@ def test_settings_save_and_echoes_automation(monkeypatch):
         assert 'name="github_review_requests_repos"' in resp.text
         assert 'name="jira_assignments_projects"' in resp.text
         assert 'name="confluence_mentions_spaces"' in resp.text
+    finally:
+        cleanup()
+
+
+def test_settings_save_persists_llm_tools_custom_patterns(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"system-prompt": {"tools": {"enabled": True}}}})
+        payload = {
+            "llm_tools_mode": "custom",
+            "llm_tools_count": "4",
+            "llm_tools_0_pattern": " git_clone ",
+            "llm_tools_1_pattern": "jira_*",
+            "llm_tools_2_pattern": "",
+            "llm_tools_3_pattern": "GIT_CLONE",
+        }
+        resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["tools"] == ["git_clone", "jira_*"]
+        assert cfg["llm"]["system-prompt"]["tools"]["enabled"] is True
+        assert 'name="llm_tools_count"' in resp.text
+        assert 'data-action="add-llm-tool-pattern"' in resp.text
+    finally:
+        cleanup()
+
+
+def test_settings_save_persists_llm_tools_none_mode(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"tools": ["*"]}})
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"llm_tools_mode": "none", "llm_tools_count": "0"},
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["tools"] == []
     finally:
         cleanup()
 
