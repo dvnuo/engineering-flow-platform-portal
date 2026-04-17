@@ -47,15 +47,14 @@ def test_app_template_contains_new_portal_shell():
     assert 'hx-post="/app/chat/send"' not in chat_form_block
 
     rail_top_start = html.index('<div class="portal-rail-top">')
-    rail_top_end = html.index('</div>', rail_top_start)
+    rail_top_end = html.index('<div class="portal-rail-bottom">', rail_top_start)
     rail_top = html[rail_top_start:rail_top_end]
-    assert "runtime-profiles-menu-btn" in rail_top
-    assert rail_top.index("rail-assistants-btn") < rail_top.index("runtime-profiles-menu-btn") < rail_top.index("bundles-menu-btn")
+    assert "runtime-profiles-menu-btn" not in rail_top
 
     rail_bottom_start = html.index('<div class="portal-rail-bottom">')
     rail_bottom_end = html.index('</div>', rail_bottom_start)
     rail_bottom = html[rail_bottom_start:rail_bottom_end]
-    assert "runtime-profiles-menu-btn" not in rail_bottom
+    assert "runtime-profiles-menu-btn" in rail_bottom
     assert "theme-toggle" in rail_bottom
     assert "logout-btn" in rail_bottom
 
@@ -78,8 +77,8 @@ def test_app_template_contains_new_portal_shell():
     assert 'data-copilot-agent-id' not in runtime_panel
     assert 'data-copilot-agent-id' not in settings_panel
     assert 'copilot_proxy_agent_hint' not in runtime_panel
-    assert 'data-current-value="{{ llm.get(\'model\', \'\') }}"' in runtime_panel
-    assert 'data-current-value="{{ llm.get(\'model\', \'\') }}"' in settings_panel
+    assert 'data-current-value="{{ raw_llm.get(\'model\', \'\') }}"' in runtime_panel
+    assert 'data-current-value="{{ raw_llm.get(\'model\', \'\') }}"' in settings_panel
     assert 'data-test-target="proxy"' in runtime_panel
     assert 'data-test-target="proxy"' in settings_panel
     assert "providerModels" not in settings_panel
