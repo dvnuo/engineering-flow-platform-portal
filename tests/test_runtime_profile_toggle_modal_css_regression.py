@@ -40,6 +40,8 @@ def test_system_prompt_editor_markup_still_uses_shared_toggle_classes():
     assert editor_modal_match, "System prompt editor modal.innerHTML assignment should exist"
 
     editor_modal_html = editor_modal_match.group("html")
+    assert 'class="modal-backdrop"' not in editor_modal_html
+    assert 'id="sp-editor-backdrop"' not in editor_modal_html
     assert '<div class="stack">' in editor_modal_html
     assert '<label class="toggle-switch">' in editor_modal_html
     assert 'id="sp-editor-enabled"' in editor_modal_html
