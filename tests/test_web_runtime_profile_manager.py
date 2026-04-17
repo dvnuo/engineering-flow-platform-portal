@@ -8,18 +8,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
-from app.services.runtime_profile_service import RuntimeProfileService
-
-EXPECTED_PROXY_URL = "https://proxy.com:80"
-EXPECTED_JIRA_URLS = [
-    "https://yourcompany.atlassian.net",
-    "https://yourcompany2.atlassian.net",
-]
-EXPECTED_CONFLUENCE_URLS = [
-    "https://yourcompany.atlassian.net/wiki",
-    "https://yourcompany2.atlassian.net/wiki",
-]
-
 
 def _build_client(monkeypatch):
     from app.main import app
@@ -101,6 +89,13 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         resp = client.post(
             f"/app/runtime-profiles/{rp.id}/save",
             data={
+                "__touch_llm": "1",
+                "__touch_proxy": "1",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "1",
+                "__touch_git": "0",
+                "__touch_debug": "0",
                 "name": "Renamed",
                 "description": "new-desc",
                 "is_default": "on",
@@ -126,7 +121,9 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         saved = json.loads(rp.config_json)
         assert saved["llm"]["provider"] == "anthropic"
         assert saved["llm"]["tools"] == ["*"]
-        assert saved["llm"]["max_tokens"] == RuntimeProfileService.default_profile_config()["llm"]["max_tokens"]
+        assert "max_tokens" not in saved["llm"]
+        assert "max_retries" not in saved["llm"]
+        assert "system-prompt" not in saved["llm"]
         assert "api_key" not in saved["llm"]
         assert "base_url" not in saved.get("github", {})
         assert "password" not in saved.get("proxy", {})
@@ -134,23 +131,121 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         cleanup()
 
 
-def test_runtime_profile_panel_renders_materialized_seed_defaults(monkeypatch):
+def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
-        rp.config_json = RuntimeProfileService.materialize_create_config_json("{}")
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "0",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "1",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "github_copilot",
+                "llm_model": "gpt-5-mini",
+                "llm_tools_mode": "all",
+                "proxy_enabled": "",
+                "jira_enabled": "",
+                "confluence_enabled": "",
+                "github_enabled": "",
+                "debug_enabled": "on",
+                "debug_log_level": "ERROR",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        assert json.loads(rp.config_json) == {
+            "llm": {"provider": "openai"},
+            "debug": {"enabled": True, "log_level": "ERROR"},
+        }
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_name_only_save_keeps_sparse_config_unchanged(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = "{}"
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "0",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": "Metadata Only",
+                "description": "still sparse",
+                "is_default": "on",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        assert rp.name == "Metadata Only"
+        assert rp.description == "still sparse"
+        assert json.loads(rp.config_json) == {}
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_panel_renders_view_defaults_for_sparse_profiles(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = "{}"
         db.add(rp)
         db.commit()
 
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
-        assert EXPECTED_PROXY_URL in resp.text
-        assert 'data-instance-count="jira"' in resp.text
-        assert 'name="jira_instance_count" value="2"' in resp.text
-        assert EXPECTED_JIRA_URLS[0] in resp.text
-        assert EXPECTED_JIRA_URLS[1] in resp.text
-        assert 'name="confluence_instance_count" value="2"' in resp.text
-        assert EXPECTED_CONFLUENCE_URLS[0] in resp.text
-        assert EXPECTED_CONFLUENCE_URLS[1] in resp.text
+        assert 'name="jira_instance_count" value="0"' in resp.text
+        assert 'name="confluence_instance_count" value="0"' in resp.text
+        assert 'option value="" selected>Use runtime local default</option>' in resp.text
+        assert 'name="llm_tools_mode" value="inherit" checked' in resp.text
+        assert 'data-current-value="" data-initial-value=""' in resp.text
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_save_sparse_llm_tools_none_does_not_inject_provider_or_model(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = "{}"
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "",
+                "llm_model": "",
+                "llm_api_key": "",
+                "llm_tools_mode": "none",
+                "llm_tools_count": "0",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        assert json.loads(rp.config_json) == {"llm": {"tools": []}}
     finally:
         cleanup()
 

@@ -464,36 +464,51 @@ async def _forward_runtime_multipart(
     )
 
 
-def _settings_view_payload(config_data: dict) -> dict:
-    clean_config = dict(config_data or {})
-    clean_config.pop("ssh", None)
+def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | None = None) -> dict:
+    raw_config = dict(raw_config_data or {})
+    raw_config.pop("ssh", None)
+    effective_config = dict(effective_config_data or RuntimeProfileService.merge_with_managed_defaults(raw_config))
+    effective_config.pop("ssh", None)
 
-    llm = clean_config.get("llm") if isinstance(clean_config.get("llm"), dict) else {}
-    jira = clean_config.get("jira") if isinstance(clean_config.get("jira"), dict) else {}
-    confluence = clean_config.get("confluence") if isinstance(clean_config.get("confluence"), dict) else {}
+    llm = effective_config.get("llm") if isinstance(effective_config.get("llm"), dict) else {}
+    raw_llm = raw_config.get("llm") if isinstance(raw_config.get("llm"), dict) else {}
+    jira = effective_config.get("jira") if isinstance(effective_config.get("jira"), dict) else {}
+    confluence = effective_config.get("confluence") if isinstance(effective_config.get("confluence"), dict) else {}
     jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []
     confluence_instances = confluence.get("instances") if isinstance(confluence.get("instances"), list) else []
     llm_tools_mode, llm_tools_patterns = _settings_llm_tools_view(llm)
+    raw_llm_tools_mode, raw_llm_tools_patterns = _settings_llm_tools_view(raw_llm)
+    raw_github = raw_config.get("github") if isinstance(raw_config.get("github"), dict) else {}
+    raw_git = raw_config.get("git") if isinstance(raw_config.get("git"), dict) else {}
+    raw_proxy = raw_config.get("proxy") if isinstance(raw_config.get("proxy"), dict) else {}
 
     return {
-        "config": clean_config,
+        "config": effective_config,
+        "raw_config": raw_config,
         "llm": llm,
+        "raw_llm": raw_llm,
+        "effective_llm": llm,
         "llm_tools_mode": llm_tools_mode,
         "llm_tools_patterns": llm_tools_patterns,
+        "raw_llm_tools_mode": raw_llm_tools_mode,
+        "raw_llm_tools_patterns": raw_llm_tools_patterns,
         "jira": jira,
         "jira_instances": jira_instances,
         "confluence": confluence,
         "confluence_instances": confluence_instances,
-        "github": clean_config.get("github") if isinstance(clean_config.get("github"), dict) else {},
-        "git": clean_config.get("git") if isinstance(clean_config.get("git"), dict) else {},
-        "proxy": clean_config.get("proxy") if isinstance(clean_config.get("proxy"), dict) else {},
-        "debug": clean_config.get("debug") if isinstance(clean_config.get("debug"), dict) else {},
+        "github": effective_config.get("github") if isinstance(effective_config.get("github"), dict) else {},
+        "raw_github": raw_github,
+        "git": effective_config.get("git") if isinstance(effective_config.get("git"), dict) else {},
+        "raw_git": raw_git,
+        "proxy": effective_config.get("proxy") if isinstance(effective_config.get("proxy"), dict) else {},
+        "raw_proxy": raw_proxy,
+        "debug": effective_config.get("debug") if isinstance(effective_config.get("debug"), dict) else {},
     }
 
 
 def _settings_llm_tools_view(llm: dict) -> tuple[str, list[str]]:
     if not isinstance(llm, dict) or "tools" not in llm:
-        return "all", []
+        return "inherit", []
     normalized = normalize_runtime_profile_llm_tools(llm.get("tools"))
     if normalized == ["*"]:
         return "all", []
@@ -514,7 +529,8 @@ def _settings_error_response(
     profile_bound_agent_count: int = 0,
     read_only: bool = False,
 ):
-    view_data = _settings_view_payload(config_payload if isinstance(config_payload, dict) else {})
+    base = config_payload if isinstance(config_payload, dict) else {}
+    view_data = _settings_view_payload(base, RuntimeProfileService.merge_with_managed_defaults(base))
     summary = _settings_settings_panel_summary(db, agent_id)
     return templates.TemplateResponse(
         "partials/settings_panel.html",
@@ -609,10 +625,9 @@ def _runtime_profile_panel_context(
     status_message: str = "",
 ) -> dict:
     bound_count = profile_repo.count_bound_agents(profile.id)
-    config_data = RuntimeProfileService.merge_with_managed_defaults(
-        parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-    )
-    view_data = _settings_view_payload(config_data)
+    raw_config_data = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
+    view_data = _settings_view_payload(raw_config_data, config_data)
     return {
         "request": request,
         "profile_id": profile.id,
@@ -695,6 +710,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
 
+    def is_section_touched(section: str) -> bool:
+        return str(form.get(f"__touch_{section}") or "0").strip() == "1"
+
     config_payload = config_payload if isinstance(config_payload, dict) else {}
     config_payload.pop("ssh", None)
 
@@ -717,146 +735,187 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         existing_confluence_instances = []
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
-    provider_value = (form.get("llm_provider") or "").strip()
-    model_value = (form.get("llm_model") or "").strip()
-    api_key_value = (form.get("llm_api_key") or "").strip()
-    if provider_value:
-        llm["provider"] = provider_value
-    if model_value:
-        llm["model"] = model_value
-    if api_key_value:
-        llm["api_key"] = api_key_value
-
-    temperature_text = (form.get("llm_temperature") or "").strip()
-    if temperature_text:
-        try:
-            llm["temperature"] = float(temperature_text)
-        except ValueError:
-            return config_payload, "Temperature must be a number."
-
-    max_tokens_text = (form.get("llm_max_tokens") or "").strip()
-    if max_tokens_text:
-        try:
-            llm["max_tokens"] = int(max_tokens_text)
-        except ValueError:
-            return config_payload, "Max tokens must be an integer."
-    llm_tools_mode = (form.get("llm_tools_mode") or "").strip().lower()
-    if llm_tools_mode == "all":
-        llm["tools"] = ["*"]
-    elif llm_tools_mode == "none":
-        llm["tools"] = []
-    elif llm_tools_mode == "custom":
-        llm["tools"] = _settings_parse_llm_tools_patterns(form)
-
-    jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
-    jira["enabled"] = as_bool(form.get("jira_enabled"))
-    if "jira_instance_count" in form:
-        jira["instances"] = _settings_parse_instances(
-            form,
-            "jira",
-            ["name", "url", "username", "password", "token", "project"],
-            existing_instances=existing_jira_instances,
-            preserve_blank_fields={"password", "token"},
-        )
-    jira_automation = (jira.get("automation") if isinstance(jira.get("automation"), dict) else {}).copy()
-    jira_automation["assignments"] = {
-        "enabled": as_bool(form.get("jira_assignments_enabled")),
-        "projects": _parse_multiline_csv_list(form.get("jira_assignments_projects")),
-    }
-    jira_automation["mentions"] = {
-        "enabled": as_bool(form.get("jira_mentions_enabled")),
-        "projects": _parse_multiline_csv_list(form.get("jira_mentions_projects")),
-    }
-    jira["automation"] = jira_automation
-
-    confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
-    confluence["enabled"] = as_bool(form.get("confluence_enabled"))
-    if "confluence_instance_count" in form:
-        confluence["instances"] = _settings_parse_instances(
-            form,
-            "confluence",
-            ["name", "url", "username", "password", "token", "space"],
-            existing_instances=existing_confluence_instances,
-            preserve_blank_fields={"password", "token"},
-        )
-    confluence_automation = (confluence.get("automation") if isinstance(confluence.get("automation"), dict) else {}).copy()
-    confluence_automation["mentions"] = {
-        "enabled": as_bool(form.get("confluence_mentions_enabled")),
-        "spaces": _parse_multiline_csv_list(form.get("confluence_mentions_spaces")),
-    }
-    confluence["automation"] = confluence_automation
-
-    github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
-    github_cfg["enabled"] = as_bool(form.get("github_enabled"))
-    github_token_value = (form.get("github_api_token") or "").strip()
-    github_base_url_value = (form.get("github_base_url") or "").strip()
-    if github_token_value:
-        github_cfg["api_token"] = github_token_value
-    if "github_base_url" in form:
-        if github_base_url_value:
-            github_cfg["base_url"] = github_base_url_value
+    if is_section_touched("llm"):
+        provider_value = (form.get("llm_provider") or "").strip()
+        model_value = (form.get("llm_model") or "").strip()
+        api_key_value = (form.get("llm_api_key") or "").strip()
+        if provider_value:
+            llm["provider"] = provider_value
         else:
-            github_cfg.pop("base_url", None)
-
-    github_automation = (github_cfg.get("automation") if isinstance(github_cfg.get("automation"), dict) else {}).copy()
-    github_automation["review_requests"] = {
-        "enabled": as_bool(form.get("github_review_requests_enabled")),
-        "repos": _parse_multiline_csv_list(form.get("github_review_requests_repos")),
-    }
-    github_automation["mentions"] = {
-        "enabled": as_bool(form.get("github_mentions_enabled")),
-        "repos": _parse_multiline_csv_list(form.get("github_mentions_repos")),
-        "include_review_comments": as_bool(form.get("github_mentions_include_review_comments")),
-    }
-    github_cfg["automation"] = github_automation
-
-    git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
-    git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
-    git_name_value = (form.get("git_user_name") or "").strip()
-    git_email_value = (form.get("git_user_email") or "").strip()
-    if git_name_value:
-        git_user["name"] = git_name_value
-    if git_email_value:
-        git_user["email"] = git_email_value
-    git_cfg["user"] = git_user
-
-    proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
-    proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
-    proxy_url_value = (form.get("proxy_url") or "").strip()
-    proxy_username_value = (form.get("proxy_username") or "").strip()
-    if "proxy_url" in form:
-        if proxy_url_value:
-            proxy_cfg["url"] = proxy_url_value
+            llm.pop("provider", None)
+        if model_value:
+            llm["model"] = model_value
         else:
-            proxy_cfg.pop("url", None)
-    if "proxy_username" in form:
-        if proxy_username_value:
-            proxy_cfg["username"] = proxy_username_value
+            llm.pop("model", None)
+        if api_key_value:
+            llm["api_key"] = api_key_value
         else:
-            proxy_cfg.pop("username", None)
-    if "proxy_password" in form:
-        new_password = (form.get("proxy_password") or "").strip()
-        if new_password:
-            proxy_cfg["password"] = new_password
+            llm.pop("api_key", None)
+
+        temperature_text = (form.get("llm_temperature") or "").strip()
+        if "llm_temperature" in form:
+            if not temperature_text:
+                llm.pop("temperature", None)
+            else:
+                try:
+                    llm["temperature"] = float(temperature_text)
+                except ValueError:
+                    return config_payload, "Temperature must be a number."
+        
+        max_tokens_text = (form.get("llm_max_tokens") or "").strip()
+        if "llm_max_tokens" in form:
+            if not max_tokens_text:
+                llm.pop("max_tokens", None)
+            else:
+                try:
+                    llm["max_tokens"] = int(max_tokens_text)
+                except ValueError:
+                    return config_payload, "Max tokens must be an integer."
+
+        llm_tools_mode = (form.get("llm_tools_mode") or "").strip().lower()
+        if llm_tools_mode == "inherit":
+            llm.pop("tools", None)
+        elif llm_tools_mode == "all":
+            llm["tools"] = ["*"]
+        elif llm_tools_mode == "none":
+            llm["tools"] = []
+        elif llm_tools_mode == "custom":
+            llm["tools"] = _settings_parse_llm_tools_patterns(form)
+
+        if llm:
+            config_payload["llm"] = llm
         else:
-            proxy_cfg.pop("password", None)
-    elif existing_proxy_password:
-        proxy_cfg["password"] = existing_proxy_password
+            config_payload.pop("llm", None)
 
-    debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
-    debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
-    valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-    log_level = (form.get("debug_log_level") or "").strip()
-    if log_level in valid_log_levels:
-        debug_cfg["log_level"] = log_level
+    if is_section_touched("jira"):
+        jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
+        jira["enabled"] = as_bool(form.get("jira_enabled"))
+        if "jira_instance_count" in form:
+            jira["instances"] = _settings_parse_instances(
+                form,
+                "jira",
+                ["name", "url", "username", "password", "token", "project"],
+                existing_instances=existing_jira_instances,
+                preserve_blank_fields={"password", "token"},
+            )
+        jira_automation = (jira.get("automation") if isinstance(jira.get("automation"), dict) else {}).copy()
+        jira_automation["assignments"] = {
+            "enabled": as_bool(form.get("jira_assignments_enabled")),
+            "projects": _parse_multiline_csv_list(form.get("jira_assignments_projects")),
+        }
+        jira_automation["mentions"] = {
+            "enabled": as_bool(form.get("jira_mentions_enabled")),
+            "projects": _parse_multiline_csv_list(form.get("jira_mentions_projects")),
+        }
+        jira["automation"] = jira_automation
+        config_payload["jira"] = jira
 
-    config_payload["llm"] = llm
-    config_payload["jira"] = jira
-    config_payload["confluence"] = confluence
-    config_payload["github"] = github_cfg
-    config_payload["git"] = git_cfg
-    config_payload["proxy"] = proxy_cfg
-    config_payload["debug"] = debug_cfg
+    if is_section_touched("confluence"):
+        confluence = (config_payload.get("confluence") if isinstance(config_payload.get("confluence"), dict) else {}).copy()
+        confluence["enabled"] = as_bool(form.get("confluence_enabled"))
+        if "confluence_instance_count" in form:
+            confluence["instances"] = _settings_parse_instances(
+                form,
+                "confluence",
+                ["name", "url", "username", "password", "token", "space"],
+                existing_instances=existing_confluence_instances,
+                preserve_blank_fields={"password", "token"},
+            )
+        confluence_automation = (confluence.get("automation") if isinstance(confluence.get("automation"), dict) else {}).copy()
+        confluence_automation["mentions"] = {
+            "enabled": as_bool(form.get("confluence_mentions_enabled")),
+            "spaces": _parse_multiline_csv_list(form.get("confluence_mentions_spaces")),
+        }
+        confluence["automation"] = confluence_automation
+        config_payload["confluence"] = confluence
+
+    if is_section_touched("github"):
+        github_cfg = (config_payload.get("github") if isinstance(config_payload.get("github"), dict) else {}).copy()
+        github_cfg["enabled"] = as_bool(form.get("github_enabled"))
+        github_token_value = (form.get("github_api_token") or "").strip()
+        github_base_url_value = (form.get("github_base_url") or "").strip()
+        if "github_api_token" in form:
+            if github_token_value:
+                github_cfg["api_token"] = github_token_value
+            else:
+                github_cfg.pop("api_token", None)
+        if "github_base_url" in form:
+            if github_base_url_value:
+                github_cfg["base_url"] = github_base_url_value
+            else:
+                github_cfg.pop("base_url", None)
+
+        github_automation = (github_cfg.get("automation") if isinstance(github_cfg.get("automation"), dict) else {}).copy()
+        github_automation["review_requests"] = {
+            "enabled": as_bool(form.get("github_review_requests_enabled")),
+            "repos": _parse_multiline_csv_list(form.get("github_review_requests_repos")),
+        }
+        github_automation["mentions"] = {
+            "enabled": as_bool(form.get("github_mentions_enabled")),
+            "repos": _parse_multiline_csv_list(form.get("github_mentions_repos")),
+            "include_review_comments": as_bool(form.get("github_mentions_include_review_comments")),
+        }
+        github_cfg["automation"] = github_automation
+        config_payload["github"] = github_cfg
+
+    if is_section_touched("git"):
+        git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
+        git_user = (git_cfg.get("user") if isinstance(git_cfg.get("user"), dict) else {}).copy()
+        git_name_value = (form.get("git_user_name") or "").strip()
+        git_email_value = (form.get("git_user_email") or "").strip()
+        if "git_user_name" in form:
+            if git_name_value:
+                git_user["name"] = git_name_value
+            else:
+                git_user.pop("name", None)
+        if "git_user_email" in form:
+            if git_email_value:
+                git_user["email"] = git_email_value
+            else:
+                git_user.pop("email", None)
+        if git_user:
+            git_cfg["user"] = git_user
+        else:
+            git_cfg.pop("user", None)
+        if git_cfg:
+            config_payload["git"] = git_cfg
+        else:
+            config_payload.pop("git", None)
+
+    if is_section_touched("proxy"):
+        proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
+        proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
+        proxy_url_value = (form.get("proxy_url") or "").strip()
+        proxy_username_value = (form.get("proxy_username") or "").strip()
+        if "proxy_url" in form:
+            if proxy_url_value:
+                proxy_cfg["url"] = proxy_url_value
+            else:
+                proxy_cfg.pop("url", None)
+        if "proxy_username" in form:
+            if proxy_username_value:
+                proxy_cfg["username"] = proxy_username_value
+            else:
+                proxy_cfg.pop("username", None)
+        if "proxy_password" in form:
+            new_password = (form.get("proxy_password") or "").strip()
+            if new_password:
+                proxy_cfg["password"] = new_password
+            else:
+                proxy_cfg.pop("password", None)
+        elif existing_proxy_password:
+            proxy_cfg["password"] = existing_proxy_password
+        config_payload["proxy"] = proxy_cfg
+
+    if is_section_touched("debug"):
+        debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
+        debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
+        valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+        log_level = (form.get("debug_log_level") or "").strip()
+        if log_level in valid_log_levels:
+            debug_cfg["log_level"] = log_level
+        config_payload["debug"] = debug_cfg
+
     config_payload.pop("ssh", None)
     return config_payload, None
 
@@ -1964,10 +2023,9 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 },
             )
 
-        config_data = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        )
-        view_data = _settings_view_payload(config_data)
+        raw_config_data = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
+        view_data = _settings_view_payload(raw_config_data, config_data)
         return templates.TemplateResponse(
             "partials/settings_panel.html",
             {
@@ -2046,9 +2104,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             )
 
         profile_bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
-        config_base = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        )
+        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return _settings_error_response(
@@ -2090,7 +2146,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "Running agents may need retry; newly started agents will still pull from Portal on startup."
             )
 
-        view_data = _settings_view_payload(sanitized_config)
+        view_data = _settings_view_payload(sanitized_config, RuntimeProfileService.merge_with_managed_defaults(sanitized_config))
         return templates.TemplateResponse(
             "partials/settings_panel.html",
             {
@@ -2143,9 +2199,7 @@ async def app_agent_settings_test(request: Request, agent_id: str, target: str):
         if not runtime_profile or runtime_profile.owner_user_id not in {user.id, agent.owner_user_id}:
             raise HTTPException(status_code=404, detail="RuntimeProfile not found")
 
-        config_base = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        )
+        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
@@ -2191,9 +2245,7 @@ async def app_runtime_profile_test(request: Request, profile_id: str, target: st
         if not profile:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
 
-        config_base = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-        )
+        config_base = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
@@ -2219,9 +2271,7 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
 
         profile_repo = RuntimeProfileRepository(db)
-        config_base = RuntimeProfileService.merge_with_managed_defaults(
-            parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-        )
+        config_base = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return templates.TemplateResponse(

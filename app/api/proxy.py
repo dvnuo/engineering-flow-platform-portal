@@ -135,8 +135,7 @@ def _normalize_and_validate_model_override_for_agent(
         profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
         if profile:
             parsed = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-            merged = RuntimeProfileService.merge_with_managed_defaults(parsed)
-            llm = merged.get("llm") if isinstance(merged, dict) else {}
+            llm = parsed.get("llm") if isinstance(parsed, dict) else {}
             if not isinstance(llm, dict):
                 llm = {}
             provider = RuntimeProfileService.normalize_managed_llm_provider(llm.get("provider"))

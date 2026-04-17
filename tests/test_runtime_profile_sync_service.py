@@ -8,18 +8,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.models import Agent, User
 from app.models.runtime_profile import RuntimeProfile
-from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
-
-EXPECTED_PROXY_URL = "https://proxy.com:80"
-EXPECTED_JIRA_INSTANCES = [
-    {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
-    {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
-]
-EXPECTED_CONFLUENCE_INSTANCES = [
-    {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
-    {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
-]
 
 
 def _build_db():
@@ -137,10 +126,10 @@ def test_push_payload_to_agent_uses_content_type_and_portal_trusted_headers(monk
         db.close()
 
 
-def test_build_apply_payload_from_profile_keeps_shape_and_includes_materialized_seed():
+def test_build_apply_payload_from_profile_keeps_shape_and_uses_raw_profile_config():
     db, rp, _running, _stopped = _build_db()
     try:
-        rp.config_json = RuntimeProfileService.materialize_create_config_json("{}")
+        rp.config_json = '{"llm": {"provider": "openai"}}'
         db.add(rp)
         db.commit()
         db.refresh(rp)
@@ -149,9 +138,7 @@ def test_build_apply_payload_from_profile_keeps_shape_and_includes_materialized_
         assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
         assert payload["runtime_profile_id"] == rp.id
         assert payload["revision"] == rp.revision
-        assert payload["config"]["proxy"]["url"] == EXPECTED_PROXY_URL
-        assert payload["config"]["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
-        assert payload["config"]["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
+        assert payload["config"] == {"llm": {"provider": "openai"}}
     finally:
         db.close()
 
@@ -166,8 +153,6 @@ def test_build_apply_payload_from_sparse_legacy_profile_does_not_backfill_creati
 
         payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
         assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
-        assert "url" not in payload["config"]["proxy"]
-        assert payload["config"]["jira"]["instances"] == []
-        assert payload["config"]["confluence"]["instances"] == []
+        assert payload["config"] == {}
     finally:
         db.close()

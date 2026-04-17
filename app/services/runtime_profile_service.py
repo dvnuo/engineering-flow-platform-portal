@@ -111,39 +111,23 @@ class RuntimeProfileService:
         }
 
     @staticmethod
-    def creation_profile_config() -> dict:
-        return RuntimeProfileService._deep_merge_dicts(
-            RuntimeProfileService.default_profile_config(),
-            {
-                "proxy": {
-                    "enabled": False,
-                    "url": "https://proxy.com:80",
-                },
-                "jira": {
-                    "enabled": False,
-                    "instances": [
-                        {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
-                        {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
-                    ],
-                },
-                "confluence": {
-                    "enabled": False,
-                    "instances": [
-                        {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
-                        {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
-                    ],
-                },
-            },
-        )
+    def normalize_persisted_config_json(config_json: str | None) -> str:
+        """Return sanitized runtime profile JSON for persistence.
+
+        Persistence must store only raw/sparse Portal-managed snapshot fields,
+        never a default-materialized view payload.
+        """
+        parsed = parse_runtime_profile_config_json(config_json, fallback_to_empty=True)
+        return dump_runtime_profile_config_json(parsed)
 
     @staticmethod
     def materialize_create_config_json(config_json: str | None) -> str:
-        overlay = parse_runtime_profile_config_json(config_json, fallback_to_empty=True)
-        merged = RuntimeProfileService._deep_merge_dicts(
-            RuntimeProfileService.creation_profile_config(),
-            overlay,
-        )
-        return dump_runtime_profile_config_json(merged)
+        """Backward-compatible alias used by older callsites/tests.
+
+        NOTE: This no longer materializes defaults. It now only normalizes raw
+        persisted runtime-profile JSON.
+        """
+        return RuntimeProfileService.normalize_persisted_config_json(config_json)
 
     @staticmethod
     def _deep_merge_dicts(base: dict, overlay: dict) -> dict:
@@ -165,6 +149,7 @@ class RuntimeProfileService:
 
     @staticmethod
     def merge_with_managed_defaults(config_dict: dict | None) -> dict:
+        """Build view-only rendering payload by merging safe managed defaults."""
         overlay = config_dict if isinstance(config_dict, dict) else {}
         return RuntimeProfileService._deep_merge_dicts(RuntimeProfileService.default_profile_config(), overlay)
 
@@ -194,7 +179,7 @@ class RuntimeProfileService:
                 owner_user_id=user.id,
                 name="Default",
                 description="Auto-created default runtime profile",
-                config_json=self.materialize_create_config_json(None),
+                config_json=self.normalize_persisted_config_json(None),
                 is_default=True,
             )
 
@@ -265,7 +250,7 @@ class RuntimeProfileService:
                 owner_user_id=user.id,
                 name=name,
                 description=description,
-                config_json=self.materialize_create_config_json(config_json),
+                config_json=self.normalize_persisted_config_json(config_json),
                 is_default=bool(is_default),
             )
         except IntegrityError as exc:

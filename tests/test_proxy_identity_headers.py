@@ -316,6 +316,27 @@ def test_normalize_and_validate_model_override_rejects_model_not_allowed_for_pro
     assert exc.value.detail == "model_override is not allowed for the agent's current runtime profile provider"
 
 
+def test_normalize_and_validate_model_override_rejects_when_profile_has_no_explicit_provider(monkeypatch):
+    import app.api.proxy as proxy_module
+
+    fake_agent = SimpleNamespace(runtime_profile_id="rp-1")
+    fake_profile = SimpleNamespace(config_json='{"llm": {"temperature": 0.2}}')
+    monkeypatch.setattr(
+        proxy_module,
+        "RuntimeProfileRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _profile_id: fake_profile),
+    )
+
+    with pytest.raises(proxy_module.HTTPException) as exc:
+        proxy_module._normalize_and_validate_model_override_for_agent(
+            {"message": "hi", "model_override": "gpt-5"},
+            agent=fake_agent,
+            db=object(),
+        )
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "model_override is not allowed for the agent's current runtime profile provider"
+
+
 def test_proxy_agent_blocks_server_files_endpoints_for_non_owner(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module
