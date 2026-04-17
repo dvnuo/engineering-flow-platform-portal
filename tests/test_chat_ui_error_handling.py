@@ -37,6 +37,15 @@ function makeJsonResponse(status, body) {{
   }};
 }}
 
+function makeBrokenJsonResponse(status, textBody) {{
+  return {{
+    status,
+    headers: {{ get(name) {{ return name === "content-type" ? "application/json" : ""; }} }},
+    async json() {{ throw new Error("invalid json payload"); }},
+    async text() {{ return textBody; }},
+  }};
+}}
+
 function makeTextResponse(status, textBody) {{
   return {{
     status,
@@ -57,11 +66,32 @@ function makeTextResponse(status, textBody) {{
     detail: "legacy detail message",
   }}));
 
-  const caseC = await handleErrorResponse(makeTextResponse(502, "Proxy upstream failure"));
+  const caseC = await handleErrorResponse(makeJsonResponse(422, {{
+    detail: ["first detail", {{ msg: "second detail" }}, {{ nested: "shape" }}],
+  }}));
 
-  const caseD = await handleErrorResponse(makeTextResponse(500, "   "));
+  const caseD = await handleErrorResponse(makeJsonResponse(400, {{
+    error: {{ message: "structured nested message" }},
+  }}));
 
-  console.log(JSON.stringify({{ caseA, caseB, caseC, caseD }}));
+  const caseE = await handleErrorResponse(makeJsonResponse(409, {{
+    message: "top-level message",
+  }}));
+
+  const caseF = await handleErrorResponse(makeJsonResponse(500, {{
+    error_type: "truncated_response",
+    code: "max_output_tokens_exceeded",
+  }}));
+
+  const caseG = await handleErrorResponse(makeBrokenJsonResponse(502, "raw upstream body"));
+
+  const caseH = await handleErrorResponse(makeBrokenJsonResponse(500, "   "));
+
+  const caseI = await handleErrorResponse(makeTextResponse(502, "Proxy upstream failure"));
+
+  const caseJ = await handleErrorResponse(makeTextResponse(500, "   "));
+
+  console.log(JSON.stringify({{ caseA, caseB, caseC, caseD, caseE, caseF, caseG, caseH, caseI, caseJ }}));
 }})().catch((err) => {{
   console.error(err);
   process.exit(1);
@@ -73,5 +103,11 @@ function makeTextResponse(status, textBody) {{
 
     assert data["caseA"] == "Model output was truncated because max_output_tokens was reached."
     assert data["caseB"] == "legacy detail message"
-    assert data["caseC"] == "Proxy upstream failure"
-    assert data["caseD"] == "Request failed (HTTP 500)"
+    assert data["caseC"] == 'first detail, second detail, {"nested":"shape"}'
+    assert data["caseD"] == "structured nested message"
+    assert data["caseE"] == "top-level message"
+    assert data["caseF"] == "Request failed (HTTP 500): truncated_response / max_output_tokens_exceeded"
+    assert data["caseG"] == "raw upstream body"
+    assert data["caseH"] == "Request failed (HTTP 500)"
+    assert data["caseI"] == "Proxy upstream failure"
+    assert data["caseJ"] == "Request failed (HTTP 500)"
