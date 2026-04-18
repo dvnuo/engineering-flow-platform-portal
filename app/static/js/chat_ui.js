@@ -1,4 +1,3 @@
-const rootBreadcrumbAttr = "data-server-path="/"";
 /**
  * Portal-native chat UI.
  * Runtime remains source-of-truth for chat/session/file APIs under /a/{agent_id}/api/...
@@ -739,7 +738,10 @@ function isTrackableThinkingEvent(type) {
     "skill_matched", "complete",
     // Skill mode events
     "skill_mode_start", "skill_step", "skill_session_start",
-    "skill_compaction", "skill_complete"
+    "skill_compaction", "skill_complete",
+    // Active skill contract events
+    "skill_runtime_applied", "skill_contract_active",
+    "skill_tool_denied", "skill_contract_cleared"
   ].includes(type);
 }
 
@@ -835,6 +837,28 @@ function getThinkingEventDisplay(event) {
     skill_session_start: { icon: "clipboard-list", title: "Skill Session", detail: `Goal: ${data.goal || ""}` },
     skill_compaction: { icon: data.status === "completed" ? "archive" : "scissors", title: "Compaction", detail: data.status === "completed" ? `Steps: ${data.remaining_steps}` : `Tokens: ${data.current_tokens}` },
     skill_complete: { icon: "check-square", title: data.reason === "finish" ? "Skill Finished" : "Skill Awaiting Input", detail: data.result || data.question || "" },
+    skill_runtime_applied: {
+      icon: "layers",
+      title: "Skill Runtime Applied",
+      detail: data.skill ? `Using ${data.skill}` : "Skill runtime applied",
+      skill: data.skill
+    },
+    skill_contract_active: {
+      icon: "pin",
+      title: "Active Skill",
+      detail: data.skill ? `${data.skill}${data.reason ? ` · ${data.reason}` : ""}` : "Active skill",
+      skill: data.skill
+    },
+    skill_tool_denied: {
+      icon: "shield-alert",
+      title: "Skill Tool Denied",
+      detail: data.tool ? `${data.tool} denied by ${data.skill || "active skill"}` : "Tool denied by active skill",
+    },
+    skill_contract_cleared: {
+      icon: "x-circle",
+      title: "Active Skill Cleared",
+      detail: data.skill ? `${data.skill} cleared` : "Active skill cleared",
+    },
   };
   return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
 }

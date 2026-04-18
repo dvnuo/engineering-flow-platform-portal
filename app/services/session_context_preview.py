@@ -32,6 +32,48 @@ def _derive_preview_from_context_state(context_state: dict) -> dict:
     return {key: value for key, value in preview.items() if value is not None}
 
 
+def _derive_active_skill_preview(metadata: dict) -> dict:
+    if not isinstance(metadata, dict):
+        return {}
+
+    active_skill = metadata.get("active_skill_session")
+    if not isinstance(active_skill, dict):
+        active_skill = {}
+
+    preview = {
+        "active_skill_name": _normalize_preview_value(
+            metadata.get("active_skill_name")
+            or active_skill.get("skill_name")
+            or active_skill.get("skill")
+        ),
+        "active_skill_status": _normalize_preview_value(
+            metadata.get("active_skill_status")
+            or active_skill.get("status")
+        ),
+        "active_skill_goal": _normalize_preview_value(
+            metadata.get("active_skill_goal")
+            or active_skill.get("goal")
+            or active_skill.get("original_user_request")
+        ),
+        "active_skill_hash": _normalize_preview_value(
+            metadata.get("active_skill_hash")
+            or active_skill.get("skill_hash")
+        ),
+        "active_skill_activation_reason": _normalize_preview_value(
+            metadata.get("active_skill_activation_reason")
+            or active_skill.get("activation_reason")
+        ),
+        "active_skill_turn_count": metadata.get("active_skill_turn_count")
+        if metadata.get("active_skill_turn_count") is not None
+        else active_skill.get("turn_count"),
+        "active_skill_tool_policy_declared": metadata.get("active_skill_tool_policy_declared")
+        if metadata.get("active_skill_tool_policy_declared") is not None
+        else active_skill.get("tool_policy_declared"),
+    }
+
+    return {key: value for key, value in preview.items() if value not in (None, "")}
+
+
 def extract_context_preview(record) -> dict:
     metadata = parse_metadata_json(getattr(record, "metadata_json", None))
     flat_preview = {
@@ -51,12 +93,14 @@ def extract_context_preview(record) -> dict:
             "context_next_step_preview",
         )
     }
+    active_skill_preview = _derive_active_skill_preview(metadata)
     snapshot_version = getattr(record, "snapshot_version", None)
     snapshot_version_text = _normalize_preview_value(str(snapshot_version) if snapshot_version is not None else None)
     preview = {
         "latest_event_state": _normalize_preview_value(getattr(record, "latest_event_state", None)),
         "snapshot_version": snapshot_version_text,
         **merged_preview,
+        **active_skill_preview,
     }
     return {key: value for key, value in preview.items() if value is not None}
 

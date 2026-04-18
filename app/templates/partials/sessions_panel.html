@@ -20,7 +20,7 @@
           >
             <div class="sessions-item-copy">
               <div class="sessions-item-title">{{ session.name or 'New Chat' }}</div>
-              {% if session.latest_event_state or session.context_compaction_level or session.is_metadata_only %}
+              {% if session.latest_event_state or session.context_compaction_level or session.active_skill_name or session.is_metadata_only %}
                 <div class="sessions-item-meta">
                   {% if session.latest_event_state %}
                     <span class="badge badge--neutral">{{ session.latest_event_state }}</span>
@@ -28,18 +28,28 @@
                   {% if session.context_compaction_level %}
                     <span class="badge badge--info">{{ session.context_compaction_level }}</span>
                   {% endif %}
+                  {% if session.active_skill_name %}
+                    <span class="badge badge--info" title="Active skill{% if session.active_skill_status %}: {{ session.active_skill_status }}{% endif %}">
+                      Skill: {{ session.active_skill_name }}
+                    </span>
+                  {% endif %}
                   {% if session.is_metadata_only %}
                     <span class="badge badge--muted">metadata only</span>
                   {% endif %}
                 </div>
               {% endif %}
-              <div class="sessions-item-preview">{{ session.context_summary_preview or session.last_message or 'No messages yet' }}</div>
+              <div class="sessions-item-preview">{{ session.context_summary_preview or session.active_skill_goal or session.last_message or 'No messages yet' }}</div>
               {% if session.context_next_step_preview %}
                 <div class="sessions-item-preview-muted">Next: {{ session.context_next_step_preview }}</div>
               {% endif %}
               {% if session.context_objective_preview %}
                 <div class="sessions-item-preview-muted" title="{{ session.context_objective_preview }}">
                   Objective: {{ session.context_objective_preview }}
+                </div>
+              {% endif %}
+              {% if session.active_skill_name and session.active_skill_turn_count is not none %}
+                <div class="sessions-item-preview-muted">
+                  Active skill turn {{ session.active_skill_turn_count }}{% if session.active_skill_activation_reason %} · {{ session.active_skill_activation_reason }}{% endif %}
                 </div>
               {% endif %}
             </div>
