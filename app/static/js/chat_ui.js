@@ -605,10 +605,16 @@ function endSingleSubmit(form, options = {}) {
 
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
+  const maxPlaceholderAgentLength = 24;
   const assistantName = String(state.selectedAgentName || "").trim();
-  dom.chatInput.placeholder = assistantName
-    ? `Ask ${assistantName} anything...`
-    : "Ask me anything...";
+  if (!assistantName) {
+    dom.chatInput.placeholder = "Ask anything...";
+    return;
+  }
+  const displayName = assistantName.length > maxPlaceholderAgentLength
+    ? `${assistantName.slice(0, maxPlaceholderAgentLength - 1)}…`
+    : assistantName;
+  dom.chatInput.placeholder = `Ask ${displayName}`;
 }
 
 function syncChatInputHeight() {
