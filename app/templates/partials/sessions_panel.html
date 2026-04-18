@@ -20,7 +20,25 @@
           >
             <div class="sessions-item-copy">
               <div class="sessions-item-title">{{ session.name or 'New Chat' }}</div>
-              <div class="sessions-item-preview">{{ session.last_message or 'No messages yet' }}</div>
+              {% if session.latest_event_state or session.context_compaction_level %}
+                <div class="sessions-item-meta">
+                  {% if session.latest_event_state %}
+                    <span class="badge badge--neutral">{{ session.latest_event_state }}</span>
+                  {% endif %}
+                  {% if session.context_compaction_level %}
+                    <span class="badge badge--info">{{ session.context_compaction_level }}</span>
+                  {% endif %}
+                </div>
+              {% endif %}
+              <div class="sessions-item-preview">{{ session.context_summary_preview or session.last_message or 'No messages yet' }}</div>
+              {% if session.context_next_step_preview %}
+                <div class="sessions-item-preview-muted">Next: {{ session.context_next_step_preview }}</div>
+              {% endif %}
+              {% if session.context_objective_preview %}
+                <div class="sessions-item-preview-muted" title="{{ session.context_objective_preview }}">
+                  Objective: {{ session.context_objective_preview }}
+                </div>
+              {% endif %}
             </div>
           </button>
           {% if can_manage_sessions %}

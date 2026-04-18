@@ -16,6 +16,7 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
+from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
@@ -38,6 +39,7 @@ from app.services.agent_group_service import AgentGroupService, AgentGroupServic
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
+from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 
@@ -1594,11 +1596,18 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
             raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
 
         payload = json.loads(content.decode("utf-8"))
+        runtime_sessions = payload.get("sessions") or []
+        session_ids = [session.get("session_id") for session in runtime_sessions if session.get("session_id")]
+        metadata_records = AgentSessionMetadataRepository(db).list_by_agent_and_session_ids(
+            agent_id=agent_id,
+            session_ids=session_ids,
+        )
+        sessions = merge_runtime_sessions_with_metadata(runtime_sessions, metadata_records)
         return templates.TemplateResponse(
             "partials/sessions_panel.html",
             {
                 "request": request,
-                "sessions": payload.get("sessions") or [],
+                "sessions": sessions,
                 "current_session_id": current_session_id,
                 "can_manage_sessions": can_manage_sessions,
             },
