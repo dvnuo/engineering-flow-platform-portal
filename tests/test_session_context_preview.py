@@ -121,3 +121,80 @@ def test_merge_runtime_sessions_with_metadata_appends_metadata_only_when_enabled
     assert merged[1]["session_id"] == "s-metadata-only"
     assert merged[1]["is_metadata_only"] is True
     assert merged[1]["context_summary_preview"] == "Metadata-only summary"
+
+
+def test_extract_context_preview_prefers_flat_preview_keys_over_nested_context_state():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="5",
+        metadata_json='{"context_summary_preview":"Flat summary","context_objective_preview":"Flat objective","context_state":{"summary":"Nested summary","objective":"Nested objective","next_step":"Nested next","compaction_level":"full"}}',
+    )
+
+    extracted = extract_context_preview(record)
+
+    assert extracted["context_summary_preview"] == "Flat summary"
+    assert extracted["context_objective_preview"] == "Flat objective"
+    assert extracted["context_next_step_preview"] == "Nested next"
+    assert extracted["context_compaction_level"] == "full"
+
+
+def test_extract_context_preview_falls_back_to_nested_context_state():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="5",
+        metadata_json='{"context_state":{"compaction_level":"full","objective":"Stabilize progressive context rollout","summary":"Context summary from nested state","next_step":"Run final verification"}}',
+    )
+
+    extracted = extract_context_preview(record)
+
+    assert extracted["context_compaction_level"] == "full"
+    assert extracted["context_objective_preview"] == "Stabilize progressive context rollout"
+    assert extracted["context_summary_preview"] == "Context summary from nested state"
+    assert extracted["context_next_step_preview"] == "Run final verification"
+
+
+def test_extract_context_preview_filters_blank_strings():
+    record = SimpleNamespace(
+        latest_event_state="   ",
+        snapshot_version="   ",
+        metadata_json='{"context_compaction_level":"   ","context_summary_preview":"","context_state":{"objective":"   ","summary":"Nested summary"}}',
+    )
+
+    extracted = extract_context_preview(record)
+
+    assert "latest_event_state" not in extracted
+    assert "snapshot_version" not in extracted
+    assert "context_compaction_level" not in extracted
+    assert "context_objective_preview" not in extracted
+    assert extracted["context_summary_preview"] == "Nested summary"
+
+
+def test_serialize_agent_session_metadata_with_preview_supports_nested_context_state():
+    now = datetime.utcnow()
+    record = SimpleNamespace(
+        id="meta-2",
+        session_id="s-2",
+        agent_id="a-1",
+        group_id=None,
+        current_task_id=None,
+        current_delegation_id=None,
+        current_coordination_run_id=None,
+        source_type=None,
+        source_ref=None,
+        last_execution_id=None,
+        latest_event_type=None,
+        latest_event_state="running",
+        snapshot_version="2",
+        pending_delegations_json=None,
+        runtime_events_json=None,
+        metadata_json='{"context_state":{"compaction_level":"full","objective":"Nested objective","summary":"Nested summary","next_step":"Nested next"}}',
+        created_at=now,
+        updated_at=now,
+    )
+
+    serialized = serialize_agent_session_metadata_with_preview(record)
+
+    assert serialized["context_compaction_level"] == "full"
+    assert serialized["context_objective_preview"] == "Nested objective"
+    assert serialized["context_summary_preview"] == "Nested summary"
+    assert serialized["context_next_step_preview"] == "Nested next"

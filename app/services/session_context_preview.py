@@ -11,15 +11,52 @@ def parse_metadata_json(metadata_json: str | None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _normalize_preview_value(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped if stripped else None
+    return value
+
+
+def _derive_preview_from_context_state(context_state: dict) -> dict:
+    if not isinstance(context_state, dict):
+        return {}
+    preview = {
+        "context_compaction_level": _normalize_preview_value(context_state.get("compaction_level")),
+        "context_objective_preview": _normalize_preview_value(context_state.get("objective")),
+        "context_summary_preview": _normalize_preview_value(context_state.get("summary")),
+        "context_next_step_preview": _normalize_preview_value(context_state.get("next_step")),
+    }
+    return {key: value for key, value in preview.items() if value is not None}
+
+
 def extract_context_preview(record) -> dict:
     metadata = parse_metadata_json(getattr(record, "metadata_json", None))
+    flat_preview = {
+        "context_compaction_level": _normalize_preview_value(metadata.get("context_compaction_level")),
+        "context_objective_preview": _normalize_preview_value(metadata.get("context_objective_preview")),
+        "context_summary_preview": _normalize_preview_value(metadata.get("context_summary_preview")),
+        "context_next_step_preview": _normalize_preview_value(metadata.get("context_next_step_preview")),
+    }
+    context_state = metadata.get("context_state") if isinstance(metadata, dict) else None
+    nested_preview = _derive_preview_from_context_state(context_state)
+    merged_preview = {
+        key: (flat_preview.get(key) if flat_preview.get(key) is not None else nested_preview.get(key))
+        for key in (
+            "context_compaction_level",
+            "context_objective_preview",
+            "context_summary_preview",
+            "context_next_step_preview",
+        )
+    }
+    snapshot_version = getattr(record, "snapshot_version", None)
+    snapshot_version_text = _normalize_preview_value(str(snapshot_version) if snapshot_version is not None else None)
     preview = {
-        "latest_event_state": getattr(record, "latest_event_state", None),
-        "snapshot_version": getattr(record, "snapshot_version", None),
-        "context_compaction_level": metadata.get("context_compaction_level"),
-        "context_objective_preview": metadata.get("context_objective_preview"),
-        "context_summary_preview": metadata.get("context_summary_preview"),
-        "context_next_step_preview": metadata.get("context_next_step_preview"),
+        "latest_event_state": _normalize_preview_value(getattr(record, "latest_event_state", None)),
+        "snapshot_version": snapshot_version_text,
+        **merged_preview,
     }
     return {key: value for key, value in preview.items() if value is not None}
 
