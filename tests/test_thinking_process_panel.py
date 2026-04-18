@@ -149,3 +149,23 @@ def test_thinking_process_panel_uses_nested_skill_when_top_level_skill_session_i
     assert "Active Skill: review-pull-request" in response.text
     assert "Goal: Review PR #12" in response.text
     assert "github_get_pull_request" in response.text
+
+
+def test_thinking_process_panel_handles_non_mapping_llm_debug(monkeypatch):
+    chatlog = {
+        "llm_debug": "bad-llm-debug",
+        "metadata": {
+            "active_skill_name": "review-pull-request",
+            "active_skill_status": "active",
+            "active_skill_goal": "Review PR #12",
+            "active_skill_turn_count": 2,
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Active Skill: review-pull-request" in response.text
+    assert "Goal: Review PR #12" in response.text
+    assert "Turn: 2" in response.text

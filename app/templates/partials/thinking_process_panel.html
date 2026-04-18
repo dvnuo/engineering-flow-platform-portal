@@ -7,7 +7,8 @@
     <div class="portal-panel-note">No thinking data available</div>
   </div>
 {% else %}
-  {% set llm_debug = chatlog.get('llm_debug', {}) %}
+  {% set raw_llm_debug = chatlog.get('llm_debug', {}) %}
+  {% set llm_debug = raw_llm_debug if raw_llm_debug is mapping else {} %}
   {% set raw_metadata = chatlog.get('metadata', {}) %}
   {% set metadata = raw_metadata if raw_metadata is mapping else {} %}
   {% set raw_top_skill_session = chatlog.get('skill_session', {}) %}
