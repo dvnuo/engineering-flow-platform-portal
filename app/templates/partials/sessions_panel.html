@@ -47,7 +47,7 @@
                   Objective: {{ session.context_objective_preview }}
                 </div>
               {% endif %}
-              {% if session.active_skill_name and session.active_skill_turn_count %}
+              {% if session.active_skill_name and session.active_skill_turn_count is not none %}
                 <div class="sessions-item-preview-muted">
                   Active skill turn {{ session.active_skill_turn_count }}{% if session.active_skill_activation_reason %} · {{ session.active_skill_activation_reason }}{% endif %}
                 </div>
