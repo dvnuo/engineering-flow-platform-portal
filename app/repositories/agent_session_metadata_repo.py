@@ -37,6 +37,15 @@ class AgentSessionMetadataRepository:
         stmt = stmt.order_by(AgentSessionMetadata.updated_at.desc())
         return list(self.db.scalars(stmt).all())
 
+    def list_by_agent_and_session_ids(self, agent_id: str, session_ids: list[str]) -> list[AgentSessionMetadata]:
+        if not session_ids:
+            return []
+        stmt = select(AgentSessionMetadata).where(
+            AgentSessionMetadata.agent_id == agent_id,
+            AgentSessionMetadata.session_id.in_(session_ids),
+        )
+        return list(self.db.scalars(stmt).all())
+
     def upsert(self, *, agent_id: str, session_id: str, **fields) -> AgentSessionMetadata:
         record = self.get_by_agent_and_session(agent_id=agent_id, session_id=session_id)
         is_new = record is None

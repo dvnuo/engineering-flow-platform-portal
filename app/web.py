@@ -16,6 +16,7 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
+from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
@@ -38,6 +39,7 @@ from app.services.agent_group_service import AgentGroupService, AgentGroupServic
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
+from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 
@@ -1570,12 +1572,23 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
 
         # When K8s is disabled, return empty sessions
         if not settings.k8s_enabled:
+            metadata_repo = AgentSessionMetadataRepository(db)
+            try:
+                metadata_fallback_limit = max(1, int(limit))
+            except (TypeError, ValueError):
+                metadata_fallback_limit = 10
+            recent_metadata_records = metadata_repo.list_by_agent(agent_id)[:metadata_fallback_limit]
+            sessions = merge_runtime_sessions_with_metadata(
+                [],
+                recent_metadata_records,
+                include_metadata_only=True,
+            )
             return templates.TemplateResponse(
                 "partials/sessions_panel.html",
                 {
                     "request": request,
                     "agent_id": agent_id,
-                    "sessions": [],
+                    "sessions": sessions,
                     "current_session_id": current_session_id,
                     "can_manage_sessions": can_manage_sessions,
                 },
@@ -1594,11 +1607,36 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
             raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
 
         payload = json.loads(content.decode("utf-8"))
+        runtime_sessions = payload.get("sessions") or []
+        session_ids = [session.get("session_id") for session in runtime_sessions if session.get("session_id")]
+        metadata_repo = AgentSessionMetadataRepository(db)
+        metadata_records = metadata_repo.list_by_agent_and_session_ids(
+            agent_id=agent_id,
+            session_ids=session_ids,
+        )
+        try:
+            metadata_fallback_limit = max(1, int(limit))
+        except (TypeError, ValueError):
+            metadata_fallback_limit = 10
+        recent_metadata_records = metadata_repo.list_by_agent(agent_id)[:metadata_fallback_limit]
+        all_metadata_records: list = []
+        seen_session_ids: set[str] = set()
+        for record in [*metadata_records, *recent_metadata_records]:
+            record_session_id = getattr(record, "session_id", None)
+            if not record_session_id or record_session_id in seen_session_ids:
+                continue
+            seen_session_ids.add(record_session_id)
+            all_metadata_records.append(record)
+        sessions = merge_runtime_sessions_with_metadata(
+            runtime_sessions,
+            all_metadata_records,
+            include_metadata_only=True,
+        )
         return templates.TemplateResponse(
             "partials/sessions_panel.html",
             {
                 "request": request,
-                "sessions": payload.get("sessions") or [],
+                "sessions": sessions,
                 "current_session_id": current_session_id,
                 "can_manage_sessions": can_manage_sessions,
             },

@@ -36,9 +36,12 @@ class AgentSessionMetadataResponse(BaseModel):
     pending_delegations_json: Optional[str] = None
     runtime_events_json: Optional[str] = None
     metadata_json: Optional[str] = None
+    context_compaction_level: Optional[str] = None
+    context_objective_preview: Optional[str] = None
+    context_summary_preview: Optional[str] = None
+    context_next_step_preview: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
-

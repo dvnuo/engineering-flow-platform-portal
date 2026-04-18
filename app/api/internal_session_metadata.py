@@ -5,6 +5,7 @@ from app.db import get_db
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.schemas.agent_session_metadata import AgentSessionMetadataResponse, AgentSessionMetadataUpsertRequest
+from app.services.session_context_preview import serialize_agent_session_metadata_with_preview
 
 router = APIRouter(tags=["internal-session-metadata"])
 
@@ -25,7 +26,7 @@ def upsert_session_metadata(
 
     repo = AgentSessionMetadataRepository(db)
     record = repo.upsert(agent_id=agent_id, session_id=session_id, **payload.model_dump())
-    return AgentSessionMetadataResponse.model_validate(record)
+    return AgentSessionMetadataResponse.model_validate(serialize_agent_session_metadata_with_preview(record))
 
 
 @router.get(
@@ -45,7 +46,7 @@ def get_session_metadata(
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session metadata not found")
 
-    return AgentSessionMetadataResponse.model_validate(record)
+    return AgentSessionMetadataResponse.model_validate(serialize_agent_session_metadata_with_preview(record))
 
 
 @router.get(
@@ -69,4 +70,9 @@ def list_session_metadata(
         latest_event_state=latest_event_state,
         current_task_id=current_task_id,
     )
-    return [AgentSessionMetadataResponse.model_validate(item) for item in records]
+    return [
+        AgentSessionMetadataResponse.model_validate(
+            serialize_agent_session_metadata_with_preview(item)
+        )
+        for item in records
+    ]
