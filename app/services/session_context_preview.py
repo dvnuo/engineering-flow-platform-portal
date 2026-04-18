@@ -38,3 +38,28 @@ def merge_runtime_sessions_with_metadata(runtime_sessions: list[dict], metadata_
         session.update(metadata_preview)
         merged_sessions.append(session)
     return merged_sessions
+
+
+def serialize_agent_session_metadata_with_preview(record) -> dict:
+    serialized = {
+        "id": getattr(record, "id", None),
+        "session_id": getattr(record, "session_id", None),
+        "agent_id": getattr(record, "agent_id", None),
+        "group_id": getattr(record, "group_id", None),
+        "current_task_id": getattr(record, "current_task_id", None),
+        "current_delegation_id": getattr(record, "current_delegation_id", None),
+        "current_coordination_run_id": getattr(record, "current_coordination_run_id", None),
+        "source_type": getattr(record, "source_type", None),
+        "source_ref": getattr(record, "source_ref", None),
+        "last_execution_id": getattr(record, "last_execution_id", None),
+        "latest_event_type": getattr(record, "latest_event_type", None),
+        "latest_event_state": getattr(record, "latest_event_state", None),
+        "snapshot_version": getattr(record, "snapshot_version", None),
+        "pending_delegations_json": getattr(record, "pending_delegations_json", None),
+        "runtime_events_json": getattr(record, "runtime_events_json", None),
+        "metadata_json": getattr(record, "metadata_json", None),
+        "created_at": getattr(record, "created_at", None),
+        "updated_at": getattr(record, "updated_at", None),
+    }
+    serialized.update(extract_context_preview(record))
+    return serialized

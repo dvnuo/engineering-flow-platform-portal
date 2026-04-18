@@ -90,7 +90,7 @@ def test_internal_session_metadata_upsert_create_and_update():
                 "source_type": "jira",
                 "source_ref": "task-1",
                 "latest_event_type": "task_created",
-                "metadata_json": '{"k":"v"}',
+                "metadata_json": '{"k":"v","context_compaction_level":"high","context_objective_preview":"Keep context concise","context_summary_preview":"Working on task-1","context_next_step_preview":"Submit task update"}',
             },
         )
         assert create_resp.status_code == 200
@@ -100,6 +100,10 @@ def test_internal_session_metadata_upsert_create_and_update():
         assert created["current_task_id"] == "t-1"
         assert created["source_type"] == "jira"
         assert created["source_ref"] == "task-1"
+        assert created["context_compaction_level"] == "high"
+        assert created["context_objective_preview"] == "Keep context concise"
+        assert created["context_summary_preview"] == "Working on task-1"
+        assert created["context_next_step_preview"] == "Submit task update"
 
         update_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
@@ -109,6 +113,7 @@ def test_internal_session_metadata_upsert_create_and_update():
                 "source_type": "jira",
                 "source_ref": "task-1",
                 "latest_event_state": "running",
+                "metadata_json": '{"k":"v","context_compaction_level":"high","context_objective_preview":"Keep context concise","context_summary_preview":"Working on task-1","context_next_step_preview":"Submit task update"}',
             },
         )
         assert update_resp.status_code == 200
@@ -126,6 +131,10 @@ def test_internal_session_metadata_upsert_create_and_update():
         assert fetched["current_task_id"] == "t-1"
         assert fetched["source_type"] == "jira"
         assert fetched["source_ref"] == "task-1"
+        assert fetched["context_compaction_level"] == "high"
+        assert fetched["context_objective_preview"] == "Keep context concise"
+        assert fetched["context_summary_preview"] == "Working on task-1"
+        assert fetched["context_next_step_preview"] == "Submit task update"
     finally:
         cleanup()
 
@@ -179,7 +188,12 @@ def test_list_session_metadata_with_filters_and_sorting():
     try:
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            json={"group_id": "g-1", "latest_event_state": "running", "current_task_id": "t-1"},
+            json={
+                "group_id": "g-1",
+                "latest_event_state": "running",
+                "current_task_id": "t-1",
+                "metadata_json": '{"context_compaction_level":"low","context_objective_preview":"Obj-1","context_summary_preview":"Summary-1","context_next_step_preview":"Next-1"}',
+            },
         )
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-2/metadata",
@@ -193,7 +207,12 @@ def test_list_session_metadata_with_filters_and_sorting():
         time.sleep(1.1)
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
-            json={"group_id": "g-1", "latest_event_state": "running", "current_task_id": "t-1"},
+            json={
+                "group_id": "g-1",
+                "latest_event_state": "running",
+                "current_task_id": "t-1",
+                "metadata_json": '{"context_compaction_level":"low","context_objective_preview":"Obj-1","context_summary_preview":"Summary-1","context_next_step_preview":"Next-1"}',
+            },
         )
 
         base_list = client.get(
@@ -203,6 +222,10 @@ def test_list_session_metadata_with_filters_and_sorting():
         items = base_list.json()
         assert len(items) == 3
         assert items[0]["session_id"] == "s-1"
+        assert items[0]["context_compaction_level"] == "low"
+        assert items[0]["context_objective_preview"] == "Obj-1"
+        assert items[0]["context_summary_preview"] == "Summary-1"
+        assert items[0]["context_next_step_preview"] == "Next-1"
 
         by_group = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata?group_id=g-1",
@@ -221,6 +244,38 @@ def test_list_session_metadata_with_filters_and_sorting():
         )
         assert by_task.status_code == 200
         assert [item["session_id"] for item in by_task.json()] == ["s-2"]
+    finally:
+        cleanup()
+
+
+def test_internal_session_metadata_invalid_json_does_not_break_get_or_list():
+    client, agent, _agent_b, cleanup = _build_client()
+    try:
+        put_resp = client.put(
+            f"/api/internal/agents/{agent.id}/sessions/s-bad/metadata",
+            json={"group_id": "g-1", "latest_event_state": "running", "metadata_json": "{not-valid-json"},
+        )
+        assert put_resp.status_code == 200
+
+        get_resp = client.get(f"/api/internal/agents/{agent.id}/sessions/s-bad/metadata")
+        assert get_resp.status_code == 200
+        get_payload = get_resp.json()
+        assert get_payload["session_id"] == "s-bad"
+        assert get_payload["metadata_json"] == "{not-valid-json"
+        assert get_payload["context_compaction_level"] is None
+        assert get_payload["context_objective_preview"] is None
+        assert get_payload["context_summary_preview"] is None
+        assert get_payload["context_next_step_preview"] is None
+
+        list_resp = client.get(f"/api/internal/agents/{agent.id}/sessions/metadata")
+        assert list_resp.status_code == 200
+        items = list_resp.json()
+        assert len(items) == 1
+        assert items[0]["session_id"] == "s-bad"
+        assert items[0]["context_compaction_level"] is None
+        assert items[0]["context_objective_preview"] is None
+        assert items[0]["context_summary_preview"] is None
+        assert items[0]["context_next_step_preview"] is None
     finally:
         cleanup()
 
