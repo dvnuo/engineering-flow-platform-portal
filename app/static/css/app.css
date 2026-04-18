@@ -318,6 +318,13 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 
 .composer-model-select::-ms-expand { display: none; }
 
+.composer-model-select:focus,
+.composer-model-select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--portal-border-strong), transparent 12%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--portal-border), transparent 72%);
+}
+
 .composer-pill-btn {
   min-height: 36px;
   padding: 0 12px;
