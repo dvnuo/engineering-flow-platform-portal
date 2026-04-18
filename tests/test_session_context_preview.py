@@ -87,3 +87,37 @@ def test_merge_runtime_sessions_with_metadata_handles_present_and_missing_record
     assert merged[0]["context_summary_preview"] == "Metadata summary"
     assert merged[0]["last_message"] == "runtime message"
     assert "context_summary_preview" not in merged[1]
+
+
+def test_merge_runtime_sessions_with_metadata_appends_metadata_only_when_enabled():
+    runtime_sessions = [
+        {"session_id": "s-1", "name": "Session 1", "last_message": "runtime message"},
+    ]
+    metadata_records = [
+        SimpleNamespace(
+            session_id="s-metadata-only",
+            latest_event_state="running",
+            snapshot_version="2",
+            metadata_json='{"context_summary_preview":"Metadata-only summary","context_next_step_preview":"Metadata-only next"}',
+            updated_at=datetime.utcnow(),
+        ),
+        SimpleNamespace(
+            session_id="s-1",
+            latest_event_state="done",
+            snapshot_version="1",
+            metadata_json='{"context_summary_preview":"Runtime+metadata summary"}',
+            updated_at=datetime.utcnow(),
+        ),
+    ]
+
+    merged = merge_runtime_sessions_with_metadata(
+        runtime_sessions,
+        metadata_records,
+        include_metadata_only=True,
+    )
+
+    assert merged[0]["session_id"] == "s-1"
+    assert merged[0]["context_summary_preview"] == "Runtime+metadata summary"
+    assert merged[1]["session_id"] == "s-metadata-only"
+    assert merged[1]["is_metadata_only"] is True
+    assert merged[1]["context_summary_preview"] == "Metadata-only summary"

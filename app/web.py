@@ -1598,11 +1598,29 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
         payload = json.loads(content.decode("utf-8"))
         runtime_sessions = payload.get("sessions") or []
         session_ids = [session.get("session_id") for session in runtime_sessions if session.get("session_id")]
-        metadata_records = AgentSessionMetadataRepository(db).list_by_agent_and_session_ids(
+        metadata_repo = AgentSessionMetadataRepository(db)
+        metadata_records = metadata_repo.list_by_agent_and_session_ids(
             agent_id=agent_id,
             session_ids=session_ids,
         )
-        sessions = merge_runtime_sessions_with_metadata(runtime_sessions, metadata_records)
+        try:
+            metadata_fallback_limit = max(1, int(limit))
+        except (TypeError, ValueError):
+            metadata_fallback_limit = 10
+        recent_metadata_records = metadata_repo.list_by_agent(agent_id)[:metadata_fallback_limit]
+        all_metadata_records: list = []
+        seen_session_ids: set[str] = set()
+        for record in [*metadata_records, *recent_metadata_records]:
+            record_session_id = getattr(record, "session_id", None)
+            if not record_session_id or record_session_id in seen_session_ids:
+                continue
+            seen_session_ids.add(record_session_id)
+            all_metadata_records.append(record)
+        sessions = merge_runtime_sessions_with_metadata(
+            runtime_sessions,
+            all_metadata_records,
+            include_metadata_only=True,
+        )
         return templates.TemplateResponse(
             "partials/sessions_panel.html",
             {

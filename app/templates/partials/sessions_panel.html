@@ -20,13 +20,16 @@
           >
             <div class="sessions-item-copy">
               <div class="sessions-item-title">{{ session.name or 'New Chat' }}</div>
-              {% if session.latest_event_state or session.context_compaction_level %}
+              {% if session.latest_event_state or session.context_compaction_level or session.is_metadata_only %}
                 <div class="sessions-item-meta">
                   {% if session.latest_event_state %}
                     <span class="badge badge--neutral">{{ session.latest_event_state }}</span>
                   {% endif %}
                   {% if session.context_compaction_level %}
                     <span class="badge badge--info">{{ session.context_compaction_level }}</span>
+                  {% endif %}
+                  {% if session.is_metadata_only %}
+                    <span class="badge badge--muted">metadata only</span>
                   {% endif %}
                 </div>
               {% endif %}
