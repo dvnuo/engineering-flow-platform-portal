@@ -1,4 +1,3 @@
-const rootBreadcrumbAttr = "data-server-path="/"";
 /**
  * Portal-native chat UI.
  * Runtime remains source-of-truth for chat/session/file APIs under /a/{agent_id}/api/...

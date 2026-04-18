@@ -8,9 +8,13 @@
   </div>
 {% else %}
   {% set llm_debug = chatlog.get('llm_debug', {}) %}
-  {% set metadata = chatlog.get('metadata', {}) %}
-  {% set nested_skill_session = metadata.get('active_skill_session', {}) if metadata.get('active_skill_session', {}) is mapping else {} %}
-  {% set skill_session = chatlog.get('skill_session', {}) or nested_skill_session %}
+  {% set raw_metadata = chatlog.get('metadata', {}) %}
+  {% set metadata = raw_metadata if raw_metadata is mapping else {} %}
+  {% set raw_top_skill_session = chatlog.get('skill_session', {}) %}
+  {% set top_skill_session = raw_top_skill_session if raw_top_skill_session is mapping else {} %}
+  {% set raw_nested_skill_session = metadata.get('active_skill_session', {}) %}
+  {% set nested_skill_session = raw_nested_skill_session if raw_nested_skill_session is mapping else {} %}
+  {% set skill_session = top_skill_session or nested_skill_session %}
   {% set active_skill_name = skill_session.get('skill_name') or skill_session.get('skill') or metadata.get('active_skill_name') %}
   {% set active_skill_status = skill_session.get('status') or metadata.get('active_skill_status') %}
   {% set active_skill_goal = skill_session.get('goal') or skill_session.get('original_user_request') or metadata.get('active_skill_goal') %}

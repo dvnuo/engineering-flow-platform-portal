@@ -108,3 +108,44 @@ def test_thinking_process_panel_renders_active_skill_from_flat_metadata_fields(m
     assert "Active Skill: triage-incident" in response.text
     assert "Goal: Triage issue #77" in response.text
     assert "Turn: 0" in response.text
+
+
+def test_thinking_process_panel_handles_non_mapping_metadata_and_skill_session(monkeypatch):
+    chatlog = {
+        "metadata": "bad-metadata",
+        "skill_session": "bad-skill-session",
+        "llm_debug": {},
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert ("Thinking Process" in response.text) or ("Active Skill:" not in response.text)
+
+
+def test_thinking_process_panel_uses_nested_skill_when_top_level_skill_session_is_invalid(monkeypatch):
+    chatlog = {
+        "skill_session": "bad-skill-session",
+        "metadata": {
+            "active_skill_session": {
+                "schema_version": "active_skill_contract.v1",
+                "skill_name": "review-pull-request",
+                "status": "active",
+                "goal": "Review PR #12",
+                "turn_count": 2,
+                "activation_reason": "continued",
+                "skill_hash": "abc123",
+                "allowed_tools": ["github_get_pull_request"],
+            }
+        },
+        "llm_debug": {},
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Active Skill: review-pull-request" in response.text
+    assert "Goal: Review PR #12" in response.text
+    assert "github_get_pull_request" in response.text
