@@ -275,11 +275,33 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .portal-composer-toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 .composer-model-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   min-width: 170px;
   max-width: min(260px, 100%);
 }
 
+.composer-model-wrap::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-60%) rotate(45deg);
+  pointer-events: none;
+  z-index: 1;
+  color: color-mix(in srgb, var(--portal-text-secondary), var(--portal-text-muted) 30%);
+}
+
 .composer-model-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: none;
   min-height: 36px;
   width: 100%;
   max-width: 100%;
@@ -287,11 +309,14 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   border: 1px solid color-mix(in srgb, var(--portal-border), transparent 18%);
   background: color-mix(in srgb, var(--portal-surface-muted) 88%, transparent);
   color: color-mix(in srgb, var(--portal-text-secondary), var(--portal-text-muted) 24%);
-  padding: 0 30px 0 12px;
+  padding: 0 38px 0 12px;
   font: inherit;
   line-height: 1.2;
   font-size: 13px;
+  cursor: pointer;
 }
+
+.composer-model-select::-ms-expand { display: none; }
 
 .composer-pill-btn {
   min-height: 36px;
