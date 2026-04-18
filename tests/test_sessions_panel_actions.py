@@ -208,3 +208,41 @@ def test_sessions_panel_renders_metadata_only_session_fallback(monkeypatch):
     assert response.status_code == 200
     assert "Metadata-only preview" in response.text
     assert "metadata only" in response.text
+
+
+def test_sessions_panel_renders_metadata_only_sessions_when_k8s_disabled(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(
+        web_module,
+        "AgentRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: agent),
+    )
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", False)
+
+    metadata_record = SimpleNamespace(
+        session_id="s-2",
+        latest_event_state="running",
+        snapshot_version=2,
+        metadata_json='{"context_summary_preview":"K8s disabled preview","context_compaction_level":"high"}',
+    )
+    monkeypatch.setattr(
+        web_module,
+        "AgentSessionMetadataRepository",
+        lambda _db: SimpleNamespace(
+            list_by_agent=lambda *_args, **_kwargs: [metadata_record],
+            list_by_agent_and_session_ids=lambda **_kwargs: [],
+        ),
+    )
+
+    client = TestClient(app)
+    response = client.get("/app/agents/agent-1/sessions/panel")
+
+    assert response.status_code == 200
+    assert "K8s disabled preview" in response.text
+    assert "metadata only" in response.text

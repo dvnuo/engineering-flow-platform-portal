@@ -1572,12 +1572,23 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
 
         # When K8s is disabled, return empty sessions
         if not settings.k8s_enabled:
+            metadata_repo = AgentSessionMetadataRepository(db)
+            try:
+                metadata_fallback_limit = max(1, int(limit))
+            except (TypeError, ValueError):
+                metadata_fallback_limit = 10
+            recent_metadata_records = metadata_repo.list_by_agent(agent_id)[:metadata_fallback_limit]
+            sessions = merge_runtime_sessions_with_metadata(
+                [],
+                recent_metadata_records,
+                include_metadata_only=True,
+            )
             return templates.TemplateResponse(
                 "partials/sessions_panel.html",
                 {
                     "request": request,
                     "agent_id": agent_id,
-                    "sessions": [],
+                    "sessions": sessions,
                     "current_session_id": current_session_id,
                     "can_manage_sessions": can_manage_sessions,
                 },
