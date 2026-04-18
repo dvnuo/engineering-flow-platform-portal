@@ -40,6 +40,13 @@ class AgentSessionMetadataResponse(BaseModel):
     context_objective_preview: Optional[str] = None
     context_summary_preview: Optional[str] = None
     context_next_step_preview: Optional[str] = None
+    active_skill_name: Optional[str] = None
+    active_skill_status: Optional[str] = None
+    active_skill_goal: Optional[str] = None
+    active_skill_hash: Optional[str] = None
+    active_skill_turn_count: Optional[int] = None
+    active_skill_activation_reason: Optional[str] = None
+    active_skill_tool_policy_declared: Optional[bool] = None
     created_at: datetime
     updated_at: datetime
 

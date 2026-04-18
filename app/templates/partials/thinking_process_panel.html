@@ -9,19 +9,33 @@
 {% else %}
   {% set llm_debug = chatlog.get('llm_debug', {}) %}
   {% set skill_session = chatlog.get('skill_session', {}) %}
+  {% set metadata = chatlog.get('metadata', {}) %}
+  {% set active_skill_name = skill_session.get('skill_name') or skill_session.get('skill') or metadata.get('active_skill_name') %}
+  {% set active_skill_status = skill_session.get('status') or metadata.get('active_skill_status') %}
+  {% set active_skill_goal = skill_session.get('goal') or skill_session.get('original_user_request') or metadata.get('active_skill_goal') %}
+  {% set active_skill_turn_count = skill_session.get('turn_count') if skill_session.get('turn_count') is not none else metadata.get('active_skill_turn_count') %}
+  {% set active_skill_activation_reason = skill_session.get('activation_reason') or metadata.get('active_skill_activation_reason') %}
+  {% set active_skill_hash = skill_session.get('skill_hash') or metadata.get('active_skill_hash') %}
+  {% set active_skill_tools = skill_session.get('allowed_tools') or skill_session.get('task_tools') or [] %}
 
-  {% if skill_session and not llm_debug %}
+  {% if active_skill_name %}
     <div class="portal-panel-section">
-      <div class="portal-panel-title">Skill Mode: {{ skill_session.get('skill_name', 'Unknown') }}</div>
-      <div class="portal-panel-note">Goal: {{ skill_session.get('goal', 'N/A')[:200] }}</div>
-      <div class="portal-panel-note">Status: {{ skill_session.get('status', 'N/A') }}</div>
-      {% if skill_session.get('plan') %}
-      <div class="portal-panel-note">Plan ({{ skill_session.get('plan')|length }} steps)</div>
+      <div class="portal-panel-title">Active Skill: {{ active_skill_name }}</div>
+      {% if active_skill_goal %}<div class="portal-panel-note">Goal: {{ active_skill_goal[:200] }}</div>{% endif %}
+      {% if active_skill_status %}<div class="portal-panel-note">Status: {{ active_skill_status }}</div>{% endif %}
+      {% if active_skill_turn_count is not none %}<div class="portal-panel-note">Turn: {{ active_skill_turn_count }}</div>{% endif %}
+      {% if active_skill_activation_reason %}<div class="portal-panel-note">Reason: {{ active_skill_activation_reason }}</div>{% endif %}
+      {% if active_skill_hash %}<div class="portal-panel-note">Skill hash: {{ active_skill_hash }}</div>{% endif %}
+      {% if active_skill_tools %}
+      <div class="portal-panel-note">Allowed tools:</div>
       <ul>
-        {% for step in skill_session.get('plan', [])[:5] %}
-        <li>{{ step.get('title', step.get('id', '')) }}</li>
+        {% for tool in active_skill_tools[:8] %}
+        <li>{{ tool }}</li>
         {% endfor %}
       </ul>
+      {% if active_skill_tools|length > 8 %}
+      <div class="portal-panel-note">... and {{ active_skill_tools|length - 8 }} more</div>
+      {% endif %}
       {% endif %}
     </div>
   {% endif %}

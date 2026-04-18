@@ -31,6 +31,42 @@ def test_extract_context_preview_reads_expected_fields():
     assert extracted["context_next_step_preview"] == "Next step"
 
 
+def test_extract_context_preview_reads_active_skill_flat_fields():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="7",
+        metadata_json='{"active_skill_name":"review-pull-request","active_skill_status":"active","active_skill_goal":"Review PR #12","active_skill_hash":"abc123","active_skill_turn_count":2,"active_skill_activation_reason":"continued","active_skill_tool_policy_declared":true}',
+    )
+
+    extracted = extract_context_preview(record)
+
+    assert extracted["active_skill_name"] == "review-pull-request"
+    assert extracted["active_skill_status"] == "active"
+    assert extracted["active_skill_goal"] == "Review PR #12"
+    assert extracted["active_skill_hash"] == "abc123"
+    assert extracted["active_skill_turn_count"] == 2
+    assert extracted["active_skill_activation_reason"] == "continued"
+    assert extracted["active_skill_tool_policy_declared"] is True
+
+
+def test_extract_context_preview_reads_active_skill_nested_session():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="7",
+        metadata_json='{"active_skill_session":{"skill_name":"create-pull-request","status":"active","goal":"Create PR","turn_count":3,"activation_reason":"matched","skill_hash":"def456","tool_policy_declared":true}}',
+    )
+
+    extracted = extract_context_preview(record)
+
+    assert extracted["active_skill_name"] == "create-pull-request"
+    assert extracted["active_skill_status"] == "active"
+    assert extracted["active_skill_goal"] == "Create PR"
+    assert extracted["active_skill_hash"] == "def456"
+    assert extracted["active_skill_turn_count"] == 3
+    assert extracted["active_skill_activation_reason"] == "matched"
+    assert extracted["active_skill_tool_policy_declared"] is True
+
+
 def test_serialize_agent_session_metadata_with_preview_contains_base_and_preview_fields():
     now = datetime.utcnow()
     record = SimpleNamespace(
@@ -49,7 +85,7 @@ def test_serialize_agent_session_metadata_with_preview_contains_base_and_preview
         snapshot_version="11",
         pending_delegations_json="[]",
         runtime_events_json="[]",
-        metadata_json='{"context_compaction_level":"medium","context_objective_preview":"Ship","context_summary_preview":"Done","context_next_step_preview":"Review"}',
+        metadata_json='{"context_compaction_level":"medium","context_objective_preview":"Ship","context_summary_preview":"Done","context_next_step_preview":"Review","active_skill_name":"review-pull-request","active_skill_status":"active","active_skill_goal":"Review PR #12","active_skill_hash":"abc123","active_skill_turn_count":2,"active_skill_activation_reason":"continued","active_skill_tool_policy_declared":true}',
         created_at=now,
         updated_at=now,
     )
@@ -65,6 +101,13 @@ def test_serialize_agent_session_metadata_with_preview_contains_base_and_preview
     assert serialized["context_objective_preview"] == "Ship"
     assert serialized["context_summary_preview"] == "Done"
     assert serialized["context_next_step_preview"] == "Review"
+    assert serialized["active_skill_name"] == "review-pull-request"
+    assert serialized["active_skill_status"] == "active"
+    assert serialized["active_skill_goal"] == "Review PR #12"
+    assert serialized["active_skill_hash"] == "abc123"
+    assert serialized["active_skill_turn_count"] == 2
+    assert serialized["active_skill_activation_reason"] == "continued"
+    assert serialized["active_skill_tool_policy_declared"] is True
 
 
 def test_merge_runtime_sessions_with_metadata_handles_present_and_missing_records():
