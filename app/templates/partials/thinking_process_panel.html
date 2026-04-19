@@ -1,147 +1,92 @@
 <div class="portal-panel-stack">
 {% if error %}
   <div class="portal-inline-state is-error">{{ error }}</div>
-{% elif not chatlog %}
+{% else %}
+  {% set v = view if view is mapping else {} %}
+  {% set active_skill = v.get('active_skill', {}) if v.get('active_skill') is mapping else {} %}
+  {% set context = v.get('context', {}) if v.get('context') is mapping else {} %}
+  {% set budget = v.get('budget', {}) if v.get('budget') is mapping else {} %}
+  {% set events = v.get('events', []) if v.get('events') is iterable else [] %}
+  {% set debug = v.get('debug', {}) if v.get('debug') is mapping else {} %}
+
   <div class="portal-panel-section">
     <div class="portal-panel-title">Thinking Process</div>
-    <div class="portal-panel-note">No thinking data available</div>
+    {% if v.get('warning') %}<div class="portal-inline-state">{{ v.get('warning') }}</div>{% endif %}
+    <div class="portal-panel-note">Session ID: {{ v.get('session_id') or session_id or '—' }}</div>
+    <div class="portal-panel-note">Request ID: {{ v.get('request_id') or '—' }}</div>
+    <div class="portal-panel-note">Status: {{ v.get('status') or 'unknown' }}</div>
+    <div class="portal-panel-note">Timestamp: {{ v.get('timestamp') or '—' }}</div>
+    <div class="portal-panel-note">Model: {{ v.get('model') or '—' }}</div>
+    <div class="portal-panel-note">Events: {{ events|length }}</div>
   </div>
-{% else %}
-  {% set raw_llm_debug = chatlog.get('llm_debug', {}) %}
-  {% set llm_debug = raw_llm_debug if raw_llm_debug is mapping else {} %}
-  {% set raw_metadata = chatlog.get('metadata', {}) %}
-  {% set metadata = raw_metadata if raw_metadata is mapping else {} %}
-  {% set raw_top_skill_session = chatlog.get('skill_session', {}) %}
-  {% set top_skill_session = raw_top_skill_session if raw_top_skill_session is mapping else {} %}
-  {% set raw_nested_skill_session = metadata.get('active_skill_session', {}) %}
-  {% set nested_skill_session = raw_nested_skill_session if raw_nested_skill_session is mapping else {} %}
-  {% set skill_session = top_skill_session or nested_skill_session %}
-  {% set active_skill_name = skill_session.get('skill_name') or skill_session.get('skill') or metadata.get('active_skill_name') %}
-  {% set active_skill_status = skill_session.get('status') or metadata.get('active_skill_status') %}
-  {% set active_skill_goal = skill_session.get('goal') or skill_session.get('original_user_request') or metadata.get('active_skill_goal') %}
-  {% set active_skill_turn_count = skill_session.get('turn_count') if skill_session.get('turn_count') is not none else metadata.get('active_skill_turn_count') %}
-  {% set active_skill_activation_reason = skill_session.get('activation_reason') or metadata.get('active_skill_activation_reason') %}
-  {% set active_skill_hash = skill_session.get('skill_hash') or metadata.get('active_skill_hash') %}
-  {% set active_skill_tools = skill_session.get('allowed_tools') or skill_session.get('task_tools') or [] %}
 
-  {% if active_skill_name %}
-    <div class="portal-panel-section">
-      <div class="portal-panel-title">Active Skill: {{ active_skill_name }}</div>
-      {% if active_skill_goal %}<div class="portal-panel-note">Goal: {{ active_skill_goal[:200] }}</div>{% endif %}
-      {% if active_skill_status %}<div class="portal-panel-note">Status: {{ active_skill_status }}</div>{% endif %}
-      {% if active_skill_turn_count is not none %}<div class="portal-panel-note">Turn: {{ active_skill_turn_count }}</div>{% endif %}
-      {% if active_skill_activation_reason %}<div class="portal-panel-note">Reason: {{ active_skill_activation_reason }}</div>{% endif %}
-      {% if active_skill_hash %}<div class="portal-panel-note">Skill hash: {{ active_skill_hash }}</div>{% endif %}
-      {% if active_skill_tools %}
-      <div class="portal-panel-note">Allowed tools:</div>
-      <ul>
-        {% for tool in active_skill_tools[:8] %}
-        <li>{{ tool }}</li>
-        {% endfor %}
-      </ul>
-      {% if active_skill_tools|length > 8 %}
-      <div class="portal-panel-note">... and {{ active_skill_tools|length - 8 }} more</div>
-      {% endif %}
-      {% endif %}
+  {% if budget %}
+  {% set pct = budget.get('prepared_usage_percent') if budget.get('prepared_usage_percent') is not none else budget.get('usage_percent') %}
+  {% set pct_num = pct|float if pct is not none else 0 %}
+  <div class="portal-panel-section">
+    <div class="portal-panel-title">Context Window</div>
+    <div class="portal-panel-note">{{ pct }}%</div>
+    <div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: {{ 0 if pct_num < 0 else 100 if pct_num > 100 else pct_num }}%"></div></div>
+    <div class="portal-panel-note">{{ budget.get('prepared_tokens') or budget.get('estimated_tokens') }} / {{ budget.get('context_window_tokens') }} estimated tokens</div>
+    <div class="portal-panel-note">Soft threshold: {{ budget.get('soft_threshold_percent') }}%</div>
+    <div class="portal-panel-note">Hard threshold: {{ budget.get('hard_threshold_percent') }}%</div>
+    <div class="portal-panel-note">Next: {{ budget.get('next_compaction_action') }}</div>
+  </div>
+  {% endif %}
+
+  {% if active_skill.get('name') %}
+  <div class="portal-panel-section">
+    <div class="portal-panel-title">Active Skill: {{ active_skill.get('name') }}</div>
+    {% if active_skill.get('goal') %}<div class="portal-panel-note">Goal: {{ active_skill.get('goal') }}</div>{% endif %}
+    {% if active_skill.get('status') %}<div class="portal-panel-note">Status: {{ active_skill.get('status') }}</div>{% endif %}
+    {% if active_skill.get('turn_count') is not none %}<div class="portal-panel-note">Turn: {{ active_skill.get('turn_count') }}</div>{% endif %}
+    {% if active_skill.get('reason') %}<div class="portal-panel-note">Reason: {{ active_skill.get('reason') }}</div>{% endif %}
+    {% if active_skill.get('hash') %}<div class="portal-panel-note">Skill hash: {{ active_skill.get('hash') }}</div>{% endif %}
+    {% if active_skill.get('allowed_tools') %}
+    <ul>
+      {% for tool in active_skill.get('allowed_tools', [])[:8] %}<li>{{ tool }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="portal-panel-section">
+    <div class="portal-panel-title">Context Contents</div>
+    <div class="portal-context-grid">
+      <div class="portal-context-kv"><strong>objective</strong><div>{{ context.get('objective') or '—' }}</div></div>
+      <div class="portal-context-kv"><strong>summary</strong><div>{{ context.get('summary') or '—' }}</div></div>
+      <div class="portal-context-kv"><strong>current_state</strong><div>{{ context.get('current_state') or '—' }}</div></div>
+      <div class="portal-context-kv"><strong>next_step</strong><div>{{ context.get('next_step') or '—' }}</div></div>
+      <div class="portal-context-kv"><strong>constraints</strong><ul>{% for item in context.get('constraints', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
+      <div class="portal-context-kv"><strong>decisions</strong><ul>{% for item in context.get('decisions', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
+      <div class="portal-context-kv"><strong>open_loops</strong><ul>{% for item in context.get('open_loops', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
     </div>
-  {% endif %}
+  </div>
 
-  {% if chatlog.timestamp %}
-    <div class="portal-panel-note">🕐 {{ chatlog.timestamp[:19]|replace('T', ' ') }}</div>
-  {% endif %}
-  {% if llm_debug.get('llm_request') and llm_debug.get('llm_request').get('request') %}
-    {% set req = llm_debug.get('llm_request').get('request') %}
-    <div class="portal-panel-note">🤖 Model: {{ req.get('model', '') }}</div>
-  {% endif %}
-
-  {% if llm_debug.get('llm_request') and llm_debug.get('llm_request').get('request') and llm_debug.get('llm_request').get('request').get('instructions') %}
-    <div class="portal-panel-section">
-      <div class="portal-detail-label">System Prompt</div>
-      <pre class="portal-panel-pre">{{ llm_debug.get('llm_request').get('request').get('instructions') }}</pre>
-    </div>
-  {% endif %}
-
-  {% if llm_debug.get('llm_request', {}) and llm_debug.get('llm_request', {}).request and llm_debug.get('llm_request', {}).get('request', {}).get('input', []) %}
-    <div class="portal-panel-section">
-      <div class="portal-detail-label">Request Flow ({{ llm_debug.get('llm_request', {}).get('request', {}).get('input', [])|length }} items)</div>
-      {% for item in llm_debug.get('llm_request', {}).get('request', {}).get('input', []) %}
-        {% set item_type = item.type or '' %}
-        {% set role = item.role or '' %}
-        <div class="portal-panel-section">
-          {% if role == 'user' %}
-            {% set content = item.content[0].text if item.content and item.content is iterable and item.content[0].text else item.content %}
-            <div class="portal-panel-note">👤 User</div>
-            <pre class="portal-panel-pre">{{ content }}</pre>
-          {% elif role == 'assistant' %}
-            <div class="portal-panel-note">🤖 Assistant</div>
-            <pre class="portal-panel-pre">{{ item.content if item.content else '' }}</pre>
-          {% elif item_type == 'function_call' %}
-            <div class="portal-panel-note">🔧 Tool Call: {{ item.name }}</div>
-            <pre class="portal-panel-pre">{{ item.arguments if item.arguments else '' }}</pre>
-          {% elif item_type == 'function_call_output' %}
-            <div class="portal-panel-note">✅ Tool Result</div>
-            <pre class="portal-panel-pre">{{ item.output if item.output else '' }}</pre>
+  <div class="portal-panel-section">
+    <div class="portal-panel-title">Execution Timeline ({{ events|length }})</div>
+    {% for event in events[-100:] %}
+      <div class="portal-timeline-event">
+        <span class="portal-timeline-event-icon">•</span>
+        <div class="portal-timeline-event-body">
+          <div class="portal-panel-note">{{ event.get('type') }} · {{ event.get('title') }}</div>
+          {% if event.get('message') %}<pre class="portal-panel-pre">{{ event.get('message')[:800] }}</pre>{% endif %}
+          {% if event.get('data') and event.get('type') in ['context_snapshot', 'context_compaction_applied'] %}
+            <pre class="portal-panel-pre">{{ event.get('data')|tojson }}</pre>
           {% endif %}
         </div>
-      {% endfor %}
-    </div>
-  {% endif %}
+      </div>
+    {% else %}
+      <div class="portal-inline-state">Waiting for runtime events…</div>
+    {% endfor %}
+  </div>
 
-  {% set llm_req = llm_debug.get('llm_request', {}) %}
-  {% set final_response = llm_debug.get('final_response', '') or (llm_req.response.content if llm_req and llm_req.response) %}
-  {% set usage = llm_req.response.usage if llm_req and llm_req.response else {} %}
-  {% if final_response %}
-    <div class="portal-panel-section">
-      <div class="portal-detail-label">Final Response</div>
-      <pre class="portal-panel-pre">{{ final_response }}</pre>
-      {% if usage %}
-        <div class="portal-panel-note">📊 {{ usage.prompt_tokens }} in / {{ usage.completion_tokens }} out (${{ '%.4f'|format(usage.cost_usd or 0) }})</div>
-      {% endif %}
-    </div>
-  {% endif %}
-
-  {% if llm_debug.get('llm_request', {}) and llm_debug.get('llm_request', {}).request and llm_debug.get('llm_request', {}).request.tools %}
-    <div class="portal-panel-section">
-      <div class="portal-detail-label">Available Tools ({{ llm_debug.get('llm_request', {}).request.tools|length }})</div>
-      {% for tool in llm_debug.get('llm_request', {}).request.tools %}
-        <div class="portal-panel-chip">{{ tool.name }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
-
-  {% set thinking_events = chatlog.get('thinking_events', []) or chatlog.get('events', []) or llm_debug.get('thinking_events', []) %}
-  {% if thinking_events %}
-    <div class="portal-panel-section">
-      <div class="portal-detail-label">Thinking Events ({{ thinking_events|length }})</div>
-      {% for event in thinking_events[:20] %}
-        {% set event_type = event.event_type or event.type or '' %}
-        {% set display = event.display or {} %}
-        {% set icon = display.icon or '🤔' %}
-        {% set name = display.name or event_type %}
-        {% if display.message %}
-          {% set message = display.message %}
-        {% elif event.summary %}
-          {% set message = event.summary %}
-        {% elif event.detail_payload and event.detail_payload.message %}
-          {% set message = event.detail_payload.message %}
-        {% elif event.data and event.data.message %}
-          {% set message = event.data.message %}
-        {% elif event.data %}
-          {% set message = event.data|string if event.data is not string else event.data %}
-        {% elif event.detail_payload %}
-          {% set message = event.detail_payload|string if event.detail_payload is not string else event.detail_payload %}
-        {% else %}
-          {% set message = '' %}
-        {% endif %}
-        <div class="portal-panel-section">
-          <div class="portal-panel-note">{{ icon }} {{ name }}</div>
-          {% if message %}<pre class="portal-panel-pre">{{ message[:500] }}{% if message|length > 500 %}...{% endif %}</pre>{% endif %}
-        </div>
-      {% endfor %}
-      {% if thinking_events|length > 20 %}
-        <div class="portal-panel-note">... and {{ thinking_events|length - 20 }} more events</div>
-      {% endif %}
-    </div>
-  {% endif %}
+  <details class="portal-debug-details">
+    <summary>Advanced Debug</summary>
+    {% if debug.get('system_prompt') %}<div class="portal-panel-section"><div class="portal-detail-label">System Prompt</div><pre class="portal-panel-pre">{{ debug.get('system_prompt') }}</pre></div>{% endif %}
+    {% if debug.get('request_items') %}<div class="portal-panel-section"><div class="portal-detail-label">Request Flow</div><pre class="portal-panel-pre">{{ debug.get('request_items')|tojson(indent=2) }}</pre></div>{% endif %}
+    {% if debug.get('available_tools') %}<div class="portal-panel-section"><div class="portal-detail-label">Available Tools</div><pre class="portal-panel-pre">{{ debug.get('available_tools')|tojson(indent=2) }}</pre></div>{% endif %}
+    {% if debug.get('final_response') %}<div class="portal-panel-section"><div class="portal-detail-label">Final Response</div><pre class="portal-panel-pre">{{ debug.get('final_response') }}</pre></div>{% endif %}
+  </details>
 {% endif %}
 </div>

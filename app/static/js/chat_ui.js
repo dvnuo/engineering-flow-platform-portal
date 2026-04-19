@@ -240,6 +240,7 @@ const state = {
   selectedRuntimeProfileId: null,
   agentDefaults: null,
 };
+let thinkingPanelRefreshRaf = null;
 
 function createDefaultChatState() {
   return {
@@ -248,6 +249,7 @@ function createDefaultChatState() {
     pendingFiles: [],
     attachmentHistory: [],
     inflightThinking: null,
+    lastThinkingSnapshot: null,
     pendingThinkingEvents: null,
     didAppendAttachmentHistoryForPendingSend: false,
     draftText: "",
@@ -685,20 +687,6 @@ function buildAssistantMessageArticle(content, displayBlocks = [], authorName = 
   return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
 
-function buildPendingAssistantRowForEvents(thinkingId) {
-  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const name = getSelectedAssistantDisplayName();
-  return `
-    <div class="message-row message-row-assistant" data-temporary-assistant="1" data-thinking-fallback="1">
-      <div class="message-meta">
-        <span class="message-author">${escapeHtml(name)}</span>
-        <span class="message-timestamp">${now}</span>
-      </div>
-      <article class="message-surface message-surface-assistant assistant-message pending-thinking" data-thinking-id="${escapeHtmlAttr(thinkingId)}"></article>
-    </div>
-  `;
-}
-
 function removeTemporaryAssistantRows() {
   if (!dom.messageList) return;
   const tempRows = new Set();
@@ -741,6 +729,7 @@ function isTrackableThinkingEvent(type) {
     "execution.started", "execution.completed", "execution.failed",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
     "skill_matched", "complete",
+    "context_snapshot", "context_compaction_planned", "context_compaction_applied",
     // Skill mode events
     "skill_mode_start", "skill_step", "skill_session_start",
     "skill_compaction", "skill_complete",
@@ -826,6 +815,13 @@ function isCompletionRuntimeState(state) {
 function getThinkingEventDisplay(event) {
   const type = event?.type || "event";
   const data = event?.data || {};
+  const contextBudget = (data.budget && typeof data.budget === "object")
+    ? data.budget
+    : ((data.context_state?.budget && typeof data.context_state.budget === "object")
+      ? data.context_state.budget
+      : {});
+  const contextPct = contextBudget.prepared_usage_percent ?? contextBudget.usage_percent;
+  const contextStage = data.stage || "";
   const byType = {
     "execution.started": { icon: "play-circle", title: "Execution Started", detail: data.message || "Execution started" },
     "execution.completed": { icon: "flag", title: "Execution Completed", detail: data.message || "Execution complete", response: data.response, total_iterations: data.total_iterations },
@@ -836,6 +832,21 @@ function getThinkingEventDisplay(event) {
     tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
     skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
+    context_snapshot: {
+      icon: "gauge",
+      title: "Context Snapshot",
+      detail: contextPct != null ? `${contextPct}% used · ${contextStage}` : (contextStage || "Context updated"),
+    },
+    context_compaction_planned: {
+      icon: "scissors",
+      title: "Compaction Planned",
+      detail: contextPct != null ? `${contextPct}% used · ${data.compaction_level || contextStage || ""}` : (data.compaction_level || contextStage || "Compaction planned"),
+    },
+    context_compaction_applied: {
+      icon: "archive",
+      title: "Context Compaction Applied",
+      detail: contextPct != null ? `${contextPct}% used · ${data.compaction_level || contextStage || ""}` : (data.compaction_level || contextStage || "Context updated"),
+    },
     // Skill mode events
     skill_mode_start: { icon: "play-circle", title: "Skill Mode", detail: `Starting: ${data.skill || "Skill"}` },
     skill_step: { icon: "list-checks", title: `Step: ${data.step || "Step"}`, detail: data.detail || "", status: data.status },
@@ -868,84 +879,170 @@ function getThinkingEventDisplay(event) {
   return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
 }
 
-// Open Thinking Process panel - using backend rendering
-async function openThinkingProcessPanel() {
-  if (!state.selectedAgentId) {
-    showToast('Please select an assistant first');
+function isThinkingPanelActiveForAgent(agentId) {
+  return (
+    agentId === state.selectedAgentId &&
+    state.toolPanelOpen &&
+    state.activeUtilityPanel === "thinking"
+  );
+}
+
+function scheduleThinkingPanelRefresh(agentId) {
+  if (thinkingPanelRefreshRaf) return;
+  thinkingPanelRefreshRaf = requestAnimationFrame(() => {
+    thinkingPanelRefreshRaf = null;
+    if (!isThinkingPanelActiveForAgent(agentId)) return;
+    const chatState = ensureChatState(agentId);
+    renderThinkingPanelFromClientState(chatState);
+  });
+}
+
+function extractContextBudget(contextState) {
+  if (!contextState || typeof contextState !== "object") return null;
+  const budget = contextState.budget;
+  return budget && typeof budget === "object" ? budget : null;
+}
+
+function updateThinkingContextFromEvent(thinking, entry) {
+  if (!thinking || !entry) return;
+  const data = entry.data || {};
+  if (entry.type !== "context_snapshot" && entry.type !== "context_compaction_applied") return;
+
+  const contextState = (
+    data.context_state && typeof data.context_state === "object"
+      ? data.context_state
+      : null
+  );
+  const budget = (
+    data.budget && typeof data.budget === "object"
+      ? data.budget
+      : extractContextBudget(contextState)
+  );
+
+  if (contextState) thinking.contextState = contextState;
+  if (budget) thinking.contextBudget = budget;
+}
+
+function getActiveThinkingSnapshot(chatState) {
+  return chatState?.inflightThinking || chatState?.lastThinkingSnapshot || null;
+}
+
+function truncateThinkingText(value, max = 700) {
+  const text = String(value || "");
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function renderThinkingPanelFromClientState(chatState) {
+  if (!dom.toolPanelBody) return;
+  const snapshot = getActiveThinkingSnapshot(chatState);
+  if (!snapshot) {
+    dom.toolPanelBody.innerHTML = '<div class="portal-inline-state">Waiting for runtime events…</div>';
     return;
   }
-  
-  // Try state first (updated after message received), fall back to hidden input for new sessions
-  // Note: we re-query the element each time because OOB swap replaces the DOM element
+  const events = Array.isArray(snapshot.events) ? snapshot.events : [];
+  const contextState = (snapshot.contextState && typeof snapshot.contextState === "object") ? snapshot.contextState : null;
+  const budget = (snapshot.contextBudget && typeof snapshot.contextBudget === "object")
+    ? snapshot.contextBudget
+    : extractContextBudget(contextState);
+  const usagePercentRaw = budget ? (budget.prepared_usage_percent ?? budget.usage_percent) : null;
+  const usagePercent = Number(usagePercentRaw);
+  const clampedPercent = Number.isFinite(usagePercent) ? Math.max(0, Math.min(100, usagePercent)) : 0;
+  const preparedTokens = budget?.prepared_tokens ?? budget?.estimated_tokens;
+  const contextWindowTokens = budget?.context_window_tokens;
+  const latestSkillEvent = [...events].reverse().find((event) => ["skill_contract_active", "skill_runtime_applied", "skill_matched"].includes(event?.type));
+  const skillData = latestSkillEvent?.data || {};
+  const visibleEvents = events.slice(-100);
+  const capNote = events.length > 100 ? `<div class="portal-panel-note">showing latest 100 of ${events.length} events</div>` : "";
+
+  const renderArray = (value) => {
+    if (!Array.isArray(value) || !value.length) return '<div class="portal-panel-note">—</div>';
+    return `<ul>${value.slice(0, 10).map((item) => `<li>${safe(truncateThinkingText(item, 220))}</li>`).join("")}</ul>`;
+  };
+
+  const timeline = visibleEvents.map((event) => {
+    const view = getThinkingEventDisplay(event);
+    const payload = view.args ?? view.result ?? view.output ?? null;
+    const detailJson = (payload && (typeof payload === "string" || typeof payload === "object"))
+      ? `<pre class="portal-panel-pre">${safe(truncateThinkingText(typeof payload === "string" ? payload : JSON.stringify(payload, null, 2), 800))}</pre>`
+      : "";
+    return `<div class="portal-timeline-event"><span class="portal-timeline-event-icon"><i data-lucide="${safe(view.icon)}"></i></span><div class="portal-timeline-event-body"><div class="portal-panel-title">${safe(view.title)}</div><div class="portal-panel-note">${safe(view.detail || "")}</div>${detailJson}</div></div>`;
+  }).join("");
+
+  dom.toolPanelBody.innerHTML = `
+    <div class="portal-panel-stack portal-live-thinking" data-live-thinking-panel="1">
+      <div class="portal-panel-section">
+        <div class="portal-panel-title">Thinking Process · ${snapshot.completed ? "Completed" : "Live"}</div>
+        <div class="portal-panel-note">Status: ${snapshot.completed ? "completed" : "running"}</div>
+        <div class="portal-panel-note">Request ID: ${safe(snapshot.requestId || snapshot.id || "—")}</div>
+        <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
+        <div class="portal-panel-note">Events: ${events.length}</div>
+      </div>
+      ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div></div>` : ""}
+      <div class="portal-panel-section">
+        <div class="portal-panel-title">Context Contents</div>
+        <div class="portal-context-grid">
+          <div class="portal-context-kv"><strong>objective</strong><div>${safe(truncateThinkingText(contextState?.objective || "", 700) || "—")}</div></div>
+          <div class="portal-context-kv"><strong>summary</strong><div>${safe(truncateThinkingText(contextState?.summary || "", 700) || "—")}</div></div>
+          <div class="portal-context-kv"><strong>current_state</strong><div>${safe(truncateThinkingText(contextState?.current_state || "", 700) || "—")}</div></div>
+          <div class="portal-context-kv"><strong>next_step</strong><div>${safe(truncateThinkingText(contextState?.next_step || "", 700) || "—")}</div></div>
+          <div class="portal-context-kv"><strong>constraints</strong>${renderArray(contextState?.constraints)}</div>
+          <div class="portal-context-kv"><strong>decisions</strong>${renderArray(contextState?.decisions)}</div>
+          <div class="portal-context-kv"><strong>open_loops</strong>${renderArray(contextState?.open_loops)}</div>
+        </div>
+      </div>
+      ${(skillData.skill || skillData.skill_name) ? `<div class="portal-panel-section"><div class="portal-panel-title">Active Skill</div><div class="portal-panel-note">${safe(skillData.skill || skillData.skill_name)}</div>${skillData.goal ? `<div class="portal-panel-note">Goal: ${safe(truncateThinkingText(skillData.goal, 300))}</div>` : ""}${skillData.turn_count != null ? `<div class="portal-panel-note">Turn: ${safe(String(skillData.turn_count))}</div>` : ""}${skillData.reason ? `<div class="portal-panel-note">Reason: ${safe(truncateThinkingText(skillData.reason, 180))}</div>` : ""}${Array.isArray(skillData.allowed_tools) && skillData.allowed_tools.length ? `<div class="portal-panel-note">Allowed tools: ${safe(skillData.allowed_tools.slice(0, 10).join(", "))}</div>` : ""}</div>` : ""}
+      <div class="portal-panel-section">
+        <div class="portal-panel-title">Execution Timeline</div>
+        ${capNote}
+        ${timeline || '<div class="portal-inline-state">Waiting for runtime events…</div>'}
+      </div>
+    </div>
+  `;
+  renderIcons();
+}
+
+async function loadPersistedThinkingPanel(sessionId, { preserveLiveOnFailure = false } = {}) {
+  if (!state.selectedAgentId || !sessionId) return;
+  try {
+    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(sessionId)}`, {
+      target: "#tool-panel-body",
+      swap: "innerHTML"
+    });
+    renderIcons();
+  } catch (err) {
+    if (preserveLiveOnFailure) return;
+    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`, "thinking");
+  }
+}
+
+async function openThinkingProcessPanel() {
+  if (!state.selectedAgentId) {
+    showToast("Please select an assistant first");
+    return;
+  }
+
+  const chatState = ensureChatState(state.selectedAgentId);
+  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>', "thinking");
+
+  const liveSnapshot = getActiveThinkingSnapshot(chatState);
+  if (liveSnapshot && (chatState.activeRequest || liveSnapshot.events?.length || !liveSnapshot.completed)) {
+    renderThinkingPanelFromClientState(chatState);
+    ensureEventSocketForSelectedAgent();
+    return;
+  }
+
   let currentSessionId = currentSessionIdForSelectedAgent();
   const hiddenSessionInput = document.getElementById("chat-session-id");
   if (!currentSessionId && hiddenSessionInput) {
     currentSessionId = (hiddenSessionInput.value || "").trim();
   }
-  
+
   if (!currentSessionId) {
     setToolPanel("Thinking Process", '<div class="portal-inline-state">No session selected. Start a conversation first.</div>', "thinking");
     return;
   }
-  
-  // Use htmx to load backend-rendered panel
-  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>', "thinking");
-  
-  try {
-    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
-      target: "#tool-panel-body",
-      swap: "innerHTML"
-    });
-  } catch (err) {
-    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`, "thinking");
-  }
-}
 
-function renderThinkingProcess(article, events) {
-  if (!article) return;
-
-  let host = article.querySelector('[data-thinking-process="1"]');
-  if (!host) {
-    host = document.createElement("div");
-    host.dataset.thinkingProcess = "1";
-    host.className = "portal-thinking-block";
-    article.append(host);
-  }
-
-  const expanded = host.dataset.expanded === "1";
-  const count = events.length;
-  const rows = events.map((event) => {
-    const view = getThinkingEventDisplay(event);
-    return `<div class="portal-thinking-step"><span class="portal-thinking-step-icon"><i data-lucide="${view.icon}" class="h-3 w-3"></i></span><div class="portal-thinking-step-title">${safe(view.title)}</div><div class="portal-thinking-step-detail">${safe(view.detail || "")}</div></div>`;
-  }).join("");
-
-  host.innerHTML = `
-    <button type="button" data-thinking-toggle="1" class="portal-thinking-toggle">
-      <span class="inline-flex items-center gap-1.5"><i data-lucide="brain"></i>View Thinking Process (${count} steps)</span>
-      <i data-lucide="${expanded ? "chevron-up" : "chevron-down"}"></i>
-    </button>
-    <div data-thinking-timeline="1" class="portal-thinking-timeline ${expanded ? "" : "hidden"}">
-      ${count ? rows : `<div class="portal-thinking-empty">Waiting for runtime events…</div>`}
-    </div>
-  `;
-
-  host.querySelector('[data-thinking-toggle="1"]')?.addEventListener("click", () => {
-    const timeline = host.querySelector('[data-thinking-timeline="1"]');
-    const isExpanded = !timeline.classList.contains("hidden");
-    host.dataset.expanded = isExpanded ? "0" : "1";
-    renderThinkingProcess(article, events);
-  });
-
-  renderIcons();
-}
-
-function attachThinkingToLatestAssistant(events) {
-  if (!dom.messageList || !events?.length) return false;
-  const assistants = Array.from(dom.messageList.querySelectorAll("article.assistant-message:not([data-pending-assistant='1'])"));
-  const target = assistants[assistants.length - 1];
-  if (!target) return false;
-  renderThinkingProcess(target, events);
-  return true;
+  await loadPersistedThinkingPanel(currentSessionId);
 }
 
 function mergeThinkingEvents(primaryEvents, secondaryEvents) {
@@ -979,7 +1076,7 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Note: Event rendering is handled by attachThinkingToLatestAssistant in fetch success path.
+// Note: Event rendering is handled by thinking tool panel live renderer.
 
 function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
@@ -1003,22 +1100,18 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
 
   if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
 
-  // Initialize inflightThinking if not set and we have skill mode events
-  if (!chatState.inflightThinking && type?.startsWith("skill_")) {
-    // Create a placeholder thinking panel for skill mode
-    const thinkingId = `thinking-${Date.now()}`;
-    chatState.inflightThinking = { id: thinkingId, events: [], completed: false };
-    
-    // Find or create the assistant message placeholder
-    let assistantPlaceholder = dom.messageList?.querySelector('article.assistant-message.pending-thinking');
-    if (!assistantPlaceholder) {
-      dom.messageList?.insertAdjacentHTML("beforeend", buildPendingAssistantRowForEvents(thinkingId));
-      assistantPlaceholder = dom.messageList?.querySelector(`article.pending-thinking[data-thinking-id="${thinkingId}"]`);
-    }
-    if (assistantPlaceholder) {
-      assistantPlaceholder.dataset.thinkingId = thinkingId;
-      renderThinkingProcess(assistantPlaceholder, chatState.inflightThinking.events);
-    }
+  if (!chatState.inflightThinking) {
+    chatState.inflightThinking = {
+      id: entry.request_id || `event-${Date.now()}`,
+      requestId: entry.request_id || "",
+      sessionId: entry.session_id || currentSessionId || "",
+      events: [],
+      completed: false,
+      started: false,
+      contextState: null,
+      contextBudget: null,
+      startedAt: Date.now(),
+    };
   }
 
   if (!chatState.inflightThinking) return;
@@ -1052,11 +1145,14 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     });
   }
 
-  const pendingArticle = dom.messageList?.querySelector(`[data-thinking-id="${chatState.inflightThinking.id}"]`);
-  if (pendingArticle) renderThinkingProcess(pendingArticle, chatState.inflightThinking.events);
+  updateThinkingContextFromEvent(chatState.inflightThinking, entry);
+  if (isThinkingPanelActiveForAgent(currentAgentId)) {
+    scheduleThinkingPanelRefresh(currentAgentId);
+  }
 
   if (type === "execution.completed" || type === "execution.failed" || type === "skill_complete" || isCompletion || lifecycleType === "execution.completed" || lifecycleType === "execution.failed") {
     chatState.inflightThinking.completed = true;
+    chatState.lastThinkingSnapshot = { ...chatState.inflightThinking, completed: true };
   }
 }
 
@@ -2235,13 +2331,22 @@ async function submitChatForSelectedAgent() {
       url: pf.uploadedData?.url,
     }));
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(messageAtSend, displayAttachments));
-    const thinkingId = `thinking-${Date.now()}`;
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
-    const pending = dom.messageList.querySelector('article[data-pending-assistant="1"]:last-of-type') || dom.messageList.lastElementChild;
-    if (pending) pending.dataset.thinkingId = thinkingId;
-    chatState.inflightThinking = { id: thinkingId, events: [], completed: false };
-    if (pending) renderThinkingProcess(pending, chatState.inflightThinking.events);
+    chatState.inflightThinking = {
+      id: clientRequestId,
+      requestId: clientRequestId,
+      sessionId: sessionIdAtSend || "",
+      events: [],
+      completed: false,
+      started: false,
+      contextState: null,
+      contextBudget: null,
+      startedAt: Date.now(),
+    };
     ensureEventSocketForAgent(agentIdAtSend, sessionIdAtSend, clientRequestId);
+    if (isThinkingPanelActiveForAgent(agentIdAtSend)) {
+      renderThinkingPanelFromClientState(chatState);
+    }
     scrollToBottom();
   }
   chatState.attachmentHistory.push(attachmentsAtSend);
@@ -2275,11 +2380,36 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
   const mergedThinkingEvents = mergeThinkingEvents(chatState.inflightThinking?.events || [], payload?.events || []);
   updateAgentSession(agentIdAtSend, payload.session_id || requestCtx.sessionIdAtSend || "");
+  const finalSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
+  const finalContextState =
+    payload?.context_state ||
+    chatState.inflightThinking?.contextState ||
+    chatState.lastThinkingSnapshot?.contextState ||
+    null;
+  const finalThinkingSnapshot = {
+    ...(chatState.inflightThinking || {}),
+    id: payload.request_id || requestCtx.clientRequestId,
+    requestId: payload.request_id || requestCtx.clientRequestId,
+    sessionId: finalSessionId,
+    events: mergedThinkingEvents,
+    completed: true,
+    contextState: finalContextState,
+    contextBudget: (((finalContextState && typeof finalContextState === "object" && finalContextState.budget && typeof finalContextState.budget === "object") ? finalContextState.budget : null) || chatState.inflightThinking?.contextBudget || null),
+    completedAt: Date.now(),
+  };
+  chatState.lastThinkingSnapshot = finalThinkingSnapshot;
+  const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
   setChatSubmittingForAgent(agentIdAtSend, false);
   chatState.activeRequest = null;
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   if (state.selectedAgentId !== agentIdAtSend) {
+    if (canRenderThinkingPanel) {
+      if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
+      if (finalSessionId) {
+        if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, { preserveLiveOnFailure: true });
+      }
+    }
     chatState.inflightThinking = null;
     chatState.pendingThinkingEvents = null;
     chatState.needsReload = true;
@@ -2293,11 +2423,15 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   removeTemporaryAssistantRows();
   const optimisticUserArticle = getLatestOptimisticUserArticle();
   if (!optimisticUserArticle) {
-    const resolvedSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
-    if (resolvedSessionId) {
-      await loadSessionForAgent(agentIdAtSend, resolvedSessionId, { render: true });
+    if (finalSessionId) {
+      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
     }
-    if (mergedThinkingEvents.length) attachThinkingToLatestAssistant(mergedThinkingEvents);
+    if (canRenderThinkingPanel) {
+      if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
+      if (finalSessionId) {
+        if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, { preserveLiveOnFailure: true });
+      }
+    }
     addEditButtonsToMessages();
     chatState.inflightThinking = null;
     chatState.pendingThinkingEvents = null;
@@ -2318,7 +2452,12 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
   );
   dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
-  if (mergedThinkingEvents.length) attachThinkingToLatestAssistant(mergedThinkingEvents);
+  if (canRenderThinkingPanel) {
+    if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
+    if (finalSessionId) {
+      if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, { preserveLiveOnFailure: true });
+    }
+  }
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
   setChatStatus("Ready");
@@ -2347,6 +2486,21 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   chatState.activeRequest = null;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   const errorMsg = error?.message || "Send failed";
+  if (chatState.inflightThinking) {
+    const failedEvent = {
+      type: "execution.failed",
+      raw_type: "execution.failed",
+      lifecycle_type: "execution.failed",
+      data: { message: errorMsg, error: errorMsg },
+      state: "failed",
+      ts: Date.now() / 1000,
+      request_id: requestCtx.clientRequestId,
+      session_id: requestCtx.sessionIdAtSend || "",
+    };
+    chatState.inflightThinking.events.push(failedEvent);
+    chatState.inflightThinking.completed = true;
+    chatState.lastThinkingSnapshot = { ...chatState.inflightThinking };
+  }
   if (state.selectedAgentId !== agentIdAtSend) {
     if (shouldRollbackAttachmentHistory) {
       chatState.attachmentHistory.pop();
@@ -2376,6 +2530,9 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   chatState.draftAttachmentsValue = restoredAttachmentsValue;
   renderInputPreview();
   syncChatInputHeight();
+  if (typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend)) {
+    if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
+  }
   chatState.inflightThinking = null;
   setChatStatus(errorMsg, true);
   if (dom.messageList) {
@@ -3308,11 +3465,6 @@ function renderChatHistory(messages, metadata = {}) {
 
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
-
-  const storedEvents = Array.isArray(metadata?.thinking_events) ? metadata.thinking_events
-    .filter((event) => isTrackableThinkingEvent(event?.type))
-    .map((event) => ({ type: event.type, data: event.data || event, ts: event.ts || Date.now() / 1000 })) : [];
-  if (storedEvents.length) attachThinkingToLatestAssistant(storedEvents);
 
   scrollToBottom();
 }

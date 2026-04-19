@@ -40,6 +40,7 @@ from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
+from app.services.thinking_process_view import build_thinking_process_view
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 
@@ -1976,7 +1977,7 @@ async def app_agent_thinking_panel(request: Request, agent_id: str, session_id: 
     if not session_id:
         return templates.TemplateResponse(
             "partials/thinking_process_panel.html",
-            {"request": request, "agent_id": agent_id, "session_id": "", "chatlog": None, "error": "No session selected"},
+            {"request": request, "agent_id": agent_id, "session_id": "", "chatlog": None, "view": {}, "error": "No session selected"},
         )
 
     db = SessionLocal()
@@ -1986,11 +1987,20 @@ async def app_agent_thinking_panel(request: Request, agent_id: str, session_id: 
             raise HTTPException(status_code=404, detail="Agent not found")
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail="Forbidden")
+        metadata_record = AgentSessionMetadataRepository(db).get_by_agent_and_session(agent_id, session_id)
 
         if not settings.k8s_enabled:
+            view = build_thinking_process_view(None, metadata_record)
             return templates.TemplateResponse(
                 "partials/thinking_process_panel.html",
-                {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "error": "Agent not running"},
+                {
+                    "request": request,
+                    "agent_id": agent_id,
+                    "session_id": session_id,
+                    "chatlog": None,
+                    "view": view,
+                    "error": None if (view.get("events") or view.get("context", {}).get("summary") or view.get("active_skill", {}).get("name")) else "Agent not running",
+                },
             )
 
         status_code, content, _ = await _forward_runtime(
@@ -2003,15 +2013,23 @@ async def app_agent_thinking_panel(request: Request, agent_id: str, session_id: 
         )
 
         if status_code >= 400:
+            if metadata_record:
+                view = build_thinking_process_view(None, metadata_record)
+                view["warning"] = f"Runtime unavailable ({status_code}), showing last metadata snapshot."
+                return templates.TemplateResponse(
+                    "partials/thinking_process_panel.html",
+                    {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "view": view, "error": None},
+                )
             return templates.TemplateResponse(
                 "partials/thinking_process_panel.html",
-                {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "error": f"Error: {status_code}"},
+                {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "view": {}, "error": f"Error: {status_code}"},
             )
 
         chatlog = json.loads(content.decode("utf-8"))
+        view = build_thinking_process_view(chatlog, metadata_record)
         return templates.TemplateResponse(
             "partials/thinking_process_panel.html",
-            {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": chatlog, "error": None},
+            {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": chatlog, "view": view, "error": None},
         )
     finally:
         db.close()

@@ -9,7 +9,7 @@ class _DB:
         return None
 
 
-def _setup_thinking_panel_client(monkeypatch, chatlog_payload):
+def _setup_thinking_panel_client(monkeypatch, chatlog_payload=None, *, metadata_record=None, k8s_enabled=True, status_code=200):
     from app.main import app
     import app.web as web_module
 
@@ -23,10 +23,16 @@ def _setup_thinking_panel_client(monkeypatch, chatlog_payload):
         "AgentRepository",
         lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
     )
-    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", k8s_enabled)
+    monkeypatch.setattr(
+        web_module,
+        "AgentSessionMetadataRepository",
+        lambda _db: SimpleNamespace(get_by_agent_and_session=lambda _agent_id, _session_id: metadata_record),
+    )
 
     async def _fake_forward_runtime(**_kwargs):
-        return 200, json.dumps(chatlog_payload).encode("utf-8"), "application/json"
+        payload = chatlog_payload or {}
+        return status_code, json.dumps(payload).encode("utf-8"), "application/json"
 
     monkeypatch.setattr(web_module, "_forward_runtime", _fake_forward_runtime)
     return TestClient(app)
@@ -169,3 +175,67 @@ def test_thinking_process_panel_handles_non_mapping_llm_debug(monkeypatch):
     assert "Active Skill: review-pull-request" in response.text
     assert "Goal: Review PR #12" in response.text
     assert "Turn: 2" in response.text
+
+
+def test_thinking_process_panel_renders_context_budget(monkeypatch):
+    context_state = {
+        "objective": "Generate demo test cases",
+        "summary": "User asked for test cases from Jira",
+        "next_step": "Fetch Jira issue",
+        "compaction_level": "none",
+        "budget": {
+            "usage_percent": 61.5,
+            "prepared_usage_percent": 49.0,
+            "estimated_tokens": 123000,
+            "prepared_tokens": 98000,
+            "context_window_tokens": 200000,
+            "soft_threshold_percent": 65.0,
+            "hard_threshold_percent": 80.0,
+            "tokens_until_soft_threshold": 7000,
+            "next_compaction_action": "approaching_micro_compaction",
+        },
+    }
+    chatlog = {
+        "session_id": "s-1",
+        "timestamp": "2026-04-18T15:10:27Z",
+        "context_state": context_state,
+        "events": [{"type": "context_snapshot", "data": {"stage": "pre_request", "context_state": context_state}}],
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Context Window" in response.text
+    assert "49.0%" in response.text
+    assert "98000" in response.text
+    assert "200000" in response.text
+    assert "approaching_micro_compaction" in response.text
+    assert "Context Contents" in response.text
+    assert "Generate demo test cases" in response.text
+
+
+def test_thinking_process_panel_metadata_fallback_when_runtime_disabled(monkeypatch):
+    metadata_record = SimpleNamespace(
+        session_id="s-1",
+        metadata_json=json.dumps(
+            {
+                "context_summary_preview": "Fallback summary preview",
+                "context_usage_percent": 44.2,
+                "active_skill_name": "review-pull-request",
+            }
+        ),
+        runtime_events_json="[]",
+        latest_event_type="context_snapshot",
+        latest_event_state="running",
+        last_execution_id="req-1",
+    )
+    client = _setup_thinking_panel_client(
+        monkeypatch,
+        None,
+        metadata_record=metadata_record,
+        k8s_enabled=False,
+    )
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Agent not running" not in response.text
+    assert "Fallback summary preview" in response.text
+    assert "Active Skill: review-pull-request" in response.text
