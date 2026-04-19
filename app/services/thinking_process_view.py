@@ -34,6 +34,26 @@ def _safe_json_list(raw: Any) -> list:
     return parsed if isinstance(parsed, list) else []
 
 
+def _build_budget_from_metadata(metadata_dict: dict) -> dict:
+    if not isinstance(metadata_dict, dict):
+        return {}
+    mapping = {
+        "context_usage_percent": "usage_percent",
+        "context_estimated_tokens": "estimated_tokens",
+        "context_window_tokens": "context_window_tokens",
+        "context_next_compaction_action": "next_compaction_action",
+        "context_tokens_until_soft_threshold": "tokens_until_soft_threshold",
+        "context_tokens_until_hard_threshold": "tokens_until_hard_threshold",
+    }
+    budget = {}
+    for source_key, target_key in mapping.items():
+        value = metadata_dict.get(source_key)
+        if value is None:
+            continue
+        budget[target_key] = value
+    return budget
+
+
 def _pick_context(chatlog: dict, metadata: dict, events: list, metadata_dict: dict) -> dict:
     if isinstance(chatlog.get("context_state"), dict):
         return chatlog["context_state"]
@@ -47,31 +67,50 @@ def _pick_context(chatlog: dict, metadata: dict, events: list, metadata_dict: di
     if isinstance(metadata_dict.get("context_state"), dict):
         return metadata_dict["context_state"]
     preview = {}
+    if metadata_dict.get("context_objective_preview"):
+        preview["objective"] = metadata_dict.get("context_objective_preview")
     if metadata_dict.get("context_summary_preview"):
         preview["summary"] = metadata_dict.get("context_summary_preview")
-    if metadata_dict.get("context_usage_percent") is not None:
-        preview["budget"] = {"usage_percent": metadata_dict.get("context_usage_percent")}
+    if metadata_dict.get("context_next_step_preview"):
+        preview["next_step"] = metadata_dict.get("context_next_step_preview")
+    budget = _build_budget_from_metadata(metadata_dict)
+    if budget:
+        preview["budget"] = budget
     return preview
 
 
 def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list:
     merged = []
     seen = set()
-    for source in (_as_list(chatlog.get("events")), _as_list(chatlog.get("thinking_events")), _as_list(llm_debug.get("thinking_events")), metadata_events):
+    for source in (
+        _as_list(chatlog.get("events")),
+        _as_list(chatlog.get("runtime_events")),
+        _as_list(chatlog.get("thinking_events")),
+        _as_list(llm_debug.get("thinking_events")),
+        metadata_events,
+    ):
         for event in source:
             if not isinstance(event, dict):
                 continue
             event_type = event.get("type") or event.get("event_type") or "event"
             data = _as_dict(event.get("data") or event.get("detail_payload"))
+            message = data.get("message") or event.get("summary") or event_type
+            request_id = event.get("request_id") or data.get("request_id") or ""
+            session_id = event.get("session_id") or data.get("session_id") or ""
+            agent_id = event.get("agent_id") or data.get("agent_id") or ""
             normalized = {
                 "type": event_type,
+                "event_type": event_type,
                 "title": str(event.get("title") or event.get("summary") or event_type).replace("_", " ").title(),
-                "message": data.get("message") or event.get("summary") or "",
+                "message": message,
                 "data": data,
                 "ts": event.get("ts") or event.get("created_at") or "",
                 "state": event.get("state") or data.get("state") or "",
+                "request_id": request_id,
+                "session_id": session_id,
+                "agent_id": agent_id,
             }
-            key = f"{normalized['type']}|{normalized['ts']}|{json.dumps(data, sort_keys=True, default=str)}"
+            key = f"{normalized['type']}|{request_id}|{session_id}|{normalized['ts']}|{json.dumps(data, sort_keys=True, default=str)}"
             if key in seen:
                 continue
             seen.add(key)
@@ -115,6 +154,8 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
     events = _merge_events(chatlog, metadata_events, llm_debug)
     context_state = _pick_context(chatlog, metadata, events, metadata_dict)
     budget = _as_dict(context_state.get("budget"))
+    if not budget:
+        budget = _build_budget_from_metadata(metadata_dict)
 
     llm_request = _as_dict(llm_debug.get("llm_request"))
     llm_request_request = _as_dict(llm_request.get("request"))
@@ -135,7 +176,7 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "objective": context_state.get("objective") or metadata_dict.get("context_objective_preview") or "",
             "summary": context_state.get("summary") or metadata_dict.get("context_summary_preview") or "",
             "current_state": context_state.get("current_state") or "",
-            "next_step": context_state.get("next_step") or "",
+            "next_step": context_state.get("next_step") or metadata_dict.get("context_next_step_preview") or "",
             "constraints": _as_list(context_state.get("constraints")),
             "decisions": _as_list(context_state.get("decisions")),
             "open_loops": _as_list(context_state.get("open_loops")),

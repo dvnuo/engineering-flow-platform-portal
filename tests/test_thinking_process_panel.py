@@ -239,3 +239,74 @@ def test_thinking_process_panel_metadata_fallback_when_runtime_disabled(monkeypa
     assert "Agent not running" not in response.text
     assert "Fallback summary preview" in response.text
     assert "Active Skill: review-pull-request" in response.text
+
+
+def test_thinking_process_panel_renders_runtime_events(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "runtime_events": [
+            {
+                "event_type": "context_snapshot",
+                "state": "running",
+                "request_id": "r-1",
+                "detail_payload": {
+                    "stage": "pre_request",
+                    "context_state": {
+                        "summary": "Runtime event summary",
+                        "budget": {"usage_percent": 42.0, "context_window_tokens": 1000},
+                    },
+                },
+            }
+        ],
+        "context_state": {
+            "summary": "Runtime event summary",
+            "budget": {"usage_percent": 42.0, "context_window_tokens": 1000},
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Context Window" in response.text
+    assert "42.0" in response.text
+    assert ("context_snapshot" in response.text) or ("Context Snapshot" in response.text)
+    assert "Runtime event summary" in response.text
+
+
+def test_thinking_process_panel_metadata_fallback_renders_budget_preview(monkeypatch):
+    metadata_record = SimpleNamespace(
+        session_id="s-1",
+        metadata_json=json.dumps(
+            {
+                "context_objective_preview": "Ship thinking panel",
+                "context_summary_preview": "Runtime unavailable fallback",
+                "context_next_step_preview": "Open persisted panel",
+                "context_usage_percent": 61.5,
+                "context_estimated_tokens": 123000,
+                "context_window_tokens": 200000,
+                "context_next_compaction_action": "approaching_micro_compaction",
+                "context_tokens_until_soft_threshold": 7000,
+                "context_tokens_until_hard_threshold": 37000,
+            }
+        ),
+        runtime_events_json="[]",
+        latest_event_type="context_snapshot",
+        latest_event_state="running",
+        last_execution_id="req-2",
+    )
+    client = _setup_thinking_panel_client(
+        monkeypatch,
+        None,
+        metadata_record=metadata_record,
+        k8s_enabled=False,
+    )
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Ship thinking panel" in response.text
+    assert "Runtime unavailable fallback" in response.text
+    assert "Open persisted panel" in response.text
+    assert "61.5" in response.text
+    assert "123000" in response.text
+    assert "200000" in response.text
+    assert "approaching_micro_compaction" in response.text
+    assert "7000" in response.text
+    assert "37000" in response.text

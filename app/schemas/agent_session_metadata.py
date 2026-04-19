@@ -40,6 +40,12 @@ class AgentSessionMetadataResponse(BaseModel):
     context_objective_preview: Optional[str] = None
     context_summary_preview: Optional[str] = None
     context_next_step_preview: Optional[str] = None
+    context_usage_percent: Optional[float] = None
+    context_estimated_tokens: Optional[int] = None
+    context_window_tokens: Optional[int] = None
+    context_next_compaction_action: Optional[str] = None
+    context_tokens_until_soft_threshold: Optional[int] = None
+    context_tokens_until_hard_threshold: Optional[int] = None
     active_skill_name: Optional[str] = None
     active_skill_status: Optional[str] = None
     active_skill_goal: Optional[str] = None

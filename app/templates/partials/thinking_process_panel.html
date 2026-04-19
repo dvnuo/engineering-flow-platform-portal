@@ -31,6 +31,12 @@
     <div class="portal-panel-note">Soft threshold: {{ budget.get('soft_threshold_percent') }}%</div>
     <div class="portal-panel-note">Hard threshold: {{ budget.get('hard_threshold_percent') }}%</div>
     <div class="portal-panel-note">Next: {{ budget.get('next_compaction_action') }}</div>
+    {% if budget.get('tokens_until_soft_threshold') is not none %}
+      <div class="portal-panel-note">Until soft threshold: {{ budget.get('tokens_until_soft_threshold') }} tokens</div>
+    {% endif %}
+    {% if budget.get('tokens_until_hard_threshold') is not none %}
+      <div class="portal-panel-note">Until hard threshold: {{ budget.get('tokens_until_hard_threshold') }} tokens</div>
+    {% endif %}
   </div>
   {% endif %}
 

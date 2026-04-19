@@ -115,6 +115,7 @@ def test_frontend_assets_include_phase_b_fixups():
     js_source = _chat_ui_js_source()
     css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
     web_source = Path("app/web.py").read_text(encoding="utf-8")
+    thinking_process_view_source = Path("app/services/thinking_process_view.py").read_text(encoding="utf-8")
 
     assert "ensureRunningSelectedAssistant" in js_source
     assert "setButtonDisabled" in js_source
@@ -135,6 +136,10 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "renderThinkingPanelFromClientState" in js_source
     assert "scheduleThinkingPanelRefresh" in js_source
     assert "loadPersistedThinkingPanel" in js_source
+    assert "liveSnapshot.events?.length || !liveSnapshot.completed" not in js_source
+    assert "const isLiveRun" in js_source
+    assert "entry.session_id && !chatState.inflightThinking.sessionId" in js_source
+    assert 'chatlog.get("runtime_events")' in thinking_process_view_source
     assert "View Thinking Process" not in js_source
     assert "attachThinkingToLatestAssistant" not in js_source
     assert "renderThinkingProcess(" not in js_source

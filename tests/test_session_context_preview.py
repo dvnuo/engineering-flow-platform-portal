@@ -212,6 +212,19 @@ def test_extract_context_preview_filters_blank_strings():
     assert extracted["context_summary_preview"] == "Nested summary"
 
 
+def test_extract_context_preview_derives_budget_preview_from_nested_context_state_budget():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"prepared_usage_percent":44.2,"prepared_tokens":98000,"context_window_tokens":200000,"next_compaction_action":"approaching_micro_compaction"}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_usage_percent"] == 44.2
+    assert extracted["context_estimated_tokens"] == 98000
+    assert extracted["context_window_tokens"] == 200000
+    assert extracted["context_next_compaction_action"] == "approaching_micro_compaction"
+
+
 def test_serialize_agent_session_metadata_with_preview_supports_nested_context_state():
     now = datetime.utcnow()
     record = SimpleNamespace(

@@ -1025,13 +1025,16 @@ async function openThinkingProcessPanel() {
   setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>', "thinking");
 
   const liveSnapshot = getActiveThinkingSnapshot(chatState);
-  if (liveSnapshot && (chatState.activeRequest || liveSnapshot.events?.length || !liveSnapshot.completed)) {
+  const isLiveRun = !!(liveSnapshot && (chatState.activeRequest || !liveSnapshot.completed));
+  if (isLiveRun) {
     renderThinkingPanelFromClientState(chatState);
     ensureEventSocketForSelectedAgent();
     return;
   }
 
-  let currentSessionId = currentSessionIdForSelectedAgent();
+  let currentSessionId = currentSessionIdForSelectedAgent()
+    || liveSnapshot?.sessionId
+    || "";
   const hiddenSessionInput = document.getElementById("chat-session-id");
   if (!currentSessionId && hiddenSessionInput) {
     currentSessionId = (hiddenSessionInput.value || "").trim();
@@ -1112,6 +1115,20 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       contextBudget: null,
       startedAt: Date.now(),
     };
+  }
+  if (entry.request_id && !chatState.inflightThinking.requestId) {
+    chatState.inflightThinking.requestId = entry.request_id;
+    chatState.inflightThinking.id = chatState.inflightThinking.id || entry.request_id;
+  }
+  if (entry.session_id && !chatState.inflightThinking.sessionId) {
+    chatState.inflightThinking.sessionId = entry.session_id;
+  }
+  if (entry.session_id && !chatState.sessionId) {
+    chatState.sessionId = entry.session_id;
+    state.agentSessionIds.set(currentAgentId, entry.session_id);
+    if (currentAgentId === state.selectedAgentId && dom.chatSessionId) {
+      dom.chatSessionId.value = entry.session_id;
+    }
   }
 
   if (!chatState.inflightThinking) return;

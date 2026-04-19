@@ -32,6 +32,41 @@ def _derive_preview_from_context_state(context_state: dict) -> dict:
     return {key: value for key, value in preview.items() if value is not None}
 
 
+def _derive_budget_preview(metadata: dict) -> dict:
+    if not isinstance(metadata, dict):
+        return {}
+    flat_preview = {
+        "context_usage_percent": metadata.get("context_usage_percent"),
+        "context_estimated_tokens": metadata.get("context_estimated_tokens"),
+        "context_window_tokens": metadata.get("context_window_tokens"),
+        "context_next_compaction_action": _normalize_preview_value(metadata.get("context_next_compaction_action")),
+        "context_tokens_until_soft_threshold": metadata.get("context_tokens_until_soft_threshold"),
+        "context_tokens_until_hard_threshold": metadata.get("context_tokens_until_hard_threshold"),
+    }
+    context_state = metadata.get("context_state") if isinstance(metadata.get("context_state"), dict) else {}
+    budget = context_state.get("budget") if isinstance(context_state.get("budget"), dict) else {}
+    nested_preview = {
+        "context_usage_percent": budget.get("prepared_usage_percent") if budget.get("prepared_usage_percent") is not None else budget.get("usage_percent"),
+        "context_estimated_tokens": budget.get("prepared_tokens") if budget.get("prepared_tokens") is not None else budget.get("estimated_tokens"),
+        "context_window_tokens": budget.get("context_window_tokens"),
+        "context_next_compaction_action": _normalize_preview_value(budget.get("next_compaction_action")),
+        "context_tokens_until_soft_threshold": budget.get("tokens_until_soft_threshold"),
+        "context_tokens_until_hard_threshold": budget.get("tokens_until_hard_threshold"),
+    }
+    merged = {
+        key: (flat_preview.get(key) if flat_preview.get(key) is not None else nested_preview.get(key))
+        for key in (
+            "context_usage_percent",
+            "context_estimated_tokens",
+            "context_window_tokens",
+            "context_next_compaction_action",
+            "context_tokens_until_soft_threshold",
+            "context_tokens_until_hard_threshold",
+        )
+    }
+    return {key: value for key, value in merged.items() if value is not None}
+
+
 def _derive_active_skill_preview(metadata: dict) -> dict:
     if not isinstance(metadata, dict):
         return {}
@@ -93,6 +128,7 @@ def extract_context_preview(record) -> dict:
             "context_next_step_preview",
         )
     }
+    budget_preview = _derive_budget_preview(metadata)
     active_skill_preview = _derive_active_skill_preview(metadata)
     snapshot_version = getattr(record, "snapshot_version", None)
     snapshot_version_text = _normalize_preview_value(str(snapshot_version) if snapshot_version is not None else None)
@@ -100,6 +136,7 @@ def extract_context_preview(record) -> dict:
         "latest_event_state": _normalize_preview_value(getattr(record, "latest_event_state", None)),
         "snapshot_version": snapshot_version_text,
         **merged_preview,
+        **budget_preview,
         **active_skill_preview,
     }
     return {key: value for key, value in preview.items() if value is not None}
