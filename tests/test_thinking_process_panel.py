@@ -282,6 +282,7 @@ def test_thinking_process_panel_fallback_renders_without_summary_when_budget_or_
                 "context_estimated_tokens": 123000,
                 "context_window_tokens": 200000,
                 "context_next_compaction_action": "approaching_micro_compaction",
+                "context_next_pruning_policy": "Approaching micro-compaction: older turns will be summarized.",
             }
         ),
         runtime_events_json="[]",
@@ -302,6 +303,24 @@ def test_thinking_process_panel_fallback_renders_without_summary_when_budget_or_
     assert "61.5" in response.text
     assert "123000" in response.text
     assert "approaching_micro_compaction" in response.text
+    assert "Pruning policy" in response.text
+
+
+def test_thinking_process_panel_handles_non_mapping_detail_payload(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "runtime_events": [
+            {
+                "event_type": "context_snapshot",
+                "request_id": "r-1",
+                "detail_payload": "not-a-dict",
+            }
+        ],
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "context_snapshot" in response.text
 
 
 def test_thinking_process_panel_metadata_fallback_renders_budget_preview(monkeypatch):
