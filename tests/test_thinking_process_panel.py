@@ -342,3 +342,39 @@ def test_thinking_process_panel_metadata_fallback_renders_budget_preview(monkeyp
     assert "approaching_micro_compaction" in response.text
     assert "7000" in response.text
     assert "37000" in response.text
+
+
+def test_thinking_process_panel_renders_pruning_policy_and_planned_payload(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "request_id": "r-1",
+        "context_state": {
+            "summary": "Context summary",
+            "budget": {
+                "usage_percent": 61.5,
+                "context_window_tokens": 200000,
+                "next_compaction_action": "approaching_micro_compaction",
+                "next_pruning_policy": "Approaching micro-compaction: older turns will be summarized.",
+            },
+        },
+        "runtime_events": [
+            {
+                "event_type": "context_compaction_planned",
+                "request_id": "r-1",
+                "detail_payload": {
+                    "message": "Context is approaching micro-compaction threshold.",
+                    "budget": {
+                        "usage_percent": 61.5,
+                        "next_pruning_policy": "Approaching micro-compaction: older turns will be summarized.",
+                    },
+                },
+            }
+        ],
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Pruning policy" in response.text
+    assert "Approaching micro-compaction" in response.text
+    assert "context_compaction_planned" in response.text
+    assert "61.5" in response.text

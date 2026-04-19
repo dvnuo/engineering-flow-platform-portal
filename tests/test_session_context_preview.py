@@ -225,6 +225,26 @@ def test_extract_context_preview_derives_budget_preview_from_nested_context_stat
     assert extracted["context_next_compaction_action"] == "approaching_micro_compaction"
 
 
+def test_extract_context_preview_derives_next_pruning_policy_from_nested_budget():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"next_pruning_policy":"No compaction planned yet."}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_next_pruning_policy"] == "No compaction planned yet."
+
+
+def test_extract_context_preview_derives_next_pruning_policy_from_flat_metadata():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_next_pruning_policy":"Approaching micro-compaction..."}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_next_pruning_policy"] == "Approaching micro-compaction..."
+
+
 def test_serialize_agent_session_metadata_with_preview_supports_nested_context_state():
     now = datetime.utcnow()
     record = SimpleNamespace(

@@ -42,6 +42,7 @@ def _build_budget_from_metadata(metadata_dict: dict) -> dict:
         "context_estimated_tokens": "estimated_tokens",
         "context_window_tokens": "context_window_tokens",
         "context_next_compaction_action": "next_compaction_action",
+        "context_next_pruning_policy": "next_pruning_policy",
         "context_tokens_until_soft_threshold": "tokens_until_soft_threshold",
         "context_tokens_until_hard_threshold": "tokens_until_hard_threshold",
     }
@@ -200,6 +201,7 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "tokens_until_soft_threshold": budget.get("tokens_until_soft_threshold"),
             "tokens_until_hard_threshold": budget.get("tokens_until_hard_threshold"),
             "next_compaction_action": budget.get("next_compaction_action"),
+            "next_pruning_policy": budget.get("next_pruning_policy"),
         } if budget else {},
         "events": events,
         "debug": {

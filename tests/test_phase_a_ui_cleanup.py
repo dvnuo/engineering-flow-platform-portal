@@ -116,6 +116,8 @@ def test_frontend_assets_include_phase_b_fixups():
     css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
     web_source = Path("app/web.py").read_text(encoding="utf-8")
     thinking_process_view_source = Path("app/services/thinking_process_view.py").read_text(encoding="utf-8")
+    session_context_preview_source = Path("app/services/session_context_preview.py").read_text(encoding="utf-8")
+    schema_source = Path("app/schemas/agent_session_metadata.py").read_text(encoding="utf-8")
 
     assert "ensureRunningSelectedAssistant" in js_source
     assert "setButtonDisabled" in js_source
@@ -138,14 +140,20 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "loadPersistedThinkingPanel" in js_source
     assert "tokens_until_soft_threshold" in js_source
     assert "tokens_until_hard_threshold" in js_source
+    assert "context_compaction_planned" in js_source
+    assert "next_pruning_policy" in js_source
+    assert "Pruning policy" in js_source
     assert "normalizePayloadThinkingEvents" in js_source
     assert "payload?.runtime_events" in js_source
     assert "Until soft threshold" in js_source
     assert "Until hard threshold" in js_source
     assert "_has_thinking_view_data" in web_source
+    assert "context_next_pruning_policy" in session_context_preview_source
+    assert "context_next_pruning_policy" in schema_source
     assert "liveSnapshot.events?.length || !liveSnapshot.completed" not in js_source
     assert "const isLiveRun" in js_source
     assert "entry.session_id && !chatState.inflightThinking.sessionId" in js_source
+    assert 'context_compaction_planned", "context_compaction_applied' in js_source
     assert 'chatlog.get("runtime_events")' in thinking_process_view_source
     assert "View Thinking Process" not in js_source
     assert "attachThinkingToLatestAssistant" not in js_source

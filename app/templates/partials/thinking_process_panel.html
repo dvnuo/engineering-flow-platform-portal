@@ -31,6 +31,9 @@
     <div class="portal-panel-note">Soft threshold: {{ budget.get('soft_threshold_percent') }}%</div>
     <div class="portal-panel-note">Hard threshold: {{ budget.get('hard_threshold_percent') }}%</div>
     <div class="portal-panel-note">Next: {{ budget.get('next_compaction_action') }}</div>
+    {% if budget.get('next_pruning_policy') %}
+      <div class="portal-panel-note">Pruning policy: {{ budget.get('next_pruning_policy') }}</div>
+    {% endif %}
     {% if budget.get('tokens_until_soft_threshold') is not none %}
       <div class="portal-panel-note">Until soft threshold: {{ budget.get('tokens_until_soft_threshold') }} tokens</div>
     {% endif %}
@@ -77,7 +80,7 @@
         <div class="portal-timeline-event-body">
           <div class="portal-panel-note">{{ event.get('type') }} · {{ event.get('title') }}</div>
           {% if event.get('message') %}<pre class="portal-panel-pre">{{ event.get('message')[:800] }}</pre>{% endif %}
-          {% if event.get('data') and event.get('type') in ['context_snapshot', 'context_compaction_applied'] %}
+          {% if event.get('data') and event.get('type') in ['context_snapshot', 'context_compaction_planned', 'context_compaction_applied'] %}
             <pre class="portal-panel-pre">{{ event.get('data')|tojson }}</pre>
           {% endif %}
         </div>

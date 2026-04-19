@@ -40,6 +40,7 @@ def _derive_budget_preview(metadata: dict) -> dict:
         "context_estimated_tokens": metadata.get("context_estimated_tokens"),
         "context_window_tokens": metadata.get("context_window_tokens"),
         "context_next_compaction_action": _normalize_preview_value(metadata.get("context_next_compaction_action")),
+        "context_next_pruning_policy": _normalize_preview_value(metadata.get("context_next_pruning_policy")),
         "context_tokens_until_soft_threshold": metadata.get("context_tokens_until_soft_threshold"),
         "context_tokens_until_hard_threshold": metadata.get("context_tokens_until_hard_threshold"),
     }
@@ -50,6 +51,7 @@ def _derive_budget_preview(metadata: dict) -> dict:
         "context_estimated_tokens": budget.get("prepared_tokens") if budget.get("prepared_tokens") is not None else budget.get("estimated_tokens"),
         "context_window_tokens": budget.get("context_window_tokens"),
         "context_next_compaction_action": _normalize_preview_value(budget.get("next_compaction_action")),
+        "context_next_pruning_policy": _normalize_preview_value(budget.get("next_pruning_policy")),
         "context_tokens_until_soft_threshold": budget.get("tokens_until_soft_threshold"),
         "context_tokens_until_hard_threshold": budget.get("tokens_until_hard_threshold"),
     }
@@ -60,6 +62,7 @@ def _derive_budget_preview(metadata: dict) -> dict:
             "context_estimated_tokens",
             "context_window_tokens",
             "context_next_compaction_action",
+            "context_next_pruning_policy",
             "context_tokens_until_soft_threshold",
             "context_tokens_until_hard_threshold",
         )

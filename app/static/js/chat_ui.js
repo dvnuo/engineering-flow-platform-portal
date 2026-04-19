@@ -822,6 +822,21 @@ function getThinkingEventDisplay(event) {
       : {});
   const contextPct = contextBudget.prepared_usage_percent ?? contextBudget.usage_percent;
   const contextStage = data.stage || "";
+  const formatContextDetail = (fallback) => {
+    const pieces = [];
+    if (contextPct != null) pieces.push(`${contextPct}% used`);
+    if (contextStage) pieces.push(contextStage);
+    if (contextBudget.tokens_until_soft_threshold != null) {
+      pieces.push(`${contextBudget.tokens_until_soft_threshold} tokens until soft threshold`);
+    }
+    if (contextBudget.next_compaction_action) {
+      pieces.push(`next: ${contextBudget.next_compaction_action}`);
+    }
+    if (data.next_pruning_policy || contextBudget.next_pruning_policy) {
+      pieces.push(data.next_pruning_policy || contextBudget.next_pruning_policy);
+    }
+    return pieces.join(" · ") || fallback;
+  };
   const byType = {
     "execution.started": { icon: "play-circle", title: "Execution Started", detail: data.message || "Execution started" },
     "execution.completed": { icon: "flag", title: "Execution Completed", detail: data.message || "Execution complete", response: data.response, total_iterations: data.total_iterations },
@@ -835,17 +850,17 @@ function getThinkingEventDisplay(event) {
     context_snapshot: {
       icon: "gauge",
       title: "Context Snapshot",
-      detail: contextPct != null ? `${contextPct}% used · ${contextStage}` : (contextStage || "Context updated"),
+      detail: formatContextDetail("Context updated"),
     },
     context_compaction_planned: {
       icon: "scissors",
       title: "Compaction Planned",
-      detail: contextPct != null ? `${contextPct}% used · ${data.compaction_level || contextStage || ""}` : (data.compaction_level || contextStage || "Compaction planned"),
+      detail: formatContextDetail("Compaction planned"),
     },
     context_compaction_applied: {
       icon: "archive",
       title: "Context Compaction Applied",
-      detail: contextPct != null ? `${contextPct}% used · ${data.compaction_level || contextStage || ""}` : (data.compaction_level || contextStage || "Context updated"),
+      detail: formatContextDetail("Context compaction applied"),
     },
     // Skill mode events
     skill_mode_start: { icon: "play-circle", title: "Skill Mode", detail: `Starting: ${data.skill || "Skill"}` },
@@ -906,7 +921,7 @@ function extractContextBudget(contextState) {
 function updateThinkingContextFromEvent(thinking, entry) {
   if (!thinking || !entry) return;
   const data = entry.data || {};
-  if (entry.type !== "context_snapshot" && entry.type !== "context_compaction_applied") return;
+  if (!["context_snapshot", "context_compaction_planned", "context_compaction_applied"].includes(entry.type)) return;
 
   const contextState = (
     data.context_state && typeof data.context_state === "object"
@@ -951,6 +966,7 @@ function renderThinkingPanelFromClientState(chatState) {
   const contextWindowTokens = budget?.context_window_tokens;
   const untilSoft = budget?.tokens_until_soft_threshold;
   const untilHard = budget?.tokens_until_hard_threshold;
+  const nextPruningPolicy = budget?.next_pruning_policy;
   const latestSkillEvent = [...events].reverse().find((event) => ["skill_contract_active", "skill_runtime_applied", "skill_matched"].includes(event?.type));
   const skillData = latestSkillEvent?.data || {};
   const visibleEvents = events.slice(-100);
@@ -979,7 +995,7 @@ function renderThinkingPanelFromClientState(chatState) {
         <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
         <div class="portal-panel-note">Events: ${events.length}</div>
       </div>
-      ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div>${untilSoft != null ? `<div class="portal-panel-note">Until soft threshold: ${safe(String(untilSoft))} tokens</div>` : ""}${untilHard != null ? `<div class="portal-panel-note">Until hard threshold: ${safe(String(untilHard))} tokens</div>` : ""}</div>` : ""}
+      ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div>${untilSoft != null ? `<div class="portal-panel-note">Until soft threshold: ${safe(String(untilSoft))} tokens</div>` : ""}${untilHard != null ? `<div class="portal-panel-note">Until hard threshold: ${safe(String(untilHard))} tokens</div>` : ""}${nextPruningPolicy ? `<div class="portal-panel-note">Pruning policy: ${safe(truncateThinkingText(nextPruningPolicy, 500))}</div>` : ""}</div>` : ""}
       <div class="portal-panel-section">
         <div class="portal-panel-title">Context Contents</div>
         <div class="portal-context-grid">

@@ -44,6 +44,7 @@ class AgentSessionMetadataResponse(BaseModel):
     context_estimated_tokens: Optional[int] = None
     context_window_tokens: Optional[int] = None
     context_next_compaction_action: Optional[str] = None
+    context_next_pruning_policy: Optional[str] = None
     context_tokens_until_soft_threshold: Optional[int] = None
     context_tokens_until_hard_threshold: Optional[int] = None
     active_skill_name: Optional[str] = None
