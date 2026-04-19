@@ -884,12 +884,12 @@ async function openThinkingProcessPanel() {
   }
   
   if (!currentSessionId) {
-    setToolPanel("Thinking Process", '<div class="portal-inline-state">No session selected. Start a conversation first.</div>');
+    setToolPanel("Thinking Process", '<div class="portal-inline-state">No session selected. Start a conversation first.</div>', "thinking");
     return;
   }
   
   // Use htmx to load backend-rendered panel
-  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>');
+  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>', "thinking");
   
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
@@ -897,7 +897,7 @@ async function openThinkingProcessPanel() {
       swap: "innerHTML"
     });
   } catch (err) {
-    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`);
+    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`, "thinking");
   }
 }
 
@@ -1403,6 +1403,11 @@ function setDetailOpen(open) {
 const TOOL_PANEL_DEFAULT_WIDTH = 580;
 const TOOL_PANEL_MIN_PINNED_WIDTH = 340;
 const TOOL_PANEL_MIN_OVERLAY_WIDTH = 300;
+const TOOL_PANEL_PIN_BREAKPOINT_PX = 901;
+
+function isViewportEligibleToPinToolPanel() {
+  return window.matchMedia(`(min-width: ${TOOL_PANEL_PIN_BREAKPOINT_PX}px)`).matches;
+}
 
 function getSecondaryColumnWidthForPin() {
   if (state.secondaryPaneCollapsed) return 0;
@@ -1423,22 +1428,31 @@ function getCurrentToolPanelWidth() {
 }
 
 function getPinnedToolPanelWidthBounds() {
-  const shellHorizontalPadding = 16;
+  const min = TOOL_PANEL_MIN_PINNED_WIDTH;
+  if (!isViewportEligibleToPinToolPanel()) {
+    return {
+      min,
+      max: min,
+      canPin: false,
+    };
+  }
+
+  const shellRect = dom.portalShell?.getBoundingClientRect?.();
+  const shellWidth = shellRect?.width || Math.max(0, window.innerWidth - 16);
   const available =
-    window.innerWidth
-    - shellHorizontalPadding
+    shellWidth
     - 68
     - getSecondaryColumnWidthForPin()
     - getMainMinWidthForPin();
 
-  const canPin = available >= TOOL_PANEL_MIN_PINNED_WIDTH;
+  const canPin = available >= min;
   const max = Math.max(
-    TOOL_PANEL_MIN_PINNED_WIDTH,
+    min,
     Math.min(TOOL_PANEL_DEFAULT_WIDTH, available)
   );
 
   return {
-    min: TOOL_PANEL_MIN_PINNED_WIDTH,
+    min,
     max,
     canPin,
   };
@@ -1493,6 +1507,19 @@ function applyToolPanelState() {
   }
 
   renderIcons();
+}
+
+function reconcilePinnedToolPanelForLayoutChange() {
+  if (!state.toolPanelOpen || !state.toolPanelPinned) return;
+
+  if (!isWideEnoughToPinToolPanel()) {
+    state.toolPanelPinned = false;
+    applyToolPanelState();
+    return;
+  }
+
+  clampToolPanelWidthForPinned();
+  applyToolPanelState();
 }
 
 function openToolPanel() {
@@ -2721,6 +2748,10 @@ function applySecondaryPaneState() {
     dom.secondaryPaneRestore.setAttribute("aria-label", `Expand ${label} list`);
   }
 
+  if (state.toolPanelOpen && state.toolPanelPinned) {
+    reconcilePinnedToolPanelForLayoutChange();
+  }
+
   renderIcons();
 }
 
@@ -3374,7 +3405,7 @@ async function deleteSessionForAgent(agentId, sessionId) {
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
     return;
   }
   state.serverFilesRootPath = null;
@@ -3415,7 +3446,7 @@ function buildServerFilesBreadcrumb(path, rootPath) {
 }
 
 async function loadServerFiles(path) {
-  setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>');
+  setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>', "server-files");
 
   try {
     const hasPath = typeof path === 'string' && path.length > 0;
@@ -3463,7 +3494,8 @@ async function loadServerFiles(path) {
           `<input type="checkbox" id="sf-select-all" class="portal-file-checkbox"><label for="sf-select-all">Select all</label>` +
         `</div>` +
         `<div class="portal-panel-stack">${rows || '<div class="portal-inline-state">Empty directory</div>'}</div>` +
-      `</div>`
+      `</div>`,
+      "server-files"
     );
 
     // Add event delegation and handlers
@@ -3552,7 +3584,7 @@ async function loadServerFiles(path) {
       updateDownloadButton(panel);
     }
   } catch (error) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`, "server-files");
   }
 }
 
@@ -3631,7 +3663,7 @@ async function uploadToServerFiles(targetPath) {
     const file = e.target.files[0];
     if (!file) return;
 
-    setToolPanel("Server Files", `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`, "server-files");
 
     try {
       const formData = new FormData();
@@ -3645,7 +3677,7 @@ async function uploadToServerFiles(targetPath) {
 
       if (!resp.ok) {
         const errMsg = await parseRuntimeErrorResponse(resp);
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errMsg)}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errMsg)}</div>`, "server-files");
         return;
       }
 
@@ -3669,13 +3701,13 @@ async function uploadToServerFiles(targetPath) {
         } else {
           message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
         }
-        setToolPanel("Server Files", `<div class="portal-inline-state is-success">${message}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-success">${message}</div>`, "server-files");
         loadServerFiles(targetPath);
       } else {
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`, "server-files");
       }
     } catch (err) {
-      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`);
+      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`, "server-files");
     }
   };
   input.click();
@@ -3687,7 +3719,7 @@ async function deleteSelectedServerFiles(paths, currentPath) {
   const confirmed = window.confirm(`Delete ${paths.length} selected item(s)? This cannot be undone.`);
   if (!confirmed) return;
 
-  setToolPanel("Server Files", `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`);
+  setToolPanel("Server Files", `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`, "server-files");
 
   try {
     const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/delete`, {
@@ -3698,14 +3730,14 @@ async function deleteSelectedServerFiles(paths, currentPath) {
 
     if (!resp.ok) {
       const errMsg = await parseRuntimeErrorResponse(resp);
-      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(errMsg)}</div>`);
+      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(errMsg)}</div>`, "server-files");
       return;
     }
 
-    setToolPanel("Server Files", `<div class="portal-inline-state is-success">Deleted ${paths.length} item(s).</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-success">Deleted ${paths.length} item(s).</div>`, "server-files");
     loadServerFiles(currentPath);
   } catch (err) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(err.message)}</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(err.message)}</div>`, "server-files");
   }
 }
 
@@ -3737,28 +3769,32 @@ async function previewServerFile(filePath, currentDir, rootPath) {
     if (binaryPreviewExtensions.image.includes(ext)) {
       setToolPanel("File: " + fileName,
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-        `<div class="portal-preview-image-wrap"><img src="${contentUrl}" class="max-w-full rounded" /></div>`
+        `<div class="portal-preview-image-wrap"><img src="${contentUrl}" class="max-w-full rounded" /></div>`,
+        "server-files"
       );
       return;
     }
     if (binaryPreviewExtensions.pdf.includes(ext)) {
       setToolPanel("File: " + fileName,
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-        `<iframe src="${contentUrl}" class="w-full" style="min-height: 70vh;" title="${escapeHtmlAttr(fileName)}"></iframe>`
+        `<iframe src="${contentUrl}" class="w-full" style="min-height: 70vh;" title="${escapeHtmlAttr(fileName)}"></iframe>`,
+        "server-files"
       );
       return;
     }
     if (binaryPreviewExtensions.audio.includes(ext)) {
       setToolPanel("File: " + fileName,
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-        `<audio controls src="${contentUrl}" class="w-full"></audio>`
+        `<audio controls src="${contentUrl}" class="w-full"></audio>`,
+        "server-files"
       );
       return;
     }
     if (binaryPreviewExtensions.video.includes(ext)) {
       setToolPanel("File: " + fileName,
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-        `<video controls src="${contentUrl}" class="max-w-full rounded"></video>`
+        `<video controls src="${contentUrl}" class="max-w-full rounded"></video>`,
+        "server-files"
       );
       return;
     }
@@ -3768,11 +3804,13 @@ async function previewServerFile(filePath, currentDir, rootPath) {
     const content = resp.content || "(empty file)";
     setToolPanel("File: " + fileName,
       `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-      `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`
+      `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`,
+      "server-files"
     );
   } catch (error) {
     setToolPanel("File Preview",
-      `<div class="portal-inline-state is-error">Unable to preview this file: ${safe(error.message)}</div>`
+      `<div class="portal-inline-state is-error">Unable to preview this file: ${safe(error.message)}</div>`,
+      "server-files"
     );
   }
 }
@@ -3781,7 +3819,7 @@ async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Skills", '<div class="portal-inline-state">Loading skills…</div>');
+  setToolPanel("Skills", '<div class="portal-inline-state">Loading skills…</div>', "skills");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
@@ -3796,7 +3834,7 @@ async function openSkillsPanel() {
       state.cachedSkills = mapped;
     }
   } catch (error) {
-    setToolPanel("Skills", `Failed: ${safe(error.message)}`);
+    setToolPanel("Skills", `Failed: ${safe(error.message)}`, "skills");
   }
 }
 
@@ -3805,7 +3843,7 @@ async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Usage", '<div class="portal-inline-state">Loading usage…</div>');
+  setToolPanel("Usage", '<div class="portal-inline-state">Loading usage…</div>', "usage");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
@@ -3813,7 +3851,7 @@ async function openUsagePanel() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Usage", `Failed: ${safe(error.message)}`);
+    setToolPanel("Usage", `Failed: ${safe(error.message)}`, "usage");
   }
 }
 
@@ -3822,7 +3860,7 @@ async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Select Source", '<div class="portal-inline-state">Loading files…</div>');
+  setToolPanel("Select Source", '<div class="portal-inline-state">Loading files…</div>', "uploads");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
@@ -3830,7 +3868,7 @@ async function openMyUploads() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Select Source", `Failed: ${safe(error.message)}`);
+    setToolPanel("Select Source", `Failed: ${safe(error.message)}`, "uploads");
   }
 }
 
@@ -5101,14 +5139,14 @@ function bindEvents() {
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", async () => {
-    setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>');
+    setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>', "users");
     try {
       await htmx.ajax("GET", "/app/users/panel", {
         target: "#tool-panel-body",
         swap: "innerHTML",
       });
     } catch (error) {
-      setToolPanel("Users", `Failed: ${safe(error.message)}`);
+      setToolPanel("Users", `Failed: ${safe(error.message)}`, "users");
     }
   });
 
