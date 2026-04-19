@@ -34,6 +34,7 @@ const dom = {
   toolPanelBody: document.getElementById("tool-panel-body"),
   toolBackdrop: document.getElementById("tool-backdrop"),
   closeToolPanel: document.getElementById("close-tool-panel"),
+  pinToolPanel: document.getElementById("pin-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
   logoutBtn: document.getElementById("logout-btn"),
@@ -45,6 +46,8 @@ const dom = {
   runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
   portalSecondaryPane: document.getElementById("portal-secondary-pane"),
+  secondaryPaneToggle: document.getElementById("secondary-pane-toggle"),
+  secondaryPaneRestore: document.getElementById("secondary-pane-restore"),
   secondaryPaneEyebrow: document.getElementById("secondary-pane-eyebrow"),
   secondaryPaneTitle: document.getElementById("secondary-pane-title"),
   secondaryPaneActions: document.getElementById("secondary-pane-actions"),
@@ -227,6 +230,8 @@ const state = {
   selectedBundleKey: null,
   activeNavSection: "assistants",
   secondaryPaneCollapsed: false,
+  toolPanelOpen: false,
+  toolPanelPinned: false,
   myTasks: [],
   selectedTaskId: null,
   serverFilesRootPath: null,
@@ -879,12 +884,12 @@ async function openThinkingProcessPanel() {
   }
   
   if (!currentSessionId) {
-    setToolPanel("Thinking Process", '<div class="portal-inline-state">No session selected. Start a conversation first.</div>');
+    setToolPanel("Thinking Process", '<div class="portal-inline-state">No session selected. Start a conversation first.</div>', "thinking");
     return;
   }
   
   // Use htmx to load backend-rendered panel
-  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>');
+  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>', "thinking");
   
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(currentSessionId)}`, {
@@ -892,7 +897,7 @@ async function openThinkingProcessPanel() {
       swap: "innerHTML"
     });
   } catch (err) {
-    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`);
+    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`, "thinking");
   }
 }
 
@@ -1392,13 +1397,150 @@ function renderIcons() {
 }
 
 function setDetailOpen(open) {
-  if (open) {
-    closeSessionsDrawer();
-  }
   state.detailOpen = open;
-  // Use unified tool-panel for agent details
-  if (dom.toolPanel) dom.toolPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
-  dom.toolBackdrop?.classList.toggle("hidden", !open);
+}
+
+const TOOL_PANEL_DEFAULT_WIDTH = 580;
+const TOOL_PANEL_MIN_PINNED_WIDTH = 340;
+const TOOL_PANEL_MIN_OVERLAY_WIDTH = 300;
+const TOOL_PANEL_PIN_BREAKPOINT_PX = 901;
+
+function isViewportEligibleToPinToolPanel() {
+  return window.matchMedia(`(min-width: ${TOOL_PANEL_PIN_BREAKPOINT_PX}px)`).matches;
+}
+
+function getSecondaryColumnWidthForPin() {
+  if (state.secondaryPaneCollapsed) return 0;
+  return window.matchMedia("(max-width: 1024px)").matches ? 260 : 296;
+}
+
+function getMainMinWidthForPin() {
+  return window.matchMedia("(max-width: 1024px)").matches ? 300 : 360;
+}
+
+function getCurrentToolPanelWidth() {
+  const cssTarget = dom.portalShell || document.documentElement;
+  const fromVar = Number.parseFloat(getComputedStyle(cssTarget).getPropertyValue("--portal-tool-panel-width"));
+  if (Number.isFinite(fromVar) && fromVar > 0) return fromVar;
+  const fromPanel = dom.toolPanel?.getBoundingClientRect?.().width || 0;
+  if (fromPanel > 0) return fromPanel;
+  return TOOL_PANEL_DEFAULT_WIDTH;
+}
+
+function getPinnedToolPanelWidthBounds() {
+  const min = TOOL_PANEL_MIN_PINNED_WIDTH;
+  if (!isViewportEligibleToPinToolPanel()) {
+    return {
+      min,
+      max: min,
+      canPin: false,
+    };
+  }
+
+  const shellRect = dom.portalShell?.getBoundingClientRect?.();
+  const shellWidth = shellRect?.width || Math.max(0, window.innerWidth - 16);
+  const available =
+    shellWidth
+    - 68
+    - getSecondaryColumnWidthForPin()
+    - getMainMinWidthForPin();
+
+  const canPin = available >= min;
+  const max = Math.max(
+    min,
+    Math.min(TOOL_PANEL_DEFAULT_WIDTH, available)
+  );
+
+  return {
+    min,
+    max,
+    canPin,
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function setToolPanelWidth(widthPx) {
+  const next = Math.round(widthPx);
+  dom.portalShell?.style.setProperty("--portal-tool-panel-width", `${next}px`);
+  if (dom.toolPanel) dom.toolPanel.style.width = "";
+}
+
+function clampToolPanelWidthForPinned() {
+  const bounds = getPinnedToolPanelWidthBounds();
+  const current = getCurrentToolPanelWidth();
+  setToolPanelWidth(clamp(current, bounds.min, bounds.max));
+  return bounds.canPin;
+}
+
+function isWideEnoughToPinToolPanel() {
+  return getPinnedToolPanelWidthBounds().canPin;
+}
+
+function applyToolPanelState() {
+  const open = !!state.toolPanelOpen;
+  let pinned = open && !!state.toolPanelPinned;
+
+  if (pinned && !isWideEnoughToPinToolPanel()) {
+    state.toolPanelPinned = false;
+    pinned = false;
+  }
+
+  if (pinned) {
+    clampToolPanelWidthForPinned();
+  }
+
+  if (dom.toolPanel) dom.toolPanel.style.width = "";
+  dom.toolPanel?.classList.toggle("is-open", open);
+  dom.toolPanel?.classList.toggle("is-pinned", pinned);
+  dom.portalShell?.classList.toggle("is-tool-panel-pinned", pinned);
+  dom.toolBackdrop?.classList.toggle("hidden", !open || pinned);
+
+  if (dom.pinToolPanel) {
+    dom.pinToolPanel.classList.toggle("is-active", pinned);
+    dom.pinToolPanel.setAttribute("aria-pressed", pinned ? "true" : "false");
+    dom.pinToolPanel.setAttribute("title", pinned ? "Unpin panel" : "Pin panel");
+    dom.pinToolPanel.setAttribute("aria-label", pinned ? "Unpin panel" : "Pin panel");
+    dom.pinToolPanel.innerHTML = `<i data-lucide="${pinned ? "pin-off" : "pin"}" class="w-5 h-5"></i>`;
+  }
+
+  renderIcons();
+}
+
+function reconcilePinnedToolPanelForLayoutChange() {
+  if (!state.toolPanelOpen || !state.toolPanelPinned) return;
+
+  if (!isWideEnoughToPinToolPanel()) {
+    state.toolPanelPinned = false;
+    applyToolPanelState();
+    return;
+  }
+
+  clampToolPanelWidthForPinned();
+  applyToolPanelState();
+}
+
+function openToolPanel() {
+  state.toolPanelOpen = true;
+  applyToolPanelState();
+}
+
+function toggleToolPanelPinned() {
+  if (!state.toolPanelOpen) return;
+  const wantsToPin = !state.toolPanelPinned;
+  if (wantsToPin) {
+    if (!isWideEnoughToPinToolPanel()) {
+      showToast("Pinning is available on wider screens.");
+      return;
+    }
+    clampToolPanelWidthForPinned();
+    state.toolPanelPinned = true;
+  } else {
+    state.toolPanelPinned = false;
+  }
+  applyToolPanelState();
 }
 
 async function api(path, options = {}) {
@@ -2487,8 +2629,7 @@ async function maybeShowSuggest() {
 // ===== toolbar actions =====
 function setToolPanel(title, contentHtml, panelKey = null) {
   if (!dom.toolPanel) return;
-  state.detailOpen = false;
-  closeSessionsDrawer();
+  state.detailOpen = panelKey === "details";
   state.activeUtilityPanel = panelKey;
   dom.toolPanelTitle.textContent = title;
   if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
@@ -2496,15 +2637,15 @@ function setToolPanel(title, contentHtml, panelKey = null) {
   } else {
     dom.toolPanelBody.innerHTML = contentHtml;
   }
-  dom.toolPanel.style.transform = "translateX(0)";
-  dom.toolBackdrop?.classList.remove("hidden");
+  openToolPanel();
 }
 
 function closeToolPanel() {
   state.detailOpen = false;
   state.activeUtilityPanel = null;
-  if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
-  dom.toolBackdrop?.classList.add("hidden");
+  state.toolPanelOpen = false;
+  state.toolPanelPinned = false;
+  applyToolPanelState();
 }
 
 async function openSessionsPanel() {
@@ -2528,9 +2669,8 @@ async function openSessionsDrawer() {
 }
 
 function closeSessionsDrawer() {
-  if (!dom.toolPanel) return;
   if (state.activeUtilityPanel !== "sessions") return;
-  if (dom.toolPanel.style.transform === "translateX(120%)") {
+  if (!state.toolPanelOpen) {
     state.activeUtilityPanel = null;
     return;
   }
@@ -2538,8 +2678,7 @@ function closeSessionsDrawer() {
 }
 
 async function toggleSessionsDrawer() {
-  const isToolPanelOpen = dom.toolPanel && dom.toolPanel.style.transform !== "translateX(120%)";
-  if (state.activeUtilityPanel === "sessions" && isToolPanelOpen) {
+  if (state.activeUtilityPanel === "sessions" && state.toolPanelOpen) {
     closeToolPanel();
     return;
   }
@@ -2580,9 +2719,40 @@ function renderWorkspaceDetailPlaceholder(message = "Select a bundle or task fro
   dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${safe(message)}</div>`;
 }
 
+function getSecondaryPaneLabel() {
+  if (state.activeNavSection === "bundles") return "Bundles";
+  if (state.activeNavSection === "tasks") return "Tasks";
+  if (state.activeNavSection === "runtime-profiles") return "Runtime Profiles";
+  return "Assistants";
+}
+
 function applySecondaryPaneState() {
-  dom.portalShell?.classList.toggle("is-secondary-collapsed", state.secondaryPaneCollapsed);
-  dom.portalSecondaryPane?.classList.toggle("is-hidden", state.secondaryPaneCollapsed);
+  const collapsed = !!state.secondaryPaneCollapsed;
+  const label = getSecondaryPaneLabel();
+
+  dom.portalShell?.classList.toggle("is-secondary-collapsed", collapsed);
+  dom.portalSecondaryPane?.classList.toggle("is-hidden", collapsed);
+  dom.portalSecondaryPane?.setAttribute("aria-hidden", collapsed ? "true" : "false");
+
+  if (dom.secondaryPaneToggle) {
+    dom.secondaryPaneToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    dom.secondaryPaneToggle.setAttribute("title", collapsed ? `Expand ${label} list` : "Collapse sidebar");
+    dom.secondaryPaneToggle.setAttribute("aria-label", collapsed ? `Expand ${label} list` : "Collapse sidebar");
+    dom.secondaryPaneToggle.innerHTML = `<i data-lucide="${collapsed ? "panel-left-open" : "panel-left-close"}" class="w-5 h-5"></i>`;
+  }
+
+  if (dom.secondaryPaneRestore) {
+    dom.secondaryPaneRestore.classList.toggle("hidden", !collapsed);
+    dom.secondaryPaneRestore.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    dom.secondaryPaneRestore.setAttribute("title", `Expand ${label} list`);
+    dom.secondaryPaneRestore.setAttribute("aria-label", `Expand ${label} list`);
+  }
+
+  if (state.toolPanelOpen && state.toolPanelPinned) {
+    reconcilePinnedToolPanelForLayoutChange();
+  }
+
+  renderIcons();
 }
 
 function renderSecondaryPaneHeader() {
@@ -3235,7 +3405,7 @@ async function deleteSessionForAgent(agentId, sessionId) {
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
     return;
   }
   state.serverFilesRootPath = null;
@@ -3276,7 +3446,7 @@ function buildServerFilesBreadcrumb(path, rootPath) {
 }
 
 async function loadServerFiles(path) {
-  setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>');
+  setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>', "server-files");
 
   try {
     const hasPath = typeof path === 'string' && path.length > 0;
@@ -3324,7 +3494,8 @@ async function loadServerFiles(path) {
           `<input type="checkbox" id="sf-select-all" class="portal-file-checkbox"><label for="sf-select-all">Select all</label>` +
         `</div>` +
         `<div class="portal-panel-stack">${rows || '<div class="portal-inline-state">Empty directory</div>'}</div>` +
-      `</div>`
+      `</div>`,
+      "server-files"
     );
 
     // Add event delegation and handlers
@@ -3413,7 +3584,7 @@ async function loadServerFiles(path) {
       updateDownloadButton(panel);
     }
   } catch (error) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`, "server-files");
   }
 }
 
@@ -3492,7 +3663,7 @@ async function uploadToServerFiles(targetPath) {
     const file = e.target.files[0];
     if (!file) return;
 
-    setToolPanel("Server Files", `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`, "server-files");
 
     try {
       const formData = new FormData();
@@ -3506,7 +3677,7 @@ async function uploadToServerFiles(targetPath) {
 
       if (!resp.ok) {
         const errMsg = await parseRuntimeErrorResponse(resp);
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errMsg)}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errMsg)}</div>`, "server-files");
         return;
       }
 
@@ -3530,13 +3701,13 @@ async function uploadToServerFiles(targetPath) {
         } else {
           message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
         }
-        setToolPanel("Server Files", `<div class="portal-inline-state is-success">${message}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-success">${message}</div>`, "server-files");
         loadServerFiles(targetPath);
       } else {
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`);
+        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`, "server-files");
       }
     } catch (err) {
-      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`);
+      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`, "server-files");
     }
   };
   input.click();
@@ -3548,7 +3719,7 @@ async function deleteSelectedServerFiles(paths, currentPath) {
   const confirmed = window.confirm(`Delete ${paths.length} selected item(s)? This cannot be undone.`);
   if (!confirmed) return;
 
-  setToolPanel("Server Files", `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`);
+  setToolPanel("Server Files", `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`, "server-files");
 
   try {
     const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/delete`, {
@@ -3559,14 +3730,14 @@ async function deleteSelectedServerFiles(paths, currentPath) {
 
     if (!resp.ok) {
       const errMsg = await parseRuntimeErrorResponse(resp);
-      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(errMsg)}</div>`);
+      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(errMsg)}</div>`, "server-files");
       return;
     }
 
-    setToolPanel("Server Files", `<div class="portal-inline-state is-success">Deleted ${paths.length} item(s).</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-success">Deleted ${paths.length} item(s).</div>`, "server-files");
     loadServerFiles(currentPath);
   } catch (err) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(err.message)}</div>`);
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(err.message)}</div>`, "server-files");
   }
 }
 
@@ -3598,28 +3769,32 @@ async function previewServerFile(filePath, currentDir, rootPath) {
     if (binaryPreviewExtensions.image.includes(ext)) {
       setToolPanel("File: " + fileName,
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-        `<div class="portal-preview-image-wrap"><img src="${contentUrl}" class="max-w-full rounded" /></div>`
+        `<div class="portal-preview-image-wrap"><img src="${contentUrl}" class="max-w-full rounded" /></div>`,
+        "server-files"
       );
       return;
     }
     if (binaryPreviewExtensions.pdf.includes(ext)) {
       setToolPanel("File: " + fileName,
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-        `<iframe src="${contentUrl}" class="w-full" style="min-height: 70vh;" title="${escapeHtmlAttr(fileName)}"></iframe>`
+        `<iframe src="${contentUrl}" class="w-full" style="min-height: 70vh;" title="${escapeHtmlAttr(fileName)}"></iframe>`,
+        "server-files"
       );
       return;
     }
     if (binaryPreviewExtensions.audio.includes(ext)) {
       setToolPanel("File: " + fileName,
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-        `<audio controls src="${contentUrl}" class="w-full"></audio>`
+        `<audio controls src="${contentUrl}" class="w-full"></audio>`,
+        "server-files"
       );
       return;
     }
     if (binaryPreviewExtensions.video.includes(ext)) {
       setToolPanel("File: " + fileName,
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-        `<video controls src="${contentUrl}" class="max-w-full rounded"></video>`
+        `<video controls src="${contentUrl}" class="max-w-full rounded"></video>`,
+        "server-files"
       );
       return;
     }
@@ -3629,11 +3804,13 @@ async function previewServerFile(filePath, currentDir, rootPath) {
     const content = resp.content || "(empty file)";
     setToolPanel("File: " + fileName,
       `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-      `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`
+      `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`,
+      "server-files"
     );
   } catch (error) {
     setToolPanel("File Preview",
-      `<div class="portal-inline-state is-error">Unable to preview this file: ${safe(error.message)}</div>`
+      `<div class="portal-inline-state is-error">Unable to preview this file: ${safe(error.message)}</div>`,
+      "server-files"
     );
   }
 }
@@ -3642,7 +3819,7 @@ async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Skills", '<div class="portal-inline-state">Loading skills…</div>');
+  setToolPanel("Skills", '<div class="portal-inline-state">Loading skills…</div>', "skills");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
@@ -3657,7 +3834,7 @@ async function openSkillsPanel() {
       state.cachedSkills = mapped;
     }
   } catch (error) {
-    setToolPanel("Skills", `Failed: ${safe(error.message)}`);
+    setToolPanel("Skills", `Failed: ${safe(error.message)}`, "skills");
   }
 }
 
@@ -3666,7 +3843,7 @@ async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Usage", '<div class="portal-inline-state">Loading usage…</div>');
+  setToolPanel("Usage", '<div class="portal-inline-state">Loading usage…</div>', "usage");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
@@ -3674,7 +3851,7 @@ async function openUsagePanel() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Usage", `Failed: ${safe(error.message)}`);
+    setToolPanel("Usage", `Failed: ${safe(error.message)}`, "usage");
   }
 }
 
@@ -3683,7 +3860,7 @@ async function openMyUploads() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Select Source", '<div class="portal-inline-state">Loading files…</div>');
+  setToolPanel("Select Source", '<div class="portal-inline-state">Loading files…</div>', "uploads");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
@@ -3691,7 +3868,7 @@ async function openMyUploads() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Select Source", `Failed: ${safe(error.message)}`);
+    setToolPanel("Select Source", `Failed: ${safe(error.message)}`, "uploads");
   }
 }
 
@@ -4726,15 +4903,12 @@ function bindEvents() {
       showToast("Please select an assistant first");
       return;
     }
-    if (state.detailOpen) {
-      setDetailOpen(false);
+    if (state.activeUtilityPanel === "details" && state.toolPanelOpen) {
+      closeToolPanel();
     } else {
-      setDetailOpen(true);
-      // Render agent details to tool panel
       const agent = state.mineAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
-        dom.toolPanelTitle.textContent = "Assistant details";
-        dom.toolPanelBody.innerHTML = `\n          <div id="agent-meta" class="portal-detail-card"></div>\n          <div id="agent-actions" class="portal-detail-actions"></div>\n        `;
+        setToolPanel("Assistant details", `\n          <div id="agent-meta" class="portal-detail-card"></div>\n          <div id="agent-actions" class="portal-detail-actions"></div>\n        `, "details");
         dom.agentMeta = document.getElementById("agent-meta");
         dom.agentActions = document.getElementById("agent-actions");
         renderAgentMeta(agent);
@@ -4743,7 +4917,19 @@ function bindEvents() {
     }
   });
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
-  dom.toolBackdrop?.addEventListener("click", closeToolPanel);
+  dom.pinToolPanel?.addEventListener("click", toggleToolPanelPinned);
+  dom.toolBackdrop?.addEventListener("click", () => {
+    if (!state.toolPanelPinned) closeToolPanel();
+  });
+  dom.secondaryPaneToggle?.addEventListener("click", () => {
+    state.secondaryPaneCollapsed = true;
+    applySecondaryPaneState();
+    window.requestAnimationFrame(() => dom.secondaryPaneRestore?.focus?.());
+  });
+  dom.secondaryPaneRestore?.addEventListener("click", async () => {
+    await setActiveNavSection(state.activeNavSection, { toggleIfSame: false });
+    window.requestAnimationFrame(() => dom.secondaryPaneToggle?.focus?.());
+  });
 
   dom.chatInput?.addEventListener("input", () => {
     maybeShowSuggest();
@@ -4953,19 +5139,29 @@ function bindEvents() {
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", async () => {
-    setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>');
+    setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>', "users");
     try {
       await htmx.ajax("GET", "/app/users/panel", {
         target: "#tool-panel-body",
         swap: "innerHTML",
       });
     } catch (error) {
-      setToolPanel("Users", `Failed: ${safe(error.message)}`);
+      setToolPanel("Users", `Failed: ${safe(error.message)}`, "users");
     }
   });
 
   dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
+  window.addEventListener("resize", () => {
+    if (!state.toolPanelPinned) return;
+    if (!isWideEnoughToPinToolPanel()) {
+      state.toolPanelPinned = false;
+      applyToolPanelState();
+      return;
+    }
+    clampToolPanelWidthForPinned();
+    applyToolPanelState();
+  });
 
   dom.addBundleBtn?.addEventListener("click", () => {
     endSingleSubmit(dom.createBundleForm, { closeButton: dom.closeCreateBundleModal });
@@ -5180,8 +5376,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Tool panel resize from left edge
   const resizeHandle = document.getElementById('tool-panel-resize');
-  const toolPanel = document.getElementById('tool-panel');
-  if (resizeHandle && toolPanel) {
+  if (resizeHandle) {
     let isResizing = false;
     resizeHandle.addEventListener('mousedown', (e) => {
       isResizing = true;
@@ -5190,11 +5385,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
     document.addEventListener('mousemove', (e) => {
       if (!isResizing) return;
-      const newWidth = window.innerWidth - e.clientX - 24; // 24px offset
-      const minWidth = 300;
-      const maxWidth = window.innerWidth - 24;
-      const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
-      toolPanel.style.width = clampedWidth + 'px';
+      const newWidth = window.innerWidth - e.clientX - 24;
+      const pinned = state.toolPanelPinned && state.toolPanelOpen;
+
+      if (pinned) {
+        const bounds = getPinnedToolPanelWidthBounds();
+        if (!bounds.canPin) {
+          state.toolPanelPinned = false;
+          applyToolPanelState();
+          return;
+        }
+        setToolPanelWidth(clamp(newWidth, bounds.min, bounds.max));
+      } else {
+        const maxWidth = Math.max(TOOL_PANEL_MIN_OVERLAY_WIDTH, window.innerWidth - 24);
+        setToolPanelWidth(clamp(newWidth, TOOL_PANEL_MIN_OVERLAY_WIDTH, maxWidth));
+      }
     });
     document.addEventListener('mouseup', () => {
       isResizing = false;
@@ -5209,6 +5414,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   bindEvents();
+  applySecondaryPaneState();
+  applyToolPanelState();
   initializeRenderLifecycle();
   updateChatInputPlaceholder();
 

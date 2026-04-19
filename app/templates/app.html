@@ -38,18 +38,23 @@
           <div id="secondary-pane-eyebrow" class="portal-eyebrow">My Space</div>
           <h2 id="secondary-pane-title">Assistants</h2>
         </div>
-        <div id="secondary-pane-actions">
-          <button id="add-agent-btn" class="toolbar-icon-btn" type="button" title="Create Assistant">
-            <i data-lucide="plus" class="w-5 h-5"></i>
-          </button>
-          <button id="refresh-bundles-btn" class="toolbar-icon-btn hidden" type="button" title="Refresh Bundles">
-            <i data-lucide="refresh-cw" class="w-5 h-5"></i>
-          </button>
-          <button id="add-bundle-btn" class="toolbar-icon-btn hidden" type="button" title="Create Bundle">
-            <i data-lucide="plus" class="w-5 h-5"></i>
-          </button>
-          <button id="add-runtime-profile-btn" class="toolbar-icon-btn hidden" type="button" title="Create Runtime Profile">
-            <i data-lucide="plus" class="w-5 h-5"></i>
+        <div class="portal-pane-header-actions">
+          <div id="secondary-pane-actions">
+            <button id="add-agent-btn" class="toolbar-icon-btn" type="button" title="Create Assistant">
+              <i data-lucide="plus" class="w-5 h-5"></i>
+            </button>
+            <button id="refresh-bundles-btn" class="toolbar-icon-btn hidden" type="button" title="Refresh Bundles">
+              <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+            </button>
+            <button id="add-bundle-btn" class="toolbar-icon-btn hidden" type="button" title="Create Bundle">
+              <i data-lucide="plus" class="w-5 h-5"></i>
+            </button>
+            <button id="add-runtime-profile-btn" class="toolbar-icon-btn hidden" type="button" title="Create Runtime Profile">
+              <i data-lucide="plus" class="w-5 h-5"></i>
+            </button>
+          </div>
+          <button id="secondary-pane-toggle" class="toolbar-icon-btn secondary-pane-toggle" type="button" title="Collapse sidebar" aria-label="Collapse sidebar" aria-expanded="true">
+            <i data-lucide="panel-left-close" class="w-5 h-5"></i>
           </button>
         </div>
       </div>
@@ -68,6 +73,9 @@
         </section>
       </div>
     </aside>
+    <button id="secondary-pane-restore" class="portal-secondary-restore hidden" type="button" title="Expand Assistants list" aria-label="Expand Assistants list" aria-expanded="false">
+      <i data-lucide="panel-left-open" class="w-5 h-5"></i>
+    </button>
 
     <main class="portal-main">
       <header class="portal-main-header">
@@ -204,6 +212,22 @@
         </div>
       </section>
     </main>
+
+    <aside id="tool-panel" class="portal-tool-panel">
+      <div id="tool-panel-resize" class="portal-tool-panel-resize"></div>
+      <div class="portal-tool-panel-head">
+        <h4 id="tool-panel-title">Panel</h4>
+        <div class="portal-tool-panel-actions">
+          <button id="pin-tool-panel" class="toolbar-icon-btn" type="button" title="Pin panel" aria-label="Pin panel" aria-pressed="false">
+            <i data-lucide="pin" class="w-5 h-5"></i>
+          </button>
+          <button id="close-tool-panel" class="toolbar-icon-btn" type="button" title="Close panel" aria-label="Close panel">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+      <div id="tool-panel-body" class="portal-tool-panel-body">Select a utility from top toolbar.</div>
+    </aside>
   </div>
 
   <div id="tool-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
@@ -212,14 +236,6 @@
     <div class="portal-toast-inner"></div>
   </div>
 
-  <aside id="tool-panel" class="portal-tool-panel">
-    <div id="tool-panel-resize" class="portal-tool-panel-resize"></div>
-    <div class="portal-tool-panel-head">
-      <h4 id="tool-panel-title">Panel</h4>
-      <button id="close-tool-panel" class="toolbar-icon-btn" type="button" title="Close panel"><i data-lucide="x"></i></button>
-    </div>
-    <div id="tool-panel-body" class="portal-tool-panel-body">Select a utility from top toolbar.</div>
-  </aside>
 </div>
 
 <div id="create-bundle-modal" class="modal hidden" aria-hidden="true">
