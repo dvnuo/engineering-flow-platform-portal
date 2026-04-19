@@ -34,6 +34,7 @@ const dom = {
   toolPanelBody: document.getElementById("tool-panel-body"),
   toolBackdrop: document.getElementById("tool-backdrop"),
   closeToolPanel: document.getElementById("close-tool-panel"),
+  pinToolPanel: document.getElementById("pin-tool-panel"),
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
   logoutBtn: document.getElementById("logout-btn"),
@@ -45,6 +46,8 @@ const dom = {
   runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
   portalSecondaryPane: document.getElementById("portal-secondary-pane"),
+  secondaryPaneToggle: document.getElementById("secondary-pane-toggle"),
+  secondaryPaneRestore: document.getElementById("secondary-pane-restore"),
   secondaryPaneEyebrow: document.getElementById("secondary-pane-eyebrow"),
   secondaryPaneTitle: document.getElementById("secondary-pane-title"),
   secondaryPaneActions: document.getElementById("secondary-pane-actions"),
@@ -227,6 +230,8 @@ const state = {
   selectedBundleKey: null,
   activeNavSection: "assistants",
   secondaryPaneCollapsed: false,
+  toolPanelOpen: false,
+  toolPanelPinned: false,
   myTasks: [],
   selectedTaskId: null,
   serverFilesRootPath: null,
@@ -1392,13 +1397,50 @@ function renderIcons() {
 }
 
 function setDetailOpen(open) {
-  if (open) {
-    closeSessionsDrawer();
-  }
   state.detailOpen = open;
-  // Use unified tool-panel for agent details
-  if (dom.toolPanel) dom.toolPanel.style.transform = open ? "translateX(0)" : "translateX(120%)";
-  dom.toolBackdrop?.classList.toggle("hidden", !open);
+}
+
+function isWideEnoughToPinToolPanel() {
+  return window.matchMedia("(min-width: 901px)").matches;
+}
+
+function applyToolPanelState() {
+  const open = !!state.toolPanelOpen;
+  const pinned = open && !!state.toolPanelPinned && isWideEnoughToPinToolPanel();
+
+  if (state.toolPanelPinned && !pinned) {
+    state.toolPanelPinned = false;
+  }
+
+  dom.toolPanel?.classList.toggle("is-open", open);
+  dom.toolPanel?.classList.toggle("is-pinned", pinned);
+  dom.portalShell?.classList.toggle("is-tool-panel-pinned", pinned);
+  dom.toolBackdrop?.classList.toggle("hidden", !open || pinned);
+
+  if (dom.pinToolPanel) {
+    dom.pinToolPanel.classList.toggle("is-active", pinned);
+    dom.pinToolPanel.setAttribute("aria-pressed", pinned ? "true" : "false");
+    dom.pinToolPanel.setAttribute("title", pinned ? "Unpin panel" : "Pin panel");
+    dom.pinToolPanel.setAttribute("aria-label", pinned ? "Unpin panel" : "Pin panel");
+    dom.pinToolPanel.innerHTML = `<i data-lucide="${pinned ? "pin-off" : "pin"}" class="w-5 h-5"></i>`;
+  }
+
+  renderIcons();
+}
+
+function openToolPanel() {
+  state.toolPanelOpen = true;
+  applyToolPanelState();
+}
+
+function toggleToolPanelPinned() {
+  if (!state.toolPanelOpen) return;
+  if (!isWideEnoughToPinToolPanel()) {
+    showToast("Pinning is available on wider screens.");
+    return;
+  }
+  state.toolPanelPinned = !state.toolPanelPinned;
+  applyToolPanelState();
 }
 
 async function api(path, options = {}) {
@@ -2487,8 +2529,7 @@ async function maybeShowSuggest() {
 // ===== toolbar actions =====
 function setToolPanel(title, contentHtml, panelKey = null) {
   if (!dom.toolPanel) return;
-  state.detailOpen = false;
-  closeSessionsDrawer();
+  state.detailOpen = panelKey === "details";
   state.activeUtilityPanel = panelKey;
   dom.toolPanelTitle.textContent = title;
   if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
@@ -2496,15 +2537,15 @@ function setToolPanel(title, contentHtml, panelKey = null) {
   } else {
     dom.toolPanelBody.innerHTML = contentHtml;
   }
-  dom.toolPanel.style.transform = "translateX(0)";
-  dom.toolBackdrop?.classList.remove("hidden");
+  openToolPanel();
 }
 
 function closeToolPanel() {
   state.detailOpen = false;
   state.activeUtilityPanel = null;
-  if (dom.toolPanel) dom.toolPanel.style.transform = "translateX(120%)";
-  dom.toolBackdrop?.classList.add("hidden");
+  state.toolPanelOpen = false;
+  state.toolPanelPinned = false;
+  applyToolPanelState();
 }
 
 async function openSessionsPanel() {
@@ -2528,9 +2569,8 @@ async function openSessionsDrawer() {
 }
 
 function closeSessionsDrawer() {
-  if (!dom.toolPanel) return;
   if (state.activeUtilityPanel !== "sessions") return;
-  if (dom.toolPanel.style.transform === "translateX(120%)") {
+  if (!state.toolPanelOpen) {
     state.activeUtilityPanel = null;
     return;
   }
@@ -2538,8 +2578,7 @@ function closeSessionsDrawer() {
 }
 
 async function toggleSessionsDrawer() {
-  const isToolPanelOpen = dom.toolPanel && dom.toolPanel.style.transform !== "translateX(120%)";
-  if (state.activeUtilityPanel === "sessions" && isToolPanelOpen) {
+  if (state.activeUtilityPanel === "sessions" && state.toolPanelOpen) {
     closeToolPanel();
     return;
   }
@@ -2580,9 +2619,36 @@ function renderWorkspaceDetailPlaceholder(message = "Select a bundle or task fro
   dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${safe(message)}</div>`;
 }
 
+function getSecondaryPaneLabel() {
+  if (state.activeNavSection === "bundles") return "Bundles";
+  if (state.activeNavSection === "tasks") return "Tasks";
+  if (state.activeNavSection === "runtime-profiles") return "Runtime Profiles";
+  return "Assistants";
+}
+
 function applySecondaryPaneState() {
-  dom.portalShell?.classList.toggle("is-secondary-collapsed", state.secondaryPaneCollapsed);
-  dom.portalSecondaryPane?.classList.toggle("is-hidden", state.secondaryPaneCollapsed);
+  const collapsed = !!state.secondaryPaneCollapsed;
+  const label = getSecondaryPaneLabel();
+
+  dom.portalShell?.classList.toggle("is-secondary-collapsed", collapsed);
+  dom.portalSecondaryPane?.classList.toggle("is-hidden", collapsed);
+  dom.portalSecondaryPane?.setAttribute("aria-hidden", collapsed ? "true" : "false");
+
+  if (dom.secondaryPaneToggle) {
+    dom.secondaryPaneToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    dom.secondaryPaneToggle.setAttribute("title", collapsed ? `Expand ${label} list` : "Collapse sidebar");
+    dom.secondaryPaneToggle.setAttribute("aria-label", collapsed ? `Expand ${label} list` : "Collapse sidebar");
+    dom.secondaryPaneToggle.innerHTML = `<i data-lucide="${collapsed ? "panel-left-open" : "panel-left-close"}" class="w-5 h-5"></i>`;
+  }
+
+  if (dom.secondaryPaneRestore) {
+    dom.secondaryPaneRestore.classList.toggle("hidden", !collapsed);
+    dom.secondaryPaneRestore.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    dom.secondaryPaneRestore.setAttribute("title", `Expand ${label} list`);
+    dom.secondaryPaneRestore.setAttribute("aria-label", `Expand ${label} list`);
+  }
+
+  renderIcons();
 }
 
 function renderSecondaryPaneHeader() {
@@ -4726,15 +4792,12 @@ function bindEvents() {
       showToast("Please select an assistant first");
       return;
     }
-    if (state.detailOpen) {
-      setDetailOpen(false);
+    if (state.activeUtilityPanel === "details" && state.toolPanelOpen) {
+      closeToolPanel();
     } else {
-      setDetailOpen(true);
-      // Render agent details to tool panel
       const agent = state.mineAgents.find(a => a.id === state.selectedAgentId);
       if (agent) {
-        dom.toolPanelTitle.textContent = "Assistant details";
-        dom.toolPanelBody.innerHTML = `\n          <div id="agent-meta" class="portal-detail-card"></div>\n          <div id="agent-actions" class="portal-detail-actions"></div>\n        `;
+        setToolPanel("Assistant details", `\n          <div id="agent-meta" class="portal-detail-card"></div>\n          <div id="agent-actions" class="portal-detail-actions"></div>\n        `, "details");
         dom.agentMeta = document.getElementById("agent-meta");
         dom.agentActions = document.getElementById("agent-actions");
         renderAgentMeta(agent);
@@ -4743,7 +4806,17 @@ function bindEvents() {
     }
   });
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
-  dom.toolBackdrop?.addEventListener("click", closeToolPanel);
+  dom.pinToolPanel?.addEventListener("click", toggleToolPanelPinned);
+  dom.toolBackdrop?.addEventListener("click", () => {
+    if (!state.toolPanelPinned) closeToolPanel();
+  });
+  dom.secondaryPaneToggle?.addEventListener("click", () => {
+    state.secondaryPaneCollapsed = true;
+    applySecondaryPaneState();
+  });
+  dom.secondaryPaneRestore?.addEventListener("click", async () => {
+    await setActiveNavSection(state.activeNavSection, { toggleIfSame: false });
+  });
 
   dom.chatInput?.addEventListener("input", () => {
     maybeShowSuggest();
@@ -4966,6 +5039,12 @@ function bindEvents() {
 
   dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
+  window.addEventListener("resize", () => {
+    if (state.toolPanelPinned && !isWideEnoughToPinToolPanel()) {
+      state.toolPanelPinned = false;
+      applyToolPanelState();
+    }
+  });
 
   dom.addBundleBtn?.addEventListener("click", () => {
     endSingleSubmit(dom.createBundleForm, { closeButton: dom.closeCreateBundleModal });
@@ -5191,10 +5270,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.addEventListener('mousemove', (e) => {
       if (!isResizing) return;
       const newWidth = window.innerWidth - e.clientX - 24; // 24px offset
-      const minWidth = 300;
-      const maxWidth = window.innerWidth - 24;
+      const pinned = state.toolPanelPinned && state.toolPanelOpen;
+      const minWidth = pinned ? 340 : 300;
+      const maxWidth = pinned
+        ? Math.min(window.innerWidth * 0.5, window.innerWidth - 420)
+        : window.innerWidth - 24;
       const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
-      toolPanel.style.width = clampedWidth + 'px';
+      if (pinned && dom.portalShell) {
+        dom.portalShell.style.setProperty("--portal-tool-panel-width", `${clampedWidth}px`);
+      } else {
+        toolPanel.style.width = `${clampedWidth}px`;
+        dom.portalShell?.style.setProperty("--portal-tool-panel-width", `${clampedWidth}px`);
+      }
     });
     document.addEventListener('mouseup', () => {
       isResizing = false;
@@ -5209,6 +5296,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   bindEvents();
+  applySecondaryPaneState();
+  applyToolPanelState();
   initializeRenderLifecycle();
   updateChatInputPlaceholder();
 
