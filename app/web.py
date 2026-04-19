@@ -131,6 +131,24 @@ def _status_tone_from_value(value: str | None) -> str:
     return "info"
 
 
+def _has_thinking_view_data(view: dict) -> bool:
+    if not isinstance(view, dict):
+        return False
+    context = view.get("context") if isinstance(view.get("context"), dict) else {}
+    budget = view.get("budget") if isinstance(view.get("budget"), dict) else {}
+    active_skill = view.get("active_skill") if isinstance(view.get("active_skill"), dict) else {}
+    fallback = view.get("fallback") if isinstance(view.get("fallback"), dict) else {}
+    return bool(
+        view.get("events")
+        or budget
+        or active_skill.get("name")
+        or any(context.get(key) for key in ("objective", "summary", "current_state", "next_step"))
+        or fallback.get("latest_event_type")
+        or fallback.get("latest_event_state")
+        or fallback.get("last_execution_id")
+    )
+
+
 def _safe_json_object(raw: str | None) -> dict | list | None:
     if raw is None or not str(raw).strip():
         return None
@@ -1999,7 +2017,7 @@ async def app_agent_thinking_panel(request: Request, agent_id: str, session_id: 
                     "session_id": session_id,
                     "chatlog": None,
                     "view": view,
-                    "error": None if (view.get("events") or view.get("context", {}).get("summary") or view.get("active_skill", {}).get("name")) else "Agent not running",
+                    "error": None if _has_thinking_view_data(view) else "Agent not running",
                 },
             )
 

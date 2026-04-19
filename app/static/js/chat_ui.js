@@ -949,6 +949,8 @@ function renderThinkingPanelFromClientState(chatState) {
   const clampedPercent = Number.isFinite(usagePercent) ? Math.max(0, Math.min(100, usagePercent)) : 0;
   const preparedTokens = budget?.prepared_tokens ?? budget?.estimated_tokens;
   const contextWindowTokens = budget?.context_window_tokens;
+  const untilSoft = budget?.tokens_until_soft_threshold;
+  const untilHard = budget?.tokens_until_hard_threshold;
   const latestSkillEvent = [...events].reverse().find((event) => ["skill_contract_active", "skill_runtime_applied", "skill_matched"].includes(event?.type));
   const skillData = latestSkillEvent?.data || {};
   const visibleEvents = events.slice(-100);
@@ -977,7 +979,7 @@ function renderThinkingPanelFromClientState(chatState) {
         <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
         <div class="portal-panel-note">Events: ${events.length}</div>
       </div>
-      ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div></div>` : ""}
+      ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div>${untilSoft != null ? `<div class="portal-panel-note">Until soft threshold: ${safe(String(untilSoft))} tokens</div>` : ""}${untilHard != null ? `<div class="portal-panel-note">Until hard threshold: ${safe(String(untilHard))} tokens</div>` : ""}</div>` : ""}
       <div class="portal-panel-section">
         <div class="portal-panel-title">Context Contents</div>
         <div class="portal-context-grid">
@@ -1066,6 +1068,13 @@ function mergeThinkingEvents(primaryEvents, secondaryEvents) {
   first.forEach(add);
   second.forEach(add);
   return merged;
+}
+
+function normalizePayloadThinkingEvents(events) {
+  if (!Array.isArray(events)) return [];
+  return events
+    .map((event) => normalizeRuntimeEvent(event) || event)
+    .filter((event) => event && typeof event === "object");
 }
 
 // Render thinking events from chat response (non-WebSocket)
@@ -2395,7 +2404,17 @@ async function submitChatForSelectedAgent() {
 async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
-  const mergedThinkingEvents = mergeThinkingEvents(chatState.inflightThinking?.events || [], payload?.events || []);
+  const normalizeEvents = (typeof normalizePayloadThinkingEvents === "function")
+    ? normalizePayloadThinkingEvents
+    : (events) => Array.isArray(events) ? events.filter((event) => event && typeof event === "object") : [];
+  const payloadThinkingEvents = [
+    ...normalizeEvents(payload?.events || []),
+    ...normalizeEvents(payload?.runtime_events || []),
+  ];
+  const mergedThinkingEvents = mergeThinkingEvents(
+    chatState.inflightThinking?.events || [],
+    payloadThinkingEvents,
+  );
   updateAgentSession(agentIdAtSend, payload.session_id || requestCtx.sessionIdAtSend || "");
   const finalSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
   const finalContextState =

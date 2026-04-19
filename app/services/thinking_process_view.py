@@ -94,7 +94,14 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
                 continue
             event_type = event.get("type") or event.get("event_type") or "event"
             data = _as_dict(event.get("data") or event.get("detail_payload"))
-            message = data.get("message") or event.get("summary") or event_type
+            context_state = _as_dict(data.get("context_state"))
+            message = (
+                data.get("message")
+                or event.get("summary")
+                or context_state.get("summary")
+                or context_state.get("next_step")
+                or event_type
+            )
             request_id = event.get("request_id") or data.get("request_id") or ""
             session_id = event.get("session_id") or data.get("session_id") or ""
             agent_id = event.get("agent_id") or data.get("agent_id") or ""

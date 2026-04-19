@@ -272,6 +272,38 @@ def test_thinking_process_panel_renders_runtime_events(monkeypatch):
     assert "Runtime event summary" in response.text
 
 
+def test_thinking_process_panel_fallback_renders_without_summary_when_budget_or_objective_exists(monkeypatch):
+    metadata_record = SimpleNamespace(
+        session_id="s-1",
+        metadata_json=json.dumps(
+            {
+                "context_objective_preview": "Ship thinking panel",
+                "context_usage_percent": 61.5,
+                "context_estimated_tokens": 123000,
+                "context_window_tokens": 200000,
+                "context_next_compaction_action": "approaching_micro_compaction",
+            }
+        ),
+        runtime_events_json="[]",
+        latest_event_type=None,
+        latest_event_state=None,
+        last_execution_id=None,
+    )
+    client = _setup_thinking_panel_client(
+        monkeypatch,
+        None,
+        metadata_record=metadata_record,
+        k8s_enabled=False,
+    )
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Agent not running" not in response.text
+    assert "Ship thinking panel" in response.text
+    assert "61.5" in response.text
+    assert "123000" in response.text
+    assert "approaching_micro_compaction" in response.text
+
+
 def test_thinking_process_panel_metadata_fallback_renders_budget_preview(monkeypatch):
     metadata_record = SimpleNamespace(
         session_id="s-1",

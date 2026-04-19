@@ -136,6 +136,13 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "renderThinkingPanelFromClientState" in js_source
     assert "scheduleThinkingPanelRefresh" in js_source
     assert "loadPersistedThinkingPanel" in js_source
+    assert "tokens_until_soft_threshold" in js_source
+    assert "tokens_until_hard_threshold" in js_source
+    assert "normalizePayloadThinkingEvents" in js_source
+    assert "payload?.runtime_events" in js_source
+    assert "Until soft threshold" in js_source
+    assert "Until hard threshold" in js_source
+    assert "_has_thinking_view_data" in web_source
     assert "liveSnapshot.events?.length || !liveSnapshot.completed" not in js_source
     assert "const isLiveRun" in js_source
     assert "entry.session_id && !chatState.inflightThinking.sessionId" in js_source
