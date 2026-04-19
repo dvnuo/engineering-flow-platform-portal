@@ -1400,18 +1400,85 @@ function setDetailOpen(open) {
   state.detailOpen = open;
 }
 
+const TOOL_PANEL_DEFAULT_WIDTH = 580;
+const TOOL_PANEL_MIN_PINNED_WIDTH = 340;
+const TOOL_PANEL_MIN_OVERLAY_WIDTH = 300;
+
+function getSecondaryColumnWidthForPin() {
+  if (state.secondaryPaneCollapsed) return 0;
+  return window.matchMedia("(max-width: 1024px)").matches ? 260 : 296;
+}
+
+function getMainMinWidthForPin() {
+  return window.matchMedia("(max-width: 1024px)").matches ? 300 : 360;
+}
+
+function getCurrentToolPanelWidth() {
+  const cssTarget = dom.portalShell || document.documentElement;
+  const fromVar = Number.parseFloat(getComputedStyle(cssTarget).getPropertyValue("--portal-tool-panel-width"));
+  if (Number.isFinite(fromVar) && fromVar > 0) return fromVar;
+  const fromPanel = dom.toolPanel?.getBoundingClientRect?.().width || 0;
+  if (fromPanel > 0) return fromPanel;
+  return TOOL_PANEL_DEFAULT_WIDTH;
+}
+
+function getPinnedToolPanelWidthBounds() {
+  const shellHorizontalPadding = 16;
+  const available =
+    window.innerWidth
+    - shellHorizontalPadding
+    - 68
+    - getSecondaryColumnWidthForPin()
+    - getMainMinWidthForPin();
+
+  const canPin = available >= TOOL_PANEL_MIN_PINNED_WIDTH;
+  const max = Math.max(
+    TOOL_PANEL_MIN_PINNED_WIDTH,
+    Math.min(TOOL_PANEL_DEFAULT_WIDTH, available)
+  );
+
+  return {
+    min: TOOL_PANEL_MIN_PINNED_WIDTH,
+    max,
+    canPin,
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function setToolPanelWidth(widthPx) {
+  const next = Math.round(widthPx);
+  dom.portalShell?.style.setProperty("--portal-tool-panel-width", `${next}px`);
+  if (dom.toolPanel) dom.toolPanel.style.width = "";
+}
+
+function clampToolPanelWidthForPinned() {
+  const bounds = getPinnedToolPanelWidthBounds();
+  const current = getCurrentToolPanelWidth();
+  setToolPanelWidth(clamp(current, bounds.min, bounds.max));
+  return bounds.canPin;
+}
+
 function isWideEnoughToPinToolPanel() {
-  return window.matchMedia("(min-width: 901px)").matches;
+  return getPinnedToolPanelWidthBounds().canPin;
 }
 
 function applyToolPanelState() {
   const open = !!state.toolPanelOpen;
-  const pinned = open && !!state.toolPanelPinned && isWideEnoughToPinToolPanel();
+  let pinned = open && !!state.toolPanelPinned;
 
-  if (state.toolPanelPinned && !pinned) {
+  if (pinned && !isWideEnoughToPinToolPanel()) {
     state.toolPanelPinned = false;
+    pinned = false;
   }
 
+  if (pinned) {
+    clampToolPanelWidthForPinned();
+  }
+
+  if (dom.toolPanel) dom.toolPanel.style.width = "";
   dom.toolPanel?.classList.toggle("is-open", open);
   dom.toolPanel?.classList.toggle("is-pinned", pinned);
   dom.portalShell?.classList.toggle("is-tool-panel-pinned", pinned);
@@ -1435,11 +1502,17 @@ function openToolPanel() {
 
 function toggleToolPanelPinned() {
   if (!state.toolPanelOpen) return;
-  if (!isWideEnoughToPinToolPanel()) {
-    showToast("Pinning is available on wider screens.");
-    return;
+  const wantsToPin = !state.toolPanelPinned;
+  if (wantsToPin) {
+    if (!isWideEnoughToPinToolPanel()) {
+      showToast("Pinning is available on wider screens.");
+      return;
+    }
+    clampToolPanelWidthForPinned();
+    state.toolPanelPinned = true;
+  } else {
+    state.toolPanelPinned = false;
   }
-  state.toolPanelPinned = !state.toolPanelPinned;
   applyToolPanelState();
 }
 
@@ -4813,9 +4886,11 @@ function bindEvents() {
   dom.secondaryPaneToggle?.addEventListener("click", () => {
     state.secondaryPaneCollapsed = true;
     applySecondaryPaneState();
+    window.requestAnimationFrame(() => dom.secondaryPaneRestore?.focus?.());
   });
   dom.secondaryPaneRestore?.addEventListener("click", async () => {
     await setActiveNavSection(state.activeNavSection, { toggleIfSame: false });
+    window.requestAnimationFrame(() => dom.secondaryPaneToggle?.focus?.());
   });
 
   dom.chatInput?.addEventListener("input", () => {
@@ -5040,10 +5115,14 @@ function bindEvents() {
   dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
   window.addEventListener("resize", () => {
-    if (state.toolPanelPinned && !isWideEnoughToPinToolPanel()) {
+    if (!state.toolPanelPinned) return;
+    if (!isWideEnoughToPinToolPanel()) {
       state.toolPanelPinned = false;
       applyToolPanelState();
+      return;
     }
+    clampToolPanelWidthForPinned();
+    applyToolPanelState();
   });
 
   dom.addBundleBtn?.addEventListener("click", () => {
@@ -5259,8 +5338,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Tool panel resize from left edge
   const resizeHandle = document.getElementById('tool-panel-resize');
-  const toolPanel = document.getElementById('tool-panel');
-  if (resizeHandle && toolPanel) {
+  if (resizeHandle) {
     let isResizing = false;
     resizeHandle.addEventListener('mousedown', (e) => {
       isResizing = true;
@@ -5269,18 +5347,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
     document.addEventListener('mousemove', (e) => {
       if (!isResizing) return;
-      const newWidth = window.innerWidth - e.clientX - 24; // 24px offset
+      const newWidth = window.innerWidth - e.clientX - 24;
       const pinned = state.toolPanelPinned && state.toolPanelOpen;
-      const minWidth = pinned ? 340 : 300;
-      const maxWidth = pinned
-        ? Math.min(window.innerWidth * 0.5, window.innerWidth - 420)
-        : window.innerWidth - 24;
-      const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
-      if (pinned && dom.portalShell) {
-        dom.portalShell.style.setProperty("--portal-tool-panel-width", `${clampedWidth}px`);
+
+      if (pinned) {
+        const bounds = getPinnedToolPanelWidthBounds();
+        if (!bounds.canPin) {
+          state.toolPanelPinned = false;
+          applyToolPanelState();
+          return;
+        }
+        setToolPanelWidth(clamp(newWidth, bounds.min, bounds.max));
       } else {
-        toolPanel.style.width = `${clampedWidth}px`;
-        dom.portalShell?.style.setProperty("--portal-tool-panel-width", `${clampedWidth}px`);
+        const maxWidth = Math.max(TOOL_PANEL_MIN_OVERLAY_WIDTH, window.innerWidth - 24);
+        setToolPanelWidth(clamp(newWidth, TOOL_PANEL_MIN_OVERLAY_WIDTH, maxWidth));
       }
     });
     document.addEventListener('mouseup', () => {

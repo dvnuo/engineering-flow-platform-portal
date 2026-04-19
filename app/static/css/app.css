@@ -121,7 +121,6 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-shell.is-tool-panel-pinned { grid-template-columns: 68px 296px minmax(360px,1fr) var(--portal-tool-panel-width); }
 .portal-shell.is-secondary-collapsed.is-tool-panel-pinned { grid-template-columns: 68px 0px minmax(360px,1fr) var(--portal-tool-panel-width); }
 .portal-rail, .portal-secondary-pane, .portal-main { box-shadow: none; border: 0; border-radius: 0; }
-#tool-panel { background: var(--portal-surface); border: 1px solid var(--portal-border); box-shadow: var(--portal-shadow); }
 
 .portal-rail {
   grid-area: rail;
@@ -219,6 +218,7 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 
 .portal-main {
   grid-area: main;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -2094,5 +2094,20 @@ html[data-theme="dark"] .portal-thinking-block {
 @media (max-width: 900px) {
   .portal-kv-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .portal-shell,
+  .portal-shell.is-secondary-collapsed,
+  .portal-shell.is-tool-panel-pinned,
+  .portal-shell.is-secondary-collapsed.is-tool-panel-pinned {
+    grid-template-areas: "rail main tool tool";
+    grid-template-columns: 68px minmax(0, 1fr) 0px 0px;
+  }
+
+  .portal-secondary-pane,
+  .portal-secondary-restore {
+    display: none !important;
   }
 }
