@@ -32,7 +32,7 @@ def test_app_template_contains_new_portal_shell():
     assert '<select name="runtime_profile_id" id="create-runtime-profile-select"></select>' in html
     assert '<select name="runtime_profile_id" id="edit-runtime-profile-select"></select>' in html
     assert '<option value="">None</option>' not in html
-    assert "Ask me anything..." in html
+    assert "Ask anything..." in html
     assert "portal-modal-feedback" in html
     assert "portal-modal-copy" in html
     assert "portal-form-textarea-mono" not in html
@@ -115,6 +115,9 @@ def test_frontend_assets_include_phase_b_fixups():
     js_source = _chat_ui_js_source()
     css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
     web_source = Path("app/web.py").read_text(encoding="utf-8")
+    thinking_process_view_source = Path("app/services/thinking_process_view.py").read_text(encoding="utf-8")
+    session_context_preview_source = Path("app/services/session_context_preview.py").read_text(encoding="utf-8")
+    schema_source = Path("app/schemas/agent_session_metadata.py").read_text(encoding="utf-8")
 
     assert "ensureRunningSelectedAssistant" in js_source
     assert "setButtonDisabled" in js_source
@@ -132,7 +135,30 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".assistant-header" not in js_source
     assert ".flex.flex-col" not in js_source
     assert "message message-error flex gap-3 py-3" not in js_source
-    assert "buildPendingAssistantRowForEvents" in js_source
+    assert "renderThinkingPanelFromClientState" in js_source
+    assert "scheduleThinkingPanelRefresh" in js_source
+    assert "loadPersistedThinkingPanel" in js_source
+    assert "tokens_until_soft_threshold" in js_source
+    assert "tokens_until_hard_threshold" in js_source
+    assert "context_compaction_planned" in js_source
+    assert "next_pruning_policy" in js_source
+    assert "Pruning policy" in js_source
+    assert "normalizePayloadThinkingEvents" in js_source
+    assert "payload?.runtime_events" in js_source
+    assert "Until soft threshold" in js_source
+    assert "Until hard threshold" in js_source
+    assert "_has_thinking_view_data" in web_source
+    assert "context_next_pruning_policy" in session_context_preview_source
+    assert "context_next_pruning_policy" in schema_source
+    assert "liveSnapshot.events?.length || !liveSnapshot.completed" not in js_source
+    assert "const isLiveRun" in js_source
+    assert "entry.session_id && !chatState.inflightThinking.sessionId" in js_source
+    assert 'context_compaction_planned", "context_compaction_applied' in js_source
+    assert 'chatlog.get("runtime_events")' in thinking_process_view_source
+    assert "View Thinking Process" not in js_source
+    assert "attachThinkingToLatestAssistant" not in js_source
+    assert "renderThinkingProcess(" not in js_source
+    assert "data-thinking-id" not in js_source
     assert js_source.count("#sessions-new-chat-btn") == 1
     assert js_source.count("[data-session-id]") == 1
     assert "portal-suggest-item" in js_source
@@ -229,8 +255,8 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".message-surface-error" in css_source
     assert ".portal-detail-action-grid" in css_source
     assert ".portal-detail-action-btn" in css_source
-    assert ".portal-thinking-block" in css_source
-    assert ".portal-thinking-toggle" in css_source
+    assert ".portal-context-meter" in css_source
+    assert ".portal-live-thinking" in css_source
     assert ".portal-statusline.is-error" in css_source
     assert ":disabled" in css_source
     assert "renderDisplayBlocksToHtml" in js_source
@@ -434,3 +460,14 @@ def test_server_files_uses_native_checkboxes_not_toggle_switches():
 
     css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert ".portal-file-checkbox" in css_source
+
+def test_thinking_process_removed_from_assistant_messages():
+    js_source = _chat_ui_js_source()
+    assert "function buildPendingAssistantArticle(" in js_source
+    assert "View Thinking Process" not in js_source
+    submit_block = js_source[js_source.find("async function submitChatForSelectedAgent()"):js_source.find("async function handleAgentChatSuccess(")]
+    assert "ensureEventSocketForAgent(" in submit_block
+    handler_block = js_source[js_source.find("function handleAgentEventMessage("):js_source.find("function ensureEventSocketForAgent(")]
+    assert "scheduleThinkingPanelRefresh(" in handler_block
+    history_block = js_source[js_source.find("function renderChatHistory("):js_source.find("async function loadSessionForAgent(")]
+    assert "attachThinkingToLatestAssistant" not in history_block

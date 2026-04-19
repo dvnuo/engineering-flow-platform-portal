@@ -27,6 +27,20 @@ def test_chat_ui_includes_display_block_renderer_helpers():
     assert "function enhanceMarkdownBlock(" in js_source
 
 
+def test_chat_ui_uses_live_thinking_panel_rendering():
+    js_source = _chat_ui_js_source()
+    css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert "renderThinkingPanelFromClientState" in js_source
+    assert "scheduleThinkingPanelRefresh" in js_source
+    assert "loadPersistedThinkingPanel" in js_source
+    assert "View Thinking Process" not in js_source
+    assert "attachThinkingToLatestAssistant" not in js_source
+    assert "renderThinkingProcess(" not in js_source
+    assert "data-thinking-id" not in js_source
+    assert ".portal-context-meter" in css_source
+    assert ".portal-live-thinking" in css_source
+
+
 def test_composer_model_selector_keeps_per_agent_model_override_isolated():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -380,14 +394,12 @@ const dom = {{ messageList: {{ insertAdjacentHTML() {{}} }} }};
 const document = {{ hidden: true }};
 let notifyCalls = 0;
 let editCalls = 0;
-let attachedEvents = [];
 function setLastSessionId() {{}}
 function syncHiddenSessionInputFromState() {{}}
 function ensureEventSocketForSelectedAgent() {{}}
 function removeTemporaryAssistantRows() {{}}
 function getLatestOptimisticUserArticle() {{ return {{ dataset: {{ optimisticUser: "1" }} }}; }}
 function buildAssistantMessageArticle() {{ return ""; }}
-function attachThinkingToLatestAssistant(events) {{ attachedEvents = events; }}
 function setChatStatus() {{}}
 function renderMarkdown() {{}}
 function decorateToolMessages() {{}}
@@ -417,7 +429,7 @@ chatState.inflightThinking = {{ events: [{{type: "execution.started", request_id
   console.log(JSON.stringify({{
     notifyCalls,
     editCalls,
-    mergedCount: attachedEvents.length,
+    mergedCount: (ensureChatState("agent-A").lastThinkingSnapshot?.events || []).length,
   }}));
 }})();
 """
