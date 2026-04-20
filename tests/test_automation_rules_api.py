@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
 from app.models.capability_profile import CapabilityProfile
+from app.repositories.automation_rule_repo import AutomationRuleRepository
 
 
 def _build_client_with_overrides():
@@ -177,5 +178,50 @@ def test_automation_rules_api_capability_profile_gate():
         bad_action = client.post("/api/automation-rules", json=_create_payload(agent.id))
         assert bad_action.status_code == 400
         assert "capability profile does not allow" in bad_action.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_automation_rules_api_update_merged_validation_and_events_updated_at():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        create_payload = _create_payload(agent.id)
+        create_payload["review_target_type"] = "user"
+        create_payload["review_target"] = "alice"
+        created_resp = client.post("/api/automation-rules", json=create_payload)
+        assert created_resp.status_code == 200
+        rule = created_resp.json()
+
+        bad_target = client.patch(f"/api/automation-rules/{rule['id']}", json={"review_target": "alice bob"})
+        assert bad_target.status_code in (400, 422)
+        saved_rule = AutomationRuleRepository(db).get(rule["id"])
+        saved_trigger = json.loads(saved_rule.trigger_config_json or "{}")
+        assert saved_trigger.get("review_target") == "alice"
+
+        good_team = client.patch(
+            f"/api/automation-rules/{rule['id']}",
+            json={"review_target_type": "team", "review_target": "acme/reviewers"},
+        )
+        assert good_team.status_code == 200
+
+        bad_event = client.patch(f"/api/automation-rules/{rule['id']}", json={"review_event": "bad"})
+        assert bad_event.status_code in (400, 422)
+        bad_owner = client.patch(f"/api/automation-rules/{rule['id']}", json={"owner": ""})
+        assert bad_owner.status_code in (400, 422)
+
+        repo = AutomationRuleRepository(db)
+        repo.create_event(
+            rule_id=rule["id"],
+            dedupe_key="api:event:1",
+            source_payload_json="{}",
+            normalized_payload_json="{}",
+            status="discovered",
+        )
+
+        events_resp = client.get(f"/api/automation-rules/{rule['id']}/events")
+        assert events_resp.status_code == 200
+        events = events_resp.json()
+        assert events
+        assert "updated_at" in events[0]
     finally:
         cleanup()

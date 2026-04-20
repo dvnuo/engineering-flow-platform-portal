@@ -10,6 +10,7 @@ from app.db import Base
 from app.models import Agent, RuntimeProfile, User
 from app.models.capability_profile import CapabilityProfile
 from app.models.agent_task import AgentTask
+from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.automation_rule_repo import AutomationRuleRepository
 from app.schemas.automation_rule import AutomationRuleCreate
 from app.services.automation_rule_service import AutomationRuleService
@@ -252,6 +253,61 @@ def test_create_github_review_task_skips_fresh_creating_task(monkeypatch):
     assert task is None
     assert skipped is True
     assert db.query(AgentTask).count() == 0
+
+
+def test_create_github_review_task_repairs_event_when_task_already_exists(monkeypatch):
+    db = _session()
+    user = User(username="u8", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp8", config_json=json.dumps({"github": {"enabled": True, "api_token": "secret"}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    rule = _create_review_rule(db, user_id=user.id, agent_id=agent.id)
+
+    svc = AutomationRuleService(db)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+
+    item = {"owner": "acme", "repo": "portal", "pull_number": 10, "head_sha": "sha-existing", "review_target": {"type": "user", "name": "alice"}, "source_payload": {}}
+    full_dedupe_key = f"github:pr_review_requested:{rule.id}:acme/portal:10:sha-existing:user:alice"
+    short_dedupe_key = svc._agent_task_dedupe_key(full_dedupe_key)
+    event = AutomationRuleRepository(db).create_event(
+        rule_id=rule.id,
+        dedupe_key=full_dedupe_key,
+        source_payload_json="{}",
+        normalized_payload_json="{}",
+        status="creating_task",
+    )
+    event.updated_at = datetime.utcnow() - timedelta(minutes=10)
+    db.add(event); db.commit()
+
+    existing_task = AgentTaskRepository(db).create(
+        parent_agent_id=None,
+        assignee_agent_id=rule.target_agent_id,
+        owner_user_id=rule.owner_user_id,
+        created_by_user_id=rule.created_by_user_id,
+        source="automation_rule",
+        task_type=rule.task_type,
+        input_payload_json="{}",
+        shared_context_ref=None,
+        task_family="triggered_work",
+        provider="github",
+        trigger="github_pr_review_requested",
+        bundle_id="github:pr_review:acme/portal:10",
+        version_key="sha-existing",
+        dedupe_key=short_dedupe_key,
+        status="queued",
+        result_payload_json=None,
+        retry_count=0,
+    )
+
+    task, skipped = svc.create_github_review_task_for_discovered_item(rule=rule, item=item, task_cfg={"skill_name": "review-pull-request", "review_event": "COMMENT"})
+    assert task is None
+    assert skipped is True
+    assert db.query(AgentTask).count() == 1
+    refreshed = AutomationRuleRepository(db).get_event(event.id)
+    assert refreshed.status == "task_created"
+    assert refreshed.task_id == existing_task.id
 
 
 @pytest.mark.anyio

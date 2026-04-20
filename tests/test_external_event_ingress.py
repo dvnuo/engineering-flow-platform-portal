@@ -372,6 +372,8 @@ def test_github_pr_review_requested_ingress_no_matching_rule(monkeypatch):
         assert body["accepted"] is False
         assert body["routing_reason"] == "no_matching_automation_rule"
         assert body["resolved_task_type"] == "github_review_task"
+        assert body["routing_reason"] != "no_enabled_binding"
+        assert body["routing_reason"] != "automation_not_enabled_or_scope_mismatch"
     finally:
         cleanup()
 
@@ -406,6 +408,74 @@ def test_github_pr_review_requested_ingress_team_target(monkeypatch):
         task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
         payload = json.loads(task.input_payload_json)
         assert payload["review_target"] == {"type": "team", "name": "acme/reviewers"}
+    finally:
+        cleanup()
+
+
+def test_github_pr_review_requested_ingress_case_insensitive_user_match(monkeypatch):
+    client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        agent = _create_agent(db, admin_user.id, {"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "token"}})
+        _create_automation_rule(
+            db,
+            owner_user_id=admin_user.id,
+            target_agent_id=agent.id,
+            owner="Acme",
+            repo="Portal",
+            review_target_type="user",
+            review_target="Alice",
+        )
+        resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "alice",
+                "payload_json": json.dumps({"owner": "acme", "repo": "portal", "pull_number": 11, "reviewer": "alice", "head_sha": "sha-u"}),
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["accepted"] is True
+        task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
+        payload = json.loads(task.input_payload_json)
+        assert payload["owner"] == "Acme"
+        assert payload["repo"] == "Portal"
+        assert payload["review_target"] == {"type": "user", "name": "Alice"}
+    finally:
+        cleanup()
+
+
+def test_github_pr_review_requested_ingress_case_insensitive_team_match(monkeypatch):
+    client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        agent = _create_agent(db, admin_user.id, {"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "token"}})
+        _create_automation_rule(
+            db,
+            owner_user_id=admin_user.id,
+            target_agent_id=agent.id,
+            owner="Acme",
+            repo="Portal",
+            review_target_type="team",
+            review_target="Acme/Reviewers",
+        )
+        resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acme/reviewers",
+                "payload_json": json.dumps({"owner": "acme", "repo": "portal", "pull_number": 12, "review_team": "acme/reviewers", "head_sha": "sha-t2"}),
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["accepted"] is True
+        task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
+        payload = json.loads(task.input_payload_json)
+        assert payload["owner"] == "Acme"
+        assert payload["repo"] == "Portal"
+        assert payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
     finally:
         cleanup()
 

@@ -138,6 +138,7 @@ class AutomationRuleEventRead(BaseModel):
     task_id: Optional[str] = None
     error_message: Optional[str] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

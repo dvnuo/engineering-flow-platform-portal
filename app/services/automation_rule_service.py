@@ -72,6 +72,33 @@ class AutomationRuleService:
             merged["task_config_json"]["review_event"] = payload["review_event"].strip()
         return merged
 
+    def _validate_built_rule_config(self, *, built: dict) -> None:
+        scope = built.get("scope_json") or {}
+        trigger = built.get("trigger_config_json") or {}
+        task = built.get("task_config_json") or {}
+
+        owner = str(scope.get("owner") or "").strip()
+        repo = str(scope.get("repo") or "").strip()
+        target_type = str(trigger.get("review_target_type") or "").strip().lower()
+        target = str(trigger.get("review_target") or "").strip()
+        skill_name = str(task.get("skill_name") or "review-pull-request").strip()
+        review_event = str(task.get("review_event") or "COMMENT").strip().upper()
+
+        if not owner:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="owner must not be empty")
+        if not repo:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="repo must not be empty")
+        if target_type not in {"user", "team"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_target_type must be 'user' or 'team'")
+        if not target:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_target must not be empty")
+        if target_type == "user" and any(ch.isspace() for ch in target):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_target must not contain whitespace for user target")
+        if not skill_name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="skill_name must not be empty")
+        if review_event not in {"COMMENT", "APPROVE", "REQUEST_CHANGES"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_event must be one of: APPROVE, COMMENT, REQUEST_CHANGES")
+
     def create_rule(self, payload: AutomationRuleCreate, current_user_id: int) -> object:
         data = payload.model_dump()
         try:
@@ -81,6 +108,7 @@ class AutomationRuleService:
         self._validate_agent_can_run_github_pr_review_rule(agent_id=payload.target_agent_id, skill_name=payload.skill_name)
 
         built = self._build_from_structured({}, data)
+        self._validate_built_rule_config(built=built)
         interval = built.get("schedule_json", {}).get("interval_seconds", 60)
         now = datetime.utcnow()
         create_data = {
@@ -110,6 +138,7 @@ class AutomationRuleService:
             "schedule_json": self._parse_json(rule.schedule_json),
         }
         built = self._build_from_structured(existing, data)
+        self._validate_built_rule_config(built=built)
 
         update_data = {}
         for key in ["name", "enabled", "target_agent_id"]:
@@ -202,6 +231,7 @@ class AutomationRuleService:
         review_target_type = item.get("review_target", {}).get("type")
         review_target = item.get("review_target", {}).get("name")
         dedupe_key = f"github:pr_review_requested:{rule.id}:{owner}/{repo}:{pull_number}:{head_sha}:{review_target_type}:{review_target}"
+        agent_task_dedupe_key = self._agent_task_dedupe_key(dedupe_key)
         event, _created = self.repo.get_or_create_event_by_dedupe(
             rule_id=rule.id,
             dedupe_key=dedupe_key,
@@ -221,6 +251,17 @@ class AutomationRuleService:
             refreshed_status = ((refreshed.status if refreshed else "") or "").strip().lower()
             if refreshed and refreshed_status == "task_created" and refreshed.task_id:
                 return None, True
+            return None, True
+
+        refreshed = self.repo.get_event(event.id) or event
+        existing_task = self.task_repo.find_by_dedupe_key(
+            assignee_agent_id=rule.target_agent_id,
+            source="automation_rule",
+            task_type=rule.task_type,
+            dedupe_key=agent_task_dedupe_key,
+        )
+        if existing_task:
+            self.repo.update_event_status(refreshed, status="task_created", task_id=existing_task.id, error_message=None)
             return None, True
 
         payload = {
@@ -255,7 +296,7 @@ class AutomationRuleService:
                 trigger="github_pr_review_requested",
                 bundle_id=bundle_id,
                 version_key=head_sha,
-                dedupe_key=self._agent_task_dedupe_key(dedupe_key),
+                dedupe_key=agent_task_dedupe_key,
                 status="queued",
                 result_payload_json=None,
                 retry_count=0,

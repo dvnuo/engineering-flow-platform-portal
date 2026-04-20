@@ -41,6 +41,10 @@ class ExternalEventRouterService:
         return ExternalEventRouterService._parse_json_object(raw)
 
     @staticmethod
+    def _normalize_github_match_value(value: object) -> str:
+        return str(value or "").strip().lower()
+
+    @staticmethod
     def _binding_lookup_username_from_metadata(request: ExternalEventIngressRequest) -> str | None:
         metadata = ExternalEventRouterService._parse_metadata_object(request.metadata_json)
         if not metadata:
@@ -230,29 +234,6 @@ class ExternalEventRouterService:
             return False
         return value in set(effective_scope)
 
-    @staticmethod
-    def _extract_github_review_payload(request: ExternalEventIngressRequest) -> tuple[dict | None, str | None]:
-        payload_obj = ExternalEventRouterService._parse_json_object(request.payload_json)
-        if payload_obj is None:
-            return None, "payload_json must be a JSON object for github pull_request_review_requested"
-
-        owner = payload_obj.get("owner")
-        repo = payload_obj.get("repo")
-        pull_number = payload_obj.get("pull_number")
-        if not owner or not repo or pull_number is None:
-            return None, "github review event requires owner, repo, and pull_number in payload_json"
-
-        return {
-            "owner": owner,
-            "repo": repo,
-            "pull_number": pull_number,
-            "reviewer": payload_obj.get("reviewer"),
-            "head_sha": payload_obj.get("head_sha"),
-            "comment": payload_obj.get("comment"),
-            "event_type": request.event_type,
-            "metadata_json": request.metadata_json,
-        }, None
-
     def _route_github_pr_review_requested_via_automation_rule(
         self,
         request: ExternalEventIngressRequest,
@@ -270,6 +251,8 @@ class ExternalEventRouterService:
 
         owner = str(payload_obj.get("owner") or "").strip()
         repo = str(payload_obj.get("repo") or "").strip()
+        normalized_owner = self._normalize_github_match_value(owner)
+        normalized_repo = self._normalize_github_match_value(repo)
         pull_number = payload_obj.get("pull_number")
         missing = []
         if not owner:
@@ -319,7 +302,7 @@ class ExternalEventRouterService:
         deduped_candidates: list[tuple[str | None, str]] = []
         seen: set[tuple[str | None, str]] = set()
         for candidate_type, candidate_name in candidate_targets:
-            normalized_name = str(candidate_name or "").strip()
+            normalized_name = self._normalize_github_match_value(candidate_name)
             normalized_type = (candidate_type or "").strip().lower() or None
             if not normalized_name:
                 continue
@@ -346,6 +329,8 @@ class ExternalEventRouterService:
 
         rule_repo = AutomationRuleRepository(db)
         matched_rule = None
+        matched_owner = owner
+        matched_repo = repo
         matched_target_type = None
         matched_target_name = None
         for rule in rule_repo.list_enabled_for_trigger(
@@ -354,19 +339,24 @@ class ExternalEventRouterService:
             task_type="github_review_task",
         ):
             scope_obj = self._parse_json_object(rule.scope_json) or {}
-            if str(scope_obj.get("owner") or "").strip() != owner:
+            rule_owner = str(scope_obj.get("owner") or "").strip()
+            rule_repo = str(scope_obj.get("repo") or "").strip()
+            if self._normalize_github_match_value(rule_owner) != normalized_owner:
                 continue
-            if str(scope_obj.get("repo") or "").strip() != repo:
+            if self._normalize_github_match_value(rule_repo) != normalized_repo:
                 continue
             trigger_obj = self._parse_json_object(rule.trigger_config_json) or {}
             rule_target_type = str(trigger_obj.get("review_target_type") or "").strip().lower()
             rule_target_name = str(trigger_obj.get("review_target") or "").strip()
-            if not rule_target_name or rule_target_name not in candidate_names:
+            normalized_rule_target_name = self._normalize_github_match_value(rule_target_name)
+            if not normalized_rule_target_name or normalized_rule_target_name not in candidate_names:
                 continue
-            matched_types = candidate_types_by_name.get(rule_target_name, set())
+            matched_types = candidate_types_by_name.get(normalized_rule_target_name, set())
             if matched_types and rule_target_type not in matched_types:
                 continue
             matched_rule = rule
+            matched_owner = rule_owner
+            matched_repo = rule_repo
             matched_target_type = rule_target_type or "user"
             matched_target_name = rule_target_name
             break
@@ -381,8 +371,8 @@ class ExternalEventRouterService:
             )
 
         item = {
-            "owner": owner,
-            "repo": repo,
+            "owner": matched_owner,
+            "repo": matched_repo,
             "pull_number": pull_number,
             "html_url": payload_obj.get("html_url"),
             "title": payload_obj.get("title"),
@@ -431,22 +421,6 @@ class ExternalEventRouterService:
         )
 
     @staticmethod
-    def _build_github_dedupe_hint(request: ExternalEventIngressRequest, payload: dict | None) -> str | None:
-        if request.dedupe_key:
-            return request.dedupe_key
-        if request.source_type.strip().lower() != "github" or request.event_type != "pull_request_review_requested":
-            return None
-        if not payload:
-            return None
-        owner = payload.get("owner")
-        repo = payload.get("repo")
-        pull_number = payload.get("pull_number")
-        if not owner or not repo or pull_number is None or not request.external_account_id:
-            return None
-        head_sha = payload.get("head_sha") or ""
-        return f"github:review:{owner}/{repo}:{pull_number}:{request.external_account_id}:{head_sha}"
-
-    @staticmethod
     def _build_bundle_id(*, request: ExternalEventIngressRequest, source_type: str, payload_obj: dict | None, task_type: str) -> str | None:
         target_ref = (request.target_ref or "").strip()
 
@@ -475,41 +449,6 @@ class ExternalEventRouterService:
         if source_type == "jira" and task_type == "jira_workflow_review_task" and request.issue_key:
             return f"{request.issue_key}:{request.trigger_status}" if request.trigger_status else request.issue_key
         return None
-
-    @staticmethod
-    def _build_github_superseded_payload(*, superseding_task_id: str, new_head_sha: str | None) -> str:
-        return json.dumps(
-            {
-                "ok": False,
-                "error_code": "superseded_by_new_head_sha",
-                "message": "GitHub review task superseded by a newer PR head_sha",
-                "superseded_by_task_id": superseding_task_id,
-                "superseded_by_head_sha": new_head_sha,
-            }
-        )
-
-    def _stale_superseded_github_review_tasks_for_bundle(self, *, task_repo: AgentTaskRepository, assignee_agent_id: str, bundle_id: str | None, new_version_key: str | None, superseding_task_id: str) -> None:
-        if not bundle_id:
-            return
-        candidates = task_repo.list_active_tasks_for_bundle(
-            assignee_agent_id=assignee_agent_id,
-            bundle_id=bundle_id,
-            task_type="github_review_task",
-        )
-        stale_payload = self._build_github_superseded_payload(
-            superseding_task_id=superseding_task_id,
-            new_head_sha=new_version_key,
-        )
-        to_update = []
-        for task in candidates:
-            if task.id == superseding_task_id:
-                continue
-            if new_version_key and task.version_key == new_version_key:
-                continue
-            task.status = "stale"
-            task.result_payload_json = stale_payload
-            to_update.append(task)
-        task_repo.save_all(to_update)
 
     def _evaluate_capability_profile_event_gate(self, *, agent, source_type: str, event_type: str, db: Session, capability_context=None) -> dict | None:
         if not agent:
@@ -647,34 +586,28 @@ class ExternalEventRouterService:
             matched_workflow_rule_id = None
             task_type = rule["task_type"]
 
-            if source_type == "github" and request.event_type == "pull_request_review_requested":
-                github_payload, github_error = self._extract_github_review_payload(request)
-                if github_error:
-                    return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="invalid_github_event_payload", matched_agent_id=matched_agent_id, resolved_task_type=task_type, message=github_error)
-                input_payload_json = json.dumps(github_payload)
-            else:
-                triggered_payload, triggered_payload_error = self._build_triggered_event_input_payload(
-                    request=request,
-                    rule=rule,
-                    binding=selected_binding,
+            triggered_payload, triggered_payload_error = self._build_triggered_event_input_payload(
+                request=request,
+                rule=rule,
+                binding=selected_binding,
+            )
+            if triggered_payload_error:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=[],
+                    routing_reason="invalid_triggered_event_payload",
+                    matched_agent_id=matched_agent_id,
+                    resolved_task_type=task_type,
+                    message=triggered_payload_error,
                 )
-                if triggered_payload_error:
-                    return ExternalEventIngressResponse(
-                        accepted=False,
-                        matched_subscription_ids=[],
-                        routing_reason="invalid_triggered_event_payload",
-                        matched_agent_id=matched_agent_id,
-                        resolved_task_type=task_type,
-                        message=triggered_payload_error,
-                    )
-                input_payload_json = json.dumps(triggered_payload, ensure_ascii=False)
+            input_payload_json = json.dumps(triggered_payload, ensure_ascii=False)
 
         payload_obj = self._parse_json_object(input_payload_json)
         if source_type == "jira":
             dedupe_hint = request.dedupe_key or request.issue_key or request.target_ref
             shared_context_ref = request.issue_key or request.dedupe_key or request.target_ref
         else:
-            dedupe_hint = self._build_github_dedupe_hint(request, payload_obj) or request.dedupe_key
+            dedupe_hint = request.dedupe_key
             shared_context_ref = dedupe_hint or request.target_ref
 
         if dedupe_hint:
@@ -710,15 +643,6 @@ class ExternalEventRouterService:
             result_payload_json=None,
             retry_count=0,
         )
-
-        if source_type == "github" and request.event_type == "pull_request_review_requested":
-            self._stale_superseded_github_review_tasks_for_bundle(
-                task_repo=task_repo,
-                assignee_agent_id=matched_agent_id,
-                bundle_id=bundle_id,
-                new_version_key=version_key,
-                superseding_task_id=task.id,
-            )
 
         should_dispatch = task_type in {"jira_workflow_review_task", "github_review_task", "triggered_event_task"}
         if should_dispatch:

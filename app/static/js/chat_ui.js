@@ -5398,7 +5398,7 @@ async function openAutomationRulePanel(ruleId) {
       <tr><td>${safe(run.status || "-")}</td><td>${safe(String(run.found_count ?? 0))}</td><td>${safe(String(run.created_task_count ?? 0))}</td><td>${safe(String(run.skipped_count ?? 0))}</td><td>${safe(run.error_message || "-")}</td><td>${safe(run.started_at || "-")}</td><td>${safe(run.finished_at || "-")}</td></tr>
     `).join("");
     const eventRows = (events || []).map((event) => `
-      <tr><td>${safe(event.status || "-")}</td><td>${safe(event.dedupe_key || "-")}</td><td>${safe(event.task_id || "-")}</td><td>${safe(event.error_message || "-")}</td><td>${safe(event.created_at || "-")}</td></tr>
+      <tr><td>${safe(event.status || "-")}</td><td>${safe(event.dedupe_key || "-")}</td><td>${safe(event.task_id || "-")}</td><td>${safe(event.error_message || "-")}</td><td>${safe(event.created_at || "-")}</td><td>${safe(event.updated_at || "-")}</td></tr>
     `).join("");
     dom.workspaceDetailContent.innerHTML = `
       <div class="portal-panel-stack">
@@ -5419,7 +5419,7 @@ async function openAutomationRulePanel(ruleId) {
         <h6>Recent Runs</h6>
         <table class="portal-table"><thead><tr><th>Status</th><th>Found</th><th>Created</th><th>Skipped</th><th>Error</th><th>Started</th><th>Finished</th></tr></thead><tbody>${runsRows || '<tr><td colspan="7">No runs</td></tr>'}</tbody></table>
         <h6>Recent Events</h6>
-        <table class="portal-table"><thead><tr><th>Status</th><th>Dedupe key</th><th>Task</th><th>Error</th><th>Created</th></tr></thead><tbody>${eventRows || '<tr><td colspan="5">No events</td></tr>'}</tbody></table>
+        <table class="portal-table"><thead><tr><th>Status</th><th>Dedupe key</th><th>Task</th><th>Error</th><th>Created</th><th>Updated At</th></tr></thead><tbody>${eventRows || '<tr><td colspan="6">No events</td></tr>'}</tbody></table>
       </div>
     `;
     setMainView("detail");
