@@ -242,6 +242,20 @@ def test_extract_context_preview_derives_new_projection_and_budget_fields():
     assert extracted["context_context_blob_refs_created"] == 2
 
 
+def test_extract_context_preview_derives_optional_projection_output_guard_fields():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"projected_recent_assistant_messages":2,"projected_plain_assistant_messages":1,"assistant_projection_chars_saved":700,"output_size_guard_applied":true,"large_generation_guard_applied":true}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_projected_recent_assistant_messages"] == 2
+    assert extracted["context_projected_plain_assistant_messages"] == 1
+    assert extracted["context_assistant_projection_chars_saved"] == 700
+    assert extracted["context_output_size_guard_applied"] is True
+    assert extracted["context_large_generation_guard_applied"] is True
+
+
 def test_extract_context_preview_converts_context_blob_ref_list_to_count():
     record = SimpleNamespace(
         latest_event_state="running",
