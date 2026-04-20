@@ -494,3 +494,75 @@ def test_thinking_view_budget_only_has_data_but_not_context():
     assert view["has_context"] is False
     assert view["budget"]["usage_percent"] == 11.0
     assert "Context window only" in view["context_source_label"]
+
+
+def test_thinking_view_merges_event_data_and_detail_payload_for_context_state():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    chatlog = {
+        "session_id": "s-1",
+        "request_id": "req-1",
+        "context_state": {},
+        "runtime_events": [
+            {
+                "type": "context_snapshot",
+                "event_type": "context_snapshot",
+                "request_id": "req-1",
+                "data": {
+                    "stage": "post_turn",
+                    "terminal": True,
+                },
+                "detail_payload": {
+                    "stage": "post_turn",
+                    "terminal": True,
+                    "context_state": {
+                        "summary": "Detail payload summary",
+                        "next_step": "Read merged detail payload",
+                        "budget": {"usage_percent": 44.0},
+                    },
+                },
+            }
+        ],
+    }
+
+    view = build_thinking_process_view(chatlog)
+
+    assert view["has_context"] is True
+    assert view["context"]["summary"] == "Detail payload summary"
+    assert view["context"]["next_step"] == "Read merged detail payload"
+    assert view["budget"]["usage_percent"] == 44.0
+    assert view["context_source"] == "event"
+
+
+def test_thinking_view_empty_event_budget_does_not_block_context_state_budget_candidate():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    chatlog = {
+        "session_id": "s-1",
+        "request_id": "req-1",
+        "context_state": {
+            "budget": {"usage_percent": 11.0, "context_window_tokens": 1000}
+        },
+        "runtime_events": [
+            {
+                "type": "context_snapshot",
+                "event_type": "context_snapshot",
+                "data": {
+                    "stage": "post_turn",
+                    "terminal": True,
+                    "context_state": {
+                        "summary": "Event summary without budget",
+                        "next_step": "Still keep chatlog budget",
+                    },
+                    "budget": {},
+                },
+            }
+        ],
+    }
+
+    view = build_thinking_process_view(chatlog)
+
+    assert view["has_context"] is True
+    assert view["context"]["summary"] == "Event summary without budget"
+    assert view["budget"]["usage_percent"] == 11.0
+    assert view["budget"]["context_window_tokens"] == 1000

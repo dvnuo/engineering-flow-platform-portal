@@ -154,8 +154,9 @@ def _pick_context_budget(chatlog: dict, metadata: dict, events: list, metadata_d
             **_as_dict(event.get("detail_payload")),
         }
         candidates.append(data.get("context_state"))
-        if isinstance(data.get("budget"), dict):
-            return data.get("budget")
+        event_budget = _as_dict(data.get("budget"))
+        if event_budget:
+            return event_budget
 
     for candidate in candidates:
         budget = _as_dict(_as_dict(candidate).get("budget"))
@@ -183,7 +184,10 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
             if not isinstance(event, dict):
                 continue
             event_type = event.get("type") or event.get("event_type") or "event"
-            data = _as_dict(event.get("data") or event.get("detail_payload"))
+            data = {
+                **_as_dict(event.get("data")),
+                **_as_dict(event.get("detail_payload")),
+            }
             context_state = _as_dict(data.get("context_state"))
             message = (
                 data.get("message")

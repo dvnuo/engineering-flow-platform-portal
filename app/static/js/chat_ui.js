@@ -1084,6 +1084,14 @@ function getRuntimeEventData(event) {
 
 function extractLatestContextStateFromEvents(events) {
   if (!Array.isArray(events)) return null;
+
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    const data = getRuntimeEventData(event);
+    const contextState = data?.context_state;
+    if (hasMeaningfulContextContents(contextState)) return contextState;
+  }
+
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     const data = getRuntimeEventData(event);
@@ -1129,6 +1137,8 @@ function updateThinkingContextFromEvent(thinking, entry) {
       ? data.context_state
       : null
   );
+  const hasIncomingContents = hasMeaningfulContextContents(contextState);
+  const hasExistingContents = hasMeaningfulContextContents(thinking.contextState);
   const meaningfulContextState = hasMeaningfulContextState(contextState) ? contextState : null;
   const budget = (
     data.budget && typeof data.budget === "object"
@@ -1136,7 +1146,9 @@ function updateThinkingContextFromEvent(thinking, entry) {
       : extractContextBudget(meaningfulContextState)
   );
 
-  if (meaningfulContextState) thinking.contextState = meaningfulContextState;
+  if (hasIncomingContents || (meaningfulContextState && !hasExistingContents && !hasMeaningfulContextState(thinking.contextState))) {
+    thinking.contextState = meaningfulContextState;
+  }
   if (budget) thinking.contextBudget = budget;
 }
 
@@ -2721,8 +2733,10 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     priorContextState,
   );
   const contextSource =
-    hasContextContents(payloadContextState) || hasContextContents(eventContextState)
+    hasContextContents(payloadContextState)
       ? "final_response"
+      : hasContextContents(eventContextState) || hasContextContents(mergedEventContextState)
+        ? "final_response"
       : hasContextContents(liveContextState)
         ? "last_observed_live"
         : hasContextContents(priorContextState)

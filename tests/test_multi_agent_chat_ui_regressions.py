@@ -498,7 +498,98 @@ console.log(JSON.stringify(cases));
     }
 
 
-def test_handle_agent_chat_success_keeps_live_context_when_payload_context_empty_object():
+def test_extract_latest_context_state_from_events_prefers_latest_context_contents_over_newer_budget_only():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    get_runtime_event_data = _extract_js_function(js_file, "getRuntimeEventData")
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+    latest_from_events = _extract_js_function(js_file, "extractLatestContextStateFromEvents")
+
+    script = f"""
+{get_runtime_event_data}
+{has_meaningful}
+{has_contents}
+{latest_from_events}
+
+const result = extractLatestContextStateFromEvents([
+  {{
+    type: "context_snapshot",
+    data: {{
+      context_state: {{
+        summary: "Real final summary",
+        next_step: "Keep this",
+        budget: {{ usage_percent: 33 }},
+      }},
+    }},
+  }},
+  {{
+    type: "context_snapshot",
+    data: {{
+      context_state: {{
+        budget: {{ usage_percent: 44 }},
+      }},
+    }},
+  }},
+]);
+
+console.log(JSON.stringify(result));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["summary"] == "Real final summary"
+    assert data["next_step"] == "Keep this"
+    assert data["budget"]["usage_percent"] == 33
+
+
+def test_update_thinking_context_from_event_preserves_existing_contents_when_incoming_is_budget_only():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+    update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
+
+    script = f"""
+{extract_context_budget}
+{has_meaningful}
+{has_contents}
+{update_context}
+
+const thinking = {{
+  contextState: {{
+    summary: "Existing live summary",
+    next_step: "Existing next step",
+    budget: {{ usage_percent: 20 }},
+  }},
+  contextBudget: {{ usage_percent: 20 }},
+}};
+
+updateThinkingContextFromEvent(thinking, {{
+  type: "context_snapshot",
+  data: {{
+    context_state: {{
+      budget: {{ usage_percent: 55 }},
+    }},
+  }},
+}});
+
+console.log(JSON.stringify(thinking));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["contextState"]["summary"] == "Existing live summary"
+    assert data["contextState"]["next_step"] == "Existing next step"
+    assert data["contextBudget"]["usage_percent"] == 55
+
+
+def test_handle_agent_chat_success_marks_merged_event_context_as_final_response():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -511,6 +602,7 @@ def test_handle_agent_chat_success_keeps_live_context_when_payload_context_empty
     merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
     extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
     pick_meaningful = _extract_js_function(js_file, "pickMeaningfulContextState")
     get_runtime_event_data = _extract_js_function(js_file, "getRuntimeEventData")
     latest_from_events = _extract_js_function(js_file, "extractLatestContextStateFromEvents")
@@ -549,6 +641,7 @@ async function loadSessionForAgent() {{}}
 {merge_events}
 {extract_context_budget}
 {has_meaningful}
+{has_contents}
 {pick_meaningful}
 {get_runtime_event_data}
 {latest_from_events}
@@ -577,7 +670,7 @@ chatState.inflightThinking = {{
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
     assert data["summary"] == "Live summary"
-    assert data["contextSource"] == "last_observed_live"
+    assert data["contextSource"] == "final_response"
 
 
 def test_handle_agent_chat_success_prefers_event_context_contents_over_budget_only_payload_context():
