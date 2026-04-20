@@ -902,16 +902,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 existing_instances=existing_jira_instances,
                 preserve_blank_fields={"password", "token"},
             )
-        jira_automation = (jira.get("automation") if isinstance(jira.get("automation"), dict) else {}).copy()
-        jira_automation["assignments"] = {
-            "enabled": as_bool(form.get("jira_assignments_enabled")),
-            "projects": _parse_multiline_csv_list(form.get("jira_assignments_projects")),
-        }
-        jira_automation["mentions"] = {
-            "enabled": as_bool(form.get("jira_mentions_enabled")),
-            "projects": _parse_multiline_csv_list(form.get("jira_mentions_projects")),
-        }
-        jira["automation"] = jira_automation
+        jira.pop("automation", None)
         config_payload["jira"] = jira
 
     if is_section_touched("confluence"):
@@ -925,12 +916,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 existing_instances=existing_confluence_instances,
                 preserve_blank_fields={"password", "token"},
             )
-        confluence_automation = (confluence.get("automation") if isinstance(confluence.get("automation"), dict) else {}).copy()
-        confluence_automation["mentions"] = {
-            "enabled": as_bool(form.get("confluence_mentions_enabled")),
-            "spaces": _parse_multiline_csv_list(form.get("confluence_mentions_spaces")),
-        }
-        confluence["automation"] = confluence_automation
+        confluence.pop("automation", None)
         config_payload["confluence"] = confluence
 
     if is_section_touched("github"):
@@ -948,18 +934,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 github_cfg["base_url"] = github_base_url_value
             else:
                 github_cfg.pop("base_url", None)
-
-        github_automation = (github_cfg.get("automation") if isinstance(github_cfg.get("automation"), dict) else {}).copy()
-        github_automation["review_requests"] = {
-            "enabled": as_bool(form.get("github_review_requests_enabled")),
-            "repos": _parse_multiline_csv_list(form.get("github_review_requests_repos")),
-        }
-        github_automation["mentions"] = {
-            "enabled": as_bool(form.get("github_mentions_enabled")),
-            "repos": _parse_multiline_csv_list(form.get("github_mentions_repos")),
-            "include_review_comments": as_bool(form.get("github_mentions_include_review_comments")),
-        }
-        github_cfg["automation"] = github_automation
+        github_cfg.pop("automation", None)
         config_payload["github"] = github_cfg
 
     if is_section_touched("git"):

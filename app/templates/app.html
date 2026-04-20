@@ -13,6 +13,9 @@
         <button id="tasks-menu-btn" class="portal-rail-btn" type="button" title="Tasks">
           <i data-lucide="list-checks" class="w-5 h-5"></i>
         </button>
+        <button id="automations-menu-btn" class="portal-rail-btn" type="button" title="Automations">
+          <i data-lucide="zap" class="w-5 h-5"></i>
+        </button>
         {% if role == "admin" %}
         <button id="users-menu-btn" class="portal-rail-btn" type="button" title="Users">
           <i data-lucide="users" class="w-5 h-5"></i>
@@ -67,6 +70,15 @@
         </section>
         <section id="runtime-profiles-nav-section" class="portal-secondary-section hidden">
           <div id="runtime-profile-nav-list" class="portal-secondary-list-body"></div>
+        </section>
+        <section id="automations-nav-section" class="portal-secondary-section hidden">
+          <div class="portal-settings-section-head">
+            <h6>Automations</h6>
+            <button id="add-automation-btn" class="toolbar-icon-btn" type="button" title="Create Automation">
+              <i data-lucide="plus" class="w-5 h-5"></i>
+            </button>
+          </div>
+          <div id="automation-rule-nav-list" class="portal-secondary-list-body"></div>
         </section>
       </div>
     </aside>

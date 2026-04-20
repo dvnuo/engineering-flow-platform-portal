@@ -20,6 +20,9 @@ REQUIRED_PORTAL_TABLES = (
     "agent_group_members",
     "agent_tasks",
     "group_shared_context_snapshots",
+    "automation_rules",
+    "automation_rule_runs",
+    "automation_rule_events",
 )
 
 
@@ -114,6 +117,48 @@ def test_portal_schema_ready_passes_with_all_required_tables():
             Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
         elif table_name in {"users", "agent_groups"}:
             Table(table_name, metadata, Column("id", Integer, primary_key=True))
+        elif table_name == "automation_rule_events":
+            Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
+        else:
+            Table(table_name, metadata, Column("id", String(36), primary_key=True))
+    metadata.create_all(engine)
+
+    assert_portal_schema_ready(engine)
+
+
+def test_portal_schema_ready_rejects_automation_rule_events_missing_updated_at():
+    engine = create_engine("sqlite:///:memory:")
+    metadata = MetaData()
+    for table_name in REQUIRED_PORTAL_TABLES:
+        if table_name == "alembic_version":
+            Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
+        elif table_name in {"users", "agent_groups"}:
+            Table(table_name, metadata, Column("id", Integer, primary_key=True))
+        else:
+            Table(table_name, metadata, Column("id", String(36), primary_key=True))
+    metadata.create_all(engine)
+
+    try:
+        assert_portal_schema_ready(engine)
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "automation_rule_events" in message
+        assert "updated_at" in message
+        assert "alembic upgrade head" in message
+    else:
+        raise AssertionError("expected RuntimeError for missing automation_rule_events.updated_at")
+
+
+def test_portal_schema_ready_accepts_automation_rule_events_with_updated_at():
+    engine = create_engine("sqlite:///:memory:")
+    metadata = MetaData()
+    for table_name in REQUIRED_PORTAL_TABLES:
+        if table_name == "alembic_version":
+            Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
+        elif table_name in {"users", "agent_groups"}:
+            Table(table_name, metadata, Column("id", Integer, primary_key=True))
+        elif table_name == "automation_rule_events":
+            Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
         else:
             Table(table_name, metadata, Column("id", String(36), primary_key=True))
     metadata.create_all(engine)

@@ -105,10 +105,13 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert "api_base" not in cfg["llm"]
     assert "api_token" not in cfg["github"]
     assert "base_url" not in cfg["github"]
+    assert "automation" not in cfg["github"]
     assert "password" not in cfg["proxy"]
     assert "url" not in cfg["proxy"]
     assert cfg["jira"]["instances"] == []
     assert cfg["confluence"]["instances"] == []
+    assert "automation" not in cfg["jira"]
+    assert "automation" not in cfg["confluence"]
 
 
 def test_create_for_user_with_empty_config_stays_sparse():
@@ -188,6 +191,95 @@ def test_normalize_persisted_config_json_prunes_unmanaged_nested_fields():
     assert saved == {"llm": {"provider": "openai"}}
 
 
+def test_normalize_persisted_config_json_strips_legacy_provider_automation_fields():
+    raw = json.dumps(
+        {
+            "github": {"enabled": True, "automation": {"review_requests": {"enabled": True, "repos": ["a/b"]}}},
+            "jira": {"enabled": True, "automation": {"assignments": {"enabled": True, "projects": ["ENG"]}}},
+            "confluence": {"enabled": True, "automation": {"mentions": {"enabled": True, "spaces": ["DOCS"]}}},
+        }
+    )
+    normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
+    saved = json.loads(normalized)
+    assert saved == {"github": {"enabled": True}, "jira": {"enabled": True}, "confluence": {"enabled": True}}
+
+
+def test_sanitize_all_persisted_runtime_profiles_removes_legacy_provider_automation_fields():
+    db = _session()
+    user = User(username="u-clean", password_hash="test", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    profile = RuntimeProfile(
+        owner_user_id=user.id,
+        name="legacy",
+        config_json=json.dumps(
+            {
+                "github": {"enabled": True, "api_token": "tok", "base_url": "https://api.github.com", "automation": {"mentions": {"enabled": True}}},
+                "jira": {"enabled": True, "instances": [{"name": "jira", "url": "https://jira.local"}], "automation": {"assignments": {"enabled": True}}},
+                "confluence": {"enabled": True, "instances": [{"name": "conf", "url": "https://conf.local"}], "automation": {"mentions": {"enabled": True}}},
+            }
+        ),
+        revision=1,
+        is_default=True,
+    )
+    db.add(profile); db.commit(); db.refresh(profile)
+
+    svc = RuntimeProfileService(db)
+    changed = svc.sanitize_all_persisted_runtime_profiles()
+    assert changed == 1
+
+    db.refresh(profile)
+    saved = json.loads(profile.config_json)
+    assert "automation" not in saved["github"]
+    assert "automation" not in saved["jira"]
+    assert "automation" not in saved["confluence"]
+    assert saved["github"]["enabled"] is True
+    assert saved["github"]["api_token"] == "tok"
+    assert saved["github"]["base_url"] == "https://api.github.com"
+    assert saved["jira"]["enabled"] is True
+    assert saved["jira"]["instances"] == [{"name": "jira", "url": "https://jira.local"}]
+    assert saved["confluence"]["enabled"] is True
+    assert saved["confluence"]["instances"] == [{"name": "conf", "url": "https://conf.local"}]
+
+
+def test_update_for_user_sanitizes_runtime_profile_config():
+    db = _session()
+    user = User(username="u-upd", password_hash="test", role="user", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    svc = RuntimeProfileService(db)
+    profile = svc.create_for_user(user, name="p1", description=None, config_json=json.dumps({"github": {"enabled": True}}), is_default=True)
+
+    updated, _changed = svc.update_for_user(
+        user,
+        profile.id,
+        config_json=json.dumps({"github": {"enabled": True, "automation": {"mentions": {"enabled": True}}}}),
+    )
+    saved = json.loads(updated.config_json)
+    assert saved == {"github": {"enabled": True}}
+
+
+def test_create_for_user_sanitizes_runtime_profile_config():
+    db = _session()
+    user = User(username="u-create", password_hash="test", role="user", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    svc = RuntimeProfileService(db)
+
+    profile = svc.create_for_user(
+        user,
+        name="with-legacy-automation",
+        description=None,
+        config_json=json.dumps(
+            {
+                "github": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+                "jira": {"enabled": True, "automation": {"assignments": {"enabled": True}}},
+                "confluence": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+            }
+        ),
+        is_default=True,
+    )
+    saved = json.loads(profile.config_json)
+    assert saved["github"] == {"enabled": True}
+    assert saved["jira"] == {"enabled": True}
+    assert saved["confluence"] == {"enabled": True}
 def test_runtime_profile_json_sanitizer_preserves_llm_context_budget_and_projection():
     raw = '{"llm":{"provider":"openai","context_budget":{"tool_loop":{"max_prompt_tokens":32000}},"context_projection":{"enabled":true}}}'
     parsed = parse_runtime_profile_config_json(raw)

@@ -82,6 +82,29 @@ class AgentTaskRepository:
         )
         return self.db.scalars(stmt).first()
 
+    def find_by_dedupe_key(
+        self,
+        *,
+        assignee_agent_id: str,
+        source: str,
+        task_type: str,
+        dedupe_key: str,
+    ) -> Optional[AgentTask]:
+        stmt = (
+            select(AgentTask)
+            .where(
+                and_(
+                    AgentTask.assignee_agent_id == assignee_agent_id,
+                    AgentTask.source == source,
+                    AgentTask.task_type == task_type,
+                    AgentTask.dedupe_key == dedupe_key,
+                    AgentTask.status.in_(["queued", "running", "done", "blocked", "failed", "stale"]),
+                )
+            )
+            .order_by(AgentTask.created_at.desc())
+        )
+        return self.db.scalars(stmt).first()
+
     def save(self, task: AgentTask) -> AgentTask:
         self.db.add(task)
         self.db.commit()

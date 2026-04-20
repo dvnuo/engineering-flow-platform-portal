@@ -30,6 +30,12 @@ REQUIRED_PORTAL_TABLES = (
     "agent_group_members",
     "agent_tasks",
     "group_shared_context_snapshots",
+    "automation_rules",
+    "automation_rule_runs",
+    "automation_rule_events",
+)
+REQUIRED_AUTOMATION_RULE_EVENT_COLUMNS = (
+    "updated_at",
 )
 
 
@@ -37,13 +43,23 @@ def assert_portal_schema_ready(engine: Engine) -> None:
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
     missing = [table for table in REQUIRED_PORTAL_TABLES if table not in existing_tables]
-    if not missing:
+    if missing:
+        missing_joined = ", ".join(sorted(missing))
+        raise RuntimeError(
+            "Database schema is incomplete for this Portal build. "
+            f"Missing tables: {missing_joined}. "
+            "Run 'alembic upgrade head' before starting Portal."
+        )
+
+    existing_columns = {column["name"] for column in inspector.get_columns("automation_rule_events")}
+    missing_columns = [column for column in REQUIRED_AUTOMATION_RULE_EVENT_COLUMNS if column not in existing_columns]
+    if not missing_columns:
         return
-    missing_joined = ", ".join(sorted(missing))
+
+    missing_columns_joined = ", ".join(missing_columns)
     raise RuntimeError(
-        "Database schema is incomplete for this Portal build. "
-        f"Missing tables: {missing_joined}. "
-        "Run 'alembic upgrade head' before starting Portal."
+        "Database schema is incompatible with this Portal build. Missing columns on 'automation_rule_events': "
+        f"{missing_columns_joined}. Run `alembic upgrade head` before starting Portal."
     )
 
 

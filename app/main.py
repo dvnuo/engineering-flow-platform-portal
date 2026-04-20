@@ -19,6 +19,7 @@ from app.api.provider_webhooks import router as provider_webhooks_router
 from app.api.internal_control_plane_exports import router as internal_control_plane_exports_router
 from app.api.internal_session_metadata import router as internal_session_metadata_router
 from app.api.workflow_transition_rules import router as workflow_transition_rules_router
+from app.api.automation_rules import router as automation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.agents import router as agents_router
 from app.api.internal_agents import router as internal_agents_router
@@ -38,6 +39,7 @@ from app.services.schema_guard import (
     assert_runtime_profile_schema_compatibility,
 )
 from app.web import router as web_router
+from app.services.automation_worker import worker_singleton
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -89,6 +91,14 @@ def on_startup() -> None:
     finally:
         db.close()
 
+    if settings.automation_rules_worker_enabled:
+        worker_singleton.start()
+
+
+@app.on_event("shutdown")
+def shutdown_automation_worker() -> None:
+    worker_singleton.stop()
+
 
 @app.get("/health")
 def health() -> dict[str, str]:
@@ -121,6 +131,7 @@ app.include_router(agent_coordination_runs_router)
 app.include_router(external_event_ingress_router)
 app.include_router(provider_webhooks_router)
 app.include_router(workflow_transition_rules_router)
+app.include_router(automation_rules_router)
 app.include_router(runtime_capability_catalog_router)
 app.include_router(internal_control_plane_exports_router)
 app.include_router(internal_session_metadata_router)
