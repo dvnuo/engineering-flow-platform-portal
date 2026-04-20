@@ -51,6 +51,19 @@ def test_resolve_github_for_agent_success():
     assert cfg.runtime_profile_id == rp.id
 
 
+def test_resolve_github_for_agent_defaults_public_base_url():
+    db = _session()
+    user = User(username="u0", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp0", config_json=json.dumps({"github": {"enabled": True, "base_url": " ", "api_token": "secret"}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+
+    cfg = resolve_github_for_agent(db, agent.id)
+    assert cfg.base_url == "https://api.github.com"
+
+
 def test_resolve_github_for_agent_failures():
     db = _session()
     user = User(username="u", password_hash="x", role="admin", is_active=True)
@@ -72,5 +85,12 @@ def test_resolve_github_for_agent_failures():
     db.add(rp_missing); db.commit(); db.refresh(rp_missing)
     agent.runtime_profile_id = rp_missing.id
     db.add(agent); db.commit()
-    with pytest.raises(ProviderConfigResolverError, match="base_url/api_token"):
+    with pytest.raises(ProviderConfigResolverError, match="api_token is missing"):
         resolve_github_for_agent(db, agent.id)
+
+    rp_ent = RuntimeProfile(owner_user_id=user.id, name="rp4", config_json=json.dumps({"github": {"enabled": True, "base_url": "https://github.company.com/api/v3", "api_token": "tok"}}), is_default=False)
+    db.add(rp_ent); db.commit(); db.refresh(rp_ent)
+    agent.runtime_profile_id = rp_ent.id
+    db.add(agent); db.commit()
+    cfg = resolve_github_for_agent(db, agent.id)
+    assert cfg.base_url == "https://github.company.com/api/v3"

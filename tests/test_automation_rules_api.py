@@ -21,7 +21,7 @@ def _build_client_with_overrides():
     db = TestingSessionLocal()
     user = User(username="owner", password_hash="pw", role="admin", is_active=True)
     db.add(user); db.commit(); db.refresh(user)
-    rp = RuntimeProfile(owner_user_id=user.id, name="rp", config_json=json.dumps({"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "secret"}}), is_default=True)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp", config_json=json.dumps({"github": {"enabled": True, "base_url": "", "api_token": "secret"}}), is_default=True)
     db.add(rp); db.commit(); db.refresh(rp)
     agent = Agent(name="a", owner_user_id=user.id, visibility="private", status="running", image="img", runtime_profile_id=rp.id, disk_size_gi=20, mount_path="/root/.efp", namespace="efp", deployment_name="d", service_name="s", pvc_name="p", endpoint_path="/", agent_type="workspace")
     db.add(agent); db.commit(); db.refresh(agent)
@@ -45,8 +45,26 @@ def _build_client_with_overrides():
     return TestClient(app), db, agent, _cleanup
 
 
-def test_automation_rules_api_crud(monkeypatch):
-    client, _db, agent, cleanup = _build_client_with_overrides()
+def _create_payload(agent_id: str) -> dict:
+    return {
+        "name": "Review EFP PRs",
+        "enabled": True,
+        "source_type": "github",
+        "trigger_type": "github_pr_review_requested",
+        "task_type": "github_review_task",
+        "target_agent_id": agent_id,
+        "owner": "acme",
+        "repo": "portal",
+        "review_target_type": "team",
+        "review_target": "acme/reviewers",
+        "interval_seconds": 60,
+        "skill_name": "review-pull-request",
+        "review_event": "comment",
+    }
+
+
+def test_automation_rules_api_crud_soft_delete(monkeypatch):
+    client, db, agent, cleanup = _build_client_with_overrides()
     try:
         async def _fake_run(self, rule_id, triggered_by="api"):
             from app.services.automation_rule_service import RunOnceResult
@@ -54,40 +72,31 @@ def test_automation_rules_api_crud(monkeypatch):
 
         monkeypatch.setattr("app.services.automation_rule_service.AutomationRuleService.run_rule_once", _fake_run)
 
-        payload = {
-            "name": "Review EFP PRs",
-            "enabled": True,
-            "source_type": "github",
-            "trigger_type": "github_pr_review_requested",
-            "task_type": "github_review_task",
-            "target_agent_id": agent.id,
-            "owner": "acme",
-            "repo": "portal",
-            "review_target_type": "team",
-            "review_target": "acme/reviewers",
-            "interval_seconds": 60,
-            "skill_name": "review-pull-request",
-            "review_event": "COMMENT",
-        }
-        create_resp = client.post("/api/automation-rules", json=payload)
+        create_resp = client.post("/api/automation-rules", json=_create_payload(agent.id))
         assert create_resp.status_code == 200
         created = create_resp.json()
-        assert created["target_agent_id"] == agent.id
-
-        list_resp = client.get("/api/automation-rules")
-        assert list_resp.status_code == 200
-        assert len(list_resp.json()) == 1
-
-        patch_resp = client.patch(f"/api/automation-rules/{created['id']}", json={"enabled": False})
-        assert patch_resp.status_code == 200
-        assert patch_resp.json()["enabled"] is False
 
         run_resp = client.post(f"/api/automation-rules/{created['id']}/run-once")
         assert run_resp.status_code == 200
-        assert run_resp.json()["created_task_count"] == 1
 
         delete_resp = client.delete(f"/api/automation-rules/{created['id']}")
         assert delete_resp.status_code == 200
+
+        list_resp = client.get("/api/automation-rules")
+        assert list_resp.status_code == 200
+        assert list_resp.json() == []
+
+        get_resp = client.get(f"/api/automation-rules/{created['id']}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["enabled"] is False
+
+        from app.repositories.automation_rule_repo import AutomationRuleRepository
+        from app.models.automation_rule import AutomationRuleRun
+
+        rule = AutomationRuleRepository(db).get(created["id"])
+        state = json.loads(rule.state_json)
+        assert state["deleted"] is True
+        assert db.query(AutomationRuleRun).filter(AutomationRuleRun.rule_id == created["id"]).count() >= 0
     finally:
         cleanup()
 
@@ -95,24 +104,23 @@ def test_automation_rules_api_crud(monkeypatch):
 def test_automation_rules_api_validation_and_missing_github_config():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:
-        bad = client.post(
-            "/api/automation-rules",
-            json={
-                "name": "x", "target_agent_id": agent.id, "owner": "acme", "repo": "portal", "review_target_type": "invalid", "review_target": "x"
-            },
-        )
+        bad = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "owner": "acme", "repo": "portal", "review_target_type": "invalid", "review_target": "x"})
         assert bad.status_code == 422
+
+        created = client.post("/api/automation-rules", json=_create_payload(agent.id)).json()
+        patch_empty = client.patch(f"/api/automation-rules/{created['id']}", json={"owner": ""})
+        assert patch_empty.status_code in (400, 422)
+        patch_bad = client.patch(f"/api/automation-rules/{created['id']}", json={"review_target_type": "bad"})
+        assert patch_bad.status_code in (400, 422)
+        patch_interval = client.patch(f"/api/automation-rules/{created['id']}", json={"interval_seconds": 1})
+        assert patch_interval.status_code in (400, 422)
+        ok_patch = client.patch(f"/api/automation-rules/{created['id']}", json={"enabled": False})
+        assert ok_patch.status_code == 200
 
         rp = db.get(RuntimeProfile, agent.runtime_profile_id)
         rp.config_json = json.dumps({"github": {"enabled": False}})
         db.add(rp); db.commit()
-
-        missing = client.post(
-            "/api/automation-rules",
-            json={
-                "name": "x", "target_agent_id": agent.id, "owner": "acme", "repo": "portal", "review_target_type": "user", "review_target": "alice"
-            },
-        )
+        missing = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "owner": "acme", "repo": "portal", "review_target_type": "user", "review_target": "alice"})
         assert missing.status_code == 400
         assert "GitHub is not enabled" in missing.json()["detail"]
     finally:

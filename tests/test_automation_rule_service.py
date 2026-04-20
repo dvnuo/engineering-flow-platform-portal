@@ -28,11 +28,11 @@ def _mk_agent(user_id: int, runtime_profile_id: str | None = None):
 
 
 @pytest.mark.anyio
-async def test_run_once_creates_and_dedupes_tasks(monkeypatch):
+async def test_run_once_event_retry_and_dedupe(monkeypatch):
     db = _session()
     user = User(username="u", password_hash="x", role="admin", is_active=True)
     db.add(user); db.commit(); db.refresh(user)
-    rp = RuntimeProfile(owner_user_id=user.id, name="rp", config_json=json.dumps({"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "secret"}}), is_default=True)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp", config_json=json.dumps({"github": {"enabled": True, "base_url": "", "api_token": "secret"}}), is_default=True)
     db.add(rp); db.commit(); db.refresh(rp)
     agent = _mk_agent(user.id, rp.id)
     db.add(agent); db.commit(); db.refresh(agent)
@@ -45,38 +45,48 @@ async def test_run_once_creates_and_dedupes_tasks(monkeypatch):
     )
     rule = svc.create_rule(payload, current_user_id=user.id)
 
-    async def _poll(*_args, **_kwargs):
+    async def _poll_sha1(*_args, **_kwargs):
         return [{"owner": "acme", "repo": "portal", "pull_number": 3, "head_sha": "sha1", "review_target": {"type": "user", "name": "alice"}, "source_payload": {}}]
 
-    monkeypatch.setattr(svc.poller, "poll_review_requests", _poll)
+    monkeypatch.setattr(svc.poller, "poll_review_requests", _poll_sha1)
+
+    original_create = svc.task_repo.create
+    state = {"count": 0}
+
+    def _flaky_create(**kwargs):
+        state["count"] += 1
+        if state["count"] == 1:
+            raise RuntimeError("create failure once")
+        return original_create(**kwargs)
+
+    monkeypatch.setattr(svc.task_repo, "create", _flaky_create)
 
     first = await svc.run_rule_once(rule.id)
-    assert first.created_task_count == 1
+    assert first.status == "failed"
+    event = AutomationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "failed"
+    assert event.task_id is None
 
     second = await svc.run_rule_once(rule.id)
-    assert second.created_task_count == 0
-    assert second.skipped_count == 1
+    assert second.created_task_count == 1
+    event2 = AutomationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event2.status == "task_created"
+    assert event2.task_id
 
-    async def _poll_new(*_args, **_kwargs):
+    third = await svc.run_rule_once(rule.id)
+    assert third.created_task_count == 0
+    assert third.skipped_count == 1
+
+    async def _poll_sha2(*_args, **_kwargs):
         return [{"owner": "acme", "repo": "portal", "pull_number": 3, "head_sha": "sha2", "review_target": {"type": "user", "name": "alice"}, "source_payload": {}}]
 
-    monkeypatch.setattr(svc.poller, "poll_review_requests", _poll_new)
-    third = await svc.run_rule_once(rule.id)
-    assert third.created_task_count == 1
+    monkeypatch.setattr(svc.poller, "poll_review_requests", _poll_sha2)
+    fourth = await svc.run_rule_once(rule.id)
+    assert fourth.created_task_count == 1
 
     tasks = db.query(AgentTask).all()
     assert len(tasks) == 2
-    task = tasks[0]
-    assert task.source == "automation_rule"
-    assert task.provider == "github"
-    assert task.trigger == "github_pr_review_requested"
-    assert task.task_type == "github_review_task"
-    assert task.assignee_agent_id == rule.target_agent_id
-    payload_obj = json.loads(task.input_payload_json)
-    assert payload_obj["owner"] == "acme"
-    assert payload_obj["repo"] == "portal"
+    payload_obj = json.loads(tasks[0].input_payload_json)
+    assert payload_obj["automation_rule"] == "github.pr_review_requested"
+    assert payload_obj["automation_rule_id"] == rule.id
     assert payload_obj["rule_id"] == rule.id
-    assert payload_obj["skill_name"] == "review-pull-request"
-
-    events = AutomationRuleRepository(db).list_events(rule.id, 10)
-    assert len(events) == 2

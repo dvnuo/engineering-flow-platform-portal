@@ -705,8 +705,11 @@ class TaskDispatcherService:
                 if binding_id:
                     metadata["portal_binding_id"] = binding_id
                 automation_rule = input_payload.get("automation_rule")
+                automation_rule_id = input_payload.get("automation_rule_id") or input_payload.get("rule_id")
                 if automation_rule:
                     metadata["portal_automation_rule"] = automation_rule
+                if automation_rule_id:
+                    metadata["portal_automation_rule_id"] = str(automation_rule_id)
                 if task.trigger:
                     metadata["portal_task_trigger"] = task.trigger
                 head_sha = input_payload.get("head_sha")

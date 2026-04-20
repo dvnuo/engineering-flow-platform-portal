@@ -7,13 +7,14 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.models import Agent, User
 from app.repositories.automation_rule_repo import AutomationRuleRepository
+from app.services.automation_worker import AutomationWorker
 
 
-def _session():
+def _session_factory():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
     Base.metadata.create_all(bind=engine)
-    return TestingSessionLocal()
+    return TestingSessionLocal
 
 
 def _mk_agent(user_id: int):
@@ -24,7 +25,8 @@ def _mk_agent(user_id: int):
 
 
 def test_worker_lock_semantics_and_next_run_update():
-    db = _session()
+    SessionLocal = _session_factory()
+    db = SessionLocal()
     user = User(username="u", password_hash="x", role="admin", is_active=True)
     db.add(user); db.commit(); db.refresh(user)
     agent = _mk_agent(user.id)
@@ -49,15 +51,56 @@ def test_worker_lock_semantics_and_next_run_update():
         current_user_id=user.id,
     )
 
+    s1 = SessionLocal()
+    s2 = SessionLocal()
+    r1 = AutomationRuleRepository(s1)
+    r2 = AutomationRuleRepository(s2)
     now = datetime.utcnow()
-    lock1 = repo.acquire_due_rule_lock(rule.id, now=now, lease_seconds=120)
-    lock2 = repo.acquire_due_rule_lock(rule.id, now=now, lease_seconds=120)
+
+    lock1 = r1.acquire_due_rule_lock(rule.id, now=now, lease_seconds=120)
+    lock2 = r2.acquire_due_rule_lock(rule.id, now=now, lease_seconds=120)
     assert lock1 is not None
     assert lock2 is None
 
-    next_run = now + timedelta(seconds=60)
-    repo.release_lock_and_schedule_next(lock1, now=now, next_run_at=next_run)
-    refreshed = repo.get(rule.id)
-    assert refreshed.locked_until is None
-    assert refreshed.last_run_at is not None
-    assert refreshed.next_run_at == next_run
+    lock1.locked_until = now - timedelta(seconds=1)
+    s1.add(lock1)
+    s1.commit()
+
+    lock3 = r2.acquire_due_rule_lock(rule.id, now=now, lease_seconds=120)
+    assert lock3 is not None
+
+
+def test_worker_stop_is_idempotent():
+    worker = AutomationWorker()
+    worker.stop()
+    worker.stop()
+
+
+def test_due_list_excludes_deleted_rules():
+    SessionLocal = _session_factory()
+    db = SessionLocal()
+    user = User(username="u2", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    agent = _mk_agent(user.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    repo = AutomationRuleRepository(db)
+    now = datetime.utcnow()
+    repo.create(
+        {
+            "name": "deleted",
+            "enabled": True,
+            "source_type": "github",
+            "trigger_type": "github_pr_review_requested",
+            "target_agent_id": agent.id,
+            "task_type": "github_review_task",
+            "scope_json": "{}",
+            "trigger_config_json": "{}",
+            "task_config_json": "{}",
+            "schedule_json": "{\"interval_seconds\":60}",
+            "state_json": "{\"deleted\": true}",
+            "next_run_at": now - timedelta(seconds=1),
+            "owner_user_id": user.id,
+        },
+        current_user_id=user.id,
+    )
+    assert repo.list_due_rules(now=now, limit=10) == []

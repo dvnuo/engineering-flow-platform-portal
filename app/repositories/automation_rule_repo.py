@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -32,7 +32,8 @@ class AutomationRuleRepository:
         stmt = select(AutomationRule).order_by(AutomationRule.created_at.desc()).offset(offset).limit(limit)
         if enabled is not None:
             stmt = stmt.where(AutomationRule.enabled.is_(enabled))
-        return list(self.db.scalars(stmt).all())
+        rows = list(self.db.scalars(stmt).all())
+        return [row for row in rows if not self._is_deleted_rule(row)]
 
     def update(self, rule: AutomationRule, update_data: dict) -> AutomationRule:
         for key, value in update_data.items():
@@ -60,20 +61,33 @@ class AutomationRuleRepository:
             .order_by(AutomationRule.next_run_at.asc())
             .limit(limit)
         )
-        return list(self.db.scalars(stmt).all())
+        rows = list(self.db.scalars(stmt).all())
+        return [row for row in rows if not self._is_deleted_rule(row)]
 
     def acquire_due_rule_lock(self, rule_id: str, now: datetime, lease_seconds: int) -> AutomationRule | None:
-        rule = self.get(rule_id)
-        if not rule:
+        stmt = (
+            update(AutomationRule)
+            .where(
+                and_(
+                    AutomationRule.id == rule_id,
+                    AutomationRule.enabled.is_(True),
+                    AutomationRule.next_run_at <= now,
+                    or_(AutomationRule.locked_until.is_(None), AutomationRule.locked_until < now),
+                )
+            )
+            .values(
+                locked_until=now + timedelta(seconds=lease_seconds),
+                updated_at=now,
+            )
+        )
+        result = self.db.execute(stmt)
+        if result.rowcount != 1:
+            self.db.rollback()
             return None
-        if not rule.enabled or not rule.next_run_at or rule.next_run_at > now:
-            return None
-        if rule.locked_until and rule.locked_until >= now:
-            return None
-        rule.locked_until = now + timedelta(seconds=lease_seconds)
-        self.db.add(rule)
         self.db.commit()
-        self.db.refresh(rule)
+        rule = self.get(rule_id)
+        if self._is_deleted_rule(rule):
+            return None
         return rule
 
     def release_lock_and_schedule_next(self, rule: AutomationRule, *, now: datetime, next_run_at: datetime | None) -> AutomationRule:
@@ -145,6 +159,34 @@ class AutomationRuleRepository:
             ).first()
             return existing, False
 
+    def get_event_by_dedupe(self, *, rule_id: str, dedupe_key: str) -> AutomationRuleEvent | None:
+        return self.db.scalars(
+            select(AutomationRuleEvent).where(
+                and_(AutomationRuleEvent.rule_id == rule_id, AutomationRuleEvent.dedupe_key == dedupe_key)
+            )
+        ).first()
+
+    def create_event(
+        self,
+        *,
+        rule_id: str,
+        dedupe_key: str,
+        source_payload_json: str,
+        normalized_payload_json: str,
+        status: str = "discovered",
+    ) -> AutomationRuleEvent:
+        event = AutomationRuleEvent(
+            rule_id=rule_id,
+            dedupe_key=dedupe_key,
+            status=status,
+            source_payload_json=source_payload_json,
+            normalized_payload_json=normalized_payload_json,
+        )
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+        return event
+
     def update_event_status(
         self,
         event: AutomationRuleEvent,
@@ -178,3 +220,12 @@ class AutomationRuleRepository:
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
+    @staticmethod
+    def _is_deleted_rule(rule: AutomationRule | None) -> bool:
+        if not rule:
+            return False
+        try:
+            state = json.loads(rule.state_json or "{}")
+        except Exception:
+            state = {}
+        return bool(state.get("deleted"))

@@ -458,6 +458,7 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
                 "source_kind": "jira.mention",
                 "binding_id": "binding-1",
                 "automation_rule": "jira.mentions",
+                "rule_id": "rule-1",
                 "issue_key": "ENG-1",
                 "project_key": "ENG",
                 "body": "@agent ping",
@@ -497,4 +498,5 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
     assert metadata["source_kind"] == "jira.mention"
     assert metadata["portal_binding_id"] == "binding-1"
     assert metadata["portal_automation_rule"] == "jira.mentions"
+    assert metadata["portal_automation_rule_id"] == "rule-1"
     assert metadata["portal_task_trigger"] == "mention"

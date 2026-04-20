@@ -5384,37 +5384,58 @@ function renderAutomationRuleNavList(rules) {
 
 async function openAutomationRulePanel(ruleId) {
   if (!ruleId) return;
-  state.selectedAutomationRuleId = ruleId;
-  renderAutomationRuleNavList(state.automations);
-  const detail = await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`);
-  const runs = await loadAutomationRuleRuns(ruleId);
-  const events = await loadAutomationRuleEvents(ruleId);
-  const scope = JSON.parse(detail.scope_json || "{}");
-  const trigger = JSON.parse(detail.trigger_config_json || "{}");
-  const schedule = JSON.parse(detail.schedule_json || "{}");
-  dom.workspaceDetailContent.innerHTML = `
-    <div class="portal-panel-stack">
-      <h3>${safe(detail.name)}</h3>
-      <div class="portal-inline-state">Type: GitHub PR Reviewer · ${detail.enabled ? "Enabled" : "Disabled"}</div>
-      <div class="portal-inline-state">Repo: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
-      <div class="portal-inline-state">Review target: <strong>${safe(`${trigger.review_target_type || "-"} / ${trigger.review_target || "-"}`)}</strong></div>
-      <div class="portal-inline-state">Target agent: <strong>${safe(detail.target_agent_id)}</strong></div>
-      <div class="portal-inline-state">Interval: <strong>${safe(String(schedule.interval_seconds || 60))}</strong> seconds</div>
-      <div class="flex gap-2">
-        <button class="portal-btn is-secondary" type="button" data-run-automation-once="${safe(detail.id)}">Run once</button>
+  try {
+    state.selectedAutomationRuleId = ruleId;
+    renderAutomationRuleNavList(state.automations);
+    const detail = await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`);
+    const runs = await loadAutomationRuleRuns(ruleId);
+    const events = await loadAutomationRuleEvents(ruleId);
+    const scope = _safeJson(detail.scope_json) || {};
+    const trigger = _safeJson(detail.trigger_config_json) || {};
+    const schedule = _safeJson(detail.schedule_json) || {};
+    const targetAgent = (state.mineAgents || []).find((item) => item.id === detail.target_agent_id);
+    const runsRows = (runs || []).map((run) => `
+      <tr><td>${safe(run.status || "-")}</td><td>${safe(String(run.found_count ?? 0))}</td><td>${safe(String(run.created_task_count ?? 0))}</td><td>${safe(String(run.skipped_count ?? 0))}</td><td>${safe(run.error_message || "-")}</td><td>${safe(run.started_at || "-")}</td><td>${safe(run.finished_at || "-")}</td></tr>
+    `).join("");
+    const eventRows = (events || []).map((event) => `
+      <tr><td>${safe(event.status || "-")}</td><td>${safe(event.dedupe_key || "-")}</td><td>${safe(event.task_id || "-")}</td><td>${safe(event.error_message || "-")}</td><td>${safe(event.created_at || "-")}</td></tr>
+    `).join("");
+    dom.workspaceDetailContent.innerHTML = `
+      <div class="portal-panel-stack">
+        <h3>${safe(detail.name)}</h3>
+        <div class="portal-inline-state">Enabled: <strong>${detail.enabled ? "true" : "false"}</strong></div>
+        <div class="portal-inline-state">Type: <strong>GitHub PR Reviewer</strong></div>
+        <div class="portal-inline-state">Repository: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
+        <div class="portal-inline-state">Review target: <strong>${safe(`${trigger.review_target_type || "-"} / ${trigger.review_target || "-"}`)}</strong></div>
+        <div class="portal-inline-state">Target agent: <strong>${safe(`${targetAgent?.name || "-"} (${detail.target_agent_id})`)}</strong></div>
+        <div class="portal-inline-state">Interval seconds: <strong>${safe(String(schedule.interval_seconds || 60))}</strong></div>
+        <div class="portal-inline-state">Last run at: <strong>${safe(detail.last_run_at || "-")}</strong></div>
+        <div class="portal-inline-state">Next run at: <strong>${safe(detail.next_run_at || "-")}</strong></div>
+        <div class="flex gap-2">
+          <button class="portal-btn is-secondary" type="button" data-run-automation-once="${safe(detail.id)}">Run once</button>
+          <button class="portal-btn is-secondary" type="button" data-toggle-automation-enabled="${safe(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}">${detail.enabled ? "Disable" : "Enable"}</button>
+          <button class="portal-btn" type="button" data-delete-automation-rule="${safe(detail.id)}">Delete</button>
+        </div>
+        <h6>Recent Runs</h6>
+        <table class="portal-table"><thead><tr><th>Status</th><th>Found</th><th>Created</th><th>Skipped</th><th>Error</th><th>Started</th><th>Finished</th></tr></thead><tbody>${runsRows || '<tr><td colspan="7">No runs</td></tr>'}</tbody></table>
+        <h6>Recent Events</h6>
+        <table class="portal-table"><thead><tr><th>Status</th><th>Dedupe key</th><th>Task</th><th>Error</th><th>Created</th></tr></thead><tbody>${eventRows || '<tr><td colspan="5">No events</td></tr>'}</tbody></table>
       </div>
-      <h6>Recent Runs</h6>
-      <pre class="portal-inline-note">${safe(JSON.stringify(runs, null, 2))}</pre>
-      <h6>Recent Events</h6>
-      <pre class="portal-inline-note">${safe(JSON.stringify(events, null, 2))}</pre>
-    </div>
-  `;
-  setMainView("detail");
-  dom.workspaceDetailContent.dataset.workspaceState = "automation-rule-detail";
+    `;
+    setMainView("detail");
+    dom.workspaceDetailContent.dataset.workspaceState = "automation-rule-detail";
+  } catch (error) {
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load automation: ${safe(error.message)}</div>`;
+  }
 }
 
 function openCreateAutomationRuleModal() {
-  const agentOptions = (state.mineAgents || [])
+  const mineAgents = state.mineAgents || [];
+  if (!mineAgents.length) {
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">No agents available. Create or enable an agent first.</div>`;
+    return;
+  }
+  const agentOptions = mineAgents
     .map((agent) => `<option value="${escapeHtmlAttr(agent.id)}">${safe(agent.name || agent.id)}</option>`)
     .join("");
   dom.workspaceDetailContent.innerHTML = `
@@ -5462,12 +5483,40 @@ async function runAutomationRuleOnce(ruleId) {
   await openAutomationRulePanel(ruleId);
 }
 
+async function toggleAutomationRuleEnabled(ruleId, enabled) {
+  await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled: !!enabled }),
+  });
+  await loadAutomationRules();
+  await openAutomationRulePanel(ruleId);
+}
+
+async function deleteAutomationRule(ruleId) {
+  await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
+  await loadAutomationRules();
+  if (state.automations.length) {
+    await openAutomationRulePanel(state.automations[0].id);
+  } else {
+    renderWorkspaceDetailPlaceholder("No automations found.", "automations-placeholder");
+  }
+}
+
 async function loadAutomationRuleRuns(ruleId) {
   return api(`/api/automation-rules/${encodeURIComponent(ruleId)}/runs`);
 }
 
 async function loadAutomationRuleEvents(ruleId) {
   return api(`/api/automation-rules/${encodeURIComponent(ruleId)}/events`);
+}
+
+function _safeJson(raw) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (_error) {
+    return null;
+  }
 }
 
 async function openEditDialog(agent) {
@@ -5851,7 +5900,16 @@ function bindEvents() {
   dom.railAssistantsBtn?.addEventListener("click", () => setActiveNavSection("assistants"));
   dom.bundlesMenuBtn?.addEventListener("click", () => setActiveNavSection("bundles"));
   dom.automationsMenuBtn?.addEventListener("click", () => setActiveNavSection("automations"));
-  dom.addAutomationBtn?.addEventListener("click", () => openCreateAutomationRuleModal());
+  dom.addAutomationBtn?.addEventListener("click", async () => {
+    try {
+      if (!state.mineAgents || !state.mineAgents.length) {
+        await loadMineAgents();
+      }
+      openCreateAutomationRuleModal();
+    } catch (error) {
+      dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load agents: ${safe(error.message)}</div>`;
+    }
+  });
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.homeOpenBundlesBtn?.addEventListener("click", async () => {
     await setActiveNavSection("bundles", { toggleIfSame: false });
@@ -5950,7 +6008,31 @@ function bindEvents() {
     const runBtn = event.target.closest("[data-run-automation-once]");
     if (runBtn) {
       event.preventDefault();
-      await runAutomationRuleOnce(runBtn.dataset.runAutomationOnce || "");
+      try {
+        await runAutomationRuleOnce(runBtn.dataset.runAutomationOnce || "");
+      } catch (error) {
+        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Run once failed: ${safe(error.message)}</div>`;
+      }
+      return;
+    }
+    const toggleBtn = event.target.closest("[data-toggle-automation-enabled]");
+    if (toggleBtn) {
+      event.preventDefault();
+      try {
+        await toggleAutomationRuleEnabled(toggleBtn.dataset.toggleAutomationEnabled || "", toggleBtn.dataset.nextEnabled === "true");
+      } catch (error) {
+        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Update failed: ${safe(error.message)}</div>`;
+      }
+      return;
+    }
+    const deleteBtn = event.target.closest("[data-delete-automation-rule]");
+    if (deleteBtn) {
+      event.preventDefault();
+      try {
+        await deleteAutomationRule(deleteBtn.dataset.deleteAutomationRule || "");
+      } catch (error) {
+        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Delete failed: ${safe(error.message)}</div>`;
+      }
     }
   });
 

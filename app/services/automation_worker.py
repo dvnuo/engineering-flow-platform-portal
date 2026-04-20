@@ -26,6 +26,9 @@ class AutomationWorker:
 
     def stop(self) -> None:
         self._stop_event.set()
+        thread = self._thread
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=5)
 
     def _run_loop(self) -> None:
         interval = max(1, int(self.settings.automation_rules_worker_interval_seconds))

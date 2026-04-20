@@ -47,6 +47,32 @@ class AutomationRuleUpdate(BaseModel):
     skill_name: Optional[str] = None
     review_event: Optional[str] = None
 
+    @field_validator("name", "target_agent_id", "owner", "repo", "review_target", "skill_name")
+    @classmethod
+    def _validate_non_empty_optional(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("must not be empty")
+        return cleaned
+
+    @field_validator("review_event")
+    @classmethod
+    def _validate_review_event(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("must not be empty")
+        return cleaned.upper()
+
+    @model_validator(mode="after")
+    def _validate_update_review_target(self):
+        if self.review_target_type == "user" and self.review_target and any(ch.isspace() for ch in self.review_target):
+            raise ValueError("review_target must not contain whitespace for user target")
+        return self
+
 
 class AutomationRuleRead(BaseModel):
     id: str

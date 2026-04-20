@@ -94,6 +94,11 @@ def on_startup() -> None:
         db.close()
 
 
+@app.on_event("shutdown")
+def shutdown_automation_worker() -> None:
+    worker_singleton.stop()
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}

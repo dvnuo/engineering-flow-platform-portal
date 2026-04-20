@@ -37,10 +37,10 @@ def resolve_github_for_agent(db: Session, agent_id: str) -> GithubProviderConfig
     if not isinstance(github, dict) or not github.get("enabled"):
         raise ProviderConfigResolverError("GitHub is not enabled for selected agent")
 
-    base_url = str(github.get("base_url") or "").strip()
+    base_url = str(github.get("base_url") or "").strip() or "https://api.github.com"
     api_token = str(github.get("api_token") or "").strip()
-    if not base_url or not api_token:
-        raise ProviderConfigResolverError("GitHub base_url/api_token is missing for selected agent")
+    if not api_token:
+        raise ProviderConfigResolverError("GitHub api_token is missing for selected agent")
 
     return GithubProviderConfig(
         base_url=base_url,

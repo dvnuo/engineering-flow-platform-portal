@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from datetime import datetime
+import json
 
 from app.db import get_db
 from app.deps import get_current_user
@@ -75,7 +77,28 @@ def delete_automation_rule(rule_id: str, user=Depends(get_current_user), db: Ses
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AutomationRule not found")
     _ensure_accessible_target_agent(db, user, rule.target_agent_id)
-    repo.delete(rule)
+    now = datetime.utcnow()
+    try:
+        state_obj = json.loads(rule.state_json or "{}")
+    except Exception:
+        state_obj = {}
+    state_obj.update(
+        {
+            "deleted": True,
+            "deleted_at": now.isoformat(),
+            "deleted_by_user_id": user.id,
+        }
+    )
+    repo.update(
+        rule,
+        {
+            "enabled": False,
+            "next_run_at": None,
+            "locked_until": None,
+            "state_json": json.dumps(state_obj),
+            "updated_at": now,
+        },
+    )
     return {"ok": True}
 
 
