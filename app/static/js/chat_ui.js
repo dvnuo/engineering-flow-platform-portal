@@ -160,6 +160,104 @@ if (dom.chatInput) {
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 const REQUIREMENT_BUNDLES_CACHE_KEY = "portal-requirement-bundles-cache-v1";
+const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";
+const ALLOWED_UTILITY_PANEL_KEYS = new Set([
+  "details",
+  "sessions",
+  "thinking",
+  "server-files",
+  "skills",
+  "usage",
+  "uploads",
+  "users",
+]);
+
+function normalizeUtilityPanelKey(panelKey) {
+  if (typeof panelKey !== "string") return null;
+  const normalized = panelKey.trim();
+  return ALLOWED_UTILITY_PANEL_KEYS.has(normalized) ? normalized : null;
+}
+
+function readUiLayoutPreferences() {
+  const fallback = {
+    version: 1,
+    secondaryPaneCollapsed: false,
+    toolPanelPinned: false,
+    activeUtilityPanel: null,
+    toolPanelWidth: null,
+  };
+  try {
+    const raw = localStorage.getItem(UI_LAYOUT_PREFS_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return fallback;
+    const normalized = {
+      version: 1,
+      secondaryPaneCollapsed: typeof parsed.secondaryPaneCollapsed === "boolean" ? parsed.secondaryPaneCollapsed : false,
+      toolPanelPinned: typeof parsed.toolPanelPinned === "boolean" ? parsed.toolPanelPinned : false,
+      activeUtilityPanel: normalizeUtilityPanelKey(parsed.activeUtilityPanel),
+      toolPanelWidth: null,
+    };
+    if (typeof parsed.toolPanelWidth === "number" && Number.isFinite(parsed.toolPanelWidth)) {
+      const rounded = Math.round(parsed.toolPanelWidth);
+      if (rounded >= 300 && rounded <= 1200) {
+        normalized.toolPanelWidth = rounded;
+      }
+    }
+    return normalized;
+  } catch {
+    return fallback;
+  }
+}
+
+function getInitialUiLayoutPreferences() {
+  return readUiLayoutPreferences();
+}
+
+function persistUiLayoutPreferences({
+  includeSecondaryPane = true,
+  includeToolPanel = true,
+  clearToolPanelPreference = false,
+} = {}) {
+  try {
+    const existing = readUiLayoutPreferences();
+    const payload = {
+      version: 1,
+      secondaryPaneCollapsed: includeSecondaryPane
+        ? !!state.secondaryPaneCollapsed
+        : !!existing.secondaryPaneCollapsed,
+      toolPanelPinned: !!existing.toolPanelPinned,
+      activeUtilityPanel: normalizeUtilityPanelKey(existing.activeUtilityPanel),
+      toolPanelWidth: typeof existing.toolPanelWidth === "number" ? existing.toolPanelWidth : null,
+    };
+
+    if (includeToolPanel) {
+      if (clearToolPanelPreference) {
+        payload.toolPanelPinned = false;
+        payload.activeUtilityPanel = null;
+      } else if (state.toolPanelOpen && state.toolPanelPinned) {
+        payload.toolPanelPinned = true;
+        payload.activeUtilityPanel = normalizeUtilityPanelKey(state.activeUtilityPanel);
+      }
+
+      if ((state.toolPanelOpen && state.toolPanelPinned) || clearToolPanelPreference) {
+        if (typeof getCurrentToolPanelWidth === "function") {
+          const width = getCurrentToolPanelWidth();
+          if (typeof width === "number" && Number.isFinite(width)) {
+            const rounded = Math.round(width);
+            if (rounded >= 300 && rounded <= 1200) {
+              payload.toolPanelWidth = rounded;
+            }
+          }
+        }
+      }
+    }
+
+    localStorage.setItem(UI_LAYOUT_PREFS_STORAGE_KEY, JSON.stringify(payload));
+  } catch {}
+}
+
+const initialUiLayoutPrefs = getInitialUiLayoutPreferences();
 
 // Global mapping from blob URL to file ID
 const blobUrlToFileId = {};
@@ -203,8 +301,8 @@ const state = {
   selectedAgentName: null,
   mineAgents: [],
   agentStatus: new Map(),
-  detailOpen: false,
-  activeUtilityPanel: null,
+  detailOpen: initialUiLayoutPrefs.activeUtilityPanel === "details",
+  activeUtilityPanel: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
   cachedSkills: [],
   cachedSkillsByAgent: new Map(),
   cachedMentionFiles: [],
@@ -229,9 +327,10 @@ const state = {
   hasRequirementBundlesCache: false,
   selectedBundleKey: null,
   activeNavSection: "assistants",
-  secondaryPaneCollapsed: false,
-  toolPanelOpen: false,
-  toolPanelPinned: false,
+  secondaryPaneCollapsed: !!initialUiLayoutPrefs.secondaryPaneCollapsed,
+  toolPanelOpen: !!initialUiLayoutPrefs.toolPanelPinned,
+  toolPanelPinned: !!initialUiLayoutPrefs.toolPanelPinned,
+  pendingToolPanelRestoreKey: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
   myTasks: [],
   selectedTaskId: null,
   serverFilesRootPath: null,
@@ -241,6 +340,7 @@ const state = {
   agentDefaults: null,
 };
 let thinkingPanelRefreshRaf = null;
+let hasRestoredPinnedToolPanel = false;
 
 function createDefaultChatState() {
   return {
@@ -1679,6 +1779,11 @@ function toggleToolPanelPinned() {
     state.toolPanelPinned = false;
   }
   applyToolPanelState();
+  persistUiLayoutPreferences({
+    includeSecondaryPane: false,
+    includeToolPanel: true,
+    clearToolPanelPreference: !state.toolPanelPinned,
+  });
 }
 
 async function api(path, options = {}) {
@@ -2253,7 +2358,7 @@ async function loadLastSessionFromRemote(agentId) {
   }
 }
 
-async function refreshAll() {
+async function refreshAll({ preserveLayout = false } = {}) {
   const [mine, publicAgents] = await Promise.all([
     api("/api/agents/mine"),
     api("/api/agents/public"),
@@ -2286,7 +2391,10 @@ async function refreshAll() {
   // Update owner-only button visibility after restoring last agent
   updateOwnerOnlyButtons(state.selectedAgentId);
 
-  await setActiveNavSection("assistants", { toggleIfSame: false });
+  await setActiveNavSection("assistants", {
+    toggleIfSame: false,
+    preserveCollapsed: preserveLayout,
+  });
   renderAgentList();
   await syncSelectedAgentState();
 }
@@ -2835,11 +2943,144 @@ async function maybeShowSuggest() {
   hideSuggest();
 }
 
+function openAssistantDetailsPanel() {
+  if (!state.selectedAgentId) return false;
+  const agent = state.mineAgents.find((candidate) => candidate.id === state.selectedAgentId);
+  if (!agent) return false;
+  setToolPanel("Assistant details", `
+    <div id="agent-meta" class="portal-detail-card"></div>
+    <div id="agent-actions" class="portal-detail-actions"></div>
+  `, "details");
+  dom.agentMeta = document.getElementById("agent-meta");
+  dom.agentActions = document.getElementById("agent-actions");
+  renderAgentMeta(agent);
+  renderAgentActions(agent, agent.status || "stopped");
+  return true;
+}
+
+function toggleAssistantDetailsPanel() {
+  if (!state.selectedAgentId) {
+    showToast("Please select an assistant first");
+    return;
+  }
+  if (state.activeUtilityPanel === "details" && state.toolPanelOpen) {
+    closeToolPanel();
+    return;
+  }
+  openAssistantDetailsPanel();
+}
+
+async function openUsersPanel() {
+  setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>', "users");
+  try {
+    await htmx.ajax("GET", "/app/users/panel", {
+      target: "#tool-panel-body",
+      swap: "innerHTML",
+    });
+  } catch (error) {
+    setToolPanel("Users", `Failed: ${safe(error.message)}`, "users");
+  }
+}
+
+function showPinnedPanelRestorePlaceholder(message = "Select a utility from top toolbar.") {
+  setToolPanel("Panel", `<div class="portal-inline-state">${safe(message)}</div>`, null, {
+    persistPreference: false,
+  });
+  state.toolPanelOpen = true;
+  state.toolPanelPinned = true;
+  applyToolPanelState();
+}
+
+async function restorePinnedToolPanelFromPreferencesOnce() {
+  if (hasRestoredPinnedToolPanel) return;
+  hasRestoredPinnedToolPanel = true;
+
+  try {
+    const prefs = readUiLayoutPreferences();
+    if (!prefs.toolPanelPinned) return;
+    if (!isWideEnoughToPinToolPanel()) return;
+
+    state.toolPanelOpen = true;
+    state.toolPanelPinned = true;
+    state.activeUtilityPanel = normalizeUtilityPanelKey(prefs.activeUtilityPanel);
+    state.pendingToolPanelRestoreKey = state.activeUtilityPanel;
+    applyToolPanelState();
+
+    const panelKey = state.pendingToolPanelRestoreKey;
+    const requiresSelectedAssistant = new Set([
+      "details",
+      "sessions",
+      "thinking",
+      "server-files",
+      "skills",
+      "usage",
+      "uploads",
+    ]);
+
+    if (!panelKey) {
+      showPinnedPanelRestorePlaceholder();
+      return;
+    }
+
+    if (requiresSelectedAssistant.has(panelKey) && !state.selectedAgentId) {
+      showPinnedPanelRestorePlaceholder("Select an assistant first to restore this panel.");
+      return;
+    }
+
+    if (panelKey === "details") {
+      if (!openAssistantDetailsPanel()) {
+        showPinnedPanelRestorePlaceholder();
+      }
+      return;
+    }
+
+    if (panelKey === "sessions") {
+      if (getSelectedAgentStatus() === "running") {
+        await openSessionsPanel();
+      } else {
+        setToolPanel("Sessions", "<div class='portal-inline-state'>Start the assistant first to browse sessions.</div>", "sessions", {
+          persistPreference: false,
+        });
+      }
+      return;
+    }
+
+    if (panelKey === "thinking") {
+      await openThinkingProcessPanel();
+      return;
+    }
+    if (panelKey === "server-files") {
+      await openServerFiles();
+      return;
+    }
+    if (panelKey === "skills") {
+      await openSkillsPanel();
+      return;
+    }
+    if (panelKey === "usage") {
+      await openUsagePanel();
+      return;
+    }
+    if (panelKey === "uploads") {
+      await openMyUploads();
+      return;
+    }
+    if (panelKey === "users") {
+      await openUsersPanel();
+      return;
+    }
+
+    showPinnedPanelRestorePlaceholder();
+  } catch (_error) {
+    showPinnedPanelRestorePlaceholder("Unable to restore the saved panel.");
+  }
+}
+
 // ===== toolbar actions =====
-function setToolPanel(title, contentHtml, panelKey = null) {
+function setToolPanel(title, contentHtml, panelKey = null, { persistPreference = true } = {}) {
   if (!dom.toolPanel) return;
   state.detailOpen = panelKey === "details";
-  state.activeUtilityPanel = panelKey;
+  state.activeUtilityPanel = normalizeUtilityPanelKey(panelKey);
   dom.toolPanelTitle.textContent = title;
   if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
     dom.toolPanelBody.textContent = contentHtml.replace('Failed: ', '');
@@ -2847,6 +3088,9 @@ function setToolPanel(title, contentHtml, panelKey = null) {
     dom.toolPanelBody.innerHTML = contentHtml;
   }
   openToolPanel();
+  if (persistPreference) {
+    persistUiLayoutPreferences({ includeSecondaryPane: false, includeToolPanel: true });
+  }
 }
 
 function closeToolPanel() {
@@ -2855,6 +3099,11 @@ function closeToolPanel() {
   state.toolPanelOpen = false;
   state.toolPanelPinned = false;
   applyToolPanelState();
+  persistUiLayoutPreferences({
+    includeSecondaryPane: false,
+    includeToolPanel: true,
+    clearToolPanelPreference: true,
+  });
 }
 
 async function openSessionsPanel() {
@@ -3168,7 +3417,7 @@ function upsertRequirementBundleListItem(item, { persist = true } = {}) {
   setRequirementBundles(nextItems, { persist });
 }
 
-async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
+async function setActiveNavSection(section, { toggleIfSame = true, preserveCollapsed = false } = {}) {
   const previousSection = state.activeNavSection;
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
   const validSections = new Set(["assistants", "bundles", "tasks", "runtime-profiles"]);
@@ -3178,7 +3427,9 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
     state.secondaryPaneCollapsed = !state.secondaryPaneCollapsed;
   } else {
     state.activeNavSection = section;
-    state.secondaryPaneCollapsed = false;
+    if (!preserveCollapsed) {
+      state.secondaryPaneCollapsed = false;
+    }
   }
 
   dom.railAssistantsBtn?.classList.toggle("is-active", state.activeNavSection === "assistants");
@@ -3194,6 +3445,9 @@ async function setActiveNavSection(section, { toggleIfSame = true } = {}) {
   applySecondaryPaneState();
   renderSecondaryPaneHeader();
   syncMainHeader();
+  if (typeof persistUiLayoutPreferences === "function") {
+    persistUiLayoutPreferences({ includeToolPanel: false });
+  }
 
   if (state.secondaryPaneCollapsed) return;
 
@@ -5102,24 +5356,7 @@ function bindEvents() {
     }
   });
 
-  dom.detailToggle?.addEventListener("click", () => {
-    if (!state.selectedAgentId) {
-      showToast("Please select an assistant first");
-      return;
-    }
-    if (state.activeUtilityPanel === "details" && state.toolPanelOpen) {
-      closeToolPanel();
-    } else {
-      const agent = state.mineAgents.find(a => a.id === state.selectedAgentId);
-      if (agent) {
-        setToolPanel("Assistant details", `\n          <div id="agent-meta" class="portal-detail-card"></div>\n          <div id="agent-actions" class="portal-detail-actions"></div>\n        `, "details");
-        dom.agentMeta = document.getElementById("agent-meta");
-        dom.agentActions = document.getElementById("agent-actions");
-        renderAgentMeta(agent);
-        renderAgentActions(agent, agent.status || "stopped");
-      }
-    }
-  });
+  dom.detailToggle?.addEventListener("click", toggleAssistantDetailsPanel);
   dom.closeToolPanel?.addEventListener("click", closeToolPanel);
   dom.pinToolPanel?.addEventListener("click", toggleToolPanelPinned);
   dom.toolBackdrop?.addEventListener("click", () => {
@@ -5128,6 +5365,7 @@ function bindEvents() {
   dom.secondaryPaneToggle?.addEventListener("click", () => {
     state.secondaryPaneCollapsed = true;
     applySecondaryPaneState();
+    persistUiLayoutPreferences({ includeToolPanel: false });
     window.requestAnimationFrame(() => dom.secondaryPaneRestore?.focus?.());
   });
   dom.secondaryPaneRestore?.addEventListener("click", async () => {
@@ -5342,17 +5580,7 @@ function bindEvents() {
 
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
-  dom.usersMenuBtn?.addEventListener("click", async () => {
-    setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>', "users");
-    try {
-      await htmx.ajax("GET", "/app/users/panel", {
-        target: "#tool-panel-body",
-        swap: "innerHTML",
-      });
-    } catch (error) {
-      setToolPanel("Users", `Failed: ${safe(error.message)}`, "users");
-    }
-  });
+  dom.usersMenuBtn?.addEventListener("click", openUsersPanel);
 
   dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
@@ -5582,8 +5810,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   const resizeHandle = document.getElementById('tool-panel-resize');
   if (resizeHandle) {
     let isResizing = false;
+    let didResizeToolPanel = false;
     resizeHandle.addEventListener('mousedown', (e) => {
       isResizing = true;
+      didResizeToolPanel = false;
       document.body.style.cursor = 'ew-resize';
       document.body.style.userSelect = 'none';
     });
@@ -5600,15 +5830,21 @@ document.addEventListener("DOMContentLoaded", async () => {
           return;
         }
         setToolPanelWidth(clamp(newWidth, bounds.min, bounds.max));
+        didResizeToolPanel = true;
       } else {
         const maxWidth = Math.max(TOOL_PANEL_MIN_OVERLAY_WIDTH, window.innerWidth - 24);
         setToolPanelWidth(clamp(newWidth, TOOL_PANEL_MIN_OVERLAY_WIDTH, maxWidth));
+        didResizeToolPanel = true;
       }
     });
     document.addEventListener('mouseup', () => {
       isResizing = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      if (didResizeToolPanel && state.toolPanelOpen && state.toolPanelPinned) {
+        persistUiLayoutPreferences({ includeSecondaryPane: false, includeToolPanel: true });
+      }
+      didResizeToolPanel = false;
     });
   }
 
@@ -5618,6 +5854,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   bindEvents();
+  if (typeof initialUiLayoutPrefs.toolPanelWidth === "number" && Number.isFinite(initialUiLayoutPrefs.toolPanelWidth)) {
+    setToolPanelWidth(initialUiLayoutPrefs.toolPanelWidth);
+  }
+  if (initialUiLayoutPrefs.toolPanelPinned && !isWideEnoughToPinToolPanel()) {
+    state.toolPanelOpen = false;
+    state.toolPanelPinned = false;
+    state.activeUtilityPanel = null;
+  }
   applySecondaryPaneState();
   applyToolPanelState();
   initializeRenderLifecycle();
@@ -5724,8 +5968,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   await loadAgentDefaults();
-  await refreshAll();
-  await setActiveNavSection("assistants", { toggleIfSame: false });
+  await refreshAll({ preserveLayout: true });
+  await setActiveNavSection("assistants", {
+    toggleIfSame: false,
+    preserveCollapsed: true,
+  });
+  await restorePinnedToolPanelFromPreferencesOnce();
   renderMarkdown(document);
   renderIcons();
 });

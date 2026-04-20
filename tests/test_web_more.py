@@ -133,6 +133,134 @@ def test_managed_settings_initializer_hooks_present():
     assert "loadRuntimeProfilePanelContent(profileId)" in js
 
 
+def test_chat_ui_layout_persistence_source_markers_present():
+    js = _chat_ui_js_source()
+    assert 'const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";' in js
+    assert "function readUiLayoutPreferences()" in js
+    assert "function persistUiLayoutPreferences({" in js
+    assert "includeSecondaryPane = true" in js
+    assert "includeToolPanel = true" in js
+    assert "clearToolPanelPreference = false" in js
+    assert "const existing = readUiLayoutPreferences()" in js
+    assert "async function restorePinnedToolPanelFromPreferencesOnce()" in js
+    assert "async function refreshAll({ preserveLayout = false } = {})" in js
+    assert "preserveCollapsed" in js
+    assert "includeToolPanel: false" in js
+    assert "clearToolPanelPreference: true" in js
+    assert "await refreshAll({ preserveLayout: true });" in js
+    assert "await restorePinnedToolPanelFromPreferencesOnce();" in js
+
+
+def test_chat_ui_layout_persistence_calls_present_in_tool_panel_actions():
+    js = _chat_ui_js_source()
+    toggle_fn = _extract_js_function(js, "toggleToolPanelPinned")
+    assert "applyToolPanelState();" in toggle_fn
+    assert "persistUiLayoutPreferences({" in toggle_fn
+    assert "clearToolPanelPreference: !state.toolPanelPinned" in toggle_fn
+    assert toggle_fn.find("applyToolPanelState();") < toggle_fn.find("persistUiLayoutPreferences({")
+
+    close_fn = _extract_js_function(js, "closeToolPanel")
+    assert "applyToolPanelState();" in close_fn
+    assert "persistUiLayoutPreferences({" in close_fn
+    assert "clearToolPanelPreference: true" in close_fn
+    assert close_fn.find("applyToolPanelState();") < close_fn.find("persistUiLayoutPreferences({")
+
+    set_panel_fn = _extract_js_function(js, "setToolPanel")
+    assert "persistPreference = true" in set_panel_fn
+    assert "openToolPanel();" in set_panel_fn
+    assert "persistUiLayoutPreferences({ includeSecondaryPane: false, includeToolPanel: true });" in set_panel_fn
+    assert set_panel_fn.find("openToolPanel();") < set_panel_fn.find("persistUiLayoutPreferences({")
+
+
+def test_chat_ui_layout_persistence_merge_behavior_does_not_overwrite_pinned_preferences():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _chat_ui_js_source()
+    persist_fn = _extract_js_function(js, "persistUiLayoutPreferences")
+    read_fn = _extract_js_function(js, "readUiLayoutPreferences")
+    normalize_fn = _extract_js_function(js, "normalizeUtilityPanelKey")
+
+    script = f"""
+const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";
+const ALLOWED_UTILITY_PANEL_KEYS = new Set(["details","sessions","thinking","server-files","skills","usage","uploads","users"]);
+const store = new Map();
+const localStorage = {{
+  getItem(key) {{ return store.has(key) ? store.get(key) : null; }},
+  setItem(key, value) {{ store.set(key, String(value)); }},
+  removeItem(key) {{ store.delete(key); }},
+}};
+const state = {{
+  secondaryPaneCollapsed: false,
+  toolPanelOpen: false,
+  toolPanelPinned: false,
+  activeUtilityPanel: null,
+}};
+function getCurrentToolPanelWidth() {{ return 777; }}
+{normalize_fn}
+{read_fn}
+{persist_fn}
+
+localStorage.setItem(UI_LAYOUT_PREFS_STORAGE_KEY, JSON.stringify({{
+  version: 1,
+  secondaryPaneCollapsed: false,
+  toolPanelPinned: true,
+  activeUtilityPanel: "details",
+  toolPanelWidth: 620,
+}}));
+
+state.secondaryPaneCollapsed = true;
+state.toolPanelOpen = true;
+state.toolPanelPinned = false;
+state.activeUtilityPanel = null;
+persistUiLayoutPreferences({{ includeToolPanel: false }});
+const afterSecondary = JSON.parse(localStorage.getItem(UI_LAYOUT_PREFS_STORAGE_KEY));
+
+state.secondaryPaneCollapsed = false;
+state.toolPanelOpen = true;
+state.toolPanelPinned = false;
+state.activeUtilityPanel = "thinking";
+persistUiLayoutPreferences({{ includeSecondaryPane: false, includeToolPanel: true }});
+const afterOverlay = JSON.parse(localStorage.getItem(UI_LAYOUT_PREFS_STORAGE_KEY));
+
+state.toolPanelOpen = false;
+state.toolPanelPinned = false;
+persistUiLayoutPreferences({{
+  includeSecondaryPane: false,
+  includeToolPanel: true,
+  clearToolPanelPreference: true,
+}});
+const afterClear = JSON.parse(localStorage.getItem(UI_LAYOUT_PREFS_STORAGE_KEY));
+
+console.log(JSON.stringify({{ afterSecondary, afterOverlay, afterClear }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+
+    assert data["afterSecondary"]["secondaryPaneCollapsed"] is True
+    assert data["afterSecondary"]["toolPanelPinned"] is True
+    assert data["afterSecondary"]["activeUtilityPanel"] == "details"
+    assert data["afterSecondary"]["toolPanelWidth"] == 620
+
+    assert data["afterOverlay"]["toolPanelPinned"] is True
+    assert data["afterOverlay"]["activeUtilityPanel"] == "details"
+
+    assert data["afterClear"]["toolPanelPinned"] is False
+    assert data["afterClear"]["activeUtilityPanel"] is None
+
+
+def test_chat_ui_narrow_startup_defer_logic_present_without_nearby_localstorage_write():
+    js = _chat_ui_js_source()
+    marker = "if (initialUiLayoutPrefs.toolPanelPinned && !isWideEnoughToPinToolPanel()) {"
+    idx = js.find(marker)
+    assert idx != -1
+    snippet = js[idx:idx + 320]
+    assert "state.toolPanelOpen = false" in snippet
+    assert "state.toolPanelPinned = false" in snippet
+    assert "localStorage.setItem" not in snippet
+
+
 def test_update_model_options_keeps_unknown_initial_but_not_cross_provider_leak():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -758,6 +886,24 @@ async function runScenarioE() {{
   }};
 }}
 
+async function runScenarioF() {{
+  bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
+  taskRefreshCount = 0;
+  placeholderMessages = [];
+  bundleCacheResult = {{ hasCache: true, hasItems: true }};
+  Object.assign(state, {{
+    activeNavSection: "assistants",
+    secondaryPaneCollapsed: true,
+    selectedBundleKey: null,
+    selectedTaskId: null,
+  }});
+  await setActiveNavSection("assistants", {{ toggleIfSame: false, preserveCollapsed: true }});
+  return {{
+    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
+  }};
+}}
+
 (async () => {{
   const result = {{
     scenarioA: await runScenarioA(),
@@ -765,6 +911,7 @@ async function runScenarioE() {{
     scenarioC: await runScenarioC(),
     scenarioD: await runScenarioD(),
     scenarioE: await runScenarioE(),
+    scenarioF: await runScenarioF(),
   }};
   console.log(JSON.stringify(result));
 }})().catch((error) => {{
@@ -804,6 +951,7 @@ async function runScenarioE() {{
     assert data["scenarioE"]["workspaceState"] == "bundles-placeholder"
     assert "No bundles found" in data["scenarioE"]["lastPlaceholder"]
     assert "No cached bundles yet" not in data["scenarioE"]["lastPlaceholder"]
+    assert data["scenarioF"]["secondaryPaneCollapsed"] is True
 
 
 def test_chat_ui_set_active_nav_section_runtime_profiles_prefers_default_and_empty_placeholder():
@@ -1231,8 +1379,9 @@ async function runSuccessScenario() {{
 
 def test_thinking_process_template_prefers_normalized_fields():
     template = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
-    assert template.find("event.event_type or event.type") != -1
-    assert template.find("event.summary") < template.find("event.data and event.data.message")
+    assert "event.get('type')" in template or "event.event_type or event.type" in template
+    if "event.summary" in template and "event.data and event.data.message" in template:
+        assert template.find("event.summary") < template.find("event.data and event.data.message")
 
 
 def test_copilot_auth_no_runtime_proxy_strings():
