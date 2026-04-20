@@ -310,6 +310,69 @@ def test_create_github_review_task_repairs_event_when_task_already_exists(monkey
     assert refreshed.task_id == existing_task.id
 
 
+def test_github_review_task_payload_contract_for_efp_runtime(monkeypatch):
+    db = _session()
+    user = User(username="u9", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp9", config_json=json.dumps({"github": {"enabled": True, "api_token": "secret"}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    rule = _create_review_rule(db, user_id=user.id, agent_id=agent.id)
+
+    svc = AutomationRuleService(db)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+
+    item = {
+        "owner": "Acme",
+        "repo": "Portal",
+        "pull_number": 42,
+        "head_sha": "sha-contract",
+        "review_target": {"type": "team", "name": "Acme/Reviewers"},
+        "source_payload": {"html_url": "https://example.local/pr/42"},
+    }
+    task, skipped = svc.create_github_review_task_for_discovered_item(
+        rule=rule,
+        item=item,
+        task_cfg={"skill_name": "review-pull-request", "review_event": "COMMENT"},
+    )
+    assert skipped is False
+    assert task is not None
+
+    payload = json.loads(task.input_payload_json)
+    assert set(payload.keys()) == {
+        "source",
+        "automation_rule",
+        "automation_rule_id",
+        "rule_id",
+        "provider",
+        "owner",
+        "repo",
+        "pull_number",
+        "head_sha",
+        "review_target",
+        "task_type",
+        "skill_name",
+        "review_event",
+        "dedupe_key",
+    }
+    assert payload["source"] == "automation_rule"
+    assert payload["automation_rule"] == "github.pr_review_requested"
+    assert payload["automation_rule_id"] == rule.id
+    assert payload["rule_id"] == rule.id
+    assert payload["provider"] == "github"
+    assert payload["owner"] == "Acme"
+    assert payload["repo"] == "Portal"
+    assert payload["pull_number"] == 42
+    assert payload["head_sha"] == "sha-contract"
+    assert payload["task_type"] == "github_review_task"
+    assert payload["skill_name"] == "review-pull-request"
+    assert payload["review_event"] in {"COMMENT", "APPROVE", "REQUEST_CHANGES"}
+    assert payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
+    assert "dedupe_key" in payload
+    assert len(task.dedupe_key or "") <= 255
+
+
 @pytest.mark.anyio
 async def test_run_once_failure_schedules_next_run(monkeypatch):
     db = _session()

@@ -2,6 +2,7 @@ import json
 
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -536,9 +537,19 @@ class ExternalEventRouterService:
         else:
             # Legacy provider.automation routing path retained only for mention/assignment events.
             # GitHub PR review requested is handled by AutomationRule and must not use runtime_profile.github.automation.
+            # This path is deprecated. Do not add new automation triggers here.
+            # New automation triggers must use AutomationRule.
             rule = self._automation_rule_for_event(source_type, request.event_type)
             if not rule:
                 return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="unsupported_automation_event", message="No automation rule configured for this source_type/event_type")
+            if not get_settings().legacy_provider_automation_routing_enabled:
+                return ExternalEventIngressResponse(
+                    accepted=False,
+                    matched_subscription_ids=[],
+                    routing_reason="legacy_provider_automation_disabled",
+                    resolved_task_type=rule["task_type"],
+                    message="Legacy runtime_profile provider.automation routing is disabled. Create an Automation Rule for this trigger type or enable LEGACY_PROVIDER_AUTOMATION_ROUTING_ENABLED temporarily.",
+                )
             if not request.external_account_id:
                 return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="missing_external_account_id", message="external_account_id is required for identity binding based routing")
 

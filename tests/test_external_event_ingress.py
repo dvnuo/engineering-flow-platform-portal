@@ -14,6 +14,7 @@ from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRep
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.automation_rule_repo import AutomationRuleRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
+from app.config import get_settings
 from app.services.auth_service import hash_password
 
 
@@ -156,6 +157,7 @@ def _create_automation_rule(
 def test_binding_driven_events_create_expected_tasks_and_dispatch(monkeypatch):
     client, db, admin_user, state, cleanup = _build_client_with_overrides(monkeypatch)
     try:
+        monkeypatch.setattr(get_settings(), "legacy_provider_automation_routing_enabled", True)
         agent = _create_agent(db, admin_user.id, _base_automation_config())
         _create_automation_rule(
             db,
@@ -520,6 +522,7 @@ def test_github_pr_review_requested_ingress_capability_profile_blocked(monkeypat
 def test_automation_disabled_or_scope_mismatch_rejects(monkeypatch):
     client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
     try:
+        monkeypatch.setattr(get_settings(), "legacy_provider_automation_routing_enabled", True)
         cfg = _base_automation_config()
         cfg["github"]["automation"]["mentions"]["enabled"] = False
         agent = _create_agent(db, admin_user.id, cfg)
@@ -554,6 +557,7 @@ def test_automation_disabled_or_scope_mismatch_rejects(monkeypatch):
 def test_invalid_triggered_event_payloads_are_rejected(monkeypatch):
     client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
     try:
+        monkeypatch.setattr(get_settings(), "legacy_provider_automation_routing_enabled", True)
         agent = _create_agent(db, admin_user.id, _base_automation_config())
         repo = AgentIdentityBindingRepository(db)
         repo.create(agent_id=agent.id, system_type="jira", external_account_id="jira-1", enabled=True)
@@ -634,5 +638,45 @@ def test_workflow_rule_routes_without_subscription(monkeypatch):
         assert body["matched_workflow_rule_id"] == rule.id
         assert body["matched_subscription_ids"] == []
         assert body["created_task_id"] in state["dispatches"]
+    finally:
+        cleanup()
+
+
+def test_legacy_provider_automation_routing_disabled_by_default(monkeypatch):
+    client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        agent = _create_agent(db, admin_user.id, _base_automation_config())
+        repo = AgentIdentityBindingRepository(db)
+        repo.create(agent_id=agent.id, system_type="github", external_account_id="gh-1", enabled=True)
+        repo.create(agent_id=agent.id, system_type="jira", external_account_id="jira-1", enabled=True)
+        repo.create(agent_id=agent.id, system_type="confluence", external_account_id="conf-1", enabled=True)
+
+        cases = [
+            {
+                "source_type": "github",
+                "event_type": "mention",
+                "external_account_id": "gh-1",
+                "payload_json": json.dumps({"owner": "octo", "repo": "portal", "issue_number": 2}),
+            },
+            {
+                "source_type": "jira",
+                "event_type": "assigned",
+                "external_account_id": "jira-1",
+                "project_key": "ENG",
+                "payload_json": json.dumps({"issue_key": "ENG-1", "project_key": "ENG"}),
+            },
+            {
+                "source_type": "confluence",
+                "event_type": "mention",
+                "external_account_id": "conf-1",
+                "payload_json": json.dumps({"page_id": "12345", "space_key": "DEV"}),
+            },
+        ]
+        for payload in cases:
+            resp = client.post("/api/external-events/ingest", json=payload)
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["accepted"] is False
+            assert body["routing_reason"] == "legacy_provider_automation_disabled"
     finally:
         cleanup()
