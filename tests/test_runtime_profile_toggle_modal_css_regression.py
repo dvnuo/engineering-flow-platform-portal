@@ -53,6 +53,7 @@ def test_top_level_runtime_provider_enabled_toggles_are_left_of_titles(template_
 
         input_pos = section.index(f'name="{input_name}"')
         label_start = section.rfind("<label", 0, input_pos)
+        assert label_start != -1
         label_open = section[label_start : section.find(">", label_start) + 1]
         assert "toggle-switch portal-section-enable-switch" in label_open
 
