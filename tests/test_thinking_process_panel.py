@@ -213,6 +213,31 @@ def test_thinking_process_panel_renders_context_budget(monkeypatch):
     assert "Generate demo test cases" in response.text
 
 
+def test_thinking_process_panel_renders_new_projection_and_budget_diagnostics(monkeypatch):
+    context_state = {
+        "objective": "Keep context slim",
+        "budget": {
+            "request_estimated_tokens": 28000,
+            "prompt_budget_tokens": 32000,
+            "reserved_output_tokens": 4000,
+            "projection_chars_saved": 9000,
+            "projected_old_assistant_messages": 7,
+            "projected_old_tool_messages": 3,
+            "context_blob_refs_created": 2,
+        },
+    }
+    chatlog = {"session_id": "s-1", "context_state": context_state}
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Request estimate: 28000 tokens" in response.text
+    assert "Prompt budget: 32000 tokens" in response.text
+    assert "Reserved output: 4000 tokens" in response.text
+    assert "Projection saved: 9000 chars" in response.text
+    assert "Projected assistant/tool messages: 7 / 3" in response.text
+    assert "Context refs created: 2" in response.text
+
+
 def test_thinking_process_panel_metadata_fallback_when_runtime_disabled(monkeypatch):
     metadata_record = SimpleNamespace(
         session_id="s-1",

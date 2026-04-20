@@ -187,6 +187,49 @@ def _parse_form_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on", "yes"}
 
 
+def _normalize_runtime_error_detail(content: bytes) -> str:
+    decoded = content.decode("utf-8", errors="replace")
+    preview = decoded[:1000]
+    try:
+        parsed = json.loads(decoded)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return f"Runtime error: {preview}"
+
+    if not isinstance(parsed, dict):
+        return f"Runtime error: {preview}"
+
+    error = parsed.get("error")
+    parts: list[str] = []
+
+    if isinstance(error, str):
+        message = error.strip()
+        if message:
+            parts.append(message)
+    elif isinstance(error, dict):
+        message = str(error.get("message") or "").strip()
+        if message:
+            parts.append(message)
+        code = str(error.get("code") or error.get("error_type") or "").strip()
+        if code:
+            parts.append(f"code={code}")
+        details = error.get("details") if isinstance(error.get("details"), dict) else {}
+        incomplete_reason = str(details.get("incomplete_reason") or "").strip()
+        if incomplete_reason:
+            parts.append(f"incomplete_reason={incomplete_reason}")
+        for key in ("prompt_budget_tokens", "request_estimated_tokens", "reserved_output_tokens"):
+            value = details.get(key)
+            if value is not None:
+                parts.append(f"{key}={value}")
+    else:
+        message = str(parsed.get("message") or "").strip()
+        if message:
+            parts.append(message)
+
+    if not parts:
+        parts.append(preview)
+    return f"Runtime error: {' '.join(parts)}"
+
+
 def _build_settings_panel_context(*, request: Request, agent_id: str, base_context: dict, db, triggered_work_state: dict | None = None) -> dict:
     bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
     triggered_state = triggered_work_state or {}
@@ -1625,7 +1668,7 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         payload = json.loads(content.decode("utf-8"))
         runtime_sessions = payload.get("sessions") or []
@@ -1699,7 +1742,7 @@ async def app_agent_skills_panel(request: Request, agent_id: str):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         payload = json.loads(content.decode("utf-8"))
         return templates.TemplateResponse(
@@ -1746,7 +1789,7 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         payload = json.loads(content.decode("utf-8"))
         return templates.TemplateResponse(
@@ -1793,7 +1836,7 @@ async def app_agent_files_panel(request: Request, agent_id: str):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         payload = json.loads(content.decode("utf-8"))
         return templates.TemplateResponse(
@@ -2446,7 +2489,7 @@ async def app_chat_send(request: Request):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         data = json.loads(content.decode("utf-8"))
         

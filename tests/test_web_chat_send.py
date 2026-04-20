@@ -361,3 +361,120 @@ def test_app_chat_send_does_not_emit_empty_response_placeholder_with_display_blo
     assert response.status_code == 200
     assert "data-display-blocks=" in response.text
     assert "(empty response)" not in response.text
+
+
+def test_app_chat_send_normalizes_json_runtime_error(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": {
+                "message": "Model output was truncated because max_output_tokens was reached",
+                "code": "max_output_tokens_exceeded",
+                "details": {"incomplete_reason": "max_output_tokens"},
+            }
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "Runtime error:" in detail
+    assert "Model output was truncated because max_output_tokens was reached" in detail
+    assert "code=max_output_tokens_exceeded" in detail
+    assert "incomplete_reason=max_output_tokens" in detail
+
+
+def test_app_chat_send_runtime_error_non_json_is_bounded(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    raw = ("x" * 1500).encode("utf-8")
+
+    async def _fake_forward(**_kwargs):
+        return 400, raw, "text/plain"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail.startswith("Runtime error: ")
+    assert len(detail) <= 1020
+
+
+def test_app_chat_send_runtime_error_hides_large_or_sensitive_fields(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": {
+                "message": "runtime failed",
+                "code": "fatal",
+                "details": {
+                    "incomplete_reason": "max_output_tokens",
+                    "prompt_budget_tokens": 32000,
+                    "request_estimated_tokens": 34000,
+                    "reserved_output_tokens": 4000,
+                    "prompt": "SECRET_PROMPT_PAYLOAD",
+                    "response": "VERY_LARGE_BODY",
+                    "api_key": "SECRET_KEY",
+                },
+            }
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "prompt_budget_tokens=32000" in detail
+    assert "request_estimated_tokens=34000" in detail
+    assert "reserved_output_tokens=4000" in detail
+    assert "SECRET_PROMPT_PAYLOAD" not in detail
+    assert "VERY_LARGE_BODY" not in detail
+    assert "SECRET_KEY" not in detail

@@ -48,6 +48,24 @@
     {% if budget.get('tokens_until_hard_threshold') is not none %}
       <div class="portal-panel-note">Until hard threshold: {{ budget.get('tokens_until_hard_threshold') }} tokens</div>
     {% endif %}
+    {% if budget.get('request_estimated_tokens') is not none %}
+      <div class="portal-panel-note">Request estimate: {{ budget.get('request_estimated_tokens') }} tokens</div>
+    {% endif %}
+    {% if budget.get('prompt_budget_tokens') is not none %}
+      <div class="portal-panel-note">Prompt budget: {{ budget.get('prompt_budget_tokens') }} tokens</div>
+    {% endif %}
+    {% if budget.get('reserved_output_tokens') is not none %}
+      <div class="portal-panel-note">Reserved output: {{ budget.get('reserved_output_tokens') }} tokens</div>
+    {% endif %}
+    {% if budget.get('projection_chars_saved') is not none %}
+      <div class="portal-panel-note">Projection saved: {{ budget.get('projection_chars_saved') }} chars</div>
+    {% endif %}
+    {% if budget.get('projected_old_assistant_messages') is not none or budget.get('projected_old_tool_messages') is not none %}
+      <div class="portal-panel-note">Projected assistant/tool messages: {{ budget.get('projected_old_assistant_messages') if budget.get('projected_old_assistant_messages') is not none else '—' }} / {{ budget.get('projected_old_tool_messages') if budget.get('projected_old_tool_messages') is not none else '—' }}</div>
+    {% endif %}
+    {% if budget.get('context_blob_refs_created') is not none %}
+      <div class="portal-panel-note">Context refs created: {{ budget.get('context_blob_refs_created') }}</div>
+    {% endif %}
   </div>
   {% endif %}
 

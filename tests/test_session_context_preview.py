@@ -225,6 +225,23 @@ def test_extract_context_preview_derives_budget_preview_from_nested_context_stat
     assert extracted["context_next_compaction_action"] == "approaching_micro_compaction"
 
 
+def test_extract_context_preview_derives_new_projection_and_budget_fields():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"prompt_budget_tokens":32000,"request_estimated_tokens":28000,"reserved_output_tokens":4000,"safety_margin_tokens":1000,"projection_chars_saved":9000,"projected_old_assistant_messages":7,"projected_old_tool_messages":3,"context_blob_refs_created":2}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_prompt_budget_tokens"] == 32000
+    assert extracted["context_request_estimated_tokens"] == 28000
+    assert extracted["context_reserved_output_tokens"] == 4000
+    assert extracted["context_safety_margin_tokens"] == 1000
+    assert extracted["context_projection_chars_saved"] == 9000
+    assert extracted["context_projected_old_assistant_messages"] == 7
+    assert extracted["context_projected_old_tool_messages"] == 3
+    assert extracted["context_context_blob_refs_created"] == 2
+
+
 def test_extract_context_preview_derives_next_pruning_policy_from_nested_budget():
     record = SimpleNamespace(
         latest_event_state="running",
