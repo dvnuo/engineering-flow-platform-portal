@@ -595,3 +595,64 @@ def test_app_chat_send_runtime_error_merges_top_level_and_nested_details(monkeyp
     assert "max_output_tokens=16000" in detail
     assert "HUGE" not in detail
     assert "SECRET_TOKEN" not in detail
+
+
+def test_app_chat_send_runtime_error_context_budget_exceeded_is_sanitized(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "LLM request remains over prompt budget after context projection.",
+            "error_type": "context_budget_exceeded",
+            "code": "context_budget_exceeded",
+            "details": {
+                "request_estimated_tokens": 50000,
+                "prompt_budget_tokens": 32000,
+                "reserved_output_tokens": 16000,
+                "max_prompt_tokens": 32000,
+                "max_output_tokens": 64000,
+                "request_over_budget": True,
+                "prompt": "SECRET",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "api_key": "SECRET_KEY",
+                "token": "SECRET_TOKEN",
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "Runtime error:" in detail
+    assert "code=context_budget_exceeded" in detail
+    assert "request_estimated_tokens=50000" in detail
+    assert "prompt_budget_tokens=32000" in detail
+    assert "reserved_output_tokens=16000" in detail
+    assert "max_prompt_tokens=32000" in detail
+    assert "max_output_tokens=64000" in detail
+    assert "request_over_budget=True" in detail
+    assert "SECRET" not in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "api_key=" not in detail
+    assert "token=" not in detail

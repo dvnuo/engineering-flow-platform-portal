@@ -280,6 +280,37 @@ def test_extract_context_preview_preserves_request_over_budget_from_nested_and_f
     assert flat_extracted["context_request_over_budget"] is True
 
 
+def test_extract_context_preview_preserves_max_output_and_prompt_tokens_nested_and_flat():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"max_output_tokens":64000,"max_prompt_tokens":32000}}}',
+    )
+    nested_extracted = extract_context_preview(nested_record)
+    assert nested_extracted["context_max_output_tokens"] == 64000
+    assert nested_extracted["context_max_prompt_tokens"] == 32000
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_max_output_tokens":128000,"context_max_prompt_tokens":96000}',
+    )
+    flat_extracted = extract_context_preview(flat_record)
+    assert flat_extracted["context_max_output_tokens"] == 128000
+    assert flat_extracted["context_max_prompt_tokens"] == 96000
+
+
+def test_extract_context_preview_omits_missing_max_output_and_prompt_tokens():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"request_estimated_tokens":1234}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert "context_max_output_tokens" not in extracted
+    assert "context_max_prompt_tokens" not in extracted
+
+
 def test_extract_context_preview_derives_next_pruning_policy_from_nested_budget():
     record = SimpleNamespace(
         latest_event_state="running",

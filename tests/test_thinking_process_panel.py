@@ -220,7 +220,9 @@ def test_thinking_process_panel_renders_new_projection_and_budget_diagnostics(mo
         "budget": {
             "request_estimated_tokens": 28000,
             "prompt_budget_tokens": 32000,
+            "max_prompt_tokens": 32000,
             "reserved_output_tokens": 4000,
+            "max_output_tokens": 64000,
             "projection_chars_saved": 9000,
             "projected_old_assistant_messages": 7,
             "projected_old_tool_messages": 3,
@@ -233,7 +235,9 @@ def test_thinking_process_panel_renders_new_projection_and_budget_diagnostics(mo
     assert response.status_code == 200
     assert "Request estimate: 28000 tokens" in response.text
     assert "Prompt budget: 32000 tokens" in response.text
+    assert "Max prompt cap: 32000 tokens" in response.text
     assert "Reserved output: 4000 tokens" in response.text
+    assert "Max output: 64000 tokens" in response.text
     assert "Projection saved: 9000 chars" in response.text
     assert "Projected assistant/tool messages: 7 / 3" in response.text
     assert "Context refs created: 2" in response.text
