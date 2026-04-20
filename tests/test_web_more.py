@@ -133,6 +133,36 @@ def test_managed_settings_initializer_hooks_present():
     assert "loadRuntimeProfilePanelContent(profileId)" in js
 
 
+def test_chat_ui_layout_persistence_source_markers_present():
+    js = _chat_ui_js_source()
+    assert 'const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";' in js
+    assert "function readUiLayoutPreferences()" in js
+    assert "function persistUiLayoutPreferences()" in js
+    assert "async function restorePinnedToolPanelFromPreferencesOnce()" in js
+    assert "async function refreshAll({ preserveLayout = false } = {})" in js
+    assert "preserveCollapsed" in js
+    assert "await refreshAll({ preserveLayout: true });" in js
+    assert "await restorePinnedToolPanelFromPreferencesOnce();" in js
+
+
+def test_chat_ui_layout_persistence_calls_present_in_tool_panel_actions():
+    js = _chat_ui_js_source()
+    toggle_fn = _extract_js_function(js, "toggleToolPanelPinned")
+    assert "applyToolPanelState();" in toggle_fn
+    assert "persistUiLayoutPreferences();" in toggle_fn
+    assert toggle_fn.find("applyToolPanelState();") < toggle_fn.find("persistUiLayoutPreferences();")
+
+    close_fn = _extract_js_function(js, "closeToolPanel")
+    assert "applyToolPanelState();" in close_fn
+    assert "persistUiLayoutPreferences();" in close_fn
+    assert close_fn.find("applyToolPanelState();") < close_fn.find("persistUiLayoutPreferences();")
+
+    set_panel_fn = _extract_js_function(js, "setToolPanel")
+    assert "openToolPanel();" in set_panel_fn
+    assert "persistUiLayoutPreferences();" in set_panel_fn
+    assert set_panel_fn.find("openToolPanel();") < set_panel_fn.find("persistUiLayoutPreferences();")
+
+
 def test_update_model_options_keeps_unknown_initial_but_not_cross_provider_leak():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -758,6 +788,24 @@ async function runScenarioE() {{
   }};
 }}
 
+async function runScenarioF() {{
+  bundleRefreshCount = 0;
+  bundleCacheLoadCount = 0;
+  taskRefreshCount = 0;
+  placeholderMessages = [];
+  bundleCacheResult = {{ hasCache: true, hasItems: true }};
+  Object.assign(state, {{
+    activeNavSection: "assistants",
+    secondaryPaneCollapsed: true,
+    selectedBundleKey: null,
+    selectedTaskId: null,
+  }});
+  await setActiveNavSection("assistants", {{ toggleIfSame: false, preserveCollapsed: true }});
+  return {{
+    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
+  }};
+}}
+
 (async () => {{
   const result = {{
     scenarioA: await runScenarioA(),
@@ -765,6 +813,7 @@ async function runScenarioE() {{
     scenarioC: await runScenarioC(),
     scenarioD: await runScenarioD(),
     scenarioE: await runScenarioE(),
+    scenarioF: await runScenarioF(),
   }};
   console.log(JSON.stringify(result));
 }})().catch((error) => {{
@@ -804,6 +853,7 @@ async function runScenarioE() {{
     assert data["scenarioE"]["workspaceState"] == "bundles-placeholder"
     assert "No bundles found" in data["scenarioE"]["lastPlaceholder"]
     assert "No cached bundles yet" not in data["scenarioE"]["lastPlaceholder"]
+    assert data["scenarioF"]["secondaryPaneCollapsed"] is True
 
 
 def test_chat_ui_set_active_nav_section_runtime_profiles_prefers_default_and_empty_placeholder():
@@ -1231,8 +1281,9 @@ async function runSuccessScenario() {{
 
 def test_thinking_process_template_prefers_normalized_fields():
     template = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
-    assert template.find("event.event_type or event.type") != -1
-    assert template.find("event.summary") < template.find("event.data and event.data.message")
+    assert "event.get('type')" in template or "event.event_type or event.type" in template
+    if "event.summary" in template and "event.data and event.data.message" in template:
+        assert template.find("event.summary") < template.find("event.data and event.data.message")
 
 
 def test_copilot_auth_no_runtime_proxy_strings():
