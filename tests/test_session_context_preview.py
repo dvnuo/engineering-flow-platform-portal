@@ -225,6 +225,110 @@ def test_extract_context_preview_derives_budget_preview_from_nested_context_stat
     assert extracted["context_next_compaction_action"] == "approaching_micro_compaction"
 
 
+def test_extract_context_preview_derives_new_projection_and_budget_fields():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"prompt_budget_tokens":32000,"request_estimated_tokens":28000,"reserved_output_tokens":4000,"safety_margin_tokens":1000,"projection_chars_saved":9000,"projected_old_assistant_messages":7,"projected_old_tool_messages":3,"context_blob_refs_created":2}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_prompt_budget_tokens"] == 32000
+    assert extracted["context_request_estimated_tokens"] == 28000
+    assert extracted["context_reserved_output_tokens"] == 4000
+    assert extracted["context_safety_margin_tokens"] == 1000
+    assert extracted["context_projection_chars_saved"] == 9000
+    assert extracted["context_projected_old_assistant_messages"] == 7
+    assert extracted["context_projected_old_tool_messages"] == 3
+    assert extracted["context_context_blob_refs_created"] == 2
+
+
+def test_extract_context_preview_converts_context_blob_ref_list_to_count():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"context_blob_refs_created":["ctx://context/1","ctx://context/2"]}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_context_blob_refs_created"] == 2
+
+
+def test_extract_context_preview_converts_flat_context_blob_ref_list_to_count():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_context_blob_refs_created":["ctx://context/a","ctx://context/b"]}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_context_blob_refs_created"] == 2
+
+
+def test_extract_context_preview_preserves_request_over_budget_from_nested_and_flat():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"request_over_budget":true}}}',
+    )
+    nested_extracted = extract_context_preview(nested_record)
+    assert nested_extracted["context_request_over_budget"] is True
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_request_over_budget":true}',
+    )
+    flat_extracted = extract_context_preview(flat_record)
+    assert flat_extracted["context_request_over_budget"] is True
+
+
+def test_extract_context_preview_preserves_max_output_and_prompt_tokens_nested_and_flat():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"max_output_tokens":64000,"max_prompt_tokens":32000}}}',
+    )
+    nested_extracted = extract_context_preview(nested_record)
+    assert nested_extracted["context_max_output_tokens"] == 64000
+    assert nested_extracted["context_max_prompt_tokens"] == 32000
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_max_output_tokens":128000,"context_max_prompt_tokens":96000}',
+    )
+    flat_extracted = extract_context_preview(flat_record)
+    assert flat_extracted["context_max_output_tokens"] == 128000
+    assert flat_extracted["context_max_prompt_tokens"] == 96000
+
+
+def test_extract_context_preview_omits_missing_max_output_and_prompt_tokens():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"request_estimated_tokens":1234}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert "context_max_output_tokens" not in extracted
+    assert "context_max_prompt_tokens" not in extracted
+
+
+def test_extract_context_preview_preserves_request_budget_stage_from_nested_and_flat():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"request_budget_stage":"skill_finalizer"}}}',
+    )
+    nested_extracted = extract_context_preview(nested_record)
+    assert nested_extracted["context_request_budget_stage"] == "skill_finalizer"
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_request_budget_stage":"skill_finalizer"}',
+    )
+    flat_extracted = extract_context_preview(flat_record)
+    assert flat_extracted["context_request_budget_stage"] == "skill_finalizer"
+
+
 def test_extract_context_preview_derives_next_pruning_policy_from_nested_budget():
     record = SimpleNamespace(
         latest_event_state="running",

@@ -32,6 +32,12 @@ def _derive_preview_from_context_state(context_state: dict) -> dict:
     return {key: value for key, value in preview.items() if value is not None}
 
 
+def _normalize_context_blob_refs_created(value):
+    if isinstance(value, list):
+        return len(value)
+    return value
+
+
 def _derive_budget_preview(metadata: dict) -> dict:
     if not isinstance(metadata, dict):
         return {}
@@ -43,9 +49,24 @@ def _derive_budget_preview(metadata: dict) -> dict:
         "context_next_pruning_policy": _normalize_preview_value(metadata.get("context_next_pruning_policy")),
         "context_tokens_until_soft_threshold": metadata.get("context_tokens_until_soft_threshold"),
         "context_tokens_until_hard_threshold": metadata.get("context_tokens_until_hard_threshold"),
+        "context_prompt_budget_tokens": metadata.get("context_prompt_budget_tokens"),
+        "context_request_estimated_tokens": metadata.get("context_request_estimated_tokens"),
+        "context_reserved_output_tokens": metadata.get("context_reserved_output_tokens"),
+        "context_safety_margin_tokens": metadata.get("context_safety_margin_tokens"),
+        "context_max_output_tokens": metadata.get("context_max_output_tokens"),
+        "context_max_prompt_tokens": metadata.get("context_max_prompt_tokens"),
+        "context_projection_chars_saved": metadata.get("context_projection_chars_saved"),
+        "context_projected_old_assistant_messages": metadata.get("context_projected_old_assistant_messages"),
+        "context_projected_old_tool_messages": metadata.get("context_projected_old_tool_messages"),
+        "context_context_blob_refs_created": _normalize_context_blob_refs_created(
+            metadata.get("context_context_blob_refs_created")
+        ),
+        "context_request_over_budget": metadata.get("context_request_over_budget"),
+        "context_request_budget_stage": _normalize_preview_value(metadata.get("context_request_budget_stage")),
     }
     context_state = metadata.get("context_state") if isinstance(metadata.get("context_state"), dict) else {}
     budget = context_state.get("budget") if isinstance(context_state.get("budget"), dict) else {}
+    context_blob_refs_created = _normalize_context_blob_refs_created(budget.get("context_blob_refs_created"))
     nested_preview = {
         "context_usage_percent": budget.get("prepared_usage_percent") if budget.get("prepared_usage_percent") is not None else budget.get("usage_percent"),
         "context_estimated_tokens": budget.get("prepared_tokens") if budget.get("prepared_tokens") is not None else budget.get("estimated_tokens"),
@@ -54,6 +75,18 @@ def _derive_budget_preview(metadata: dict) -> dict:
         "context_next_pruning_policy": _normalize_preview_value(budget.get("next_pruning_policy")),
         "context_tokens_until_soft_threshold": budget.get("tokens_until_soft_threshold"),
         "context_tokens_until_hard_threshold": budget.get("tokens_until_hard_threshold"),
+        "context_prompt_budget_tokens": budget.get("prompt_budget_tokens") if budget.get("prompt_budget_tokens") is not None else budget.get("max_prompt_tokens"),
+        "context_request_estimated_tokens": budget.get("request_estimated_tokens"),
+        "context_reserved_output_tokens": budget.get("reserved_output_tokens"),
+        "context_safety_margin_tokens": budget.get("safety_margin_tokens"),
+        "context_max_output_tokens": budget.get("max_output_tokens"),
+        "context_max_prompt_tokens": budget.get("max_prompt_tokens"),
+        "context_projection_chars_saved": budget.get("projection_chars_saved"),
+        "context_projected_old_assistant_messages": budget.get("projected_old_assistant_messages"),
+        "context_projected_old_tool_messages": budget.get("projected_old_tool_messages"),
+        "context_context_blob_refs_created": context_blob_refs_created,
+        "context_request_over_budget": budget.get("request_over_budget"),
+        "context_request_budget_stage": _normalize_preview_value(budget.get("request_budget_stage") or budget.get("stage")),
     }
     merged = {
         key: (flat_preview.get(key) if flat_preview.get(key) is not None else nested_preview.get(key))
@@ -65,6 +98,18 @@ def _derive_budget_preview(metadata: dict) -> dict:
             "context_next_pruning_policy",
             "context_tokens_until_soft_threshold",
             "context_tokens_until_hard_threshold",
+            "context_prompt_budget_tokens",
+            "context_request_estimated_tokens",
+            "context_reserved_output_tokens",
+            "context_safety_margin_tokens",
+            "context_max_output_tokens",
+            "context_max_prompt_tokens",
+            "context_projection_chars_saved",
+            "context_projected_old_assistant_messages",
+            "context_projected_old_tool_messages",
+            "context_context_blob_refs_created",
+            "context_request_over_budget",
+            "context_request_budget_stage",
         )
     }
     return {key: value for key, value in merged.items() if value is not None}

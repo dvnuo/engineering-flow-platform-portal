@@ -34,6 +34,12 @@ def _safe_json_list(raw: Any) -> list:
     return parsed if isinstance(parsed, list) else []
 
 
+def _normalize_context_blob_refs_created(value: Any):
+    if isinstance(value, list):
+        return len(value)
+    return value
+
+
 def _build_budget_from_metadata(metadata_dict: dict) -> dict:
     if not isinstance(metadata_dict, dict):
         return {}
@@ -45,12 +51,26 @@ def _build_budget_from_metadata(metadata_dict: dict) -> dict:
         "context_next_pruning_policy": "next_pruning_policy",
         "context_tokens_until_soft_threshold": "tokens_until_soft_threshold",
         "context_tokens_until_hard_threshold": "tokens_until_hard_threshold",
+        "context_prompt_budget_tokens": "prompt_budget_tokens",
+        "context_request_estimated_tokens": "request_estimated_tokens",
+        "context_reserved_output_tokens": "reserved_output_tokens",
+        "context_safety_margin_tokens": "safety_margin_tokens",
+        "context_max_output_tokens": "max_output_tokens",
+        "context_max_prompt_tokens": "max_prompt_tokens",
+        "context_projection_chars_saved": "projection_chars_saved",
+        "context_projected_old_assistant_messages": "projected_old_assistant_messages",
+        "context_projected_old_tool_messages": "projected_old_tool_messages",
+        "context_context_blob_refs_created": "context_blob_refs_created",
+        "context_request_over_budget": "request_over_budget",
+        "context_request_budget_stage": "request_budget_stage",
     }
     budget = {}
     for source_key, target_key in mapping.items():
         value = metadata_dict.get(source_key)
         if value is None:
             continue
+        if target_key == "context_blob_refs_created":
+            value = _normalize_context_blob_refs_created(value)
         budget[target_key] = value
     return budget
 
@@ -318,6 +338,18 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "estimated_tokens": budget.get("estimated_tokens"),
             "prepared_tokens": budget.get("prepared_tokens"),
             "context_window_tokens": budget.get("context_window_tokens"),
+            "prompt_budget_tokens": budget.get("prompt_budget_tokens") if budget.get("prompt_budget_tokens") is not None else budget.get("max_prompt_tokens"),
+            "request_estimated_tokens": budget.get("request_estimated_tokens"),
+            "reserved_output_tokens": budget.get("reserved_output_tokens"),
+            "safety_margin_tokens": budget.get("safety_margin_tokens"),
+            "max_output_tokens": budget.get("max_output_tokens"),
+            "max_prompt_tokens": budget.get("max_prompt_tokens"),
+            "projection_chars_saved": budget.get("projection_chars_saved"),
+            "projected_old_assistant_messages": budget.get("projected_old_assistant_messages"),
+            "projected_old_tool_messages": budget.get("projected_old_tool_messages"),
+            "context_blob_refs_created": _normalize_context_blob_refs_created(budget.get("context_blob_refs_created")),
+            "request_over_budget": budget.get("request_over_budget"),
+            "request_budget_stage": budget.get("request_budget_stage"),
             "soft_threshold_percent": budget.get("soft_threshold_percent"),
             "hard_threshold_percent": budget.get("hard_threshold_percent"),
             "tokens_until_soft_threshold": budget.get("tokens_until_soft_threshold"),
