@@ -122,7 +122,7 @@ def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
         cleanup()
 
 
-def test_settings_save_and_echoes_automation(monkeypatch):
+def test_settings_save_ignores_legacy_automation_fields(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent)
@@ -149,12 +149,16 @@ def test_settings_save_and_echoes_automation(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["github"]["automation"]["mentions"]["include_review_comments"] is True
-        assert cfg["jira"]["automation"]["assignments"]["projects"] == ["ENG"]
-        assert cfg["confluence"]["automation"]["mentions"]["spaces"] == ["DEV"]
-        assert 'name="github_review_requests_repos"' in resp.text
-        assert 'name="jira_assignments_projects"' in resp.text
-        assert 'name="confluence_mentions_spaces"' in resp.text
+        assert cfg["github"]["enabled"] is True
+        assert cfg["jira"]["enabled"] is True
+        assert cfg["confluence"]["enabled"] is True
+        assert "automation" not in cfg["github"]
+        assert "automation" not in cfg["jira"]
+        assert "automation" not in cfg["confluence"]
+        assert 'name="github_review_requests_repos"' not in resp.text
+        assert "Jira Automation" not in resp.text
+        assert "Confluence Automation" not in resp.text
+        assert "GitHub Automation" not in resp.text
     finally:
         cleanup()
 

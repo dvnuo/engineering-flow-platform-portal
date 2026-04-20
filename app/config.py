@@ -61,6 +61,9 @@ class Settings(BaseSettings):
         default=60,
         validation_alias="ASSETS_BUNDLE_LIST_CACHE_TTL_SECONDS",
     )
+    automation_rules_worker_enabled: bool = Field(default=True, validation_alias="AUTOMATION_RULES_WORKER_ENABLED")
+    automation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="AUTOMATION_RULES_WORKER_INTERVAL_SECONDS")
+    automation_rule_lock_lease_seconds: int = Field(default=120, validation_alias="AUTOMATION_RULE_LOCK_LEASE_SECONDS")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

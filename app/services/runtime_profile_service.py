@@ -87,24 +87,13 @@ class RuntimeProfileService:
             "jira": {
                 "enabled": False,
                 "instances": [],
-                "automation": {
-                    "assignments": {"enabled": False, "projects": []},
-                    "mentions": {"enabled": False, "projects": []},
-                },
             },
             "confluence": {
                 "enabled": False,
                 "instances": [],
-                "automation": {
-                    "mentions": {"enabled": False, "spaces": []},
-                },
             },
             "github": {
                 "enabled": False,
-                "automation": {
-                    "review_requests": {"enabled": False, "repos": []},
-                    "mentions": {"enabled": False, "repos": [], "include_review_comments": False},
-                },
             },
             "git": {"user": {}},
             "debug": {"enabled": False, "log_level": "INFO"},

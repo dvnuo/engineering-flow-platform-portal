@@ -213,6 +213,9 @@ def test_runtime_profile_panel_renders_view_defaults_for_sparse_profiles(monkeyp
         assert 'option value="" selected>Use runtime local default</option>' in resp.text
         assert 'name="llm_tools_mode" value="inherit" checked' in resp.text
         assert 'data-current-value="" data-initial-value=""' in resp.text
+        assert "PR review requests" not in resp.text
+        assert "GitHub Automation" not in resp.text
+        assert 'name="github_review_requests_enabled"' not in resp.text
     finally:
         cleanup()
 

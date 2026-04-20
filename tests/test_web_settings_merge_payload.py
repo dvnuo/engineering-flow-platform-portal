@@ -12,6 +12,7 @@ def test_settings_merge_github_base_url_blank_removes_existing_value():
         }
     }
     form = {
+        "__touch_github": "1",
         "github_enabled": "on",
         "github_api_token": "",
         "github_base_url": "",
@@ -20,11 +21,11 @@ def test_settings_merge_github_base_url_blank_removes_existing_value():
     merged, error = _settings_merge_payload(config_payload, form)
 
     assert error is None
-    assert merged["github"]["api_token"] == "keep-token"
+    assert "api_token" not in merged["github"]
     assert "base_url" not in merged["github"]
 
 
-def test_settings_merge_automation_payloads_parse_lists_and_flags():
+def test_settings_merge_legacy_automation_payloads_are_ignored():
     merged, error = _settings_merge_payload(
         {},
         {
@@ -43,37 +44,19 @@ def test_settings_merge_automation_payloads_parse_lists_and_flags():
     )
 
     assert error is None
-    assert merged["github"]["automation"]["review_requests"] == {
-        "enabled": True,
-        "repos": ["org/a", "org/b"],
-    }
-    assert merged["github"]["automation"]["mentions"] == {
-        "enabled": True,
-        "repos": ["org/b", "org/c", "org/d"],
-        "include_review_comments": True,
-    }
-    assert merged["jira"]["automation"]["assignments"] == {
-        "enabled": True,
-        "projects": ["ENG", "QA"],
-    }
-    assert merged["jira"]["automation"]["mentions"] == {
-        "enabled": True,
-        "projects": ["OPS", "ENG"],
-    }
-    assert merged["confluence"]["automation"]["mentions"] == {
-        "enabled": True,
-        "spaces": ["DEV", "DOCS"],
-    }
+    assert "github" not in merged
+    assert "jira" not in merged
+    assert "confluence" not in merged
 
 
 def test_settings_merge_llm_tools_all_mode():
-    merged, error = _settings_merge_payload({}, {"llm_tools_mode": "all", "llm_tools_count": "0"})
+    merged, error = _settings_merge_payload({}, {"__touch_llm": "1", "llm_tools_mode": "all", "llm_tools_count": "0"})
     assert error is None
     assert merged["llm"]["tools"] == ["*"]
 
 
 def test_settings_merge_llm_tools_none_mode():
-    merged, error = _settings_merge_payload({}, {"llm_tools_mode": "none", "llm_tools_count": "0"})
+    merged, error = _settings_merge_payload({}, {"__touch_llm": "1", "llm_tools_mode": "none", "llm_tools_count": "0"})
     assert error is None
     assert merged["llm"]["tools"] == []
 
@@ -82,6 +65,7 @@ def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_promp
     merged, error = _settings_merge_payload(
         {"llm": {"system-prompt": {"tools": {"enabled": True}}}},
         {
+            "__touch_llm": "1",
             "llm_tools_mode": "custom",
             "llm_tools_count": "4",
             "llm_tools_0_pattern": " git_clone ",
@@ -99,6 +83,7 @@ def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_saves_empty_lis
     merged, error = _settings_merge_payload(
         {"llm": {"system-prompt": {"tools": {"enabled": True}}}},
         {
+            "__touch_llm": "1",
             "llm_tools_mode": "custom",
             "llm_tools_count": "3",
             "llm_tools_0_pattern": "",
@@ -114,7 +99,7 @@ def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_saves_empty_lis
 @pytest.mark.parametrize(
     ("llm", "expected"),
     [
-        ({}, ("all", [])),
+        ({}, ("inherit", [])),
         ({"tools": ["*"]}, ("all", [])),
         ({"tools": []}, ("none", [])),
         ({"tools": None}, ("none", [])),

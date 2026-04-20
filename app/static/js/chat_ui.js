@@ -42,6 +42,7 @@ const dom = {
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
+  automationsMenuBtn: document.getElementById("automations-menu-btn"),
   bundlesMenuBtn: document.getElementById("bundles-menu-btn"),
   runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
@@ -55,12 +56,15 @@ const dom = {
   bundlesNavSection: document.getElementById("bundles-nav-section"),
   tasksNavSection: document.getElementById("tasks-nav-section"),
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
+  automationsNavSection: document.getElementById("automations-nav-section"),
   bundleNavList: document.getElementById("bundle-nav-list"),
   taskNavList: document.getElementById("task-nav-list"),
   runtimeProfileNavList: document.getElementById("runtime-profile-nav-list"),
+  automationRuleNavList: document.getElementById("automation-rule-nav-list"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
+  addAutomationBtn: document.getElementById("add-automation-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   composerAttachBtn: document.getElementById("composer-attach-btn"),
   chatModelWrap: document.getElementById("composer-model-wrap"),
@@ -337,6 +341,8 @@ const state = {
   serverFilesCurrentPath: null,
   runtimeProfiles: [],
   selectedRuntimeProfileId: null,
+  automations: [],
+  selectedAutomationRuleId: null,
   agentDefaults: null,
 };
 let thinkingPanelRefreshRaf = null;
@@ -3424,6 +3430,7 @@ function getSecondaryPaneLabel() {
   if (state.activeNavSection === "bundles") return "Bundles";
   if (state.activeNavSection === "tasks") return "Tasks";
   if (state.activeNavSection === "runtime-profiles") return "Runtime Profiles";
+  if (state.activeNavSection === "automations") return "Automations";
   return "Assistants";
 }
 
@@ -3462,10 +3469,12 @@ function renderSecondaryPaneHeader() {
   const addBundleBtn = dom.addBundleBtn;
   const refreshBundlesBtn = dom.refreshBundlesBtn;
   const addRuntimeProfileBtn = dom.addRuntimeProfileBtn;
+  const addAutomationBtn = dom.addAutomationBtn;
   if (addAgentBtn) addAgentBtn.classList.add("hidden");
   if (addBundleBtn) addBundleBtn.classList.add("hidden");
   if (refreshBundlesBtn) refreshBundlesBtn.classList.add("hidden");
   if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.add("hidden");
+  if (addAutomationBtn) addAutomationBtn.classList.add("hidden");
 
   if (state.activeNavSection === "assistants") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
@@ -3479,6 +3488,10 @@ function renderSecondaryPaneHeader() {
   } else if (state.activeNavSection === "tasks") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Tasks";
+  } else if (state.activeNavSection === "automations") {
+    dom.secondaryPaneEyebrow.textContent = "Workspace";
+    dom.secondaryPaneTitle.textContent = "Automations";
+    if (addAutomationBtn) addAutomationBtn.classList.remove("hidden");
   } else {
     dom.secondaryPaneEyebrow.textContent = "My Space";
     dom.secondaryPaneTitle.textContent = "Runtime Profiles";
@@ -3505,6 +3518,9 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "My Tasks";
       setChatStatus("Browse tasks and open task detail in the main stage");
+    } else if (state.activeNavSection === "automations") {
+      dom.embedTitle.textContent = "Automations";
+      setChatStatus("Manage automation rules");
     } else {
       dom.embedTitle.textContent = "Runtime Profiles";
       setChatStatus("Browse and manage your runtime profiles");
@@ -3568,6 +3584,10 @@ function syncDefaultMainViewForSection(section) {
   }
   if (section === "runtime-profiles") {
     renderWorkspaceDetailPlaceholder("Select a runtime profile from the left sidebar.", "runtime-profiles-placeholder");
+    return;
+  }
+  if (section === "automations") {
+    renderWorkspaceDetailPlaceholder("Select an automation rule from the left sidebar.", "automations-placeholder");
   }
 }
 
@@ -3663,7 +3683,7 @@ function upsertRequirementBundleListItem(item, { persist = true } = {}) {
 async function setActiveNavSection(section, { toggleIfSame = true, preserveCollapsed = false } = {}) {
   const previousSection = state.activeNavSection;
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
-  const validSections = new Set(["assistants", "bundles", "tasks", "runtime-profiles"]);
+  const validSections = new Set(["assistants", "bundles", "tasks", "runtime-profiles", "automations"]);
   if (!validSections.has(section)) return;
 
   if (section === state.activeNavSection && toggleIfSame) {
@@ -3679,11 +3699,13 @@ async function setActiveNavSection(section, { toggleIfSame = true, preserveColla
   dom.bundlesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "bundles");
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
   dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
+  dom.automationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "automations");
 
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.bundlesNavSection?.classList.toggle("hidden", state.activeNavSection !== "bundles");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
   dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
+  dom.automationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "automations");
 
   applySecondaryPaneState();
   renderSecondaryPaneHeader();
@@ -3707,6 +3729,8 @@ async function setActiveNavSection(section, { toggleIfSame = true, preserveColla
       showTasksLoadingMainView();
     } else if (section === "runtime-profiles") {
       renderWorkspaceDetailPlaceholder("Loading runtime profiles…", "runtime-profiles-loading");
+    } else if (section === "automations") {
+      renderWorkspaceDetailPlaceholder("Loading automations…", "automations-loading");
     }
   }
 
@@ -3761,6 +3785,15 @@ async function setActiveNavSection(section, { toggleIfSame = true, preserveColla
       dom.workspaceDetailContent?.dataset.workspaceState === "tasks-loading"
     ) {
       showTasksDefaultMainView();
+    }
+  }
+  if (state.activeNavSection === "automations" && shouldRefreshVisibleSection) {
+    await loadAutomationRules();
+    const first = state.automations[0];
+    if (first && !state.selectedAutomationRuleId) {
+      await openAutomationRulePanel(first.id);
+    } else if (!first) {
+      renderWorkspaceDetailPlaceholder("No automations found.", "automations-placeholder");
     }
   }
 }
@@ -5317,6 +5350,126 @@ async function refreshRuntimeProfileList({ preserveSelection = true } = {}) {
   renderRuntimeProfileList();
 }
 
+async function loadAutomationRules() {
+  try {
+    const rules = await api("/api/automation-rules");
+    state.automations = Array.isArray(rules) ? rules : [];
+  } catch (_err) {
+    state.automations = [];
+  }
+  renderAutomationRuleNavList(state.automations);
+  return state.automations;
+}
+
+function renderAutomationRuleNavList(rules) {
+  if (!dom.automationRuleNavList) return;
+  const items = Array.isArray(rules) ? rules : [];
+  if (!items.length) {
+    dom.automationRuleNavList.innerHTML = '<div class="portal-bundle-list-state">No automations found.</div>';
+    return;
+  }
+  dom.automationRuleNavList.innerHTML = "";
+  items.forEach((rule) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `portal-bundle-row${state.selectedAutomationRuleId === rule.id ? " is-active" : ""}`;
+    row.innerHTML = `
+      <div class="portal-bundle-title">${safe(rule.name || "Automation")}</div>
+      <div class="portal-bundle-meta">${rule.enabled ? "Enabled" : "Disabled"}</div>
+    `;
+    row.addEventListener("click", () => openAutomationRulePanel(rule.id));
+    dom.automationRuleNavList.append(row);
+  });
+}
+
+async function openAutomationRulePanel(ruleId) {
+  if (!ruleId) return;
+  state.selectedAutomationRuleId = ruleId;
+  renderAutomationRuleNavList(state.automations);
+  const detail = await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`);
+  const runs = await loadAutomationRuleRuns(ruleId);
+  const events = await loadAutomationRuleEvents(ruleId);
+  const scope = JSON.parse(detail.scope_json || "{}");
+  const trigger = JSON.parse(detail.trigger_config_json || "{}");
+  const schedule = JSON.parse(detail.schedule_json || "{}");
+  dom.workspaceDetailContent.innerHTML = `
+    <div class="portal-panel-stack">
+      <h3>${safe(detail.name)}</h3>
+      <div class="portal-inline-state">Type: GitHub PR Reviewer · ${detail.enabled ? "Enabled" : "Disabled"}</div>
+      <div class="portal-inline-state">Repo: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
+      <div class="portal-inline-state">Review target: <strong>${safe(`${trigger.review_target_type || "-"} / ${trigger.review_target || "-"}`)}</strong></div>
+      <div class="portal-inline-state">Target agent: <strong>${safe(detail.target_agent_id)}</strong></div>
+      <div class="portal-inline-state">Interval: <strong>${safe(String(schedule.interval_seconds || 60))}</strong> seconds</div>
+      <div class="flex gap-2">
+        <button class="portal-btn is-secondary" type="button" data-run-automation-once="${safe(detail.id)}">Run once</button>
+      </div>
+      <h6>Recent Runs</h6>
+      <pre class="portal-inline-note">${safe(JSON.stringify(runs, null, 2))}</pre>
+      <h6>Recent Events</h6>
+      <pre class="portal-inline-note">${safe(JSON.stringify(events, null, 2))}</pre>
+    </div>
+  `;
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "automation-rule-detail";
+}
+
+function openCreateAutomationRuleModal() {
+  const agentOptions = (state.mineAgents || [])
+    .map((agent) => `<option value="${escapeHtmlAttr(agent.id)}">${safe(agent.name || agent.id)}</option>`)
+    .join("");
+  dom.workspaceDetailContent.innerHTML = `
+    <div class="portal-panel-stack">
+      <h3>Create Automation</h3>
+      <form id="create-automation-inline-form" class="portal-panel-stack">
+        <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="Review EFP PRs" required /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Owner</span><input class="portal-form-input" name="owner" required /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Repo</span><input class="portal-form-input" name="repo" required /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Review target</span><input class="portal-form-input" name="review_target" required /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
+        <button class="portal-btn is-primary" type="submit">Create</button>
+      </form>
+    </div>
+  `;
+}
+
+async function submitCreateAutomationRule(formEl) {
+  const fd = new FormData(formEl);
+  const payload = {
+    name: String(fd.get("name") || ""),
+    target_agent_id: String(fd.get("target_agent_id") || ""),
+    owner: String(fd.get("owner") || ""),
+    repo: String(fd.get("repo") || ""),
+    review_target_type: String(fd.get("review_target_type") || "user"),
+    review_target: String(fd.get("review_target") || ""),
+    interval_seconds: Number(fd.get("interval_seconds") || 60),
+    enabled: true,
+    source_type: "github",
+    trigger_type: "github_pr_review_requested",
+    task_type: "github_review_task",
+    skill_name: "review-pull-request",
+    review_event: "COMMENT",
+  };
+  const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
+  await loadAutomationRules();
+  await openAutomationRulePanel(created.id);
+}
+
+async function runAutomationRuleOnce(ruleId) {
+  const result = await api(`/api/automation-rules/${encodeURIComponent(ruleId)}/run-once`, { method: "POST" });
+  showToast(`Run finished: created ${result.created_task_count} task(s)`);
+  await openAutomationRulePanel(ruleId);
+}
+
+async function loadAutomationRuleRuns(ruleId) {
+  return api(`/api/automation-rules/${encodeURIComponent(ruleId)}/runs`);
+}
+
+async function loadAutomationRuleEvents(ruleId) {
+  return api(`/api/automation-rules/${encodeURIComponent(ruleId)}/events`);
+}
+
 async function openEditDialog(agent) {
   await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults()]);
   // Populate the edit form by setting input values directly
@@ -5697,6 +5850,8 @@ function bindEvents() {
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.railAssistantsBtn?.addEventListener("click", () => setActiveNavSection("assistants"));
   dom.bundlesMenuBtn?.addEventListener("click", () => setActiveNavSection("bundles"));
+  dom.automationsMenuBtn?.addEventListener("click", () => setActiveNavSection("automations"));
+  dom.addAutomationBtn?.addEventListener("click", () => openCreateAutomationRuleModal());
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.homeOpenBundlesBtn?.addEventListener("click", async () => {
     await setActiveNavSection("bundles", { toggleIfSame: false });
@@ -5780,6 +5935,23 @@ function bindEvents() {
       return;
     }
 
+  });
+  dom.workspaceDetailContent?.addEventListener("submit", async (event) => {
+    const form = event.target.closest("#create-automation-inline-form");
+    if (!form) return;
+    event.preventDefault();
+    try {
+      await submitCreateAutomationRule(form);
+    } catch (error) {
+      showToast(`Create automation failed: ${error.message}`);
+    }
+  });
+  dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const runBtn = event.target.closest("[data-run-automation-once]");
+    if (runBtn) {
+      event.preventDefault();
+      await runAutomationRuleOnce(runBtn.dataset.runAutomationOnce || "");
+    }
   });
 
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {

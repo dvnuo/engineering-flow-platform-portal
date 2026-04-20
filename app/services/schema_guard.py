@@ -30,6 +30,9 @@ REQUIRED_PORTAL_TABLES = (
     "agent_group_members",
     "agent_tasks",
     "group_shared_context_snapshots",
+    "automation_rules",
+    "automation_rule_runs",
+    "automation_rule_events",
 )
 
 
