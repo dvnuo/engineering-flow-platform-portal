@@ -470,6 +470,34 @@ console.log(JSON.stringify(cases));
     }
 
 
+def test_has_meaningful_context_contents_treats_budget_only_as_not_contents():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    has_meaningful_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+
+    script = f"""
+{has_meaningful_contents}
+const cases = {{
+  empty: hasMeaningfulContextContents({{}}),
+  budgetOnly: hasMeaningfulContextContents({{ budget: {{ usage_percent: 42 }} }}),
+  summary: hasMeaningfulContextContents({{ summary: "final" }}),
+  list: hasMeaningfulContextContents({{ open_loops: ["verify persisted panel"] }}),
+}};
+console.log(JSON.stringify(cases));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data == {
+        "empty": False,
+        "budgetOnly": False,
+        "summary": True,
+        "list": True,
+    }
+
+
 def test_handle_agent_chat_success_keeps_live_context_when_payload_context_empty_object():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -484,6 +512,7 @@ def test_handle_agent_chat_success_keeps_live_context_when_payload_context_empty
     extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     pick_meaningful = _extract_js_function(js_file, "pickMeaningfulContextState")
+    get_runtime_event_data = _extract_js_function(js_file, "getRuntimeEventData")
     latest_from_events = _extract_js_function(js_file, "extractLatestContextStateFromEvents")
     handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
 
@@ -521,6 +550,7 @@ async function loadSessionForAgent() {{}}
 {extract_context_budget}
 {has_meaningful}
 {pick_meaningful}
+{get_runtime_event_data}
 {latest_from_events}
 {handle_success}
 const chatState = ensureChatState("agent-A");
@@ -548,6 +578,212 @@ chatState.inflightThinking = {{
     data = json.loads(completed.stdout)
     assert data["summary"] == "Live summary"
     assert data["contextSource"] == "last_observed_live"
+
+
+def test_handle_agent_chat_success_prefers_event_context_contents_over_budget_only_payload_context():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    update_session = _extract_js_function(js_file, "updateAgentSession")
+    set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+    get_runtime_event_data = _extract_js_function(js_file, "getRuntimeEventData")
+    latest_from_events = _extract_js_function(js_file, "extractLatestContextStateFromEvents")
+    pick_context_contents_first = _extract_js_function(js_file, "pickContextStateWithContentsFirst")
+    pick_context_budget = _extract_js_function(js_file, "pickContextBudget")
+    handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  mineAgents: [{{id: "agent-A", name: "Agent A"}}],
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const dom = {{ messageList: {{ insertAdjacentHTML() {{}} }} }};
+const document = {{ hidden: false }};
+function setLastSessionId() {{}}
+function syncHiddenSessionInputFromState() {{}}
+function ensureEventSocketForSelectedAgent() {{}}
+function removeTemporaryAssistantRows() {{}}
+function getLatestOptimisticUserArticle() {{ return {{ dataset: {{ optimisticUser: "1" }} }}; }}
+function buildAssistantMessageArticle() {{ return ""; }}
+function getSelectedAssistantDisplayName() {{ return "Agent A"; }}
+function setChatStatus() {{}}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function renderIcons() {{}}
+function scrollToBottom() {{}}
+function addEditButtonsToMessages() {{}}
+function markAgentUnread() {{}}
+function renderAgentList() {{}}
+function notifyAgentCompletion() {{}}
+async function loadSessionForAgent() {{}}
+{create_state}
+{ensure_state}
+{update_session}
+{set_submitting}
+{merge_events}
+{extract_context_budget}
+{has_meaningful}
+{has_contents}
+{get_runtime_event_data}
+{latest_from_events}
+{pick_context_contents_first}
+{pick_context_budget}
+{handle_success}
+const chatState = ensureChatState("agent-A");
+chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.inflightThinking = {{ events: [], contextState: null, contextBudget: {{ usage_percent: 7 }} }};
+(async () => {{
+  await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{
+    session_id: "s-a",
+    request_id: "req-a",
+    response: "done",
+    context_state: {{ budget: {{ usage_percent: 11 }} }},
+    runtime_events: [
+      {{
+        type: "context_snapshot",
+        event_type: "context_snapshot",
+        data: {{
+          stage: "post_turn",
+          terminal: true,
+          context_state: {{
+            summary: "Final event summary",
+            next_step: "Keep final context",
+            budget: {{ usage_percent: 33 }}
+          }}
+        }}
+      }}
+    ],
+  }});
+  const snapshot = ensureChatState("agent-A").lastThinkingSnapshot;
+  console.log(JSON.stringify({{
+    summary: snapshot.contextState.summary,
+    nextStep: snapshot.contextState.next_step,
+    budgetUsagePercent: snapshot.contextBudget.usage_percent,
+    contextSource: snapshot.contextSource,
+  }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["summary"] == "Final event summary"
+    assert data["nextStep"] == "Keep final context"
+    assert data["budgetUsagePercent"] == 33
+    assert data["contextSource"] == "final_response"
+
+
+def test_load_persisted_thinking_panel_preserves_local_context_when_persisted_has_no_context():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    get_active_snapshot = _extract_js_function(js_file, "getActiveThinkingSnapshot")
+    has_meaningful_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+    load_persisted = _extract_js_function(js_file, "loadPersistedThinkingPanel")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const dom = {{ toolPanelBody: {{ innerHTML: "<div>LOCAL SNAPSHOT</div>" }} }};
+const document = {{
+  createElement(tag) {{
+    if (tag !== "template") return {{}};
+    return {{
+      _html: "",
+      set innerHTML(value) {{ this._html = value; }},
+      get content() {{
+        const html = this._html || "";
+        const extract = (name) => {{
+          const pattern = new RegExp(`${{name}}="([^"]*)"`);
+          const match = html.match(pattern);
+          return match ? match[1] : undefined;
+        }};
+        return {{
+          querySelector(selector) {{
+            if (selector !== "[data-thinking-panel-root]") return null;
+            if (!html.includes("data-thinking-panel-root")) return null;
+            return {{
+              dataset: {{
+                thinkingHasData: extract("data-thinking-has-data"),
+                thinkingHasContext: extract("data-thinking-has-context"),
+                thinkingRequestId: extract("data-thinking-request-id"),
+              }},
+            }};
+          }},
+        }};
+      }},
+    }};
+  }},
+}};
+function renderIcons() {{}}
+function setToolPanel() {{}}
+{create_state}
+{ensure_state}
+{get_active_snapshot}
+{has_meaningful_contents}
+{load_persisted}
+const chatState = ensureChatState("agent-A");
+chatState.lastThinkingSnapshot = {{
+  completed: true,
+  requestId: "req-a",
+  sessionId: "s-a",
+  contextState: {{ summary: "Local final context" }},
+  events: [],
+}};
+let first = true;
+global.fetch = async () => ({{
+  ok: true,
+  text: async () => first
+    ? `<div data-thinking-panel-root="1" data-thinking-has-data="1" data-thinking-has-context="0" data-thinking-request-id="req-a"><div>No context snapshot was captured for this run.</div></div>`
+    : `<div data-thinking-panel-root="1" data-thinking-has-data="1" data-thinking-has-context="1" data-thinking-request-id="req-a"><div>Persisted Context</div></div>`,
+}});
+(async () => {{
+  const before = dom.toolPanelBody.innerHTML;
+  const changedFirst = await loadPersistedThinkingPanel("s-a", {{
+    preserveLiveOnFailure: true,
+    preserveLiveIfEmpty: true,
+    preserveLiveIfNoContext: true,
+    expectedRequestId: "req-a",
+  }});
+  const afterFirst = dom.toolPanelBody.innerHTML;
+  first = false;
+  const changedSecond = await loadPersistedThinkingPanel("s-a", {{
+    preserveLiveOnFailure: true,
+    preserveLiveIfEmpty: true,
+    preserveLiveIfNoContext: true,
+    expectedRequestId: "req-a",
+  }});
+  const afterSecond = dom.toolPanelBody.innerHTML;
+  console.log(JSON.stringify({{
+    changedFirst,
+    before,
+    afterFirst,
+    changedSecond,
+    afterSecond,
+  }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["changedFirst"] is False
+    assert data["before"] == data["afterFirst"]
+    assert data["changedSecond"] is True
+    assert "Persisted Context" in data["afterSecond"]
 
 
 def test_success_without_optimistic_row_reloads_session():

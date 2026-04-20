@@ -1049,6 +1049,26 @@ function hasMeaningfulContextState(value) {
   return false;
 }
 
+function hasMeaningfulContextContents(value) {
+  if (!value || typeof value !== "object") return false;
+
+  const scalarKeys = [
+    "objective",
+    "summary",
+    "current_state",
+    "next_step",
+    "recovery_context_message",
+  ];
+  if (scalarKeys.some((key) => String(value[key] || "").trim())) return true;
+
+  const listKeys = ["constraints", "decisions", "open_loops"];
+  if (listKeys.some((key) => Array.isArray(value[key]) && value[key].some((item) => String(item || "").trim()))) {
+    return true;
+  }
+
+  return false;
+}
+
 function pickMeaningfulContextState(...candidates) {
   for (const candidate of candidates) {
     if (hasMeaningfulContextState(candidate)) return candidate;
@@ -1056,13 +1076,37 @@ function pickMeaningfulContextState(...candidates) {
   return null;
 }
 
+function getRuntimeEventData(event) {
+  const data = event?.data && typeof event.data === "object" ? event.data : {};
+  const detailPayload = event?.detail_payload && typeof event.detail_payload === "object" ? event.detail_payload : {};
+  return { ...data, ...detailPayload };
+}
+
 function extractLatestContextStateFromEvents(events) {
   if (!Array.isArray(events)) return null;
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
-    const data = event?.data || event?.detail_payload || {};
+    const data = getRuntimeEventData(event);
     const contextState = data?.context_state;
     if (hasMeaningfulContextState(contextState)) return contextState;
+  }
+  return null;
+}
+
+function pickContextStateWithContentsFirst(...candidates) {
+  for (const candidate of candidates) {
+    if (hasMeaningfulContextContents(candidate)) return candidate;
+  }
+  for (const candidate of candidates) {
+    if (hasMeaningfulContextState(candidate)) return candidate;
+  }
+  return null;
+}
+
+function pickContextBudget(...candidates) {
+  for (const candidate of candidates) {
+    const budget = extractContextBudget(candidate);
+    if (budget && typeof budget === "object" && Object.keys(budget).length) return budget;
   }
   return null;
 }
@@ -1114,6 +1158,7 @@ function renderThinkingPanelFromClientState(chatState) {
   }
   const events = Array.isArray(snapshot.events) ? snapshot.events : [];
   const contextState = hasMeaningfulContextState(snapshot.contextState) ? snapshot.contextState : null;
+  const hasContextContents = hasMeaningfulContextContents(contextState);
   const budget = (snapshot.contextBudget && typeof snapshot.contextBudget === "object")
     ? snapshot.contextBudget
     : extractContextBudget(contextState);
@@ -1132,7 +1177,9 @@ function renderThinkingPanelFromClientState(chatState) {
   const contextSourceLabel = snapshot.completed
     ? (snapshot.contextSource === "last_observed_live"
         ? "Last observed live snapshot — persisted snapshot pending"
-        : "Final Context Snapshot")
+        : snapshot.contextSource === "context_window_only"
+          ? "Context window only — no context contents captured"
+          : "Final Context Snapshot")
     : "Live Context Snapshot";
 
   const renderArray = (value) => {
@@ -1162,7 +1209,7 @@ function renderThinkingPanelFromClientState(chatState) {
       <div class="portal-panel-section">
         <div class="portal-panel-title">Context Contents</div>
         <div class="portal-panel-note">${safe(contextSourceLabel)}</div>
-        ${contextState ? `<div class="portal-context-grid">
+        ${hasContextContents ? `<div class="portal-context-grid">
           <div class="portal-context-kv"><strong>objective</strong><div>${safe(truncateThinkingText(contextState?.objective || "", 700) || "—")}</div></div>
           <div class="portal-context-kv"><strong>summary</strong><div>${safe(truncateThinkingText(contextState?.summary || "", 700) || "—")}</div></div>
           <div class="portal-context-kv"><strong>current_state</strong><div>${safe(truncateThinkingText(contextState?.current_state || "", 700) || "—")}</div></div>
@@ -1185,7 +1232,12 @@ function renderThinkingPanelFromClientState(chatState) {
 
 async function loadPersistedThinkingPanel(
   sessionId,
-  { preserveLiveOnFailure = false, preserveLiveIfEmpty = false, expectedRequestId = "" } = {},
+  {
+    preserveLiveOnFailure = false,
+    preserveLiveIfEmpty = false,
+    preserveLiveIfNoContext = false,
+    expectedRequestId = "",
+  } = {},
 ) {
   if (!state.selectedAgentId || !sessionId) return false;
   try {
@@ -1196,9 +1248,14 @@ async function loadPersistedThinkingPanel(
     template.innerHTML = html;
     const root = template.content.querySelector("[data-thinking-panel-root]");
     const hasData = root?.dataset?.thinkingHasData === "1";
+    const hasContext = root?.dataset?.thinkingHasContext === "1";
     const persistedRequestId = root?.dataset?.thinkingRequestId || "";
     const requestMatches = !expectedRequestId || !persistedRequestId || persistedRequestId === expectedRequestId;
+    const selectedChatState = state.selectedAgentId ? ensureChatState(state.selectedAgentId) : null;
+    const localSnapshot = getActiveThinkingSnapshot(selectedChatState);
+    const localHasContext = hasMeaningfulContextContents(localSnapshot?.contextState);
     if (preserveLiveIfEmpty && (!hasData || !requestMatches)) return false;
+    if (preserveLiveIfNoContext && localHasContext && !hasContext) return false;
     if (dom.toolPanelBody) dom.toolPanelBody.innerHTML = html;
     renderIcons();
     return true;
@@ -1236,6 +1293,7 @@ async function openThinkingProcessPanel() {
       await loadPersistedThinkingPanel(currentSessionId, {
         preserveLiveOnFailure: true,
         preserveLiveIfEmpty: true,
+        preserveLiveIfNoContext: true,
         expectedRequestId: localSnapshot.requestId || localSnapshot.id || "",
       });
     }
@@ -2627,36 +2685,51 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   const hasMeaningfulContext = (typeof hasMeaningfulContextState === "function")
     ? hasMeaningfulContextState
     : (value) => !!(value && typeof value === "object" && Object.keys(value).length);
-  const pickContextState = (typeof pickMeaningfulContextState === "function")
-    ? pickMeaningfulContextState
+  const hasContextContents = (typeof hasMeaningfulContextContents === "function")
+    ? hasMeaningfulContextContents
+    : (value) => !!(value && typeof value === "object" && (
+      String(value.summary || "").trim() || String(value.next_step || "").trim()
+    ));
+  const pickContextState = (typeof pickContextStateWithContentsFirst === "function")
+    ? pickContextStateWithContentsFirst
     : (...candidates) => candidates.find((candidate) => hasMeaningfulContext(candidate)) || null;
   const contextFromEvents = (typeof extractLatestContextStateFromEvents === "function")
     ? extractLatestContextStateFromEvents
     : () => null;
-  const getContextBudget = (typeof extractContextBudget === "function")
-    ? extractContextBudget
-    : (contextState) => contextState?.budget && typeof contextState.budget === "object" ? contextState.budget : null;
+  const getContextBudget = (typeof pickContextBudget === "function")
+    ? pickContextBudget
+    : (...candidates) => {
+      for (const candidate of candidates) {
+        const budget = (candidate && typeof candidate === "object" && candidate.budget && typeof candidate.budget === "object")
+          ? candidate.budget
+          : null;
+        if (budget && Object.keys(budget).length) return budget;
+      }
+      return null;
+    };
   updateAgentSession(agentIdAtSend, payload.session_id || requestCtx.sessionIdAtSend || "");
   const finalSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
   const payloadContextState = payload?.context_state;
-  const eventContextState = contextFromEvents(mergedThinkingEvents);
-  const payloadEventContextState = contextFromEvents(payloadThinkingEvents);
+  const mergedEventContextState = contextFromEvents(mergedThinkingEvents);
+  const eventContextState = contextFromEvents(payloadThinkingEvents);
   const liveContextState = chatState.inflightThinking?.contextState;
   const priorContextState = chatState.lastThinkingSnapshot?.contextState;
   const finalContextState = pickContextState(
     payloadContextState,
-    eventContextState,
+    mergedEventContextState,
     liveContextState,
     priorContextState,
   );
   const contextSource =
-    hasMeaningfulContext(payloadContextState) || hasMeaningfulContext(payloadEventContextState)
+    hasContextContents(payloadContextState) || hasContextContents(eventContextState)
       ? "final_response"
-      : hasMeaningfulContext(liveContextState)
+      : hasContextContents(liveContextState)
         ? "last_observed_live"
-        : hasMeaningfulContext(priorContextState)
+        : hasContextContents(priorContextState)
           ? "previous_snapshot"
-          : "none";
+          : hasMeaningfulContext(finalContextState)
+            ? "context_window_only"
+            : "none";
   const finalThinkingSnapshot = {
     ...(chatState.inflightThinking || {}),
     id: payload.request_id || requestCtx.clientRequestId,
@@ -2667,7 +2740,14 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     contextState: finalContextState,
     contextSource,
     contextBudget: (
-      getContextBudget(finalContextState)
+      getContextBudget(
+        finalContextState,
+        payloadContextState,
+        mergedEventContextState,
+        eventContextState,
+        liveContextState,
+        priorContextState,
+      )
       || chatState.inflightThinking?.contextBudget
       || chatState.lastThinkingSnapshot?.contextBudget
       || null
@@ -2687,6 +2767,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
         if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, {
           preserveLiveOnFailure: true,
           preserveLiveIfEmpty: true,
+          preserveLiveIfNoContext: true,
           expectedRequestId: finalThinkingSnapshot.requestId,
         });
       }
@@ -2713,6 +2794,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
         if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, {
           preserveLiveOnFailure: true,
           preserveLiveIfEmpty: true,
+          preserveLiveIfNoContext: true,
           expectedRequestId: finalThinkingSnapshot.requestId,
         });
       }
@@ -2743,6 +2825,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
       if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, {
         preserveLiveOnFailure: true,
         preserveLiveIfEmpty: true,
+        preserveLiveIfNoContext: true,
         expectedRequestId: finalThinkingSnapshot.requestId,
       });
     }

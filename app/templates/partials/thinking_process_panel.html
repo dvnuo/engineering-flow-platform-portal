@@ -9,6 +9,8 @@
   class="portal-panel-stack"
   data-thinking-panel-root="1"
   data-thinking-has-data="{{ '1' if has_data else '0' }}"
+  data-thinking-has-context="{{ '1' if v.get('has_context') else '0' }}"
+  data-thinking-context-source="{{ v.get('context_source') or '' }}"
   data-thinking-request-id="{{ v.get('request_id') or '' }}"
   data-thinking-session-id="{{ v.get('session_id') or session_id or '' }}"
 >

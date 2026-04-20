@@ -439,3 +439,58 @@ def test_thinking_process_panel_shows_empty_context_state_and_has_data_zero_when
     assert "No context snapshot was captured for this run." in response.text
     assert 'data-thinking-panel-root="1"' in response.text
     assert 'data-thinking-has-data="0"' in response.text
+
+
+def test_thinking_view_prefers_event_context_contents_over_budget_only_chatlog_context():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    chatlog = {
+        "session_id": "s-1",
+        "request_id": "req-1",
+        "context_state": {
+            "budget": {"usage_percent": 11.0}
+        },
+        "runtime_events": [
+            {
+                "event_type": "context_snapshot",
+                "request_id": "req-1",
+                "detail_payload": {
+                    "stage": "post_turn",
+                    "terminal": True,
+                    "context_state": {
+                        "summary": "Final event context summary",
+                        "next_step": "Open final snapshot",
+                        "budget": {"usage_percent": 33.0, "context_window_tokens": 1000},
+                    },
+                },
+            }
+        ],
+    }
+
+    view = build_thinking_process_view(chatlog)
+
+    assert view["has_context"] is True
+    assert view["context"]["summary"] == "Final event context summary"
+    assert view["context"]["next_step"] == "Open final snapshot"
+    assert view["context_source"] == "event"
+    assert view["budget"]["usage_percent"] == 33.0
+
+
+def test_thinking_view_budget_only_has_data_but_not_context():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    chatlog = {
+        "session_id": "s-1",
+        "request_id": "req-1",
+        "context_state": {
+            "budget": {"usage_percent": 11.0, "context_window_tokens": 1000}
+        },
+        "events": [],
+    }
+
+    view = build_thinking_process_view(chatlog)
+
+    assert view["has_data"] is True
+    assert view["has_context"] is False
+    assert view["budget"]["usage_percent"] == 11.0
+    assert "Context window only" in view["context_source_label"]

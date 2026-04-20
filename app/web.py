@@ -134,6 +134,8 @@ def _status_tone_from_value(value: str | None) -> str:
 def _has_thinking_view_data(view: dict) -> bool:
     if not isinstance(view, dict):
         return False
+    if "has_data" in view:
+        return bool(view.get("has_data"))
     context = view.get("context") if isinstance(view.get("context"), dict) else {}
     budget = view.get("budget") if isinstance(view.get("budget"), dict) else {}
     active_skill = view.get("active_skill") if isinstance(view.get("active_skill"), dict) else {}

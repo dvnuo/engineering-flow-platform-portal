@@ -59,22 +59,11 @@ def _has_meaningful_context_state(value: Any) -> bool:
     if not isinstance(value, dict) or not value:
         return False
 
-    scalar_keys = (
-        "objective",
-        "summary",
-        "current_state",
-        "next_step",
-        "recovery_context_message",
-        "compaction_level",
-    )
-    if any(str(value.get(key) or "").strip() for key in scalar_keys):
+    if _has_meaningful_context_contents(value):
         return True
 
-    list_keys = ("constraints", "decisions", "open_loops")
-    for key in list_keys:
-        items = value.get(key)
-        if isinstance(items, list) and any(str(item or "").strip() for item in items):
-            return True
+    if str(value.get("compaction_level") or "").strip():
+        return True
 
     budget = value.get("budget")
     if isinstance(budget, dict):
@@ -90,25 +79,44 @@ def _has_meaningful_context_state(value: Any) -> bool:
     return False
 
 
+def _has_meaningful_context_contents(value: Any) -> bool:
+    if not isinstance(value, dict) or not value:
+        return False
+
+    scalar_keys = (
+        "objective",
+        "summary",
+        "current_state",
+        "next_step",
+        "recovery_context_message",
+    )
+    if any(str(value.get(key) or "").strip() for key in scalar_keys):
+        return True
+
+    list_keys = ("constraints", "decisions", "open_loops")
+    for key in list_keys:
+        items = value.get(key)
+        if isinstance(items, list) and any(str(item or "").strip() for item in items):
+            return True
+
+    return False
+
+
 def _pick_context_with_source(chatlog: dict, metadata: dict, events: list, metadata_dict: dict) -> tuple[dict, str]:
-    chatlog_context = chatlog.get("context_state")
-    if _has_meaningful_context_state(chatlog_context):
-        return chatlog_context, "chatlog"
-
-    metadata_context = metadata.get("context_state")
-    if _has_meaningful_context_state(metadata_context):
-        return metadata_context, "metadata"
-
+    candidates: list[tuple[str, Any]] = [
+        ("chatlog", chatlog.get("context_state")),
+        ("metadata", metadata.get("context_state")),
+    ]
     for event in reversed(events):
-        data = _as_dict(event.get("data"))
-        context_state = data.get("context_state")
-        if event.get("type") == "context_snapshot" and _has_meaningful_context_state(context_state):
-            return context_state, "event"
-
-    metadata_record_context = metadata_dict.get("context_state")
-    if _has_meaningful_context_state(metadata_record_context):
-        return metadata_record_context, "metadata_record"
-
+        event_type = event.get("type") or event.get("event_type")
+        if event_type != "context_snapshot":
+            continue
+        data = {
+            **_as_dict(event.get("data")),
+            **_as_dict(event.get("detail_payload")),
+        }
+        candidates.append(("event", data.get("context_state")))
+    candidates.append(("metadata_record", metadata_dict.get("context_state")))
     preview = {}
     if metadata_dict.get("context_objective_preview"):
         preview["objective"] = metadata_dict.get("context_objective_preview")
@@ -119,9 +127,42 @@ def _pick_context_with_source(chatlog: dict, metadata: dict, events: list, metad
     budget = _build_budget_from_metadata(metadata_dict)
     if budget:
         preview["budget"] = budget
-    if _has_meaningful_context_state(preview):
-        return preview, "metadata_preview"
+    candidates.append(("metadata_preview", preview))
+
+    for source, candidate in candidates:
+        if _has_meaningful_context_contents(candidate):
+            return _as_dict(candidate), source
+    for source, candidate in candidates:
+        if _has_meaningful_context_state(candidate):
+            return _as_dict(candidate), source
     return {}, "none"
+
+
+def _pick_context_budget(chatlog: dict, metadata: dict, events: list, metadata_dict: dict, selected_context: dict) -> dict:
+    selected_budget = _as_dict(selected_context.get("budget"))
+    if selected_budget:
+        return selected_budget
+
+    candidates = [
+        chatlog.get("context_state"),
+        metadata.get("context_state"),
+        metadata_dict.get("context_state"),
+    ]
+    for event in reversed(events):
+        data = {
+            **_as_dict(event.get("data")),
+            **_as_dict(event.get("detail_payload")),
+        }
+        candidates.append(data.get("context_state"))
+        if isinstance(data.get("budget"), dict):
+            return data.get("budget")
+
+    for candidate in candidates:
+        budget = _as_dict(_as_dict(candidate).get("budget"))
+        if budget:
+            return budget
+
+    return _build_budget_from_metadata(metadata_dict)
 
 
 def _pick_context(chatlog: dict, metadata: dict, events: list, metadata_dict: dict) -> dict:
@@ -209,9 +250,7 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
 
     events = _merge_events(chatlog, metadata_events, llm_debug)
     context_state, context_source = _pick_context_with_source(chatlog, metadata, events, metadata_dict)
-    budget = _as_dict(context_state.get("budget"))
-    if not budget:
-        budget = _build_budget_from_metadata(metadata_dict)
+    budget = _pick_context_budget(chatlog, metadata, events, metadata_dict, context_state)
 
     llm_request = _as_dict(llm_debug.get("llm_request"))
     llm_request_request = _as_dict(llm_request.get("request"))
@@ -227,7 +266,18 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
         "latest_event_state": getattr(metadata_record, "latest_event_state", "") if metadata_record else "",
         "last_execution_id": getattr(metadata_record, "last_execution_id", "") if metadata_record else "",
     }
-    has_context = _has_meaningful_context_state(context_state)
+    has_context = _has_meaningful_context_contents(context_state)
+    if not has_context and budget:
+        context_source_label = "Context window only — no context contents captured"
+    else:
+        context_source_label = {
+            "chatlog": "Final Context Snapshot",
+            "metadata": "Final Context Snapshot",
+            "event": "Final Context Snapshot",
+            "metadata_record": "Persisted Context Snapshot",
+            "metadata_preview": "Persisted Context Preview",
+            "none": "No context snapshot captured",
+        }.get(context_source, "Final Context Snapshot")
     has_data = bool(
         events
         or budget
@@ -246,14 +296,7 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
         "model": llm_request_request.get("model") or metadata_dict.get("model") or "",
         "active_skill": active_skill,
         "context_source": context_source,
-        "context_source_label": {
-            "chatlog": "Final Context Snapshot",
-            "metadata": "Final Context Snapshot",
-            "event": "Final Context Snapshot",
-            "metadata_record": "Persisted Context Snapshot",
-            "metadata_preview": "Persisted Context Preview",
-            "none": "No context snapshot captured",
-        }.get(context_source, "Final Context Snapshot"),
+        "context_source_label": context_source_label,
         "has_context": has_context,
         "context": {
             "objective": context_state.get("objective") or metadata_dict.get("context_objective_preview") or "",
