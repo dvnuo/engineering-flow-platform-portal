@@ -60,6 +60,22 @@ class AutomationRuleRepository:
             batch_offset += len(rows)
         return collected
 
+    def list_enabled_for_trigger(self, *, source_type: str, trigger_type: str, task_type: str) -> list[AutomationRule]:
+        stmt = (
+            select(AutomationRule)
+            .where(
+                and_(
+                    AutomationRule.enabled.is_(True),
+                    AutomationRule.source_type == source_type,
+                    AutomationRule.trigger_type == trigger_type,
+                    AutomationRule.task_type == task_type,
+                )
+            )
+            .order_by(AutomationRule.created_at.desc())
+        )
+        rows = list(self.db.scalars(stmt).all())
+        return [row for row in rows if not self.is_deleted_rule(row)]
+
     def update(self, rule: AutomationRule, update_data: dict) -> AutomationRule:
         for key, value in update_data.items():
             setattr(rule, key, value)
@@ -198,7 +214,29 @@ class AutomationRuleRepository:
                     and_(AutomationRuleEvent.rule_id == rule_id, AutomationRuleEvent.dedupe_key == dedupe_key)
                 )
             ).first()
+            if existing is None:
+                raise
             return existing, False
+
+    def get_or_create_event_by_dedupe(
+        self,
+        *,
+        rule_id: str,
+        dedupe_key: str,
+        source_payload_json: str,
+        normalized_payload_json: str,
+        status: str = "discovered",
+    ) -> tuple[AutomationRuleEvent, bool]:
+        return self.create_event_or_get_existing(
+            rule_id=rule_id,
+            dedupe_key=dedupe_key,
+            source_payload_json=source_payload_json,
+            normalized_payload_json=normalized_payload_json,
+            status=status,
+        )
+
+    def get_event(self, event_id: str) -> AutomationRuleEvent | None:
+        return self.db.get(AutomationRuleEvent, event_id)
 
     def get_event_by_dedupe(self, *, rule_id: str, dedupe_key: str) -> AutomationRuleEvent | None:
         return self.db.scalars(
@@ -243,6 +281,28 @@ class AutomationRuleRepository:
         self.db.commit()
         self.db.refresh(event)
         return event
+
+    def claim_event_for_task_creation(self, event_id: str) -> bool:
+        stmt = (
+            update(AutomationRuleEvent)
+            .where(
+                and_(
+                    AutomationRuleEvent.id == event_id,
+                    AutomationRuleEvent.task_id.is_(None),
+                    or_(
+                        AutomationRuleEvent.status == "discovered",
+                        AutomationRuleEvent.status == "failed",
+                    ),
+                )
+            )
+            .values(status="creating_task", error_message=None)
+        )
+        result = self.db.execute(stmt)
+        if result.rowcount != 1:
+            self.db.rollback()
+            return False
+        self.db.commit()
+        return True
 
     def list_runs(self, rule_id: str, limit: int) -> list[AutomationRuleRun]:
         stmt = (

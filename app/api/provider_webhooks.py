@@ -23,30 +23,39 @@ def _normalize_github_review_requested(payload: dict) -> ExternalEventIngressReq
     repo_obj = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
     owner_obj = repo_obj.get("owner") if isinstance(repo_obj.get("owner"), dict) else {}
     requested_reviewer = payload.get("requested_reviewer") if isinstance(payload.get("requested_reviewer"), dict) else {}
+    requested_team = payload.get("requested_team") if isinstance(payload.get("requested_team"), dict) else {}
 
     owner = owner_obj.get("login")
     repo = repo_obj.get("name")
     pull_number = pull_request.get("number") or payload.get("number")
     reviewer = requested_reviewer.get("login")
+    team_slug = requested_team.get("slug") or requested_team.get("name")
+    team_name = f"{owner}/{team_slug}" if team_slug and owner and "/" not in str(team_slug) else team_slug
+    review_target_type = "user" if reviewer else ("team" if team_name else None)
+    review_target_name = reviewer or team_name
     head_obj = pull_request.get("head") if isinstance(pull_request.get("head"), dict) else {}
     head_sha = head_obj.get("sha")
-    if not owner or not repo or pull_number is None or not reviewer:
+    if not owner or not repo or pull_number is None or not review_target_name:
         return None
 
-    dedupe_key = f"github:review:{owner}/{repo}:{pull_number}:{reviewer}:{head_sha or ''}"
+    dedupe_key = f"github:review:{owner}/{repo}:{pull_number}:{review_target_type}:{review_target_name}:{head_sha or ''}"
     payload_json = json.dumps(
         {
             "owner": owner,
             "repo": repo,
             "pull_number": pull_number,
             "reviewer": reviewer,
+            "review_team": team_name,
+            "review_target": {"type": review_target_type, "name": review_target_name},
             "head_sha": head_sha,
+            "html_url": pull_request.get("html_url"),
+            "title": pull_request.get("title"),
         }
     )
     return ExternalEventIngressRequest(
         source_type="github",
         event_type="pull_request_review_requested",
-        external_account_id=reviewer,
+        external_account_id=review_target_name,
         target_ref=f"{owner}/{repo}",
         dedupe_key=dedupe_key,
         payload_json=payload_json,
@@ -54,8 +63,10 @@ def _normalize_github_review_requested(payload: dict) -> ExternalEventIngressReq
             {
                 "trigger_mode": "push",
                 "source_kind": "github.pull_request_review_requested",
-                "binding_lookup_username": reviewer,
+                "binding_lookup_username": review_target_name,
+                "provider_review_target_kind": review_target_type,
                 "provider_reviewer_id": requested_reviewer.get("id"),
+                "provider_team_id": requested_team.get("id"),
             }
         ),
     )

@@ -5,9 +5,11 @@ from sqlalchemy.orm import Session
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.repositories.automation_rule_repo import AutomationRuleRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.external_event_ingress import ExternalEventIngressRequest, ExternalEventIngressResponse
+from app.services.automation_rule_service import AutomationRuleService
 from app.services.capability_context_service import CapabilityContextService
 from app.services.runtime_router import RuntimeRouterService
 from app.services.task_dispatcher import TaskDispatcherService
@@ -260,6 +262,170 @@ class ExternalEventRouterService:
             "metadata_json": request.metadata_json,
         }, None
 
+    def _route_github_pr_review_requested_via_automation_rule(
+        self,
+        request: ExternalEventIngressRequest,
+        db: Session,
+    ) -> ExternalEventIngressResponse:
+        payload_obj = self._parse_event_payload_object(request)
+        if payload_obj is None:
+            return ExternalEventIngressResponse(
+                accepted=False,
+                matched_subscription_ids=[],
+                routing_reason="invalid_github_event_payload",
+                resolved_task_type="github_review_task",
+                message="payload_json must be a JSON object for github pull_request_review_requested",
+            )
+
+        owner = str(payload_obj.get("owner") or "").strip()
+        repo = str(payload_obj.get("repo") or "").strip()
+        pull_number = payload_obj.get("pull_number")
+        missing = []
+        if not owner:
+            missing.append("owner")
+        if not repo:
+            missing.append("repo")
+        if pull_number is None:
+            missing.append("pull_number")
+        if missing:
+            return ExternalEventIngressResponse(
+                accepted=False,
+                matched_subscription_ids=[],
+                routing_reason="invalid_github_event_payload",
+                resolved_task_type="github_review_task",
+                message=f"github review event missing required payload fields: {', '.join(missing)}",
+            )
+
+        metadata_obj = self._parse_metadata_object(request.metadata_json) or {}
+        review_target_obj = payload_obj.get("review_target") if isinstance(payload_obj.get("review_target"), dict) else {}
+        review_target_name = str(review_target_obj.get("name") or "").strip()
+        review_target_type = str(
+            review_target_obj.get("type")
+            or payload_obj.get("review_target_type")
+            or ""
+        ).strip().lower()
+        reviewer = str(payload_obj.get("reviewer") or "").strip()
+        review_team = str(payload_obj.get("review_team") or "").strip()
+        external_account_id = str(request.external_account_id or "").strip()
+        provider_review_target_kind = str(metadata_obj.get("provider_review_target_kind") or "").strip().lower()
+        binding_lookup_username = str(metadata_obj.get("binding_lookup_username") or "").strip()
+
+        candidate_targets: list[tuple[str | None, str]] = []
+        if review_target_name:
+            candidate_targets.append((review_target_type or None, review_target_name))
+        elif reviewer:
+            candidate_targets.append(("user", reviewer))
+        elif review_team:
+            candidate_targets.append(("team", review_team))
+        elif external_account_id:
+            candidate_targets.append((provider_review_target_kind or None, external_account_id))
+
+        if external_account_id:
+            candidate_targets.append((None, external_account_id))
+        if binding_lookup_username:
+            candidate_targets.append((None, binding_lookup_username))
+
+        deduped_candidates: list[tuple[str | None, str]] = []
+        seen: set[tuple[str | None, str]] = set()
+        for candidate_type, candidate_name in candidate_targets:
+            normalized_name = str(candidate_name or "").strip()
+            normalized_type = (candidate_type or "").strip().lower() or None
+            if not normalized_name:
+                continue
+            key = (normalized_type, normalized_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped_candidates.append(key)
+
+        if not deduped_candidates:
+            return ExternalEventIngressResponse(
+                accepted=False,
+                matched_subscription_ids=[],
+                routing_reason="no_matching_automation_rule",
+                resolved_task_type="github_review_task",
+                message="No enabled GitHub PR reviewer automation rule matched this event",
+            )
+
+        candidate_names = {name for _, name in deduped_candidates}
+        candidate_types_by_name: dict[str, set[str]] = {}
+        for candidate_type, candidate_name in deduped_candidates:
+            if candidate_type:
+                candidate_types_by_name.setdefault(candidate_name, set()).add(candidate_type)
+
+        rule_repo = AutomationRuleRepository(db)
+        matched_rule = None
+        matched_target_type = None
+        matched_target_name = None
+        for rule in rule_repo.list_enabled_for_trigger(
+            source_type="github",
+            trigger_type="github_pr_review_requested",
+            task_type="github_review_task",
+        ):
+            scope_obj = self._parse_json_object(rule.scope_json) or {}
+            if str(scope_obj.get("owner") or "").strip() != owner:
+                continue
+            if str(scope_obj.get("repo") or "").strip() != repo:
+                continue
+            trigger_obj = self._parse_json_object(rule.trigger_config_json) or {}
+            rule_target_type = str(trigger_obj.get("review_target_type") or "").strip().lower()
+            rule_target_name = str(trigger_obj.get("review_target") or "").strip()
+            if not rule_target_name or rule_target_name not in candidate_names:
+                continue
+            matched_types = candidate_types_by_name.get(rule_target_name, set())
+            if matched_types and rule_target_type not in matched_types:
+                continue
+            matched_rule = rule
+            matched_target_type = rule_target_type or "user"
+            matched_target_name = rule_target_name
+            break
+
+        if not matched_rule:
+            return ExternalEventIngressResponse(
+                accepted=False,
+                matched_subscription_ids=[],
+                routing_reason="no_matching_automation_rule",
+                resolved_task_type="github_review_task",
+                message="No enabled GitHub PR reviewer automation rule matched this event",
+            )
+
+        item = {
+            "owner": owner,
+            "repo": repo,
+            "pull_number": pull_number,
+            "html_url": payload_obj.get("html_url"),
+            "title": payload_obj.get("title"),
+            "head_sha": payload_obj.get("head_sha") or "",
+            "review_target": {"type": matched_target_type, "name": matched_target_name},
+            "source_payload": payload_obj,
+        }
+        task_cfg = self._parse_json_object(matched_rule.task_config_json) or {}
+        task, skipped = AutomationRuleService(db).create_github_review_task_for_discovered_item(
+            rule=matched_rule,
+            item=item,
+            task_cfg=task_cfg,
+        )
+        if skipped:
+            return ExternalEventIngressResponse(
+                accepted=True,
+                matched_subscription_ids=[],
+                routing_reason="duplicate_automation_event",
+                matched_agent_id=matched_rule.target_agent_id,
+                resolved_task_type="github_review_task",
+                deduped=True,
+                message="Duplicate event detected; existing automation event reused",
+            )
+        return ExternalEventIngressResponse(
+            accepted=True,
+            matched_subscription_ids=[],
+            routing_reason="matched_automation_rule",
+            matched_agent_id=matched_rule.target_agent_id,
+            created_task_id=task.id,
+            resolved_task_type="github_review_task",
+            deduped=False,
+            message="Event routed via matching automation rule",
+        )
+
     @staticmethod
     def _build_github_dedupe_hint(request: ExternalEventIngressRequest, payload: dict | None) -> str | None:
         if request.dedupe_key:
@@ -367,6 +533,9 @@ class ExternalEventRouterService:
         workflow_rule_repo = WorkflowTransitionRuleRepository(db)
         agent_repo = AgentRepository(db)
 
+        if source_type == "github" and request.event_type == "pull_request_review_requested":
+            return self._route_github_pr_review_requested_via_automation_rule(request, db)
+
         if source_type == "jira" and request.event_type == "workflow_review_requested":
             if not request.project_key or not request.issue_type or not request.trigger_status:
                 return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="missing_jira_workflow_context", message="project_key, issue_type, and trigger_status are required for jira workflow routing")
@@ -422,6 +591,7 @@ class ExternalEventRouterService:
             routing_reason = "matched_workflow_rule"
             matched_workflow_rule_id = matched_rule.id
         else:
+            # Legacy provider.automation routing path retained for non-workflow mentions/assignments.
             rule = self._automation_rule_for_event(source_type, request.event_type)
             if not rule:
                 return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="unsupported_automation_event", message="No automation rule configured for this source_type/event_type")

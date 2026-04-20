@@ -165,23 +165,26 @@ class AutomationRuleService:
         review_target_type = item.get("review_target", {}).get("type")
         review_target = item.get("review_target", {}).get("name")
         dedupe_key = f"github:pr_review_requested:{rule.id}:{owner}/{repo}:{pull_number}:{head_sha}:{review_target_type}:{review_target}"
-        event = self.repo.get_event_by_dedupe(rule_id=rule.id, dedupe_key=dedupe_key)
-        if event:
-            status_text = (event.status or "").strip().lower()
-            if status_text == "task_created" and event.task_id:
+        event, _created = self.repo.get_or_create_event_by_dedupe(
+            rule_id=rule.id,
+            dedupe_key=dedupe_key,
+            source_payload_json=json.dumps(item.get("source_payload") or {}),
+            normalized_payload_json=json.dumps(item),
+            status="discovered",
+        )
+        status_text = (event.status or "").strip().lower()
+        if status_text == "task_created" and event.task_id:
+            return None, True
+        if status_text == "failed" and event.task_id:
+            return None, True
+        if status_text not in {"discovered", "failed"} and not (status_text == "failed" and not event.task_id):
+            return None, True
+        if not self.repo.claim_event_for_task_creation(event.id):
+            refreshed = self.repo.get_event(event.id)
+            refreshed_status = ((refreshed.status if refreshed else "") or "").strip().lower()
+            if refreshed and refreshed_status == "task_created" and refreshed.task_id:
                 return None, True
-            if status_text == "failed" and event.task_id:
-                return None, True
-            if status_text not in {"discovered", "failed"}:
-                return None, True
-        else:
-            event = self.repo.create_event(
-                rule_id=rule.id,
-                dedupe_key=dedupe_key,
-                source_payload_json=json.dumps(item.get("source_payload") or {}),
-                normalized_payload_json=json.dumps(item),
-                status="discovered",
-            )
+            return None, True
 
         payload = {
             "source": "automation_rule",
@@ -200,32 +203,39 @@ class AutomationRuleService:
             "dedupe_key": dedupe_key,
         }
         bundle_id = f"github:pr_review:{owner}/{repo}:{pull_number}"
-        task = self.task_repo.create(
-            parent_agent_id=None,
-            assignee_agent_id=rule.target_agent_id,
-            owner_user_id=rule.owner_user_id,
-            created_by_user_id=rule.created_by_user_id,
-            source="automation_rule",
-            task_type=rule.task_type,
-            input_payload_json=json.dumps(payload),
-            shared_context_ref=None,
-            task_family="triggered_work",
-            provider="github",
-            trigger="github_pr_review_requested",
-            bundle_id=bundle_id,
-            version_key=head_sha,
-            dedupe_key=self._agent_task_dedupe_key(dedupe_key),
-            status="queued",
-            result_payload_json=None,
-            retry_count=0,
-        )
+        try:
+            task = self.task_repo.create(
+                parent_agent_id=None,
+                assignee_agent_id=rule.target_agent_id,
+                owner_user_id=rule.owner_user_id,
+                created_by_user_id=rule.created_by_user_id,
+                source="automation_rule",
+                task_type=rule.task_type,
+                input_payload_json=json.dumps(payload),
+                shared_context_ref=None,
+                task_family="triggered_work",
+                provider="github",
+                trigger="github_pr_review_requested",
+                bundle_id=bundle_id,
+                version_key=head_sha,
+                dedupe_key=self._agent_task_dedupe_key(dedupe_key),
+                status="queued",
+                result_payload_json=None,
+                retry_count=0,
+            )
+        except Exception as exc:
+            refreshed = self.repo.get_event(event.id)
+            if refreshed:
+                self.repo.update_event_status(refreshed, status="failed", task_id=None, error_message=str(exc)[:500])
+            raise
         self._stale_superseded_github_review_tasks_for_bundle(
             assignee_agent_id=rule.target_agent_id,
             bundle_id=bundle_id,
             new_head_sha=head_sha,
             superseding_task_id=task.id,
         )
-        self.repo.update_event_status(event, status="task_created", task_id=task.id, error_message=None)
+        refreshed = self.repo.get_event(event.id) or event
+        self.repo.update_event_status(refreshed, status="task_created", task_id=task.id, error_message=None)
         self.dispatcher.dispatch_task_in_background(task.id)
         return task, False
 
