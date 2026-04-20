@@ -63,6 +63,8 @@ def update_automation_rule(rule_id: str, payload: AutomationRuleUpdate, user=Dep
     rule = repo.get(rule_id)
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AutomationRule not found")
+    if repo.is_deleted_rule(rule):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AutomationRule is archived")
     _ensure_accessible_target_agent(db, user, rule.target_agent_id)
     if payload.target_agent_id:
         _ensure_accessible_target_agent(db, user, payload.target_agent_id)
@@ -77,6 +79,8 @@ def delete_automation_rule(rule_id: str, user=Depends(get_current_user), db: Ses
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AutomationRule not found")
     _ensure_accessible_target_agent(db, user, rule.target_agent_id)
+    if repo.is_deleted_rule(rule):
+        return {"ok": True}
     now = datetime.utcnow()
     try:
         state_obj = json.loads(rule.state_json or "{}")
@@ -107,6 +111,8 @@ async def run_automation_rule_once(rule_id: str, user=Depends(get_current_user),
     rule = AutomationRuleRepository(db).get(rule_id)
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AutomationRule not found")
+    if AutomationRuleRepository(db).is_deleted_rule(rule):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AutomationRule is archived")
     _ensure_accessible_target_agent(db, user, rule.target_agent_id)
     result = await AutomationRuleService(db).run_rule_once(rule_id, triggered_by="api")
     return AutomationRuleRunOnceResponse(**result.__dict__)

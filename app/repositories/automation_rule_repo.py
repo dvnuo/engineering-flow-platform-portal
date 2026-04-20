@@ -14,6 +14,16 @@ class AutomationRuleRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    @staticmethod
+    def is_deleted_rule(rule: AutomationRule | None) -> bool:
+        if not rule:
+            return False
+        try:
+            state = json.loads(rule.state_json or "{}")
+        except Exception:
+            state = {}
+        return bool(state.get("deleted"))
+
     def create(self, create_data: dict, current_user_id: int | None = None) -> AutomationRule:
         payload = dict(create_data)
         if current_user_id is not None:
@@ -29,11 +39,26 @@ class AutomationRuleRepository:
         return self.db.get(AutomationRule, rule_id)
 
     def list(self, limit: int = 100, offset: int = 0, enabled: bool | None = None) -> list[AutomationRule]:
-        stmt = select(AutomationRule).order_by(AutomationRule.created_at.desc()).offset(offset).limit(limit)
-        if enabled is not None:
-            stmt = stmt.where(AutomationRule.enabled.is_(enabled))
-        rows = list(self.db.scalars(stmt).all())
-        return [row for row in rows if not self._is_deleted_rule(row)]
+        if limit <= 0:
+            return []
+        collected: list[AutomationRule] = []
+        batch_offset = max(0, offset)
+        batch_size = max(50, min(200, limit))
+        while len(collected) < limit:
+            stmt = select(AutomationRule).order_by(AutomationRule.created_at.desc()).offset(batch_offset).limit(batch_size)
+            if enabled is not None:
+                stmt = stmt.where(AutomationRule.enabled.is_(enabled))
+            rows = list(self.db.scalars(stmt).all())
+            if not rows:
+                break
+            for row in rows:
+                if self.is_deleted_rule(row):
+                    continue
+                collected.append(row)
+                if len(collected) >= limit:
+                    break
+            batch_offset += len(rows)
+        return collected
 
     def update(self, rule: AutomationRule, update_data: dict) -> AutomationRule:
         for key, value in update_data.items():
@@ -48,21 +73,37 @@ class AutomationRuleRepository:
         self.db.commit()
 
     def list_due_rules(self, now: datetime, limit: int) -> list[AutomationRule]:
-        stmt = (
-            select(AutomationRule)
-            .where(
-                and_(
-                    AutomationRule.enabled.is_(True),
-                    AutomationRule.next_run_at.is_not(None),
-                    AutomationRule.next_run_at <= now,
-                    or_(AutomationRule.locked_until.is_(None), AutomationRule.locked_until < now),
+        if limit <= 0:
+            return []
+        collected: list[AutomationRule] = []
+        batch_offset = 0
+        batch_size = max(50, min(200, limit))
+        while len(collected) < limit:
+            stmt = (
+                select(AutomationRule)
+                .where(
+                    and_(
+                        AutomationRule.enabled.is_(True),
+                        AutomationRule.next_run_at.is_not(None),
+                        AutomationRule.next_run_at <= now,
+                        or_(AutomationRule.locked_until.is_(None), AutomationRule.locked_until < now),
+                    )
                 )
+                .order_by(AutomationRule.next_run_at.asc())
+                .offset(batch_offset)
+                .limit(batch_size)
             )
-            .order_by(AutomationRule.next_run_at.asc())
-            .limit(limit)
-        )
-        rows = list(self.db.scalars(stmt).all())
-        return [row for row in rows if not self._is_deleted_rule(row)]
+            rows = list(self.db.scalars(stmt).all())
+            if not rows:
+                break
+            for row in rows:
+                if self.is_deleted_rule(row):
+                    continue
+                collected.append(row)
+                if len(collected) >= limit:
+                    break
+            batch_offset += len(rows)
+        return collected
 
     def acquire_due_rule_lock(self, rule_id: str, now: datetime, lease_seconds: int) -> AutomationRule | None:
         stmt = (
@@ -86,7 +127,7 @@ class AutomationRuleRepository:
             return None
         self.db.commit()
         rule = self.get(rule_id)
-        if self._is_deleted_rule(rule):
+        if self.is_deleted_rule(rule):
             return None
         return rule
 
@@ -220,12 +261,3 @@ class AutomationRuleRepository:
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
-    @staticmethod
-    def _is_deleted_rule(rule: AutomationRule | None) -> bool:
-        if not rule:
-            return False
-        try:
-            state = json.loads(rule.state_json or "{}")
-        except Exception:
-            state = {}
-        return bool(state.get("deleted"))

@@ -1,4 +1,5 @@
 import json
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -150,10 +151,90 @@ class AutomationRuleService:
             to_update.append(task)
         self.task_repo.save_all(to_update)
 
+    @staticmethod
+    def _agent_task_dedupe_key(full_dedupe_key: str) -> str:
+        if len(full_dedupe_key) <= 240:
+            return full_dedupe_key
+        return "automation:" + hashlib.sha256(full_dedupe_key.encode()).hexdigest()
+
+    def create_github_review_task_for_discovered_item(self, *, rule, item: dict, task_cfg: dict) -> tuple[object | None, bool]:
+        owner = item.get("owner")
+        repo = item.get("repo")
+        pull_number = item.get("pull_number")
+        head_sha = item.get("head_sha") or ""
+        review_target_type = item.get("review_target", {}).get("type")
+        review_target = item.get("review_target", {}).get("name")
+        dedupe_key = f"github:pr_review_requested:{rule.id}:{owner}/{repo}:{pull_number}:{head_sha}:{review_target_type}:{review_target}"
+        event = self.repo.get_event_by_dedupe(rule_id=rule.id, dedupe_key=dedupe_key)
+        if event:
+            status_text = (event.status or "").strip().lower()
+            if status_text == "task_created" and event.task_id:
+                return None, True
+            if status_text == "failed" and event.task_id:
+                return None, True
+            if status_text not in {"discovered", "failed"}:
+                return None, True
+        else:
+            event = self.repo.create_event(
+                rule_id=rule.id,
+                dedupe_key=dedupe_key,
+                source_payload_json=json.dumps(item.get("source_payload") or {}),
+                normalized_payload_json=json.dumps(item),
+                status="discovered",
+            )
+
+        payload = {
+            "source": "automation_rule",
+            "automation_rule": "github.pr_review_requested",
+            "automation_rule_id": rule.id,
+            "rule_id": rule.id,
+            "provider": "github",
+            "owner": owner,
+            "repo": repo,
+            "pull_number": pull_number,
+            "head_sha": head_sha,
+            "review_target": {"type": review_target_type, "name": review_target},
+            "task_type": rule.task_type,
+            "skill_name": task_cfg.get("skill_name", "review-pull-request"),
+            "review_event": task_cfg.get("review_event", "COMMENT"),
+            "dedupe_key": dedupe_key,
+        }
+        bundle_id = f"github:pr_review:{owner}/{repo}:{pull_number}"
+        task = self.task_repo.create(
+            parent_agent_id=None,
+            assignee_agent_id=rule.target_agent_id,
+            owner_user_id=rule.owner_user_id,
+            created_by_user_id=rule.created_by_user_id,
+            source="automation_rule",
+            task_type=rule.task_type,
+            input_payload_json=json.dumps(payload),
+            shared_context_ref=None,
+            task_family="triggered_work",
+            provider="github",
+            trigger="github_pr_review_requested",
+            bundle_id=bundle_id,
+            version_key=head_sha,
+            dedupe_key=self._agent_task_dedupe_key(dedupe_key),
+            status="queued",
+            result_payload_json=None,
+            retry_count=0,
+        )
+        self._stale_superseded_github_review_tasks_for_bundle(
+            assignee_agent_id=rule.target_agent_id,
+            bundle_id=bundle_id,
+            new_head_sha=head_sha,
+            superseding_task_id=task.id,
+        )
+        self.repo.update_event_status(event, status="task_created", task_id=task.id, error_message=None)
+        self.dispatcher.dispatch_task_in_background(task.id)
+        return task, False
+
     async def run_rule_once(self, rule_id: str, triggered_by: str = "api") -> RunOnceResult:
         rule = self.repo.get(rule_id)
         if not rule:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AutomationRule not found")
+        if self.repo.is_deleted_rule(rule):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AutomationRule is archived")
 
         run = self.repo.create_run(rule_id=rule.id)
         scope = self._parse_json(rule.scope_json)
@@ -179,89 +260,34 @@ class AutomationRuleService:
             )
             found_count = len(items)
             for item in items:
-                owner = item.get("owner")
-                repo = item.get("repo")
-                pull_number = item.get("pull_number")
-                head_sha = item.get("head_sha") or ""
-                review_target_type = item.get("review_target", {}).get("type")
-                review_target = item.get("review_target", {}).get("name")
-                dedupe_key = f"github:pr_review_requested:{rule.id}:{owner}/{repo}:{pull_number}:{head_sha}:{review_target_type}:{review_target}"
-                event = self.repo.get_event_by_dedupe(rule_id=rule.id, dedupe_key=dedupe_key)
-                if event:
-                    status_text = (event.status or "").strip().lower()
-                    if status_text == "task_created" and event.task_id:
-                        skipped_count += 1
-                        continue
-                    if status_text == "failed" and event.task_id:
-                        skipped_count += 1
-                        continue
-                    if status_text not in {"discovered", "failed"}:
-                        skipped_count += 1
-                        continue
-                else:
-                    event = self.repo.create_event(
-                        rule_id=rule.id,
-                        dedupe_key=dedupe_key,
-                        source_payload_json=json.dumps(item.get("source_payload") or {}),
-                        normalized_payload_json=json.dumps(item),
-                        status="discovered",
-                    )
-
                 try:
-                    payload = {
-                        "source": "automation_rule",
-                        "automation_rule": "github.pr_review_requested",
-                        "automation_rule_id": rule.id,
-                        "rule_id": rule.id,
-                        "provider": "github",
-                        "owner": owner,
-                        "repo": repo,
-                        "pull_number": pull_number,
-                        "head_sha": head_sha,
-                        "review_target": {"type": review_target_type, "name": review_target},
-                        "task_type": rule.task_type,
-                        "skill_name": task_cfg.get("skill_name", "review-pull-request"),
-                        "review_event": task_cfg.get("review_event", "COMMENT"),
-                        "dedupe_key": dedupe_key,
-                    }
-                    bundle_id = f"github:pr_review:{owner}/{repo}:{pull_number}"
-                    task = self.task_repo.create(
-                        parent_agent_id=None,
-                        assignee_agent_id=rule.target_agent_id,
-                        owner_user_id=rule.owner_user_id,
-                        created_by_user_id=rule.created_by_user_id,
-                        source="automation_rule",
-                        task_type=rule.task_type,
-                        input_payload_json=json.dumps(payload),
-                        shared_context_ref=None,
-                        task_family="triggered_work",
-                        provider="github",
-                        trigger="github_pr_review_requested",
-                        bundle_id=bundle_id,
-                        version_key=head_sha,
-                        dedupe_key=dedupe_key,
-                        status="queued",
-                        result_payload_json=None,
-                        retry_count=0,
+                    task, skipped = self.create_github_review_task_for_discovered_item(
+                        rule=rule,
+                        item=item,
+                        task_cfg=task_cfg,
                     )
-                    self._stale_superseded_github_review_tasks_for_bundle(
-                        assignee_agent_id=rule.target_agent_id,
-                        bundle_id=bundle_id,
-                        new_head_sha=head_sha,
-                        superseding_task_id=task.id,
-                    )
-                    self.repo.update_event_status(event, status="task_created", task_id=task.id, error_message=None)
-                    self.dispatcher.dispatch_task_in_background(task.id)
+                    if skipped:
+                        skipped_count += 1
+                        continue
                     created_task_count += 1
                     created_task_ids.append(task.id)
                 except Exception as item_exc:
                     run_error_count += 1
-                    self.repo.update_event_status(
-                        event,
-                        status="failed",
-                        task_id=None,
-                        error_message=str(item_exc)[:500],
-                    )
+                    owner = item.get("owner")
+                    repo = item.get("repo")
+                    pull_number = item.get("pull_number")
+                    head_sha = item.get("head_sha") or ""
+                    review_target_type = item.get("review_target", {}).get("type")
+                    review_target = item.get("review_target", {}).get("name")
+                    dedupe_key = f"github:pr_review_requested:{rule.id}:{owner}/{repo}:{pull_number}:{head_sha}:{review_target_type}:{review_target}"
+                    event = self.repo.get_event_by_dedupe(rule_id=rule.id, dedupe_key=dedupe_key)
+                    if event:
+                        self.repo.update_event_status(
+                            event,
+                            status="failed",
+                            task_id=None,
+                            error_message=str(item_exc)[:500],
+                        )
 
             now = datetime.utcnow()
             run_status = "success"

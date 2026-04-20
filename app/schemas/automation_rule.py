@@ -3,6 +3,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+ALLOWED_REVIEW_EVENTS = {"COMMENT", "APPROVE", "REQUEST_CHANGES"}
+
 
 class AutomationRuleCreate(BaseModel):
     name: str
@@ -26,6 +28,14 @@ class AutomationRuleCreate(BaseModel):
         cleaned = (value or "").strip()
         if not cleaned:
             raise ValueError("must not be empty")
+        return cleaned
+
+    @field_validator("review_event")
+    @classmethod
+    def _validate_create_review_event(cls, value: str) -> str:
+        cleaned = (value or "").strip().upper()
+        if cleaned not in ALLOWED_REVIEW_EVENTS:
+            raise ValueError(f"review_event must be one of: {', '.join(sorted(ALLOWED_REVIEW_EVENTS))}")
         return cleaned
 
     @model_validator(mode="after")
@@ -65,7 +75,10 @@ class AutomationRuleUpdate(BaseModel):
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("must not be empty")
-        return cleaned.upper()
+        normalized = cleaned.upper()
+        if normalized not in ALLOWED_REVIEW_EVENTS:
+            raise ValueError(f"review_event must be one of: {', '.join(sorted(ALLOWED_REVIEW_EVENTS))}")
+        return normalized
 
     @model_validator(mode="after")
     def _validate_update_review_target(self):
