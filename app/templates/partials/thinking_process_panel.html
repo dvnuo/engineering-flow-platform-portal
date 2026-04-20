@@ -57,6 +57,9 @@
     {% if budget.get('reserved_output_tokens') is not none %}
       <div class="portal-panel-note">Reserved output: {{ budget.get('reserved_output_tokens') }} tokens</div>
     {% endif %}
+    {% if budget.get('request_over_budget') is not none %}
+      <div class="portal-panel-note">Request over budget: {{ 'yes' if budget.get('request_over_budget') else 'no' }}</div>
+    {% endif %}
     {% if budget.get('projection_chars_saved') is not none %}
       <div class="portal-panel-note">Projection saved: {{ budget.get('projection_chars_saved') }} chars</div>
     {% endif %}

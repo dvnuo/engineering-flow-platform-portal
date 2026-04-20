@@ -211,6 +211,7 @@ def test_thinking_process_panel_renders_context_budget(monkeypatch):
     assert "approaching_micro_compaction" in response.text
     assert "Context Contents" in response.text
     assert "Generate demo test cases" in response.text
+    assert "Request over budget:" not in response.text
 
 
 def test_thinking_process_panel_renders_new_projection_and_budget_diagnostics(monkeypatch):
@@ -253,6 +254,26 @@ def test_thinking_process_panel_renders_context_ref_list_as_count(monkeypatch):
     assert "Context refs created: 2" in response.text
     assert "ctx://context/abc" not in response.text
     assert "ctx://context/def" not in response.text
+
+
+def test_thinking_process_panel_renders_request_over_budget_yes_and_no(monkeypatch):
+    chatlog_yes = {
+        "session_id": "s-1",
+        "context_state": {"budget": {"request_over_budget": True}},
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog_yes)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Request over budget: yes" in response.text
+
+    chatlog_no = {
+        "session_id": "s-1",
+        "context_state": {"budget": {"request_over_budget": False}},
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog_no)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Request over budget: no" in response.text
 
 
 def test_thinking_process_panel_metadata_fallback_when_runtime_disabled(monkeypatch):

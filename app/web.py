@@ -205,12 +205,25 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "prompt_budget_tokens",
         "request_estimated_tokens",
         "reserved_output_tokens",
+        "request_over_budget",
+        "max_prompt_tokens",
+        "safety_margin_tokens",
+        "max_output_tokens",
     )
     for key in allowlist:
         value = details.get(key)
         if value is None:
             continue
         parts.append(f"{key}={value}")
+
+
+def _merge_error_details(top_level_details, nested_details) -> dict:
+    merged: dict = {}
+    if isinstance(top_level_details, dict):
+        merged.update(top_level_details)
+    if isinstance(nested_details, dict):
+        merged.update(nested_details)
+    return merged
 
 
 def _normalize_runtime_error_detail(content: bytes) -> str:
@@ -238,7 +251,7 @@ def _normalize_runtime_error_detail(content: bytes) -> str:
         if message:
             parts.append(message)
         _append_error_code(parts, error.get("code") or parsed.get("code"), error.get("error_type") or parsed.get("error_type"))
-        details = error.get("details") if isinstance(error.get("details"), dict) else parsed.get("details")
+        details = _merge_error_details(parsed.get("details"), error.get("details"))
         _append_allowlisted_error_details(parts, details)
     else:
         message = str(parsed.get("message") or "").strip()

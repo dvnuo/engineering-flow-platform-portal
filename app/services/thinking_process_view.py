@@ -59,6 +59,7 @@ def _build_budget_from_metadata(metadata_dict: dict) -> dict:
         "context_projected_old_assistant_messages": "projected_old_assistant_messages",
         "context_projected_old_tool_messages": "projected_old_tool_messages",
         "context_context_blob_refs_created": "context_blob_refs_created",
+        "context_request_over_budget": "request_over_budget",
     }
     budget = {}
     for source_key, target_key in mapping.items():
@@ -342,6 +343,7 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "projected_old_assistant_messages": budget.get("projected_old_assistant_messages"),
             "projected_old_tool_messages": budget.get("projected_old_tool_messages"),
             "context_blob_refs_created": _normalize_context_blob_refs_created(budget.get("context_blob_refs_created")),
+            "request_over_budget": budget.get("request_over_budget"),
             "soft_threshold_percent": budget.get("soft_threshold_percent"),
             "hard_threshold_percent": budget.get("hard_threshold_percent"),
             "tokens_until_soft_threshold": budget.get("tokens_until_soft_threshold"),
