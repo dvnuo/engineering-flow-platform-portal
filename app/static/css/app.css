@@ -1025,6 +1025,28 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 12px;
 }
 
+.portal-settings-section-head--leading-toggle {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.portal-settings-title-with-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.portal-section-enable-switch {
+  flex-shrink: 0;
+}
+
+.portal-section-enable-text {
+  font-size: 13px;
+  color: var(--portal-text-secondary);
+}
+
 .portal-settings-section-title {
   display: inline-flex;
   align-items: center;
