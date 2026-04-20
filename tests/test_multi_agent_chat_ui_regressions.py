@@ -774,6 +774,209 @@ chatState.inflightThinking = {{ events: [], contextState: null, contextBudget: {
     assert data["contextSource"] == "final_response"
 
 
+def test_handle_agent_chat_success_renders_final_snapshot_when_panel_is_open():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    update_session = _extract_js_function(js_file, "updateAgentSession")
+    set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+    get_runtime_event_data = _extract_js_function(js_file, "getRuntimeEventData")
+    latest_from_events = _extract_js_function(js_file, "extractLatestContextStateFromEvents")
+    pick_context_contents_first = _extract_js_function(js_file, "pickContextStateWithContentsFirst")
+    pick_context_budget = _extract_js_function(js_file, "pickContextBudget")
+    get_active_snapshot = _extract_js_function(js_file, "getActiveThinkingSnapshot")
+    handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  mineAgents: [{{id: "agent-A", name: "Agent A"}}],
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+let renderedSnapshot = null;
+const dom = {{
+  messageList: {{ insertAdjacentHTML() {{}} }},
+}};
+const document = {{ hidden: false }};
+function isThinkingPanelActiveForAgent(agentId) {{ return agentId === "agent-A"; }}
+function renderThinkingPanelFromClientState(chatState) {{
+  const snapshot = getActiveThinkingSnapshot(chatState);
+  renderedSnapshot = {{
+    summary: snapshot?.contextState?.summary || "",
+    nextStep: snapshot?.contextState?.next_step || "",
+    completed: snapshot?.completed === true,
+    contextSource: snapshot?.contextSource || "",
+  }};
+}}
+async function loadPersistedThinkingPanel() {{ return false; }}
+function setLastSessionId() {{}}
+function syncHiddenSessionInputFromState() {{}}
+function ensureEventSocketForSelectedAgent() {{}}
+function removeTemporaryAssistantRows() {{}}
+function getLatestOptimisticUserArticle() {{ return {{ dataset: {{ optimisticUser: "1" }} }}; }}
+function buildAssistantMessageArticle() {{ return ""; }}
+function getSelectedAssistantDisplayName() {{ return "Agent A"; }}
+function setChatStatus() {{}}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function renderIcons() {{}}
+function scrollToBottom() {{}}
+function addEditButtonsToMessages() {{}}
+function markAgentUnread() {{}}
+function renderAgentList() {{}}
+function notifyAgentCompletion() {{}}
+async function loadSessionForAgent() {{}}
+{create_state}
+{ensure_state}
+{update_session}
+{set_submitting}
+{merge_events}
+{extract_context_budget}
+{has_meaningful}
+{has_contents}
+{get_runtime_event_data}
+{latest_from_events}
+{pick_context_contents_first}
+{pick_context_budget}
+{get_active_snapshot}
+{handle_success}
+const chatState = ensureChatState("agent-A");
+chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.inflightThinking = {{
+  requestId: "req-a",
+  sessionId: "s-a",
+  completed: false,
+  events: [],
+  contextState: {{ summary: "Stale live summary", next_step: "Still running" }},
+  contextBudget: {{ usage_percent: 11 }},
+}};
+(async () => {{
+  await handleAgentChatSuccess(
+    "agent-A",
+    {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }},
+    {{
+      session_id: "s-a",
+      request_id: "req-a",
+      response: "done",
+      context_state: {{
+        summary: "Final payload summary",
+        next_step: "Final next step",
+        budget: {{ usage_percent: 22 }},
+      }},
+      runtime_events: [],
+    }}
+  );
+  console.log(JSON.stringify({{
+    rendered: renderedSnapshot,
+    inflightIsNull: ensureChatState("agent-A").inflightThinking === null,
+    lastSummary: ensureChatState("agent-A").lastThinkingSnapshot?.contextState?.summary || "",
+  }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["rendered"]["summary"] == "Final payload summary"
+    assert data["rendered"]["nextStep"] == "Final next step"
+    assert data["rendered"]["completed"] is True
+    assert data["rendered"]["contextSource"] == "final_response"
+    assert data["inflightIsNull"] is True
+    assert data["lastSummary"] == "Final payload summary"
+
+
+def test_handle_agent_event_message_merges_late_event_for_completed_request_into_last_snapshot():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    normalize_event = _extract_js_function(js_file, "normalizeRuntimeEvent")
+    completion_state = _extract_js_function(js_file, "isCompletionRuntimeState")
+    is_trackable = _extract_js_function(js_file, "isTrackableThinkingEvent")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+    update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
+    handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const COMPLETION_RUNTIME_STATES = new Set(["completed", "success", "failed", "error", "cancelled", "canceled"]);
+const dom = {{ chatSessionId: {{ value: "" }} }};
+function isThinkingPanelActiveForAgent() {{ return false; }}
+function scheduleThinkingPanelRefresh() {{}}
+{create_state}
+{ensure_state}
+{normalize_event}
+{completion_state}
+{is_trackable}
+{merge_events}
+{extract_context_budget}
+{has_meaningful}
+{has_contents}
+{update_context}
+{handle_event}
+const chatState = ensureChatState("agent-A");
+chatState.activeRequest = null;
+chatState.lastCompletedRequestId = "req-a";
+chatState.lastThinkingSnapshot = {{
+  requestId: "req-a",
+  sessionId: "s-a",
+  completed: true,
+  events: [],
+  contextState: {{
+    summary: "Existing final summary",
+    next_step: "Existing next step",
+  }},
+  contextBudget: {{ usage_percent: 10 }},
+}};
+handleAgentEventMessage(JSON.stringify({{
+  type: "context_snapshot",
+  event_type: "context_snapshot",
+  request_id: "req-a",
+  session_id: "s-a",
+  data: {{
+    stage: "post_turn",
+    terminal: true,
+    context_state: {{
+      summary: "Late final summary",
+      next_step: "Late next step",
+      budget: {{ usage_percent: 44 }},
+    }},
+  }},
+}}), {{ agentId: "agent-A", sessionId: "s-a" }});
+console.log(JSON.stringify({{
+  inflightIsNull: chatState.inflightThinking === null,
+  eventCount: chatState.lastThinkingSnapshot.events.length,
+  summary: chatState.lastThinkingSnapshot.contextState.summary,
+  nextStep: chatState.lastThinkingSnapshot.contextState.next_step,
+  budgetUsage: chatState.lastThinkingSnapshot.contextBudget.usage_percent,
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["inflightIsNull"] is True
+    assert data["eventCount"] == 1
+    assert data["summary"] == "Late final summary"
+    assert data["nextStep"] == "Late next step"
+    assert data["budgetUsage"] == 44
+
+
 def test_load_persisted_thinking_panel_preserves_local_context_when_persisted_has_no_context():
     node_bin = shutil.which("node")
     if not node_bin:

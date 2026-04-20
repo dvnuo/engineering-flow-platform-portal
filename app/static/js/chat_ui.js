@@ -1383,6 +1383,27 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
 
   if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
 
+  const isLateEventForCompletedRequest = Boolean(
+    !chatState.activeRequest
+    && entry.request_id
+    && chatState.lastCompletedRequestId
+    && entry.request_id === chatState.lastCompletedRequestId
+    && chatState.lastThinkingSnapshot
+  );
+
+  if (isLateEventForCompletedRequest) {
+    chatState.lastThinkingSnapshot = {
+      ...chatState.lastThinkingSnapshot,
+      events: mergeThinkingEvents(chatState.lastThinkingSnapshot.events || [], [entry]),
+      completed: true,
+    };
+    updateThinkingContextFromEvent(chatState.lastThinkingSnapshot, entry);
+    if (isThinkingPanelActiveForAgent(currentAgentId)) {
+      scheduleThinkingPanelRefresh(currentAgentId);
+    }
+    return;
+  }
+
   if (!chatState.inflightThinking) {
     chatState.inflightThinking = {
       id: entry.request_id || `event-${Date.now()}`,
@@ -2774,6 +2795,8 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   chatState.activeRequest = null;
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
+  chatState.inflightThinking = null;
+  chatState.pendingThinkingEvents = null;
   if (state.selectedAgentId !== agentIdAtSend) {
     if (canRenderThinkingPanel) {
       if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
@@ -2786,8 +2809,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
         });
       }
     }
-    chatState.inflightThinking = null;
-    chatState.pendingThinkingEvents = null;
     chatState.needsReload = true;
     markAgentUnread(agentIdAtSend, "completed");
     renderAgentList();
@@ -2814,8 +2835,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
       }
     }
     addEditButtonsToMessages();
-    chatState.inflightThinking = null;
-    chatState.pendingThinkingEvents = null;
     setChatStatus("Ready");
     if (document.hidden) {
       const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
@@ -2844,8 +2863,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
       });
     }
   }
-  chatState.inflightThinking = null;
-  chatState.pendingThinkingEvents = null;
   setChatStatus("Ready");
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
