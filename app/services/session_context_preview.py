@@ -62,6 +62,7 @@ def _derive_budget_preview(metadata: dict) -> dict:
             metadata.get("context_context_blob_refs_created")
         ),
         "context_request_over_budget": metadata.get("context_request_over_budget"),
+        "context_request_budget_stage": _normalize_preview_value(metadata.get("context_request_budget_stage")),
     }
     context_state = metadata.get("context_state") if isinstance(metadata.get("context_state"), dict) else {}
     budget = context_state.get("budget") if isinstance(context_state.get("budget"), dict) else {}
@@ -85,6 +86,7 @@ def _derive_budget_preview(metadata: dict) -> dict:
         "context_projected_old_tool_messages": budget.get("projected_old_tool_messages"),
         "context_context_blob_refs_created": context_blob_refs_created,
         "context_request_over_budget": budget.get("request_over_budget"),
+        "context_request_budget_stage": _normalize_preview_value(budget.get("request_budget_stage") or budget.get("stage")),
     }
     merged = {
         key: (flat_preview.get(key) if flat_preview.get(key) is not None else nested_preview.get(key))
@@ -107,6 +109,7 @@ def _derive_budget_preview(metadata: dict) -> dict:
             "context_projected_old_tool_messages",
             "context_context_blob_refs_created",
             "context_request_over_budget",
+            "context_request_budget_stage",
         )
     }
     return {key: value for key, value in merged.items() if value is not None}

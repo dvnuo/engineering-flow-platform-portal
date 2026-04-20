@@ -280,6 +280,26 @@ def test_thinking_process_panel_renders_request_over_budget_yes_and_no(monkeypat
     assert "Request over budget: no" in response.text
 
 
+def test_thinking_process_panel_renders_budget_stage_only_when_present(monkeypatch):
+    chatlog_with_stage = {
+        "session_id": "s-1",
+        "context_state": {"budget": {"request_budget_stage": "skill_finalizer"}},
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog_with_stage)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Budget stage: skill_finalizer" in response.text
+
+    chatlog_without_stage = {
+        "session_id": "s-1",
+        "context_state": {"budget": {"request_over_budget": True}},
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog_without_stage)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Budget stage:" not in response.text
+
+
 def test_thinking_process_panel_metadata_fallback_when_runtime_disabled(monkeypatch):
     metadata_record = SimpleNamespace(
         session_id="s-1",

@@ -66,6 +66,9 @@
     {% if budget.get('request_over_budget') is not none %}
       <div class="portal-panel-note">Request over budget: {{ 'yes' if budget.get('request_over_budget') else 'no' }}</div>
     {% endif %}
+    {% if budget.get('request_budget_stage') %}
+      <div class="portal-panel-note">Budget stage: {{ budget.get('request_budget_stage') }}</div>
+    {% endif %}
     {% if budget.get('projection_chars_saved') is not none %}
       <div class="portal-panel-note">Projection saved: {{ budget.get('projection_chars_saved') }} chars</div>
     {% endif %}
