@@ -72,8 +72,23 @@
     {% if budget.get('projection_chars_saved') is not none %}
       <div class="portal-panel-note">Projection saved: {{ budget.get('projection_chars_saved') }} chars</div>
     {% endif %}
+    {% if budget.get('projected_recent_assistant_messages') is not none %}
+      <div class="portal-panel-note">Recent assistant projected: {{ budget.get('projected_recent_assistant_messages') }}</div>
+    {% endif %}
+    {% if budget.get('projected_plain_assistant_messages') is not none %}
+      <div class="portal-panel-note">Plain assistant projected: {{ budget.get('projected_plain_assistant_messages') }}</div>
+    {% endif %}
+    {% if budget.get('assistant_projection_chars_saved') is not none %}
+      <div class="portal-panel-note">Assistant projection saved: {{ budget.get('assistant_projection_chars_saved') }} chars</div>
+    {% endif %}
     {% if budget.get('projected_old_assistant_messages') is not none or budget.get('projected_old_tool_messages') is not none %}
       <div class="portal-panel-note">Projected assistant/tool messages: {{ budget.get('projected_old_assistant_messages') if budget.get('projected_old_assistant_messages') is not none else '—' }} / {{ budget.get('projected_old_tool_messages') if budget.get('projected_old_tool_messages') is not none else '—' }}</div>
+    {% endif %}
+    {% if budget.get('output_size_guard_applied') %}
+      <div class="portal-panel-note">Output guard: applied</div>
+    {% endif %}
+    {% if budget.get('large_generation_guard_applied') %}
+      <div class="portal-panel-note">Large generation guard: applied</div>
     {% endif %}
     {% if budget.get('context_blob_refs_created') is not none %}
       <div class="portal-panel-note">Context refs created: {{ budget.get('context_blob_refs_created') }}</div>

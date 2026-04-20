@@ -210,6 +210,11 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "safety_margin_tokens",
         "max_output_tokens",
         "request_budget_stage",
+        "projected_recent_assistant_messages",
+        "projected_plain_assistant_messages",
+        "assistant_projection_chars_saved",
+        "output_size_guard_applied",
+        "large_generation_guard_applied",
     )
     for key in allowlist:
         value = details.get(key)

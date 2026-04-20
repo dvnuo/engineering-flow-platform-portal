@@ -760,3 +760,66 @@ def test_app_chat_send_runtime_error_prefers_request_budget_stage_over_stage(mon
     detail = response.json()["detail"]
     assert "request_budget_stage=skill_finalizer" in detail
     assert "request_budget_stage=tool_loop" not in detail
+
+
+def test_app_chat_send_runtime_error_includes_new_safe_projection_diagnostics_only(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "code": "context_budget_exceeded",
+            "details": {
+                "projected_recent_assistant_messages": 5,
+                "projected_plain_assistant_messages": 2,
+                "assistant_projection_chars_saved": 1500,
+                "output_size_guard_applied": True,
+                "large_generation_guard_applied": True,
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "raw_output": "SECRET_RAW_OUTPUT",
+                "response": "SECRET_RESPONSE",
+                "authorization": "Bearer SECRET_AUTH",
+                "api_key": "SECRET_KEY",
+                "token": "SECRET_TOKEN",
+                "context_blob": {"jira_body": "SECRET_JIRA_BODY", "confluence_raw": "SECRET_CONFLUENCE_RAW"},
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "projected_recent_assistant_messages=5" in detail
+    assert "projected_plain_assistant_messages=2" in detail
+    assert "assistant_projection_chars_saved=1500" in detail
+    assert "output_size_guard_applied=True" in detail
+    assert "large_generation_guard_applied=True" in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "raw_output=" not in detail
+    assert "response=" not in detail
+    assert "authorization=" not in detail
+    assert "api_key=" not in detail
+    assert "token=" not in detail
+    assert "SECRET_JIRA_BODY" not in detail
+    assert "SECRET_CONFLUENCE_RAW" not in detail

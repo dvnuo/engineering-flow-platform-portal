@@ -243,6 +243,29 @@ def test_thinking_process_panel_renders_new_projection_and_budget_diagnostics(mo
     assert "Context refs created: 2" in response.text
 
 
+def test_thinking_process_panel_renders_optional_projection_output_guard_diagnostics(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "budget": {
+                "projected_recent_assistant_messages": 4,
+                "projected_plain_assistant_messages": 2,
+                "assistant_projection_chars_saved": 1200,
+                "output_size_guard_applied": True,
+                "large_generation_guard_applied": True,
+            }
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Recent assistant projected: 4" in response.text
+    assert "Plain assistant projected: 2" in response.text
+    assert "Assistant projection saved: 1200 chars" in response.text
+    assert "Output guard: applied" in response.text
+    assert "Large generation guard: applied" in response.text
+
+
 def test_thinking_process_panel_renders_context_ref_list_as_count(monkeypatch):
     chatlog = {
         "session_id": "s-1",
