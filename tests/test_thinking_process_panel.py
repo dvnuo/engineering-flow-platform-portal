@@ -238,6 +238,23 @@ def test_thinking_process_panel_renders_new_projection_and_budget_diagnostics(mo
     assert "Context refs created: 2" in response.text
 
 
+def test_thinking_process_panel_renders_context_ref_list_as_count(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "budget": {
+                "context_blob_refs_created": ["ctx://context/abc", "ctx://context/def"],
+            }
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Context refs created: 2" in response.text
+    assert "ctx://context/abc" not in response.text
+    assert "ctx://context/def" not in response.text
+
+
 def test_thinking_process_panel_metadata_fallback_when_runtime_disabled(monkeypatch):
     metadata_record = SimpleNamespace(
         session_id="s-1",

@@ -242,6 +242,16 @@ def test_extract_context_preview_derives_new_projection_and_budget_fields():
     assert extracted["context_context_blob_refs_created"] == 2
 
 
+def test_extract_context_preview_converts_context_blob_ref_list_to_count():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="3",
+        metadata_json='{"context_state":{"budget":{"context_blob_refs_created":["ctx://context/1","ctx://context/2"]}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_context_blob_refs_created"] == 2
+
+
 def test_extract_context_preview_derives_next_pruning_policy_from_nested_budget():
     record = SimpleNamespace(
         latest_event_state="running",

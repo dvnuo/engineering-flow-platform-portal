@@ -34,6 +34,12 @@ def _safe_json_list(raw: Any) -> list:
     return parsed if isinstance(parsed, list) else []
 
 
+def _normalize_context_blob_refs_created(value: Any):
+    if isinstance(value, list):
+        return len(value)
+    return value
+
+
 def _build_budget_from_metadata(metadata_dict: dict) -> dict:
     if not isinstance(metadata_dict, dict):
         return {}
@@ -59,6 +65,8 @@ def _build_budget_from_metadata(metadata_dict: dict) -> dict:
         value = metadata_dict.get(source_key)
         if value is None:
             continue
+        if target_key == "context_blob_refs_created":
+            value = _normalize_context_blob_refs_created(value)
         budget[target_key] = value
     return budget
 
@@ -333,7 +341,7 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "projection_chars_saved": budget.get("projection_chars_saved"),
             "projected_old_assistant_messages": budget.get("projected_old_assistant_messages"),
             "projected_old_tool_messages": budget.get("projected_old_tool_messages"),
-            "context_blob_refs_created": budget.get("context_blob_refs_created"),
+            "context_blob_refs_created": _normalize_context_blob_refs_created(budget.get("context_blob_refs_created")),
             "soft_threshold_percent": budget.get("soft_threshold_percent"),
             "hard_threshold_percent": budget.get("hard_threshold_percent"),
             "tokens_until_soft_threshold": budget.get("tokens_until_soft_threshold"),

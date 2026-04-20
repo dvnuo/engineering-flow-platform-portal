@@ -187,6 +187,32 @@ def _parse_form_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on", "yes"}
 
 
+def _append_error_code(parts: list[str], code, error_type) -> None:
+    code_text = str(code or "").strip()
+    if code_text:
+        parts.append(f"code={code_text}")
+        return
+    error_type_text = str(error_type or "").strip()
+    if error_type_text:
+        parts.append(f"error_type={error_type_text}")
+
+
+def _append_allowlisted_error_details(parts: list[str], details) -> None:
+    if not isinstance(details, dict):
+        return
+    allowlist = (
+        "incomplete_reason",
+        "prompt_budget_tokens",
+        "request_estimated_tokens",
+        "reserved_output_tokens",
+    )
+    for key in allowlist:
+        value = details.get(key)
+        if value is None:
+            continue
+        parts.append(f"{key}={value}")
+
+
 def _normalize_runtime_error_detail(content: bytes) -> str:
     decoded = content.decode("utf-8", errors="replace")
     preview = decoded[:1000]
@@ -205,25 +231,21 @@ def _normalize_runtime_error_detail(content: bytes) -> str:
         message = error.strip()
         if message:
             parts.append(message)
+        _append_error_code(parts, parsed.get("code"), parsed.get("error_type"))
+        _append_allowlisted_error_details(parts, parsed.get("details"))
     elif isinstance(error, dict):
         message = str(error.get("message") or "").strip()
         if message:
             parts.append(message)
-        code = str(error.get("code") or error.get("error_type") or "").strip()
-        if code:
-            parts.append(f"code={code}")
-        details = error.get("details") if isinstance(error.get("details"), dict) else {}
-        incomplete_reason = str(details.get("incomplete_reason") or "").strip()
-        if incomplete_reason:
-            parts.append(f"incomplete_reason={incomplete_reason}")
-        for key in ("prompt_budget_tokens", "request_estimated_tokens", "reserved_output_tokens"):
-            value = details.get(key)
-            if value is not None:
-                parts.append(f"{key}={value}")
+        _append_error_code(parts, error.get("code") or parsed.get("code"), error.get("error_type") or parsed.get("error_type"))
+        details = error.get("details") if isinstance(error.get("details"), dict) else parsed.get("details")
+        _append_allowlisted_error_details(parts, details)
     else:
         message = str(parsed.get("message") or "").strip()
         if message:
             parts.append(message)
+        _append_error_code(parts, parsed.get("code"), parsed.get("error_type"))
+        _append_allowlisted_error_details(parts, parsed.get("details"))
 
     if not parts:
         parts.append(preview)
