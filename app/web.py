@@ -209,12 +209,15 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "max_prompt_tokens",
         "safety_margin_tokens",
         "max_output_tokens",
+        "request_budget_stage",
     )
     for key in allowlist:
         value = details.get(key)
         if value is None:
             continue
         parts.append(f"{key}={value}")
+    if details.get("request_budget_stage") is None and details.get("stage") is not None:
+        parts.append(f"request_budget_stage={details.get('stage')}")
 
 
 def _merge_error_details(top_level_details, nested_details) -> dict:

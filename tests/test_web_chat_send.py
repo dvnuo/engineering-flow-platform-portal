@@ -656,3 +656,107 @@ def test_app_chat_send_runtime_error_context_budget_exceeded_is_sanitized(monkey
     assert "output=" not in detail
     assert "api_key=" not in detail
     assert "token=" not in detail
+
+
+def test_app_chat_send_runtime_error_includes_request_budget_stage(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "over budget",
+            "code": "context_budget_exceeded",
+            "details": {
+                "request_estimated_tokens": 50000,
+                "prompt_budget_tokens": 32000,
+                "request_budget_stage": "skill_finalizer",
+                "prompt": "SECRET",
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "request_budget_stage=skill_finalizer" in detail
+    assert "prompt=" not in detail
+    assert "SECRET" not in detail
+
+
+def test_app_chat_send_runtime_error_uses_legacy_stage_as_fallback(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "over budget",
+            "code": "context_budget_exceeded",
+            "details": {"stage": "tool_loop"},
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "request_budget_stage=tool_loop" in detail
+
+
+def test_app_chat_send_runtime_error_prefers_request_budget_stage_over_stage(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "over budget",
+            "code": "context_budget_exceeded",
+            "details": {"request_budget_stage": "skill_finalizer", "stage": "tool_loop"},
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "request_budget_stage=skill_finalizer" in detail
+    assert "request_budget_stage=tool_loop" not in detail
