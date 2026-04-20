@@ -214,21 +214,45 @@ function getInitialUiLayoutPreferences() {
   return readUiLayoutPreferences();
 }
 
-function persistUiLayoutPreferences() {
+function persistUiLayoutPreferences({
+  includeSecondaryPane = true,
+  includeToolPanel = true,
+  clearToolPanelPreference = false,
+} = {}) {
   try {
-    const pinnedAndOpen = !!(state.toolPanelOpen && state.toolPanelPinned);
+    const existing = readUiLayoutPreferences();
     const payload = {
       version: 1,
-      secondaryPaneCollapsed: !!state.secondaryPaneCollapsed,
-      toolPanelPinned: pinnedAndOpen,
-      activeUtilityPanel: pinnedAndOpen ? normalizeUtilityPanelKey(state.activeUtilityPanel) : null,
+      secondaryPaneCollapsed: includeSecondaryPane
+        ? !!state.secondaryPaneCollapsed
+        : !!existing.secondaryPaneCollapsed,
+      toolPanelPinned: !!existing.toolPanelPinned,
+      activeUtilityPanel: normalizeUtilityPanelKey(existing.activeUtilityPanel),
+      toolPanelWidth: typeof existing.toolPanelWidth === "number" ? existing.toolPanelWidth : null,
     };
-    if (typeof getCurrentToolPanelWidth === "function") {
-      const width = getCurrentToolPanelWidth();
-      if (typeof width === "number" && Number.isFinite(width)) {
-        payload.toolPanelWidth = Math.round(width);
+
+    if (includeToolPanel) {
+      if (clearToolPanelPreference) {
+        payload.toolPanelPinned = false;
+        payload.activeUtilityPanel = null;
+      } else if (state.toolPanelOpen && state.toolPanelPinned) {
+        payload.toolPanelPinned = true;
+        payload.activeUtilityPanel = normalizeUtilityPanelKey(state.activeUtilityPanel);
+      }
+
+      if ((state.toolPanelOpen && state.toolPanelPinned) || clearToolPanelPreference) {
+        if (typeof getCurrentToolPanelWidth === "function") {
+          const width = getCurrentToolPanelWidth();
+          if (typeof width === "number" && Number.isFinite(width)) {
+            const rounded = Math.round(width);
+            if (rounded >= 300 && rounded <= 1200) {
+              payload.toolPanelWidth = rounded;
+            }
+          }
+        }
       }
     }
+
     localStorage.setItem(UI_LAYOUT_PREFS_STORAGE_KEY, JSON.stringify(payload));
   } catch {}
 }
@@ -1755,7 +1779,11 @@ function toggleToolPanelPinned() {
     state.toolPanelPinned = false;
   }
   applyToolPanelState();
-  persistUiLayoutPreferences();
+  persistUiLayoutPreferences({
+    includeSecondaryPane: false,
+    includeToolPanel: true,
+    clearToolPanelPreference: !state.toolPanelPinned,
+  });
 }
 
 async function api(path, options = {}) {
@@ -2954,74 +2982,102 @@ async function openUsersPanel() {
   }
 }
 
+function showPinnedPanelRestorePlaceholder(message = "Select a utility from top toolbar.") {
+  setToolPanel("Panel", `<div class="portal-inline-state">${safe(message)}</div>`, null, {
+    persistPreference: false,
+  });
+  state.toolPanelOpen = true;
+  state.toolPanelPinned = true;
+  applyToolPanelState();
+}
+
 async function restorePinnedToolPanelFromPreferencesOnce() {
   if (hasRestoredPinnedToolPanel) return;
   hasRestoredPinnedToolPanel = true;
 
-  const prefs = readUiLayoutPreferences();
-  if (!prefs.toolPanelPinned) return;
-  if (!isWideEnoughToPinToolPanel()) return;
+  try {
+    const prefs = readUiLayoutPreferences();
+    if (!prefs.toolPanelPinned) return;
+    if (!isWideEnoughToPinToolPanel()) return;
 
-  state.toolPanelOpen = true;
-  state.toolPanelPinned = true;
-  state.activeUtilityPanel = normalizeUtilityPanelKey(prefs.activeUtilityPanel);
-  state.pendingToolPanelRestoreKey = state.activeUtilityPanel;
-  applyToolPanelState();
-
-  const panelKey = state.pendingToolPanelRestoreKey;
-  if (!panelKey) {
-    setToolPanel("Panel", '<div class="portal-inline-state">Select a utility from top toolbar.</div>', null);
+    state.toolPanelOpen = true;
     state.toolPanelPinned = true;
+    state.activeUtilityPanel = normalizeUtilityPanelKey(prefs.activeUtilityPanel);
+    state.pendingToolPanelRestoreKey = state.activeUtilityPanel;
     applyToolPanelState();
-    return;
-  }
 
-  if (panelKey === "details") {
-    if (!openAssistantDetailsPanel()) {
-      setToolPanel("Panel", '<div class="portal-inline-state">Select a utility from top toolbar.</div>', null);
+    const panelKey = state.pendingToolPanelRestoreKey;
+    const requiresSelectedAssistant = new Set([
+      "details",
+      "sessions",
+      "thinking",
+      "server-files",
+      "skills",
+      "usage",
+      "uploads",
+    ]);
+
+    if (!panelKey) {
+      showPinnedPanelRestorePlaceholder();
+      return;
     }
-    return;
-  }
 
-  if (panelKey === "sessions") {
-    if (getSelectedAgentStatus() === "running") {
-      await openSessionsPanel();
-    } else {
-      setToolPanel("Sessions", "<div class='portal-inline-state'>Start the assistant first to browse sessions.</div>", "sessions");
+    if (requiresSelectedAssistant.has(panelKey) && !state.selectedAgentId) {
+      showPinnedPanelRestorePlaceholder("Select an assistant first to restore this panel.");
+      return;
     }
-    return;
-  }
 
-  if (panelKey === "thinking") {
-    await openThinkingProcessPanel();
-    return;
-  }
-  if (panelKey === "server-files") {
-    await openServerFiles();
-    return;
-  }
-  if (panelKey === "skills") {
-    await openSkillsPanel();
-    return;
-  }
-  if (panelKey === "usage") {
-    await openUsagePanel();
-    return;
-  }
-  if (panelKey === "uploads") {
-    await openMyUploads();
-    return;
-  }
-  if (panelKey === "users") {
-    await openUsersPanel();
-    return;
-  }
+    if (panelKey === "details") {
+      if (!openAssistantDetailsPanel()) {
+        showPinnedPanelRestorePlaceholder();
+      }
+      return;
+    }
 
-  setToolPanel("Panel", '<div class="portal-inline-state">Select a utility from top toolbar.</div>', null);
+    if (panelKey === "sessions") {
+      if (getSelectedAgentStatus() === "running") {
+        await openSessionsPanel();
+      } else {
+        setToolPanel("Sessions", "<div class='portal-inline-state'>Start the assistant first to browse sessions.</div>", "sessions", {
+          persistPreference: false,
+        });
+      }
+      return;
+    }
+
+    if (panelKey === "thinking") {
+      await openThinkingProcessPanel();
+      return;
+    }
+    if (panelKey === "server-files") {
+      await openServerFiles();
+      return;
+    }
+    if (panelKey === "skills") {
+      await openSkillsPanel();
+      return;
+    }
+    if (panelKey === "usage") {
+      await openUsagePanel();
+      return;
+    }
+    if (panelKey === "uploads") {
+      await openMyUploads();
+      return;
+    }
+    if (panelKey === "users") {
+      await openUsersPanel();
+      return;
+    }
+
+    showPinnedPanelRestorePlaceholder();
+  } catch (_error) {
+    showPinnedPanelRestorePlaceholder("Unable to restore the saved panel.");
+  }
 }
 
 // ===== toolbar actions =====
-function setToolPanel(title, contentHtml, panelKey = null) {
+function setToolPanel(title, contentHtml, panelKey = null, { persistPreference = true } = {}) {
   if (!dom.toolPanel) return;
   state.detailOpen = panelKey === "details";
   state.activeUtilityPanel = normalizeUtilityPanelKey(panelKey);
@@ -3032,7 +3088,9 @@ function setToolPanel(title, contentHtml, panelKey = null) {
     dom.toolPanelBody.innerHTML = contentHtml;
   }
   openToolPanel();
-  persistUiLayoutPreferences();
+  if (persistPreference) {
+    persistUiLayoutPreferences({ includeSecondaryPane: false, includeToolPanel: true });
+  }
 }
 
 function closeToolPanel() {
@@ -3041,7 +3099,11 @@ function closeToolPanel() {
   state.toolPanelOpen = false;
   state.toolPanelPinned = false;
   applyToolPanelState();
-  persistUiLayoutPreferences();
+  persistUiLayoutPreferences({
+    includeSecondaryPane: false,
+    includeToolPanel: true,
+    clearToolPanelPreference: true,
+  });
 }
 
 async function openSessionsPanel() {
@@ -3384,7 +3446,7 @@ async function setActiveNavSection(section, { toggleIfSame = true, preserveColla
   renderSecondaryPaneHeader();
   syncMainHeader();
   if (typeof persistUiLayoutPreferences === "function") {
-    persistUiLayoutPreferences();
+    persistUiLayoutPreferences({ includeToolPanel: false });
   }
 
   if (state.secondaryPaneCollapsed) return;
@@ -5303,12 +5365,11 @@ function bindEvents() {
   dom.secondaryPaneToggle?.addEventListener("click", () => {
     state.secondaryPaneCollapsed = true;
     applySecondaryPaneState();
-    persistUiLayoutPreferences();
+    persistUiLayoutPreferences({ includeToolPanel: false });
     window.requestAnimationFrame(() => dom.secondaryPaneRestore?.focus?.());
   });
   dom.secondaryPaneRestore?.addEventListener("click", async () => {
     await setActiveNavSection(state.activeNavSection, { toggleIfSame: false });
-    persistUiLayoutPreferences();
     window.requestAnimationFrame(() => dom.secondaryPaneToggle?.focus?.());
   });
 
@@ -5781,7 +5842,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       if (didResizeToolPanel && state.toolPanelOpen && state.toolPanelPinned) {
-        persistUiLayoutPreferences();
+        persistUiLayoutPreferences({ includeSecondaryPane: false, includeToolPanel: true });
       }
       didResizeToolPanel = false;
     });
@@ -5795,6 +5856,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   if (typeof initialUiLayoutPrefs.toolPanelWidth === "number" && Number.isFinite(initialUiLayoutPrefs.toolPanelWidth)) {
     setToolPanelWidth(initialUiLayoutPrefs.toolPanelWidth);
+  }
+  if (initialUiLayoutPrefs.toolPanelPinned && !isWideEnoughToPinToolPanel()) {
+    state.toolPanelOpen = false;
+    state.toolPanelPinned = false;
+    state.activeUtilityPanel = null;
   }
   applySecondaryPaneState();
   applyToolPanelState();
