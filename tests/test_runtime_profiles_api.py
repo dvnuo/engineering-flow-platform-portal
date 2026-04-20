@@ -8,17 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, User
-
-EXPECTED_PROXY_URL = "https://proxy.com:80"
-EXPECTED_JIRA_INSTANCES = [
-    {"name": "Jira 1", "url": "https://yourcompany.atlassian.net"},
-    {"name": "Jira 2", "url": "https://yourcompany2.atlassian.net"},
-]
-EXPECTED_CONFLUENCE_INSTANCES = [
-    {"name": "Confluence 1", "url": "https://yourcompany.atlassian.net/wiki"},
-    {"name": "Confluence 2", "url": "https://yourcompany2.atlassian.net/wiki"},
-]
-
+from app.models.runtime_profile import RuntimeProfile
 
 def _build_client(monkeypatch):
     from app.main import app
@@ -155,9 +145,7 @@ def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch)
         )
         assert no_config.status_code == 200
         no_config_payload = json.loads(no_config.json()["config_json"])
-        assert no_config_payload["proxy"]["url"] == EXPECTED_PROXY_URL
-        assert no_config_payload["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
-        assert no_config_payload["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
+        assert no_config_payload == {}
 
         empty_config = client.post(
             "/api/runtime-profiles",
@@ -165,8 +153,36 @@ def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch)
         )
         assert empty_config.status_code == 200
         empty_config_payload = json.loads(empty_config.json()["config_json"])
-        assert empty_config_payload["proxy"]["url"] == EXPECTED_PROXY_URL
-        assert empty_config_payload["jira"]["instances"] == EXPECTED_JIRA_INSTANCES
-        assert empty_config_payload["confluence"]["instances"] == EXPECTED_CONFLUENCE_INSTANCES
+        assert empty_config_payload == {}
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_get_sanitizes_legacy_provider_automation_fields(monkeypatch):
+    client, db, u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        legacy = RuntimeProfile(
+            owner_user_id=u1.id,
+            name="Legacy Profile",
+            config_json=json.dumps(
+                {
+                    "github": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+                    "jira": {"enabled": True, "automation": {"assignments": {"enabled": True}}},
+                    "confluence": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+                }
+            ),
+            revision=1,
+            is_default=False,
+        )
+        db.add(legacy)
+        db.commit()
+        db.refresh(legacy)
+
+        resp = client.get(f"/api/runtime-profiles/{legacy.id}")
+        assert resp.status_code == 200
+        cfg = json.loads(resp.json()["config_json"])
+        assert cfg["github"] == {"enabled": True}
+        assert cfg["jira"] == {"enabled": True}
+        assert cfg["confluence"] == {"enabled": True}
     finally:
         cleanup()

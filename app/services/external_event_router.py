@@ -2,12 +2,9 @@ import json
 
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
-from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.automation_rule_repo import AutomationRuleRepository
-from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 from app.schemas.external_event_ingress import ExternalEventIngressRequest, ExternalEventIngressResponse
 from app.services.automation_rule_service import AutomationRuleService
@@ -46,194 +43,17 @@ class ExternalEventRouterService:
         return str(value or "").strip().lower()
 
     @staticmethod
-    def _binding_lookup_username_from_metadata(request: ExternalEventIngressRequest) -> str | None:
-        metadata = ExternalEventRouterService._parse_metadata_object(request.metadata_json)
-        if not metadata:
-            return None
-        username = str(metadata.get("binding_lookup_username") or "").strip()
-        return username or None
-
-    @staticmethod
-    def _automation_rule_for_event(source_type: str, event_type: str) -> dict | None:
-        rules = {
-            ("github", "mention"): {
-                "task_type": "triggered_event_task",
-                "provider": "github",
-                "automation_path": ("mentions",),
-                "scope_key": "repos",
-                "dispatch": True,
-                "source_kind": "github.mention",
-                "automation_rule": "github.mentions",
-            },
-            ("jira", "assigned"): {
-                "task_type": "triggered_event_task",
-                "provider": "jira",
-                "automation_path": ("assignments",),
-                "scope_key": "projects",
-                "dispatch": True,
-                "source_kind": "jira.assigned",
-                "automation_rule": "jira.assignments",
-            },
-            ("jira", "mention"): {
-                "task_type": "triggered_event_task",
-                "provider": "jira",
-                "automation_path": ("mentions",),
-                "scope_key": "projects",
-                "dispatch": True,
-                "source_kind": "jira.mention",
-                "automation_rule": "jira.mentions",
-            },
-            ("confluence", "mention"): {
-                "task_type": "triggered_event_task",
-                "provider": "confluence",
-                "automation_path": ("mentions",),
-                "scope_key": "spaces",
-                "dispatch": True,
-                "source_kind": "confluence.mention",
-                "automation_rule": "confluence.mentions",
-            },
+    def _is_removed_legacy_provider_automation_event(source_type: str, event_type: str) -> bool:
+        return (source_type, event_type) in {
+            ("github", "mention"),
+            ("jira", "assigned"),
+            ("jira", "mention"),
+            ("confluence", "mention"),
         }
-        return rules.get((source_type, event_type))
 
     @staticmethod
     def _parse_event_payload_object(request: ExternalEventIngressRequest) -> dict | None:
         return ExternalEventRouterService._parse_json_object(request.payload_json)
-
-    def _build_triggered_event_input_payload(
-        self,
-        request: ExternalEventIngressRequest,
-        rule: dict,
-        binding,
-    ) -> tuple[dict | None, str | None]:
-        payload_obj = self._parse_event_payload_object(request)
-        if not payload_obj:
-            return None, "payload_json must be a non-empty JSON object for triggered_event_task routing"
-
-        source_type = self._normalize_source_type(request.source_type)
-        merged_payload = dict(payload_obj)
-        merged_payload["source_kind"] = rule["source_kind"]
-        merged_payload["source_type"] = source_type
-        merged_payload["event_type"] = request.event_type
-        merged_payload["external_account_id"] = request.external_account_id
-        merged_payload["binding_id"] = binding.id
-        merged_payload["automation_rule"] = rule["automation_rule"]
-
-        metadata_obj = self._parse_metadata_object(request.metadata_json)
-        if isinstance(metadata_obj, dict) and metadata_obj.get("trigger_mode"):
-            merged_payload["trigger_mode"] = metadata_obj.get("trigger_mode")
-
-        source_kind = rule["source_kind"]
-        if source_kind == "github.mention":
-            if not merged_payload.get("owner"):
-                return None, "github mention payload requires owner"
-            if not merged_payload.get("repo"):
-                return None, "github mention payload requires repo"
-            if merged_payload.get("issue_number") is None and merged_payload.get("pull_number") is None:
-                return None, "github mention payload requires issue_number or pull_number"
-        elif source_kind == "jira.assigned":
-            if not merged_payload.get("issue_key"):
-                return None, "jira assigned payload requires issue_key"
-            if not merged_payload.get("project_key"):
-                return None, "jira assigned payload requires project_key"
-        elif source_kind == "jira.mention":
-            if not merged_payload.get("issue_key"):
-                return None, "jira mention payload requires issue_key"
-            if not merged_payload.get("project_key"):
-                return None, "jira mention payload requires project_key"
-        elif source_kind == "confluence.mention":
-            if not merged_payload.get("page_id"):
-                return None, "confluence mention payload requires page_id"
-            if not merged_payload.get("space_key") and not merged_payload.get("space"):
-                return None, "confluence mention payload requires space_key or space"
-
-        return merged_payload, None
-
-    @staticmethod
-    def _load_runtime_profile_config_for_agent(*, db: Session, agent) -> dict:
-        if not agent or not agent.runtime_profile_id:
-            return {}
-        profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
-        if not profile:
-            return {}
-        return ExternalEventRouterService._parse_json_object(profile.config_json) or {}
-
-    @staticmethod
-    def _automation_enabled_for_config(config: dict, source_type: str, event_type: str) -> bool:
-        rule = ExternalEventRouterService._automation_rule_for_event(source_type, event_type)
-        if not rule:
-            return False
-        provider_cfg = config.get(rule["provider"]) if isinstance(config, dict) else None
-        if not isinstance(provider_cfg, dict) or not provider_cfg.get("enabled"):
-            return False
-        automation_cfg = provider_cfg.get("automation")
-        if not isinstance(automation_cfg, dict):
-            return False
-        target = automation_cfg
-        for key in rule["automation_path"]:
-            target = target.get(key) if isinstance(target, dict) else None
-        return isinstance(target, dict) and bool(target.get("enabled"))
-
-    @staticmethod
-    def _effective_scope_for_binding_and_config(binding, config: dict, source_type: str, event_type: str) -> list[str]:
-        rule = ExternalEventRouterService._automation_rule_for_event(source_type, event_type)
-        if not rule:
-            return []
-        scope_key = rule["scope_key"]
-        binding_scope_obj = ExternalEventRouterService._parse_json_object(getattr(binding, "scope_json", None)) or {}
-        binding_scope = binding_scope_obj.get(scope_key)
-        if isinstance(binding_scope, list):
-            cleaned = [str(item).strip() for item in binding_scope if str(item).strip()]
-            if cleaned:
-                return cleaned
-
-        provider_cfg = config.get(rule["provider"]) if isinstance(config, dict) else {}
-        automation_cfg = provider_cfg.get("automation") if isinstance(provider_cfg, dict) else {}
-        target = automation_cfg
-        for key in rule["automation_path"]:
-            target = target.get(key) if isinstance(target, dict) else {}
-        configured_scope = target.get(scope_key) if isinstance(target, dict) else []
-        if isinstance(configured_scope, list):
-            return [str(item).strip() for item in configured_scope if str(item).strip()]
-        return []
-
-    @staticmethod
-    def _event_scope_value(event: ExternalEventIngressRequest, source_type: str, payload_obj: dict | None) -> str | None:
-        if source_type == "github":
-            if payload_obj and payload_obj.get("owner") and payload_obj.get("repo"):
-                return f"{payload_obj.get('owner')}/{payload_obj.get('repo')}"
-            if event.target_ref and "/" in event.target_ref:
-                return event.target_ref.strip()
-            return None
-        if source_type == "jira":
-            if event.project_key:
-                return event.project_key.strip()
-            if event.target_ref:
-                return event.target_ref.strip()
-            if event.issue_key and "-" in event.issue_key:
-                return event.issue_key.split("-", 1)[0]
-            if payload_obj and payload_obj.get("project_key"):
-                return str(payload_obj.get("project_key")).strip()
-            return None
-        if source_type == "confluence":
-            if event.target_ref:
-                return event.target_ref.strip()
-            if payload_obj and payload_obj.get("space"):
-                return str(payload_obj.get("space")).strip()
-            if payload_obj and payload_obj.get("space_key"):
-                return str(payload_obj.get("space_key")).strip()
-            return None
-        return None
-
-    @staticmethod
-    def _is_event_in_effective_scope(event: ExternalEventIngressRequest, source_type: str, event_type: str, effective_scope: list[str]) -> bool:
-        _ = event_type
-        if not effective_scope:
-            return True
-        payload_obj = ExternalEventRouterService._parse_json_object(event.payload_json)
-        value = ExternalEventRouterService._event_scope_value(event, source_type, payload_obj)
-        if not value:
-            return False
-        return value in set(effective_scope)
 
     def _route_github_pr_review_requested_via_automation_rule(
         self,
@@ -534,84 +354,22 @@ class ExternalEventRouterService:
             task_type = "jira_workflow_review_task"
             routing_reason = "matched_workflow_rule"
             matched_workflow_rule_id = matched_rule.id
-        else:
-            # Legacy provider.automation routing path retained only for mention/assignment events.
-            # GitHub PR review requested is handled by AutomationRule and must not use runtime_profile.github.automation.
-            # This path is deprecated. Do not add new automation triggers here.
-            # New automation triggers must use AutomationRule.
-            rule = self._automation_rule_for_event(source_type, request.event_type)
-            if not rule:
-                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="unsupported_automation_event", message="No automation rule configured for this source_type/event_type")
-            if not get_settings().legacy_provider_automation_routing_enabled:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=[],
-                    routing_reason="legacy_provider_automation_disabled",
-                    resolved_task_type=rule["task_type"],
-                    message="Legacy runtime_profile provider.automation routing is disabled. Create an Automation Rule for this trigger type or enable LEGACY_PROVIDER_AUTOMATION_ROUTING_ENABLED temporarily.",
-                )
-            if not request.external_account_id:
-                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="missing_external_account_id", message="external_account_id is required for identity binding based routing")
-
-            binding_repo = AgentIdentityBindingRepository(db)
-            bindings = binding_repo.list_bindings_for_key(system_type=source_type, external_account_id=request.external_account_id)
-            if not bindings:
-                lookup_username = self._binding_lookup_username_from_metadata(request)
-                if lookup_username:
-                    bindings = binding_repo.list_bindings_for_username(system_type=source_type, username=lookup_username)
-            if not bindings:
-                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="no_enabled_binding", message="No agent matched the provided identity binding")
-
-            selected_binding = None
-            matched_agent = None
-            routing_reason = "matched_enabled_binding"
-            for binding in bindings:
-                candidate_agent = agent_repo.get_by_id(binding.agent_id)
-                if not candidate_agent:
-                    continue
-                routing_decision = self.runtime_router.resolve_agent_decision_for_event(agent_id=binding.agent_id, db=db, reason="matched_enabled_binding")
-                gate_rejection = self._evaluate_capability_profile_event_gate(
-                    agent=candidate_agent,
-                    source_type=source_type,
-                    event_type=request.event_type,
-                    db=db,
-                    capability_context=routing_decision.capability_context,
-                )
-                if gate_rejection:
-                    continue
-                config = self._load_runtime_profile_config_for_agent(db=db, agent=candidate_agent)
-                if not self._automation_enabled_for_config(config, source_type, request.event_type):
-                    continue
-                effective_scope = self._effective_scope_for_binding_and_config(binding, config, source_type, request.event_type)
-                if not self._is_event_in_effective_scope(request, source_type, request.event_type, effective_scope):
-                    continue
-                selected_binding = binding
-                matched_agent = candidate_agent
-                routing_reason = routing_decision.reason
-                break
-
-            if not selected_binding or not matched_agent:
-                return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="automation_not_enabled_or_scope_mismatch", message="No bound agent has enabled automation for this event in effective scope")
-
-            matched_agent_id = selected_binding.agent_id
-            matched_workflow_rule_id = None
-            task_type = rule["task_type"]
-
-            triggered_payload, triggered_payload_error = self._build_triggered_event_input_payload(
-                request=request,
-                rule=rule,
-                binding=selected_binding,
+        elif self._is_removed_legacy_provider_automation_event(source_type, request.event_type):
+            # New automation triggers must be modeled as AutomationRule.
+            # RuntimeProfile must not contain provider.automation.
+            return ExternalEventIngressResponse(
+                accepted=False,
+                matched_subscription_ids=[],
+                routing_reason="legacy_provider_automation_removed",
+                message="Legacy runtime_profile provider.automation routing has been removed. Create a first-class AutomationRule for this trigger type.",
             )
-            if triggered_payload_error:
-                return ExternalEventIngressResponse(
-                    accepted=False,
-                    matched_subscription_ids=[],
-                    routing_reason="invalid_triggered_event_payload",
-                    matched_agent_id=matched_agent_id,
-                    resolved_task_type=task_type,
-                    message=triggered_payload_error,
-                )
-            input_payload_json = json.dumps(triggered_payload, ensure_ascii=False)
+        else:
+            return ExternalEventIngressResponse(
+                accepted=False,
+                matched_subscription_ids=[],
+                routing_reason="unsupported_automation_event",
+                message="No automation rule configured for this source_type/event_type",
+            )
 
         payload_obj = self._parse_json_object(input_payload_json)
         if source_type == "jira":

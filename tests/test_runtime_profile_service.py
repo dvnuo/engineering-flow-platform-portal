@@ -201,3 +201,56 @@ def test_normalize_persisted_config_json_strips_legacy_provider_automation_field
     normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
     saved = json.loads(normalized)
     assert saved == {"github": {"enabled": True}, "jira": {"enabled": True}, "confluence": {"enabled": True}}
+
+
+def test_sanitize_all_persisted_runtime_profiles_removes_legacy_provider_automation_fields():
+    db = _session()
+    user = User(username="u-clean", password_hash="test", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    profile = RuntimeProfile(
+        owner_user_id=user.id,
+        name="legacy",
+        config_json=json.dumps(
+            {
+                "github": {"enabled": True, "api_token": "tok", "base_url": "https://api.github.com", "automation": {"mentions": {"enabled": True}}},
+                "jira": {"enabled": True, "instances": [{"name": "jira", "url": "https://jira.local"}], "automation": {"assignments": {"enabled": True}}},
+                "confluence": {"enabled": True, "instances": [{"name": "conf", "url": "https://conf.local"}], "automation": {"mentions": {"enabled": True}}},
+            }
+        ),
+        revision=1,
+        is_default=True,
+    )
+    db.add(profile); db.commit(); db.refresh(profile)
+
+    svc = RuntimeProfileService(db)
+    changed = svc.sanitize_all_persisted_runtime_profiles()
+    assert changed == 1
+
+    db.refresh(profile)
+    saved = json.loads(profile.config_json)
+    assert "automation" not in saved["github"]
+    assert "automation" not in saved["jira"]
+    assert "automation" not in saved["confluence"]
+    assert saved["github"]["enabled"] is True
+    assert saved["github"]["api_token"] == "tok"
+    assert saved["github"]["base_url"] == "https://api.github.com"
+    assert saved["jira"]["enabled"] is True
+    assert saved["jira"]["instances"] == [{"name": "jira", "url": "https://jira.local"}]
+    assert saved["confluence"]["enabled"] is True
+    assert saved["confluence"]["instances"] == [{"name": "conf", "url": "https://conf.local"}]
+
+
+def test_update_for_user_sanitizes_runtime_profile_config():
+    db = _session()
+    user = User(username="u-upd", password_hash="test", role="user", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    svc = RuntimeProfileService(db)
+    profile = svc.create_for_user(user, name="p1", description=None, config_json=json.dumps({"github": {"enabled": True}}), is_default=True)
+
+    updated, _changed = svc.update_for_user(
+        user,
+        profile.id,
+        config_json=json.dumps({"github": {"enabled": True, "automation": {"mentions": {"enabled": True}}}}),
+    )
+    saved = json.loads(updated.config_json)
+    assert saved == {"github": {"enabled": True}}

@@ -14,7 +14,6 @@ from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRep
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.automation_rule_repo import AutomationRuleRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
-from app.config import get_settings
 from app.services.auth_service import hash_password
 
 
@@ -157,7 +156,6 @@ def _create_automation_rule(
 def test_binding_driven_events_create_expected_tasks_and_dispatch(monkeypatch):
     client, db, admin_user, state, cleanup = _build_client_with_overrides(monkeypatch)
     try:
-        monkeypatch.setattr(get_settings(), "legacy_provider_automation_routing_enabled", True)
         agent = _create_agent(db, admin_user.id, _base_automation_config())
         _create_automation_rule(
             db,
@@ -170,8 +168,6 @@ def test_binding_driven_events_create_expected_tasks_and_dispatch(monkeypatch):
         )
         repo = AgentIdentityBindingRepository(db)
         repo.create(agent_id=agent.id, system_type="github", external_account_id="gh-1", enabled=True)
-        repo.create(agent_id=agent.id, system_type="jira", external_account_id="jira-1", enabled=True)
-        repo.create(agent_id=agent.id, system_type="confluence", external_account_id="conf-1", enabled=True)
 
         cases = [
             (
@@ -184,100 +180,6 @@ def test_binding_driven_events_create_expected_tasks_and_dispatch(monkeypatch):
                 "github_review_task",
                 None,
             ),
-            (
-                {
-                    "source_type": "github",
-                    "event_type": "mention",
-                    "external_account_id": "gh-1",
-                    "payload_json": json.dumps(
-                        {
-                            "owner": "octo",
-                            "repo": "portal",
-                            "issue_number": 2,
-                            "comment_id": "c-1",
-                            "body": "@agent please review",
-                            "html_url": "https://github.local/octo/portal/issues/2#issuecomment-1",
-                        }
-                    ),
-                },
-                "triggered_event_task",
-                {
-                    "source_kind": "github.mention",
-                    "automation_rule": "github.mentions",
-                    "retained_field": ("issue_number", 2),
-                },
-            ),
-            (
-                {
-                    "source_type": "jira",
-                    "event_type": "assigned",
-                    "external_account_id": "jira-1",
-                    "project_key": "ENG",
-                    "payload_json": json.dumps(
-                        {
-                            "issue_key": "ENG-1",
-                            "project_key": "ENG",
-                            "summary": "Implement feature",
-                            "status": "In Progress",
-                            "assignee": "jira-1",
-                            "issue_url": "https://jira.local/browse/ENG-1",
-                        }
-                    ),
-                },
-                "triggered_event_task",
-                {
-                    "source_kind": "jira.assigned",
-                    "automation_rule": "jira.assignments",
-                    "retained_field": ("issue_key", "ENG-1"),
-                },
-            ),
-            (
-                {
-                    "source_type": "jira",
-                    "event_type": "mention",
-                    "external_account_id": "jira-1",
-                    "project_key": "ENG",
-                    "payload_json": json.dumps(
-                        {
-                            "issue_key": "ENG-2",
-                            "project_key": "ENG",
-                            "comment_id": "1001",
-                            "author": "alice",
-                            "body": "@agent please check",
-                        }
-                    ),
-                },
-                "triggered_event_task",
-                {
-                    "source_kind": "jira.mention",
-                    "automation_rule": "jira.mentions",
-                    "retained_field": ("issue_key", "ENG-2"),
-                },
-            ),
-            (
-                {
-                    "source_type": "confluence",
-                    "event_type": "mention",
-                    "external_account_id": "conf-1",
-                    "target_ref": "DEV",
-                    "payload_json": json.dumps(
-                        {
-                            "page_id": "12345",
-                            "space_key": "DEV",
-                            "comment_id": "c-9",
-                            "title": "Architecture Notes",
-                            "author": "bob",
-                            "body": "@agent can you answer this?",
-                        }
-                    ),
-                },
-                "triggered_event_task",
-                {
-                    "source_kind": "confluence.mention",
-                    "automation_rule": "confluence.mentions",
-                    "retained_field": ("page_id", "12345"),
-                },
-            ),
         ]
         for payload, expected_task_type, expected_triggered in cases:
             resp = client.post("/api/external-events/ingest", json=payload)
@@ -287,17 +189,10 @@ def test_binding_driven_events_create_expected_tasks_and_dispatch(monkeypatch):
             assert body["resolved_task_type"] == expected_task_type
             assert body["matched_subscription_ids"] == []
             assert body["created_task_id"] in state["dispatches"]
-            task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
-            saved_payload = json.loads(task.input_payload_json or "{}")
-            if expected_task_type == "triggered_event_task":
-                assert saved_payload["source_kind"] == expected_triggered["source_kind"]
-                assert saved_payload["binding_id"]
-                assert saved_payload["automation_rule"] == expected_triggered["automation_rule"]
-                retained_key, retained_value = expected_triggered["retained_field"]
-                assert saved_payload[retained_key] == retained_value
+            assert AgentTaskRepository(db).get_by_id(body["created_task_id"])
 
         tasks = AgentTaskRepository(db).list_all()
-        assert len(tasks) == 5
+        assert len(tasks) == 1
     finally:
         cleanup()
 
@@ -522,7 +417,6 @@ def test_github_pr_review_requested_ingress_capability_profile_blocked(monkeypat
 def test_automation_disabled_or_scope_mismatch_rejects(monkeypatch):
     client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
     try:
-        monkeypatch.setattr(get_settings(), "legacy_provider_automation_routing_enabled", True)
         cfg = _base_automation_config()
         cfg["github"]["automation"]["mentions"]["enabled"] = False
         agent = _create_agent(db, admin_user.id, cfg)
@@ -534,6 +428,7 @@ def test_automation_disabled_or_scope_mismatch_rejects(monkeypatch):
         )
         assert resp.status_code == 200
         assert resp.json()["accepted"] is False
+        assert resp.json()["routing_reason"] == "legacy_provider_automation_removed"
 
         cfg2 = _base_automation_config()
         agent2 = _create_agent(db, admin_user.id, cfg2)
@@ -550,6 +445,7 @@ def test_automation_disabled_or_scope_mismatch_rejects(monkeypatch):
         )
         assert resp2.status_code == 200
         assert resp2.json()["accepted"] is False
+        assert resp2.json()["routing_reason"] == "legacy_provider_automation_removed"
     finally:
         cleanup()
 
@@ -557,7 +453,6 @@ def test_automation_disabled_or_scope_mismatch_rejects(monkeypatch):
 def test_invalid_triggered_event_payloads_are_rejected(monkeypatch):
     client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
     try:
-        monkeypatch.setattr(get_settings(), "legacy_provider_automation_routing_enabled", True)
         agent = _create_agent(db, admin_user.id, _base_automation_config())
         repo = AgentIdentityBindingRepository(db)
         repo.create(agent_id=agent.id, system_type="jira", external_account_id="jira-1", enabled=True)
@@ -571,7 +466,7 @@ def test_invalid_triggered_event_payloads_are_rejected(monkeypatch):
         )
         assert missing_payload_resp.status_code == 200
         assert missing_payload_resp.json()["accepted"] is False
-        assert missing_payload_resp.json()["routing_reason"] == "invalid_triggered_event_payload"
+        assert missing_payload_resp.json()["routing_reason"] == "legacy_provider_automation_removed"
 
         non_object_resp = client.post(
             "/api/external-events/ingest",
@@ -585,7 +480,7 @@ def test_invalid_triggered_event_payloads_are_rejected(monkeypatch):
         )
         assert non_object_resp.status_code == 200
         assert non_object_resp.json()["accepted"] is False
-        assert non_object_resp.json()["routing_reason"] == "invalid_triggered_event_payload"
+        assert non_object_resp.json()["routing_reason"] == "legacy_provider_automation_removed"
 
         missing_required_field_resp = client.post(
             "/api/external-events/ingest",
@@ -598,7 +493,7 @@ def test_invalid_triggered_event_payloads_are_rejected(monkeypatch):
         )
         assert missing_required_field_resp.status_code == 200
         assert missing_required_field_resp.json()["accepted"] is False
-        assert missing_required_field_resp.json()["routing_reason"] == "invalid_triggered_event_payload"
+        assert missing_required_field_resp.json()["routing_reason"] == "legacy_provider_automation_removed"
 
         assert len(AgentTaskRepository(db).list_all()) == initial_tasks
     finally:
@@ -642,7 +537,7 @@ def test_workflow_rule_routes_without_subscription(monkeypatch):
         cleanup()
 
 
-def test_legacy_provider_automation_routing_disabled_by_default(monkeypatch):
+def test_legacy_provider_automation_routing_removed(monkeypatch):
     client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         agent = _create_agent(db, admin_user.id, _base_automation_config())
@@ -677,6 +572,6 @@ def test_legacy_provider_automation_routing_disabled_by_default(monkeypatch):
             assert resp.status_code == 200
             body = resp.json()
             assert body["accepted"] is False
-            assert body["routing_reason"] == "legacy_provider_automation_disabled"
+            assert body["routing_reason"] == "legacy_provider_automation_removed"
     finally:
         cleanup()

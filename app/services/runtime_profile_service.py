@@ -186,8 +186,23 @@ class RuntimeProfileService:
         for user in users:
             self.ensure_user_has_default_profile(user)
 
+    def sanitize_all_persisted_runtime_profiles(self) -> int:
+        updated_count = 0
+        profiles = self.repo.list_all()
+        for profile in profiles:
+            sanitized = self.normalize_persisted_config_json(profile.config_json)
+            if sanitized == (profile.config_json or ""):
+                continue
+            profile.config_json = sanitized
+            self.db.add(profile)
+            updated_count += 1
+        if updated_count:
+            self.db.commit()
+        return updated_count
+
     def repair_legacy_runtime_profiles(self, db: Session | None = None) -> None:
         _ = db
+        self.sanitize_all_persisted_runtime_profiles()
         users = list(self.db.query(User).order_by(User.id.asc()).all())
         if not users:
             return
@@ -259,7 +274,7 @@ class RuntimeProfileService:
         if description is not None:
             profile.description = description
         if config_json is not None:
-            profile.config_json = config_json
+            profile.config_json = self.normalize_persisted_config_json(config_json)
         if is_default is not None:
             profile.is_default = bool(is_default)
 

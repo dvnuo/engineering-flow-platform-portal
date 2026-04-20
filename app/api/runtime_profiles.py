@@ -19,6 +19,12 @@ runtime_profile_sync_service = RuntimeProfileSyncService()
 logger = logging.getLogger(__name__)
 
 
+def _runtime_profile_response(service: RuntimeProfileService, profile) -> RuntimeProfileResponse:
+    response = RuntimeProfileResponse.model_validate(profile)
+    response.config_json = service.normalize_persisted_config_json(profile.config_json)
+    return response
+
+
 @router.post("", response_model=RuntimeProfileResponse)
 def create_runtime_profile(payload: RuntimeProfileCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     service = RuntimeProfileService(db)
@@ -29,13 +35,14 @@ def create_runtime_profile(payload: RuntimeProfileCreateRequest, user=Depends(ge
         config_json=payload.config_json,
         is_default=payload.is_default,
     )
-    return RuntimeProfileResponse.model_validate(profile)
+    return _runtime_profile_response(service, profile)
 
 
 @router.get("", response_model=list[RuntimeProfileResponse])
 def list_runtime_profiles(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    profiles = RuntimeProfileService(db).list_for_user(user)
-    return [RuntimeProfileResponse.model_validate(p) for p in profiles]
+    service = RuntimeProfileService(db)
+    profiles = service.list_for_user(user)
+    return [_runtime_profile_response(service, p) for p in profiles]
 
 
 @router.get("/options", response_model=list[RuntimeProfileOptionResponse])
@@ -55,8 +62,9 @@ def list_runtime_profile_options(user=Depends(get_current_user), db: Session = D
 
 @router.get("/{profile_id}", response_model=RuntimeProfileResponse)
 def get_runtime_profile(profile_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    profile = RuntimeProfileService(db).validate_profile_belongs_to_user(user, profile_id)
-    return RuntimeProfileResponse.model_validate(profile)
+    service = RuntimeProfileService(db)
+    profile = service.validate_profile_belongs_to_user(user, profile_id)
+    return _runtime_profile_response(service, profile)
 
 
 @router.patch("/{profile_id}", response_model=RuntimeProfileResponse)
@@ -74,7 +82,7 @@ async def update_runtime_profile(profile_id: str, payload: RuntimeProfileUpdateR
         except Exception:
             logger.exception("runtime profile fan-out sync failed profile_id=%s", profile.id)
 
-    return RuntimeProfileResponse.model_validate(profile)
+    return _runtime_profile_response(service, profile)
 
 
 @router.delete("/{profile_id}")

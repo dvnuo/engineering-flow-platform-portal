@@ -64,11 +64,6 @@ class Settings(BaseSettings):
     automation_rules_worker_enabled: bool = Field(default=True, validation_alias="AUTOMATION_RULES_WORKER_ENABLED")
     automation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="AUTOMATION_RULES_WORKER_INTERVAL_SECONDS")
     automation_rule_lock_lease_seconds: int = Field(default=120, validation_alias="AUTOMATION_RULE_LOCK_LEASE_SECONDS")
-    legacy_provider_automation_routing_enabled: bool = Field(
-        default=False,
-        validation_alias="LEGACY_PROVIDER_AUTOMATION_ROUTING_ENABLED",
-    )
-
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
