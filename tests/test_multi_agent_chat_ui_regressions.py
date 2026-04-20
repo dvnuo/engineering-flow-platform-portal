@@ -440,6 +440,116 @@ chatState.inflightThinking = {{ events: [{{type: "execution.started", request_id
     assert data["mergedCount"] == 2
 
 
+def test_has_meaningful_context_state_filters_empty_dicts():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+
+    script = f"""
+{has_meaningful}
+const cases = {{
+  empty: hasMeaningfulContextState({{}}),
+  scalar: hasMeaningfulContextState({{ summary: "final" }}),
+  emptyList: hasMeaningfulContextState({{ constraints: [""] }}),
+  list: hasMeaningfulContextState({{ constraints: ["must preserve"] }}),
+  budget: hasMeaningfulContextState({{ budget: {{ usage_percent: 42 }} }}),
+}};
+console.log(JSON.stringify(cases));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data == {
+        "empty": False,
+        "scalar": True,
+        "emptyList": False,
+        "list": True,
+        "budget": True,
+    }
+
+
+def test_handle_agent_chat_success_keeps_live_context_when_payload_context_empty_object():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    update_session = _extract_js_function(js_file, "updateAgentSession")
+    set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    pick_meaningful = _extract_js_function(js_file, "pickMeaningfulContextState")
+    latest_from_events = _extract_js_function(js_file, "extractLatestContextStateFromEvents")
+    handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  mineAgents: [{{id: "agent-A", name: "Agent A"}}],
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const dom = {{ messageList: {{ insertAdjacentHTML() {{}} }} }};
+const document = {{ hidden: false }};
+function setLastSessionId() {{}}
+function syncHiddenSessionInputFromState() {{}}
+function ensureEventSocketForSelectedAgent() {{}}
+function removeTemporaryAssistantRows() {{}}
+function getLatestOptimisticUserArticle() {{ return {{ dataset: {{ optimisticUser: "1" }} }}; }}
+function buildAssistantMessageArticle() {{ return ""; }}
+function getSelectedAssistantDisplayName() {{ return "Agent A"; }}
+function setChatStatus() {{}}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function renderIcons() {{}}
+function scrollToBottom() {{}}
+function addEditButtonsToMessages() {{}}
+function markAgentUnread() {{}}
+function renderAgentList() {{}}
+function notifyAgentCompletion() {{}}
+async function loadSessionForAgent() {{}}
+{create_state}
+{ensure_state}
+{update_session}
+{set_submitting}
+{merge_events}
+{extract_context_budget}
+{has_meaningful}
+{pick_meaningful}
+{latest_from_events}
+{handle_success}
+const chatState = ensureChatState("agent-A");
+chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.inflightThinking = {{
+  events: [{{ type: "context_snapshot", request_id: "req-a", session_id: "s-a", data: {{ context_state: {{ summary: "Live summary" }} }} }}],
+  contextState: {{ summary: "Live summary", next_step: "Keep me" }},
+  contextBudget: {{ usage_percent: 11 }},
+}};
+(async () => {{
+  await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{
+    session_id: "s-a",
+    request_id: "req-a",
+    response: "done",
+    context_state: {{}},
+    runtime_events: [],
+  }});
+  console.log(JSON.stringify({{
+    summary: ensureChatState("agent-A").lastThinkingSnapshot.contextState.summary,
+    contextSource: ensureChatState("agent-A").lastThinkingSnapshot.contextSource,
+  }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["summary"] == "Live summary"
+    assert data["contextSource"] == "last_observed_live"
+
+
 def test_success_without_optimistic_row_reloads_session():
     node_bin = shutil.which("node")
     if not node_bin:

@@ -1,14 +1,20 @@
-<div class="portal-panel-stack">
+{% set v = view if view is mapping else {} %}
+{% set active_skill = v.get('active_skill', {}) if v.get('active_skill') is mapping else {} %}
+{% set context = v.get('context', {}) if v.get('context') is mapping else {} %}
+{% set budget = v.get('budget', {}) if v.get('budget') is mapping else {} %}
+{% set events = v.get('events', []) if v.get('events') is iterable else [] %}
+{% set debug = v.get('debug', {}) if v.get('debug') is mapping else {} %}
+{% set has_data = v.get('has_data') %}
+<div
+  class="portal-panel-stack"
+  data-thinking-panel-root="1"
+  data-thinking-has-data="{{ '1' if has_data else '0' }}"
+  data-thinking-request-id="{{ v.get('request_id') or '' }}"
+  data-thinking-session-id="{{ v.get('session_id') or session_id or '' }}"
+>
 {% if error %}
   <div class="portal-inline-state is-error">{{ error }}</div>
 {% else %}
-  {% set v = view if view is mapping else {} %}
-  {% set active_skill = v.get('active_skill', {}) if v.get('active_skill') is mapping else {} %}
-  {% set context = v.get('context', {}) if v.get('context') is mapping else {} %}
-  {% set budget = v.get('budget', {}) if v.get('budget') is mapping else {} %}
-  {% set events = v.get('events', []) if v.get('events') is iterable else [] %}
-  {% set debug = v.get('debug', {}) if v.get('debug') is mapping else {} %}
-
   <div class="portal-panel-section">
     <div class="portal-panel-title">Thinking Process</div>
     {% if v.get('warning') %}<div class="portal-inline-state">{{ v.get('warning') }}</div>{% endif %}
@@ -61,15 +67,20 @@
 
   <div class="portal-panel-section">
     <div class="portal-panel-title">Context Contents</div>
-    <div class="portal-context-grid">
-      <div class="portal-context-kv"><strong>objective</strong><div>{{ context.get('objective') or '—' }}</div></div>
-      <div class="portal-context-kv"><strong>summary</strong><div>{{ context.get('summary') or '—' }}</div></div>
-      <div class="portal-context-kv"><strong>current_state</strong><div>{{ context.get('current_state') or '—' }}</div></div>
-      <div class="portal-context-kv"><strong>next_step</strong><div>{{ context.get('next_step') or '—' }}</div></div>
-      <div class="portal-context-kv"><strong>constraints</strong><ul>{% for item in context.get('constraints', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
-      <div class="portal-context-kv"><strong>decisions</strong><ul>{% for item in context.get('decisions', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
-      <div class="portal-context-kv"><strong>open_loops</strong><ul>{% for item in context.get('open_loops', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
-    </div>
+    <div class="portal-panel-note">{{ v.get('context_source_label') or 'Final Context Snapshot' }}</div>
+    {% if v.get('has_context') %}
+      <div class="portal-context-grid">
+        <div class="portal-context-kv"><strong>objective</strong><div>{{ context.get('objective') or '—' }}</div></div>
+        <div class="portal-context-kv"><strong>summary</strong><div>{{ context.get('summary') or '—' }}</div></div>
+        <div class="portal-context-kv"><strong>current_state</strong><div>{{ context.get('current_state') or '—' }}</div></div>
+        <div class="portal-context-kv"><strong>next_step</strong><div>{{ context.get('next_step') or '—' }}</div></div>
+        <div class="portal-context-kv"><strong>constraints</strong><ul>{% for item in context.get('constraints', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
+        <div class="portal-context-kv"><strong>decisions</strong><ul>{% for item in context.get('decisions', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
+        <div class="portal-context-kv"><strong>open_loops</strong><ul>{% for item in context.get('open_loops', [])[:10] %}<li>{{ item }}</li>{% endfor %}</ul></div>
+      </div>
+    {% else %}
+      <div class="portal-inline-state">No context snapshot was captured for this run.</div>
+    {% endif %}
   </div>
 
   <div class="portal-panel-section">

@@ -397,3 +397,45 @@ def test_thinking_process_panel_renders_pruning_policy_and_planned_payload(monke
     assert "Approaching micro-compaction" in response.text
     assert "context_compaction_planned" in response.text
     assert "61.5" in response.text
+
+
+def test_thinking_process_panel_ignores_empty_chatlog_context_state_when_event_has_final_context(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "request_id": "req-1",
+        "context_state": {},
+        "runtime_events": [
+            {
+                "event_type": "context_snapshot",
+                "state": "completed",
+                "request_id": "req-1",
+                "detail_payload": {
+                    "stage": "post_turn",
+                    "terminal": True,
+                    "context_state": {
+                        "summary": "Final event context summary",
+                        "next_step": "Open final snapshot",
+                        "budget": {"usage_percent": 33.0, "context_window_tokens": 1000},
+                    },
+                },
+            }
+        ],
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Final event context summary" in response.text
+    assert "Open final snapshot" in response.text
+    assert 'data-thinking-has-data="1"' in response.text
+    assert 'data-thinking-request-id="req-1"' in response.text
+    assert "No context snapshot was captured" not in response.text
+
+
+def test_thinking_process_panel_shows_empty_context_state_and_has_data_zero_when_truly_empty(monkeypatch):
+    chatlog = {"session_id": "s-empty", "request_id": "req-empty", "events": []}
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-empty")
+    assert response.status_code == 200
+    assert "No context snapshot was captured for this run." in response.text
+    assert 'data-thinking-panel-root="1"' in response.text
+    assert 'data-thinking-has-data="0"' in response.text
