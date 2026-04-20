@@ -51,15 +51,6 @@ class ExternalEventRouterService:
     @staticmethod
     def _automation_rule_for_event(source_type: str, event_type: str) -> dict | None:
         rules = {
-            ("github", "pull_request_review_requested"): {
-                "task_type": "github_review_task",
-                "provider": "github",
-                "automation_path": ("review_requests",),
-                "scope_key": "repos",
-                "dispatch": True,
-                "source_kind": "github.pull_request_review_requested",
-                "automation_rule": "github.review_requests",
-            },
             ("github", "mention"): {
                 "task_type": "triggered_event_task",
                 "provider": "github",
@@ -400,11 +391,24 @@ class ExternalEventRouterService:
             "source_payload": payload_obj,
         }
         task_cfg = self._parse_json_object(matched_rule.task_config_json) or {}
-        task, skipped = AutomationRuleService(db).create_github_review_task_for_discovered_item(
-            rule=matched_rule,
-            item=item,
-            task_cfg=task_cfg,
-        )
+        skill_name = str(task_cfg.get("skill_name") or "").strip() or "review-pull-request"
+        automation_service = AutomationRuleService(db)
+        try:
+            automation_service._validate_agent_can_run_github_pr_review_rule(
+                agent_id=matched_rule.target_agent_id,
+                skill_name=skill_name,
+            )
+        except Exception as exc:
+            return ExternalEventIngressResponse(
+                accepted=False,
+                matched_subscription_ids=[],
+                routing_reason="capability_profile_blocked",
+                matched_agent_id=matched_rule.target_agent_id,
+                resolved_task_type="github_review_task",
+                message=str(getattr(exc, "detail", None) or "Selected agent capability profile does not allow GitHub PR review automation"),
+            )
+
+        task, skipped = automation_service.create_github_review_task_for_discovered_item(rule=matched_rule, item=item, task_cfg=task_cfg)
         if skipped:
             return ExternalEventIngressResponse(
                 accepted=True,
@@ -591,7 +595,8 @@ class ExternalEventRouterService:
             routing_reason = "matched_workflow_rule"
             matched_workflow_rule_id = matched_rule.id
         else:
-            # Legacy provider.automation routing path retained for non-workflow mentions/assignments.
+            # Legacy provider.automation routing path retained only for mention/assignment events.
+            # GitHub PR review requested is handled by AutomationRule and must not use runtime_profile.github.automation.
             rule = self._automation_rule_for_event(source_type, request.event_type)
             if not rule:
                 return ExternalEventIngressResponse(accepted=False, matched_subscription_ids=[], routing_reason="unsupported_automation_event", message="No automation rule configured for this source_type/event_type")

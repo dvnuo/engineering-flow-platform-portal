@@ -67,3 +67,4 @@ class AutomationRuleEvent(Base):
     task_id: Mapped[Optional[str]] = mapped_column(ForeignKey("agent_tasks.id"), nullable=True, index=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)

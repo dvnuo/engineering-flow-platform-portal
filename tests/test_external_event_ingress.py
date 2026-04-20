@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, User
+from app.models.capability_profile import CapabilityProfile
 from app.models.runtime_profile import RuntimeProfile
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -405,6 +406,43 @@ def test_github_pr_review_requested_ingress_team_target(monkeypatch):
         task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
         payload = json.loads(task.input_payload_json)
         assert payload["review_target"] == {"type": "team", "name": "acme/reviewers"}
+    finally:
+        cleanup()
+
+
+def test_github_pr_review_requested_ingress_capability_profile_blocked(monkeypatch):
+    client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        agent = _create_agent(db, admin_user.id, {"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "token"}})
+        cp = CapabilityProfile(name="cap-jira-only-ingress", allowed_external_systems_json='["jira"]')
+        db.add(cp); db.commit(); db.refresh(cp)
+        agent.capability_profile_id = cp.id
+        db.add(agent); db.commit()
+
+        _create_automation_rule(
+            db,
+            owner_user_id=admin_user.id,
+            target_agent_id=agent.id,
+            owner="acme",
+            repo="portal",
+            review_target_type="user",
+            review_target="alice",
+        )
+
+        resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "alice",
+                "payload_json": json.dumps({"owner": "acme", "repo": "portal", "pull_number": 3, "reviewer": "alice", "head_sha": "sha1"}),
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["accepted"] is False
+        assert body["routing_reason"] == "capability_profile_blocked"
+        assert body["matched_agent_id"] == agent.id
     finally:
         cleanup()
 

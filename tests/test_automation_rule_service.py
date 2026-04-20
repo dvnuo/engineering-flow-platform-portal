@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -7,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
+from app.models.capability_profile import CapabilityProfile
 from app.models.agent_task import AgentTask
 from app.repositories.automation_rule_repo import AutomationRuleRepository
 from app.schemas.automation_rule import AutomationRuleCreate
@@ -186,3 +188,118 @@ def test_create_github_review_task_concurrent_claim_creates_single_task(monkeypa
     events = AutomationRuleRepository(db).list_events(rule.id, 10)
     assert len(events) == 1
     assert events[0].status == "task_created"
+
+
+def test_create_github_review_task_reclaims_stale_creating_task(monkeypatch):
+    db = _session()
+    user = User(username="u4", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp4", config_json=json.dumps({"github": {"enabled": True, "api_token": "secret"}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    rule = _create_review_rule(db, user_id=user.id, agent_id=agent.id)
+
+    svc = AutomationRuleService(db)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+
+    item = {"owner": "acme", "repo": "portal", "pull_number": 5, "head_sha": "sha-stale", "review_target": {"type": "user", "name": "alice"}, "source_payload": {}}
+    dedupe_key = f"github:pr_review_requested:{rule.id}:acme/portal:5:sha-stale:user:alice"
+    event = AutomationRuleRepository(db).create_event(
+        rule_id=rule.id,
+        dedupe_key=dedupe_key,
+        source_payload_json="{}",
+        normalized_payload_json="{}",
+        status="creating_task",
+    )
+    event.updated_at = datetime.utcnow() - timedelta(minutes=10)
+    db.add(event); db.commit()
+
+    task, skipped = svc.create_github_review_task_for_discovered_item(rule=rule, item=item, task_cfg={"skill_name": "review-pull-request", "review_event": "COMMENT"})
+    assert skipped is False
+    assert task is not None
+    refreshed = AutomationRuleRepository(db).get_event(event.id)
+    assert refreshed.status == "task_created"
+    assert refreshed.task_id == task.id
+
+
+def test_create_github_review_task_skips_fresh_creating_task(monkeypatch):
+    db = _session()
+    user = User(username="u5", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp5", config_json=json.dumps({"github": {"enabled": True, "api_token": "secret"}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    rule = _create_review_rule(db, user_id=user.id, agent_id=agent.id)
+
+    svc = AutomationRuleService(db)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+
+    item = {"owner": "acme", "repo": "portal", "pull_number": 6, "head_sha": "sha-fresh", "review_target": {"type": "user", "name": "alice"}, "source_payload": {}}
+    dedupe_key = f"github:pr_review_requested:{rule.id}:acme/portal:6:sha-fresh:user:alice"
+    event = AutomationRuleRepository(db).create_event(
+        rule_id=rule.id,
+        dedupe_key=dedupe_key,
+        source_payload_json="{}",
+        normalized_payload_json="{}",
+        status="creating_task",
+    )
+    event.updated_at = datetime.utcnow()
+    db.add(event); db.commit()
+
+    task, skipped = svc.create_github_review_task_for_discovered_item(rule=rule, item=item, task_cfg={"skill_name": "review-pull-request", "review_event": "COMMENT"})
+    assert task is None
+    assert skipped is True
+    assert db.query(AgentTask).count() == 0
+
+
+@pytest.mark.anyio
+async def test_run_once_failure_schedules_next_run(monkeypatch):
+    db = _session()
+    user = User(username="u6", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp6", config_json=json.dumps({"github": {"enabled": True, "api_token": "secret"}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    rule = _create_review_rule(db, user_id=user.id, agent_id=agent.id)
+
+    svc = AutomationRuleService(db)
+    monkeypatch.setattr("app.services.automation_rule_service.resolve_github_for_agent", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("resolver boom")))
+
+    before = datetime.utcnow()
+    with pytest.raises(Exception):
+        await svc.run_rule_once(rule.id)
+
+    refreshed_rule = AutomationRuleRepository(db).get(rule.id)
+    runs = AutomationRuleRepository(db).list_runs(rule.id, 5)
+    assert runs[0].status == "failed"
+    assert refreshed_rule.last_run_at is not None
+    assert refreshed_rule.next_run_at is not None
+    assert refreshed_rule.next_run_at > before
+    assert refreshed_rule.locked_until is None
+
+
+@pytest.mark.anyio
+async def test_run_once_blocked_by_capability_profile(monkeypatch):
+    db = _session()
+    user = User(username="u7", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp7", config_json=json.dumps({"github": {"enabled": True, "api_token": "secret"}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    rule = _create_review_rule(db, user_id=user.id, agent_id=agent.id)
+
+    cp = CapabilityProfile(name="cap-jira-only", allowed_external_systems_json='["jira"]')
+    db.add(cp); db.commit(); db.refresh(cp)
+    agent.capability_profile_id = cp.id
+    db.add(agent); db.commit()
+
+    svc = AutomationRuleService(db)
+    with pytest.raises(Exception):
+        await svc.run_rule_once(rule.id)
+
+    runs = AutomationRuleRepository(db).list_runs(rule.id, 5)
+    assert runs[0].status == "failed"

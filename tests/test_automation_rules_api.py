@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
+from app.models.capability_profile import CapabilityProfile
 
 
 def _build_client_with_overrides():
@@ -123,5 +124,58 @@ def test_automation_rules_api_validation_and_missing_github_config():
         missing = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "owner": "acme", "repo": "portal", "review_target_type": "user", "review_target": "alice"})
         assert missing.status_code == 400
         assert "GitHub is not enabled" in missing.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_automation_rules_api_capability_profile_gate():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        cp_jira = CapabilityProfile(name="cap-jira-only", allowed_external_systems_json='["jira"]')
+        db.add(cp_jira); db.commit(); db.refresh(cp_jira)
+        agent.capability_profile_id = cp_jira.id
+        db.add(agent); db.commit()
+
+        resp = client.post("/api/automation-rules", json=_create_payload(agent.id))
+        assert resp.status_code == 400
+        assert "capability profile does not allow" in resp.json()["detail"]
+
+        cp_ok = CapabilityProfile(
+            name="cap-github-ok",
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["pull_request_review_requested"]',
+            allowed_actions_json='["review_pull_request"]',
+        )
+        db.add(cp_ok); db.commit(); db.refresh(cp_ok)
+        agent.capability_profile_id = cp_ok.id
+        db.add(agent); db.commit()
+        ok = client.post("/api/automation-rules", json=_create_payload(agent.id))
+        assert ok.status_code == 200
+
+        cp_bad_trigger = CapabilityProfile(
+            name="cap-bad-trigger",
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["jira.assigned"]',
+            allowed_actions_json='["review_pull_request"]',
+        )
+        db.add(cp_bad_trigger); db.commit(); db.refresh(cp_bad_trigger)
+        agent.capability_profile_id = cp_bad_trigger.id
+        db.add(agent); db.commit()
+        bad_trigger = client.post("/api/automation-rules", json=_create_payload(agent.id))
+        assert bad_trigger.status_code == 400
+        assert "capability profile does not allow" in bad_trigger.json()["detail"]
+
+        cp_bad_action = CapabilityProfile(
+            name="cap-bad-action",
+            allowed_external_systems_json='["github"]',
+            allowed_webhook_triggers_json='["pull_request_review_requested"]',
+            allowed_actions_json='["jira_transition"]',
+        )
+        db.add(cp_bad_action); db.commit(); db.refresh(cp_bad_action)
+        agent.capability_profile_id = cp_bad_action.id
+        db.add(agent); db.commit()
+        bad_action = client.post("/api/automation-rules", json=_create_payload(agent.id))
+        assert bad_action.status_code == 400
+        assert "capability profile does not allow" in bad_action.json()["detail"]
     finally:
         cleanup()

@@ -274,15 +274,25 @@ class AutomationRuleRepository:
         task_id: str | None = None,
         error_message: str | None = None,
     ) -> AutomationRuleEvent:
+        now = datetime.utcnow()
         event.status = status
         event.task_id = task_id
         event.error_message = error_message
+        event.updated_at = now
         self.db.add(event)
         self.db.commit()
         self.db.refresh(event)
         return event
 
-    def claim_event_for_task_creation(self, event_id: str) -> bool:
+    def claim_event_for_task_creation(
+        self,
+        event_id: str,
+        *,
+        now: datetime | None = None,
+        stale_after_seconds: int = 300,
+    ) -> bool:
+        claim_now = now or datetime.utcnow()
+        stale_before = claim_now - timedelta(seconds=max(1, stale_after_seconds))
         stmt = (
             update(AutomationRuleEvent)
             .where(
@@ -290,12 +300,18 @@ class AutomationRuleRepository:
                     AutomationRuleEvent.id == event_id,
                     AutomationRuleEvent.task_id.is_(None),
                     or_(
-                        AutomationRuleEvent.status == "discovered",
-                        AutomationRuleEvent.status == "failed",
+                        AutomationRuleEvent.status.in_(("discovered", "failed")),
+                        and_(
+                            AutomationRuleEvent.status == "creating_task",
+                            or_(
+                                AutomationRuleEvent.updated_at.is_(None),
+                                AutomationRuleEvent.updated_at < stale_before,
+                            ),
+                        ),
                     ),
                 )
             )
-            .values(status="creating_task", error_message=None)
+            .values(status="creating_task", error_message=None, updated_at=claim_now)
         )
         result = self.db.execute(stmt)
         if result.rowcount != 1:
