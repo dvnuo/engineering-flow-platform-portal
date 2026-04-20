@@ -70,8 +70,6 @@ def on_startup() -> None:
     assert_portal_schema_ready(engine)
     assert_phase5_schema_compatibility(engine)
     assert_runtime_profile_schema_compatibility(engine)
-    if settings.automation_rules_worker_enabled:
-        worker_singleton.start()
 
     db = SessionLocal()
     try:
@@ -92,6 +90,9 @@ def on_startup() -> None:
         runtime_profile_service.ensure_defaults_for_all_users(db)
     finally:
         db.close()
+
+    if settings.automation_rules_worker_enabled:
+        worker_singleton.start()
 
 
 @app.on_event("shutdown")

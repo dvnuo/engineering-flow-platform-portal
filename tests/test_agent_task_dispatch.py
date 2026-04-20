@@ -179,6 +179,20 @@ def test_dispatch_task_sync_runtime_success_compatible(db_session, monkeypatch):
     assert task.status == "done"
 
 
+def test_dispatcher_derives_summary_from_github_review_summary():
+    payload = {
+        "ok": True,
+        "status": "success",
+        "output_payload": {
+            "task_type": "github_review_task",
+            "review_summary": "Automated PR review summary",
+            "automation_rule_id": "rule-1",
+            "dedupe_key": "dedupe-1",
+        },
+    }
+    assert TaskDispatcherService._derive_summary_from_runtime_payload(payload) == "Automated PR review summary"
+
+
 def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):
     db, agent = db_session
     task = _create_task(db, agent.id)

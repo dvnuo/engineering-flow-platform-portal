@@ -346,7 +346,7 @@ class TaskDispatcherService:
             return None
         output_payload = payload.get("output_payload")
         if isinstance(output_payload, dict):
-            for key in ("summary", "message", "result_summary"):
+            for key in ("summary", "review_summary", "message", "result_summary"):
                 value = output_payload.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
