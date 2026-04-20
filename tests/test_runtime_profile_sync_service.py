@@ -156,3 +156,17 @@ def test_build_apply_payload_from_sparse_legacy_profile_does_not_backfill_creati
         assert payload["config"] == {}
     finally:
         db.close()
+
+
+def test_build_apply_payload_from_profile_includes_context_budget_when_present():
+    db, rp, _running, _stopped = _build_db()
+    try:
+        rp.config_json = '{"llm":{"provider":"openai","context_budget":{"tool_loop":{"max_prompt_tokens":32000}}}}'
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
+        assert payload["config"]["llm"]["context_budget"]["tool_loop"]["max_prompt_tokens"] == 32000
+    finally:
+        db.close()

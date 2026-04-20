@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
+from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
 from app.services.runtime_profile_service import RuntimeProfileService
 
 def _session():
@@ -279,3 +280,22 @@ def test_create_for_user_sanitizes_runtime_profile_config():
     assert saved["github"] == {"enabled": True}
     assert saved["jira"] == {"enabled": True}
     assert saved["confluence"] == {"enabled": True}
+def test_runtime_profile_json_sanitizer_preserves_llm_context_budget_and_projection():
+    raw = '{"llm":{"provider":"openai","context_budget":{"tool_loop":{"max_prompt_tokens":32000}},"context_projection":{"enabled":true}}}'
+    parsed = parse_runtime_profile_config_json(raw)
+    dumped = json.loads(dump_runtime_profile_config_json(parsed))
+
+    assert parsed["llm"]["context_budget"]["tool_loop"]["max_prompt_tokens"] == 32000
+    assert parsed["llm"]["context_projection"]["enabled"] is True
+    assert dumped["llm"]["context_budget"]["tool_loop"]["max_prompt_tokens"] == 32000
+    assert dumped["llm"]["context_projection"]["enabled"] is True
+
+
+def test_normal_settings_form_like_save_remains_sparse_without_context_fields():
+    raw = json.dumps({"llm": {"provider": "openai", "model": "gpt-5-mini", "tools": ["*"]}})
+    normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
+    saved = json.loads(normalized)
+
+    assert saved == {"llm": {"provider": "openai", "model": "gpt-5-mini", "tools": ["*"]}}
+    assert "context_budget" not in saved["llm"]
+    assert "context_projection" not in saved["llm"]

@@ -187,6 +187,87 @@ def _parse_form_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on", "yes"}
 
 
+def _append_error_code(parts: list[str], code, error_type) -> None:
+    code_text = str(code or "").strip()
+    if code_text:
+        parts.append(f"code={code_text}")
+        return
+    error_type_text = str(error_type or "").strip()
+    if error_type_text:
+        parts.append(f"error_type={error_type_text}")
+
+
+def _append_allowlisted_error_details(parts: list[str], details) -> None:
+    if not isinstance(details, dict):
+        return
+    allowlist = (
+        "incomplete_reason",
+        "prompt_budget_tokens",
+        "request_estimated_tokens",
+        "reserved_output_tokens",
+        "request_over_budget",
+        "max_prompt_tokens",
+        "safety_margin_tokens",
+        "max_output_tokens",
+        "request_budget_stage",
+    )
+    for key in allowlist:
+        value = details.get(key)
+        if value is None:
+            continue
+        parts.append(f"{key}={value}")
+    if details.get("request_budget_stage") is None and details.get("stage") is not None:
+        parts.append(f"request_budget_stage={details.get('stage')}")
+
+
+def _merge_error_details(top_level_details, nested_details) -> dict:
+    merged: dict = {}
+    if isinstance(top_level_details, dict):
+        merged.update(top_level_details)
+    if isinstance(nested_details, dict):
+        merged.update(nested_details)
+    return merged
+
+
+def _normalize_runtime_error_detail(content: bytes) -> str:
+    decoded = content.decode("utf-8", errors="replace")
+    preview = decoded[:1000]
+    try:
+        parsed = json.loads(decoded)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return f"Runtime error: {preview}"
+
+    if not isinstance(parsed, dict):
+        return f"Runtime error: {preview}"
+
+    error = parsed.get("error")
+    parts: list[str] = []
+
+    if isinstance(error, str):
+        message = error.strip()
+        if message:
+            parts.append(message)
+        _append_error_code(parts, parsed.get("code"), parsed.get("error_type"))
+        _append_allowlisted_error_details(parts, parsed.get("details"))
+    elif isinstance(error, dict):
+        message = str(error.get("message") or "").strip()
+        if message:
+            parts.append(message)
+        _append_error_code(parts, error.get("code") or parsed.get("code"), error.get("error_type") or parsed.get("error_type"))
+        details = _merge_error_details(parsed.get("details"), error.get("details"))
+        _append_allowlisted_error_details(parts, details)
+    else:
+        message = str(parsed.get("message") or "").strip()
+        if message:
+            parts.append(message)
+        _append_error_code(parts, parsed.get("code"), parsed.get("error_type"))
+        _append_allowlisted_error_details(parts, parsed.get("details"))
+
+    if not parts:
+        parts.append(preview)
+    return f"Runtime error: {' '.join(parts)}"
+
+
 def _build_settings_panel_context(*, request: Request, agent_id: str, base_context: dict, db, triggered_work_state: dict | None = None) -> dict:
     bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
     triggered_state = triggered_work_state or {}
@@ -1600,7 +1681,7 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         payload = json.loads(content.decode("utf-8"))
         runtime_sessions = payload.get("sessions") or []
@@ -1674,7 +1755,7 @@ async def app_agent_skills_panel(request: Request, agent_id: str):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         payload = json.loads(content.decode("utf-8"))
         return templates.TemplateResponse(
@@ -1721,7 +1802,7 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         payload = json.loads(content.decode("utf-8"))
         return templates.TemplateResponse(
@@ -1768,7 +1849,7 @@ async def app_agent_files_panel(request: Request, agent_id: str):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         payload = json.loads(content.decode("utf-8"))
         return templates.TemplateResponse(
@@ -2421,7 +2502,7 @@ async def app_chat_send(request: Request):
         )
 
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Runtime error: {content.decode('utf-8', errors='ignore')}")
+            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         data = json.loads(content.decode("utf-8"))
         
