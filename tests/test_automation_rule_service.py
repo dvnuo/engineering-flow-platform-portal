@@ -115,6 +115,102 @@ async def test_run_once_event_retry_and_dedupe(monkeypatch):
     assert payload_obj["rule_id"] == rule.id
 
 
+@pytest.mark.anyio
+async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
+    db = _session()
+    user = User(username="u-e2e", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(
+        owner_user_id=user.id,
+        name="rp-e2e",
+        config_json=json.dumps({"github": {"enabled": True, "api_token": "gh-token", "base_url": "https://api.github.com"}}),
+        is_default=True,
+    )
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+
+    svc = AutomationRuleService(db)
+    payload = AutomationRuleCreate(
+        name="rule-e2e",
+        target_agent_id=agent.id,
+        owner="Acme",
+        repo="Portal",
+        review_target_type="team",
+        review_target="Acme/Reviewers",
+        review_event="COMMENT",
+        interval_seconds=60,
+        skill_name="review-pull-request",
+    )
+    rule = svc.create_rule(payload, current_user_id=user.id)
+
+    dispatched_task_ids: list[str] = []
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda task_id: dispatched_task_ids.append(task_id))
+
+    state = {"head_sha": "sha-1"}
+
+    async def _poll(*_args, **_kwargs):
+        return [{
+            "owner": "Acme",
+            "repo": "Portal",
+            "pull_number": 42,
+            "head_sha": state["head_sha"],
+            "review_target": {"type": "team", "name": "Acme/Reviewers"},
+            "html_url": "https://github.example/Acme/Portal/pull/42",
+            "title": "Demo PR",
+            "source_payload": {"number": 42},
+        }]
+
+    monkeypatch.setattr(svc.poller, "poll_review_requests", _poll)
+
+    first = await svc.run_rule_once(rule.id, triggered_by="test")
+    assert first.found_count == 1
+    assert first.created_task_count == 1
+    assert first.skipped_count == 0
+
+    events = AutomationRuleRepository(db).list_events(rule.id, 10)
+    assert len(events) == 1
+    assert events[0].status == "task_created"
+
+    tasks = db.query(AgentTask).order_by(AgentTask.created_at.asc()).all()
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task.source == "automation_rule"
+    assert task.provider == "github"
+    assert task.trigger == "github_pr_review_requested"
+    assert task.task_type == "github_review_task"
+    assert task.assignee_agent_id == agent.id
+    assert len(task.dedupe_key or "") <= 255
+    assert len(dispatched_task_ids) == 1
+
+    task_payload = json.loads(task.input_payload_json)
+    assert task_payload["source"] == "automation_rule"
+    assert task_payload["automation_rule"] == "github.pr_review_requested"
+    assert task_payload["automation_rule_id"] == rule.id
+    assert task_payload["rule_id"] == rule.id
+    assert task_payload["provider"] == "github"
+    assert task_payload["owner"] == "Acme"
+    assert task_payload["repo"] == "Portal"
+    assert task_payload["pull_number"] == 42
+    assert task_payload["head_sha"] == "sha-1"
+    assert task_payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
+    assert task_payload["task_type"] == "github_review_task"
+    assert task_payload["skill_name"] == "review-pull-request"
+    assert task_payload["review_event"] == "COMMENT"
+    assert task_payload.get("dedupe_key")
+
+    second = await svc.run_rule_once(rule.id, triggered_by="test")
+    assert second.created_task_count == 0
+    assert second.skipped_count == 1
+    assert db.query(AgentTask).count() == 1
+
+    state["head_sha"] = "sha-2"
+    third = await svc.run_rule_once(rule.id, triggered_by="test")
+    assert third.created_task_count == 1
+    assert db.query(AgentTask).count() == 2
+    assert db.query(AgentTask).filter(AgentTask.status == "stale").count() >= 1
+
+
 def test_get_or_create_event_by_dedupe_handles_unique_conflict():
     db = _session()
     user = User(username="u2", password_hash="x", role="admin", is_active=True)

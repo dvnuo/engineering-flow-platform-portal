@@ -250,6 +250,55 @@ def test_github_pr_review_requested_ingress_matches_automation_rule_without_runt
         cleanup()
 
 
+def test_github_pr_review_requested_ingress_matches_without_identity_binding(monkeypatch):
+    client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        agent = _create_agent(
+            db,
+            admin_user.id,
+            {"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "token"}},
+        )
+        _create_automation_rule(
+            db,
+            owner_user_id=admin_user.id,
+            target_agent_id=agent.id,
+            owner="acme",
+            repo="portal",
+            review_target_type="team",
+            review_target="acme/reviewers",
+        )
+
+        # no AgentIdentityBinding created on purpose
+        resp = client.post(
+            "/api/external-events/ingest",
+            json={
+                "source_type": "github",
+                "event_type": "pull_request_review_requested",
+                "external_account_id": "acme/reviewers",
+                "payload_json": json.dumps(
+                    {
+                        "owner": "acme",
+                        "repo": "portal",
+                        "pull_number": 55,
+                        "head_sha": "sha-no-binding",
+                        "review_target": {"type": "team", "name": "acme/reviewers"},
+                    }
+                ),
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["accepted"] is True
+        assert body["routing_reason"] == "matched_automation_rule"
+        assert body["routing_reason"] != "no_enabled_binding"
+        assert body["routing_reason"] != "automation_not_enabled_or_scope_mismatch"
+        task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
+        assert task
+        assert task.task_type == "github_review_task"
+    finally:
+        cleanup()
+
+
 def test_github_pr_review_requested_ingress_no_matching_rule(monkeypatch):
     client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
     try:

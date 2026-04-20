@@ -254,3 +254,28 @@ def test_update_for_user_sanitizes_runtime_profile_config():
     )
     saved = json.loads(updated.config_json)
     assert saved == {"github": {"enabled": True}}
+
+
+def test_create_for_user_sanitizes_runtime_profile_config():
+    db = _session()
+    user = User(username="u-create", password_hash="test", role="user", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    svc = RuntimeProfileService(db)
+
+    profile = svc.create_for_user(
+        user,
+        name="with-legacy-automation",
+        description=None,
+        config_json=json.dumps(
+            {
+                "github": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+                "jira": {"enabled": True, "automation": {"assignments": {"enabled": True}}},
+                "confluence": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+            }
+        ),
+        is_default=True,
+    )
+    saved = json.loads(profile.config_json)
+    assert saved["github"] == {"enabled": True}
+    assert saved["jira"] == {"enabled": True}
+    assert saved["confluence"] == {"enabled": True}

@@ -186,3 +186,33 @@ def test_runtime_profile_get_sanitizes_legacy_provider_automation_fields(monkeyp
         assert cfg["confluence"] == {"enabled": True}
     finally:
         cleanup()
+
+
+def test_runtime_profile_list_sanitizes_legacy_provider_automation_fields(monkeypatch):
+    client, db, u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        legacy = RuntimeProfile(
+            owner_user_id=u1.id,
+            name="Legacy Profile List",
+            config_json=json.dumps(
+                {
+                    "github": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+                    "jira": {"enabled": True, "automation": {"assignments": {"enabled": True}}},
+                    "confluence": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+                }
+            ),
+            revision=1,
+            is_default=False,
+        )
+        db.add(legacy)
+        db.commit()
+
+        resp = client.get("/api/runtime-profiles")
+        assert resp.status_code == 200
+        by_id = {item["id"]: item for item in resp.json()}
+        cfg = json.loads(by_id[legacy.id]["config_json"])
+        assert cfg["github"] == {"enabled": True}
+        assert cfg["jira"] == {"enabled": True}
+        assert cfg["confluence"] == {"enabled": True}
+    finally:
+        cleanup()
