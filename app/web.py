@@ -201,22 +201,15 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
     if not isinstance(details, dict):
         return
     allowlist = (
-        "source_tree_complete",
-        "descendants_loaded",
-        "descendants_total",
-        "descendants_complete",
-        "binary_attachment_body_policy",
-        "binary_attachment_bodies_available",
-        "binary_attachment_bodies_skipped_count",
-        "source_complete_including_binary_bodies",
-        "text_attachment_bodies_complete",
-        "generated_artifact_ref_count",
-        "generation_done",
-        "completion_criteria_count",
-        "source_digest_chunk_coverage_count",
-        "generation_current_phase",
-        "generation_next_phase",
-        "generation_completed_phases_count",
+        "descendants_pages_complete",
+        "descendants_comments_complete",
+        "descendants_attachments_complete",
+        "completion_criteria_status_count",
+        "completion_criteria_satisfied_count",
+        "next_incomplete_phase",
+        "comments_bundle_ref_count",
+        "children_bundle_ref_count",
+        "auxiliary_source_complete",
     )
     for key in allowlist:
         value = details.get(key)

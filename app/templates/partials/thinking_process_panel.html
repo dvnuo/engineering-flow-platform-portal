@@ -140,6 +140,15 @@
     {% if source_diagnostics.get('descendants_complete') is not none %}
       <div class="portal-panel-note">Descendants complete: {{ 'yes' if source_diagnostics.get('descendants_complete') else 'no' }}</div>
     {% endif %}
+    {% if source_diagnostics.get('descendants_pages_complete') is not none %}
+      <div class="portal-panel-note">Descendant pages complete: {{ 'yes' if source_diagnostics.get('descendants_pages_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('descendants_comments_complete') is not none %}
+      <div class="portal-panel-note">Descendant comments complete: {{ 'yes' if source_diagnostics.get('descendants_comments_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('descendants_attachments_complete') is not none %}
+      <div class="portal-panel-note">Descendant attachments complete: {{ 'yes' if source_diagnostics.get('descendants_attachments_complete') else 'no' }}</div>
+    {% endif %}
     {% if source_diagnostics.get('generated_artifact_ref_count') is not none %}
       <div class="portal-panel-note">Generated artifacts: {{ source_diagnostics.get('generated_artifact_ref_count') }}</div>
     {% endif %}
@@ -149,8 +158,23 @@
     {% if source_diagnostics.get('completion_criteria_count') is not none %}
       <div class="portal-panel-note">Completion criteria: {{ source_diagnostics.get('completion_criteria_count') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('completion_criteria_satisfied_count') is not none or source_diagnostics.get('completion_criteria_status_count') is not none %}
+      <div class="portal-panel-note">Completion criteria satisfied: {{ source_diagnostics.get('completion_criteria_satisfied_count') if source_diagnostics.get('completion_criteria_satisfied_count') is not none else '—' }}/{{ source_diagnostics.get('completion_criteria_status_count') if source_diagnostics.get('completion_criteria_status_count') is not none else '—' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('next_incomplete_phase') %}
+      <div class="portal-panel-note">Next incomplete phase: {{ source_diagnostics.get('next_incomplete_phase') }}</div>
+    {% endif %}
     {% if source_diagnostics.get('source_digest_chunk_coverage_count') is not none %}
       <div class="portal-panel-note">Digest chunk coverage: {{ source_diagnostics.get('source_digest_chunk_coverage_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('comments_bundle_ref_count') is not none %}
+      <div class="portal-panel-note">Comments bundle refs: {{ source_diagnostics.get('comments_bundle_ref_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('children_bundle_ref_count') is not none %}
+      <div class="portal-panel-note">Children bundle refs: {{ source_diagnostics.get('children_bundle_ref_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('auxiliary_source_complete') is not none %}
+      <div class="portal-panel-note">Auxiliary source complete: {{ 'yes' if source_diagnostics.get('auxiliary_source_complete') else 'no' }}</div>
     {% endif %}
     {% if source_diagnostics.get('generation_current_phase') or source_diagnostics.get('generation_next_phase') or source_diagnostics.get('generation_completed_phases_count') is not none %}
       <div class="portal-panel-note">Current phase / Next phase / Completed phases: {{ source_diagnostics.get('generation_current_phase') or '—' }} / {{ source_diagnostics.get('generation_next_phase') or '—' }} / {{ source_diagnostics.get('generation_completed_phases_count') if source_diagnostics.get('generation_completed_phases_count') is not none else '—' }}</div>

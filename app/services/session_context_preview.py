@@ -116,6 +116,15 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_generation_current_phase": _normalize_preview_value(metadata.get("generation_current_phase") or metadata.get("current_generation_phase")),
         "context_completion_criteria_count": metadata.get("completion_criteria_count"),
         "context_source_digest_chunk_coverage_count": metadata.get("source_digest_chunk_coverage_count"),
+        "context_descendants_pages_complete": metadata.get("descendants_pages_complete"),
+        "context_descendants_comments_complete": metadata.get("descendants_comments_complete"),
+        "context_descendants_attachments_complete": metadata.get("descendants_attachments_complete"),
+        "context_completion_criteria_status_count": metadata.get("completion_criteria_status_count"),
+        "context_completion_criteria_satisfied_count": metadata.get("completion_criteria_satisfied_count"),
+        "context_next_incomplete_phase": _normalize_preview_value(metadata.get("next_incomplete_phase")),
+        "context_comments_bundle_ref_count": metadata.get("comments_bundle_ref_count"),
+        "context_children_bundle_ref_count": metadata.get("children_bundle_ref_count"),
+        "context_auxiliary_source_complete": metadata.get("auxiliary_source_complete"),
     }
 
     nested_preview = {
@@ -195,6 +204,15 @@ def _derive_source_preview(metadata: dict) -> dict:
         ),
         "context_completion_criteria_count": generation.get("completion_criteria_count") if generation.get("completion_criteria_count") is not None else budget.get("completion_criteria_count"),
         "context_source_digest_chunk_coverage_count": generation.get("source_digest_chunk_coverage_count") if generation.get("source_digest_chunk_coverage_count") is not None else budget.get("source_digest_chunk_coverage_count"),
+        "context_descendants_pages_complete": source.get("descendants_pages_complete") if source.get("descendants_pages_complete") is not None else budget.get("descendants_pages_complete"),
+        "context_descendants_comments_complete": source.get("descendants_comments_complete") if source.get("descendants_comments_complete") is not None else budget.get("descendants_comments_complete"),
+        "context_descendants_attachments_complete": source.get("descendants_attachments_complete") if source.get("descendants_attachments_complete") is not None else budget.get("descendants_attachments_complete"),
+        "context_completion_criteria_status_count": generation.get("completion_criteria_status_count") if generation.get("completion_criteria_status_count") is not None else budget.get("completion_criteria_status_count"),
+        "context_completion_criteria_satisfied_count": generation.get("completion_criteria_satisfied_count") if generation.get("completion_criteria_satisfied_count") is not None else budget.get("completion_criteria_satisfied_count"),
+        "context_next_incomplete_phase": _normalize_preview_value(generation.get("next_incomplete_phase") or budget.get("next_incomplete_phase")),
+        "context_comments_bundle_ref_count": source.get("comments_bundle_ref_count") if source.get("comments_bundle_ref_count") is not None else budget.get("comments_bundle_ref_count"),
+        "context_children_bundle_ref_count": source.get("children_bundle_ref_count") if source.get("children_bundle_ref_count") is not None else budget.get("children_bundle_ref_count"),
+        "context_auxiliary_source_complete": source.get("auxiliary_source_complete") if source.get("auxiliary_source_complete") is not None else budget.get("auxiliary_source_complete"),
     }
 
     merged = {
@@ -268,6 +286,15 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_generation_current_phase",
             "context_completion_criteria_count",
             "context_source_digest_chunk_coverage_count",
+            "context_descendants_pages_complete",
+            "context_descendants_comments_complete",
+            "context_descendants_attachments_complete",
+            "context_completion_criteria_status_count",
+            "context_completion_criteria_satisfied_count",
+            "context_next_incomplete_phase",
+            "context_comments_bundle_ref_count",
+            "context_children_bundle_ref_count",
+            "context_auxiliary_source_complete",
         )
     }
 
