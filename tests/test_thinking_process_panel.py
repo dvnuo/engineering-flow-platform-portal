@@ -685,6 +685,11 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
             "source": {
                 "source_complete_for_generation": False,
                 "source_complete_including_binary_bodies": True,
+                "generation_mode": "staged",
+                "output_risk_level": "high",
+                "max_chat_output_chars": 12000,
+                "output_controller_applied": True,
+                "output_controller_stage": "tool_loop",
                 "text_attachment_bodies_complete": True,
                 "binary_attachment_bodies_available": False,
                 "binary_attachment_bodies_skipped_count": 3,
@@ -723,6 +728,11 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
 
     assert response.status_code == 200
     assert "Source complete including binary bodies: yes" in response.text
+    assert "Generation mode: staged" in response.text
+    assert "Output risk level: high" in response.text
+    assert "Max chat output chars: 12000" in response.text
+    assert "Output controller applied: yes" in response.text
+    assert "Output controller stage: tool_loop" in response.text
     assert "Text attachment bodies complete: yes" in response.text
     assert "Binary attachment bodies available: no" in response.text
     assert "Binary attachment bodies skipped: 3" in response.text
@@ -765,3 +775,16 @@ def test_thinking_process_panel_hides_lines_for_missing_compact_source_diagnosti
     assert "Source complete including binary bodies:" not in response.text
     assert "Generated artifacts:" not in response.text
     assert "Current phase / Next phase / Completed phases:" not in response.text
+
+
+def test_thinking_process_panel_renders_max_chat_output_chars_placeholder_for_none(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "source": {"max_chat_output_chars": None}
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+    assert response.status_code == 200
+    assert "Max chat output chars:" not in response.text

@@ -466,6 +466,17 @@ def test_extract_context_preview_maps_new_source_and_output_recovery_fields():
     assert flat["context_input_context_usage_percent"] == 22.0
 
 
+def test_extract_context_preview_keeps_max_chat_output_chars_none_without_failure():
+    record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"max_chat_output_chars":null,"output_controller_stage":"tool_loop","context_state":{"budget":{"max_chat_output_chars":12000}}}',
+    )
+    extracted = extract_context_preview(record)
+    assert extracted["context_max_chat_output_chars"] == 12000
+    assert extracted["context_output_controller_stage"] == "tool_loop"
+
+
 def test_extract_context_preview_maps_new_completeness_and_output_flags_from_flat_and_nested():
     nested_record = SimpleNamespace(
         latest_event_state="running",

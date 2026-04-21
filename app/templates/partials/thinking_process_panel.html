@@ -119,6 +119,23 @@
     {% if source_diagnostics.get('source_complete_including_binary_bodies') is not none %}
       <div class="portal-panel-note">Source complete including binary bodies: {{ 'yes' if source_diagnostics.get('source_complete_including_binary_bodies') else 'no' }}</div>
     {% endif %}
+    {% if source_diagnostics.get('generation_mode') %}
+      <div class="portal-panel-note">Generation mode: {{ source_diagnostics.get('generation_mode') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_risk_level') %}
+      <div class="portal-panel-note">Output risk level: {{ source_diagnostics.get('output_risk_level') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_chat_output_chars') is not none %}
+      <div class="portal-panel-note">Max chat output chars: {{ source_diagnostics.get('max_chat_output_chars') }}</div>
+    {% elif 'max_chat_output_chars' in source_diagnostics %}
+      <div class="portal-panel-note">Max chat output chars: —</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_controller_applied') is not none %}
+      <div class="portal-panel-note">Output controller applied: {{ 'yes' if source_diagnostics.get('output_controller_applied') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_controller_stage') %}
+      <div class="portal-panel-note">Output controller stage: {{ source_diagnostics.get('output_controller_stage') }}</div>
+    {% endif %}
     {% if source_diagnostics.get('text_attachment_bodies_complete') is not none %}
       <div class="portal-panel-note">Text attachment bodies complete: {{ 'yes' if source_diagnostics.get('text_attachment_bodies_complete') else 'no' }}</div>
     {% endif %}

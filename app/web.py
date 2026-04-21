@@ -191,7 +191,6 @@ def _append_error_code(parts: list[str], code, error_type) -> None:
     code_text = str(code or "").strip()
     if code_text:
         parts.append(f"code={code_text}")
-        return
     error_type_text = str(error_type or "").strip()
     if error_type_text:
         parts.append(f"error_type={error_type_text}")
@@ -201,6 +200,11 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
     if not isinstance(details, dict):
         return
     allowlist = (
+        "max_chat_output_chars",
+        "output_controller_applied",
+        "output_controller_stage",
+        "output_risk_level",
+        "generation_mode",
         "descendants_pages_complete",
         "descendants_comments_complete",
         "descendants_attachments_complete",
@@ -212,8 +216,10 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "auxiliary_source_complete",
     )
     for key in allowlist:
+        if key not in details:
+            continue
         value = details.get(key)
-        if value is None:
+        if value is None and key != "max_chat_output_chars":
             continue
         parts.append(f"{key}={value}")
 

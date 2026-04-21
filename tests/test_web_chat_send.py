@@ -880,7 +880,7 @@ def test_app_chat_send_runtime_error_does_not_include_legacy_source_generation_d
     assert "attachments_loaded=" not in detail
     assert "attachments_total=" not in detail
     assert "source_partial_reasons_count=" not in detail
-    assert "generation_mode=" not in detail
+    assert "generation_mode=staged" in detail
     assert "current_generation_phase=" not in detail
     assert "large_generation_guard_reason=" not in detail
     assert "prompt=" not in detail
@@ -893,7 +893,7 @@ def test_app_chat_send_runtime_error_does_not_include_legacy_source_generation_d
     assert "SECRET_RAW_BUNDLE" not in detail
 
 
-def test_app_chat_send_runtime_error_does_not_include_legacy_output_recovery_diagnostics(monkeypatch):
+def test_app_chat_send_runtime_error_includes_safe_output_recovery_scalars(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -950,8 +950,8 @@ def test_app_chat_send_runtime_error_does_not_include_legacy_output_recovery_dia
     assert "source_digest_chunk_count=" not in detail
     assert "children_loaded=" not in detail
     assert "children_total=" not in detail
-    assert "output_risk_level=" not in detail
-    assert "max_chat_output_chars=" not in detail
+    assert "output_risk_level=high" in detail
+    assert "max_chat_output_chars=8000" in detail
     assert "max_output_recovery_applied=" not in detail
     assert "max_output_recovery_attempts=" not in detail
     assert "output_token_limit=" not in detail
@@ -969,6 +969,50 @@ def test_app_chat_send_runtime_error_does_not_include_legacy_output_recovery_dia
     assert "SECRET_CONF" not in detail
     assert "SECRET_CONTEXT" not in detail
     assert "ctx://" not in detail
+
+
+def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "int() argument must be a string, a bytes-like object or a real number, not 'NoneType'",
+            "error_type": "TypeError",
+            "details": {
+                "output_controller_stage": "tool_loop",
+                "max_chat_output_chars": None,
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "context_blob": {"raw": "SECRET_CONTEXT"},
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "Runtime error: int() argument must be a string" in detail
+    assert "error_type=TypeError" in detail
+    assert "output_controller_stage=tool_loop" in detail
+    assert "max_chat_output_chars=None" in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "SECRET_CONTEXT" not in detail
 
 
 def test_app_chat_send_runtime_error_includes_source_completeness_and_output_scalars_only(monkeypatch):
