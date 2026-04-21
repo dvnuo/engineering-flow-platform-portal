@@ -995,11 +995,16 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
                 "max_context_window_tokens": 400000,
                 "max_prompt_tokens": 272000,
                 "max_output_tokens": 128000,
+                "effective_max_tokens": 128000,
+                "legacy_max_tokens_ignored": True,
+                "configured_max_tokens": 64000,
                 "max_chat_output_tokens": 120000,
                 "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits",
                 "legacy_max_chat_output_chars_ignored": True,
                 "configured_max_chat_output_chars": 8000,
+                "budget_max_chat_output_chars_ignored": True,
+                "configured_budget_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "medium",
                 "input_context_usage_percent": 22.5,
@@ -1020,11 +1025,16 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
     assert "max_context_window_tokens=400000" in detail
     assert "max_prompt_tokens=272000" in detail
     assert "max_output_tokens=128000" in detail
+    assert "effective_max_tokens=128000" in detail
+    assert "legacy_max_tokens_ignored=True" in detail
+    assert "configured_max_tokens=64000" in detail
     assert "max_chat_output_tokens=120000" in detail
     assert "max_chat_output_chars=480000" in detail
     assert "output_boundary_source=model_limits" in detail
     assert "legacy_max_chat_output_chars_ignored=True" in detail
     assert "configured_max_chat_output_chars=8000" in detail
+    assert "budget_max_chat_output_chars_ignored=True" in detail
+    assert "configured_budget_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
     assert "input_context_usage_percent=" not in detail
@@ -1056,11 +1066,16 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
                 "max_context_window_tokens": 400000,
                 "max_prompt_tokens": 272000,
                 "max_output_tokens": 128000,
+                "effective_max_tokens": 128000,
+                "legacy_max_tokens_ignored": True,
+                "configured_max_tokens": 64000,
                 "max_chat_output_tokens": 120000,
                 "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits_legacy_override_ignored",
                 "legacy_max_chat_output_chars_ignored": True,
                 "configured_max_chat_output_chars": 8000,
+                "budget_max_chat_output_chars_ignored": True,
+                "configured_budget_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "high",
                 "input_context_usage_percent": 35.0,
@@ -1087,11 +1102,16 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
     assert "max_context_window_tokens=400000" in detail
     assert "max_prompt_tokens=272000" in detail
     assert "max_output_tokens=128000" in detail
+    assert "effective_max_tokens=128000" in detail
+    assert "legacy_max_tokens_ignored=True" in detail
+    assert "configured_max_tokens=64000" in detail
     assert "max_chat_output_tokens=120000" in detail
     assert "max_chat_output_chars=480000" in detail
     assert "output_boundary_source=model_limits_legacy_override_ignored" in detail
     assert "legacy_max_chat_output_chars_ignored=True" in detail
     assert "configured_max_chat_output_chars=8000" in detail
+    assert "budget_max_chat_output_chars_ignored=True" in detail
+    assert "configured_budget_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
     assert "input_context_usage_percent=" not in detail
@@ -1131,9 +1151,16 @@ def test_app_chat_send_runtime_error_includes_model_limit_phase_scalars_only(mon
                 "max_context_window_tokens": 400000,
                 "max_prompt_tokens": 272000,
                 "max_output_tokens": 128000,
+                "effective_max_tokens": 128000,
+                "legacy_max_tokens_ignored": True,
+                "configured_max_tokens": 64000,
                 "max_chat_output_tokens": 120000,
                 "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits",
+                "legacy_max_chat_output_chars_ignored": True,
+                "configured_max_chat_output_chars": 8000,
+                "budget_max_chat_output_chars_ignored": True,
+                "configured_budget_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "normal",
                 "input_context_usage_percent": 18.5,
@@ -1162,9 +1189,16 @@ def test_app_chat_send_runtime_error_includes_model_limit_phase_scalars_only(mon
     assert "max_context_window_tokens=400000" in detail
     assert "max_prompt_tokens=272000" in detail
     assert "max_output_tokens=128000" in detail
+    assert "effective_max_tokens=128000" in detail
+    assert "legacy_max_tokens_ignored=True" in detail
+    assert "configured_max_tokens=64000" in detail
     assert "max_chat_output_tokens=120000" in detail
     assert "max_chat_output_chars=480000" in detail
     assert "output_boundary_source=model_limits" in detail
+    assert "legacy_max_chat_output_chars_ignored=True" in detail
+    assert "configured_max_chat_output_chars=8000" in detail
+    assert "budget_max_chat_output_chars_ignored=True" in detail
+    assert "configured_budget_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
     assert "input_context_usage_percent=" not in detail
@@ -1205,9 +1239,16 @@ def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monk
                 "max_context_window_tokens": 400000,
                 "max_prompt_tokens": 272000,
                 "max_output_tokens": 128000,
+                "effective_max_tokens": 128000,
+                "legacy_max_tokens_ignored": True,
+                "configured_max_tokens": 64000,
                 "max_chat_output_tokens": 120000,
                 "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits",
+                "legacy_max_chat_output_chars_ignored": True,
+                "configured_max_chat_output_chars": 8000,
+                "budget_max_chat_output_chars_ignored": True,
+                "configured_budget_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "medium",
                 "input_context_usage_percent": 42.0,
@@ -1235,9 +1276,16 @@ def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monk
     assert "max_context_window_tokens=400000" in detail
     assert "max_prompt_tokens=272000" in detail
     assert "max_output_tokens=128000" in detail
+    assert "effective_max_tokens=128000" in detail
+    assert "legacy_max_tokens_ignored=True" in detail
+    assert "configured_max_tokens=64000" in detail
     assert "max_chat_output_tokens=120000" in detail
     assert "max_chat_output_chars=480000" in detail
     assert "output_boundary_source=model_limits" in detail
+    assert "legacy_max_chat_output_chars_ignored=True" in detail
+    assert "configured_max_chat_output_chars=8000" in detail
+    assert "budget_max_chat_output_chars_ignored=True" in detail
+    assert "configured_budget_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
     assert "input_context_usage_percent=" not in detail

@@ -202,6 +202,11 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
     allowlist = (
         "legacy_max_chat_output_chars_ignored",
         "configured_max_chat_output_chars",
+        "legacy_max_tokens_ignored",
+        "configured_max_tokens",
+        "effective_max_tokens",
+        "budget_max_chat_output_chars_ignored",
+        "configured_budget_max_chat_output_chars",
         "output_boundary_source",
         "max_context_window_tokens",
         "max_prompt_tokens",

@@ -134,14 +134,23 @@
     {% if source_diagnostics.get('max_output_tokens') is not none %}
       <div class="portal-panel-note">Output limit: {{ source_diagnostics.get('max_output_tokens') }} tokens</div>
     {% endif %}
+    {% if source_diagnostics.get('effective_max_tokens') is not none %}
+      <div class="portal-panel-note">Effective provider max tokens: {{ source_diagnostics.get('effective_max_tokens') }}</div>
+    {% endif %}
     {% if source_diagnostics.get('max_chat_output_tokens') is not none or source_diagnostics.get('max_chat_output_chars') is not none %}
       <div class="portal-panel-note">Chat output boundary: {{ source_diagnostics.get('max_chat_output_tokens') if source_diagnostics.get('max_chat_output_tokens') is not none else '—' }} tokens / {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
     {% endif %}
     {% if source_diagnostics.get('output_boundary_source') %}
       <div class="portal-panel-note">Output boundary source: {{ source_diagnostics.get('output_boundary_source') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('legacy_max_tokens_ignored') %}
+      <div class="portal-panel-note">Legacy max_tokens ignored: configured {{ source_diagnostics.get('configured_max_tokens') if source_diagnostics.get('configured_max_tokens') is not none else '—' }}, effective {{ source_diagnostics.get('effective_max_tokens') if source_diagnostics.get('effective_max_tokens') is not none else '—' }}</div>
+    {% endif %}
     {% if source_diagnostics.get('legacy_max_chat_output_chars_ignored') %}
       <div class="portal-panel-note">Legacy low output boundary ignored: configured {{ source_diagnostics.get('configured_max_chat_output_chars') if source_diagnostics.get('configured_max_chat_output_chars') is not none else '—' }} chars, effective {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
+    {% endif %}
+    {% if source_diagnostics.get('budget_max_chat_output_chars_ignored') %}
+      <div class="portal-panel-note">Stale session output boundary ignored: configured {{ source_diagnostics.get('configured_budget_max_chat_output_chars') if source_diagnostics.get('configured_budget_max_chat_output_chars') is not none else '—' }} chars, effective {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
     {% endif %}
     {% if source_diagnostics.get('chars_per_token_estimate') is not none %}
       <div class="portal-panel-note">Chars/token estimate: {{ source_diagnostics.get('chars_per_token_estimate') }}</div>

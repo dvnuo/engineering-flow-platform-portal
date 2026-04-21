@@ -690,11 +690,16 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "max_context_window_tokens": 400000,
                 "max_prompt_tokens": 272000,
                 "max_output_tokens": 128000,
+                "effective_max_tokens": 128000,
+                "legacy_max_tokens_ignored": True,
+                "configured_max_tokens": 64000,
                 "max_chat_output_tokens": 120000,
                 "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits_legacy_override_ignored",
                 "legacy_max_chat_output_chars_ignored": True,
                 "configured_max_chat_output_chars": 8000,
+                "budget_max_chat_output_chars_ignored": True,
+                "configured_budget_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "input_context_usage_percent": 44.5,
                 "output_controller_applied": True,
@@ -749,9 +754,12 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Context window: 400000 tokens" in response.text
     assert "Prompt limit: 272000 tokens" in response.text
     assert "Output limit: 128000 tokens" in response.text
+    assert "Effective provider max tokens: 128000" in response.text
     assert "Chat output boundary: 120000 tokens / 480000 chars" in response.text
     assert "Output boundary source: model_limits_legacy_override_ignored" in response.text
+    assert "Legacy max_tokens ignored: configured 64000, effective 128000" in response.text
     assert "Legacy low output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
+    assert "Stale session output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
     assert "Chars/token estimate: 4.0" in response.text
     assert "Input context usage: 44.5%" in response.text
     assert "Input context usage and output limit are separate; low input context usage does not guarantee low output risk." in response.text
