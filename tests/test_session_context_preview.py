@@ -477,6 +477,64 @@ def test_extract_context_preview_keeps_max_chat_output_chars_none_without_failur
     assert extracted["context_output_controller_stage"] == "tool_loop"
 
 
+def test_extract_context_preview_maps_effective_model_limits_from_nested_and_flat():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"context_state":{"budget":{"max_context_window_tokens":400000,"max_prompt_tokens":272000,"max_output_tokens":128000,"effective_max_tokens":128000,"legacy_max_tokens_ignored":true,"configured_max_tokens":64000,"max_chat_output_tokens":120000,"max_chat_output_chars":480000,"output_boundary_source":"model_limits_derived","legacy_max_chat_output_chars_ignored":true,"configured_max_chat_output_chars":8000,"budget_max_chat_output_chars_ignored":true,"configured_budget_max_chat_output_chars":8000,"arg_max_chat_output_chars_ignored":true,"configured_arg_max_chat_output_chars":8000,"file_context_budget_status":"within_limit","file_context_estimated_tokens":1200,"file_context_threshold_source":"resolved_runtime_profile","chars_per_token_estimate":4.0,"input_context_usage_percent":21.5},"source":{"output_risk_level":"medium"}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_max_context_window_tokens"] == 400000
+    assert nested["context_max_prompt_tokens"] == 272000
+    assert nested["context_max_output_tokens"] == 128000
+    assert nested["context_effective_max_tokens"] == 128000
+    assert nested["context_legacy_max_tokens_ignored"] is True
+    assert nested["context_configured_max_tokens"] == 64000
+    assert nested["context_max_chat_output_tokens"] == 120000
+    assert nested["context_max_chat_output_chars"] == 480000
+    assert nested["context_output_boundary_source"] == "model_limits_derived"
+    assert nested["context_legacy_max_chat_output_chars_ignored"] is True
+    assert nested["context_configured_max_chat_output_chars"] == 8000
+    assert nested["context_budget_max_chat_output_chars_ignored"] is True
+    assert nested["context_configured_budget_max_chat_output_chars"] == 8000
+    assert nested["context_arg_max_chat_output_chars_ignored"] is True
+    assert nested["context_configured_arg_max_chat_output_chars"] == 8000
+    assert nested["context_file_context_budget_status"] == "within_limit"
+    assert nested["context_file_context_estimated_tokens"] == 1200
+    assert nested["context_file_context_threshold_source"] == "resolved_runtime_profile"
+    assert nested["context_chars_per_token_estimate"] == 4.0
+    assert nested["context_input_context_usage_percent"] == 21.5
+    assert nested["context_output_risk_level"] == "medium"
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"max_context_window_tokens":400000,"max_prompt_tokens":272000,"max_output_tokens":128000,"effective_max_tokens":128000,"legacy_max_tokens_ignored":true,"configured_max_tokens":64000,"max_chat_output_tokens":120000,"max_chat_output_chars":480000,"output_boundary_source":"model_limits","legacy_max_chat_output_chars_ignored":false,"configured_max_chat_output_chars":480000,"budget_max_chat_output_chars_ignored":false,"configured_budget_max_chat_output_chars":480000,"arg_max_chat_output_chars_ignored":false,"configured_arg_max_chat_output_chars":480000,"file_context_budget_status":"within_limit","file_context_estimated_tokens":2048,"file_context_threshold_source":"runtime_defaults","chars_per_token_estimate":4.0,"input_context_usage_percent":34.0,"output_risk_level":"high","context_state":{"budget":{"max_context_window_tokens":1,"max_prompt_tokens":1,"max_output_tokens":1,"effective_max_tokens":1,"legacy_max_tokens_ignored":false,"configured_max_tokens":1,"max_chat_output_tokens":1,"max_chat_output_chars":1,"output_boundary_source":"ignored","legacy_max_chat_output_chars_ignored":true,"configured_max_chat_output_chars":1,"budget_max_chat_output_chars_ignored":true,"configured_budget_max_chat_output_chars":1,"arg_max_chat_output_chars_ignored":true,"configured_arg_max_chat_output_chars":1,"file_context_budget_status":"ignored","file_context_estimated_tokens":1,"file_context_threshold_source":"ignored","chars_per_token_estimate":1.0,"input_context_usage_percent":1.0},"source":{"output_risk_level":"ignored"}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_max_context_window_tokens"] == 400000
+    assert flat["context_max_prompt_tokens"] == 272000
+    assert flat["context_max_output_tokens"] == 128000
+    assert flat["context_effective_max_tokens"] == 128000
+    assert flat["context_legacy_max_tokens_ignored"] is True
+    assert flat["context_configured_max_tokens"] == 64000
+    assert flat["context_max_chat_output_tokens"] == 120000
+    assert flat["context_max_chat_output_chars"] == 480000
+    assert flat["context_output_boundary_source"] == "model_limits"
+    assert flat["context_legacy_max_chat_output_chars_ignored"] is False
+    assert flat["context_configured_max_chat_output_chars"] == 480000
+    assert flat["context_budget_max_chat_output_chars_ignored"] is False
+    assert flat["context_configured_budget_max_chat_output_chars"] == 480000
+    assert flat["context_arg_max_chat_output_chars_ignored"] is False
+    assert flat["context_configured_arg_max_chat_output_chars"] == 480000
+    assert flat["context_file_context_budget_status"] == "within_limit"
+    assert flat["context_file_context_estimated_tokens"] == 2048
+    assert flat["context_file_context_threshold_source"] == "runtime_defaults"
+    assert flat["context_chars_per_token_estimate"] == 4.0
+    assert flat["context_input_context_usage_percent"] == 34.0
+    assert flat["context_output_risk_level"] == "high"
+
+
 def test_extract_context_preview_maps_new_completeness_and_output_flags_from_flat_and_nested():
     nested_record = SimpleNamespace(
         latest_event_state="running",
@@ -551,7 +609,7 @@ def test_extract_context_preview_maps_source_completeness_and_generation_state_f
     nested_record = SimpleNamespace(
         latest_event_state="running",
         snapshot_version="13",
-        metadata_json='{"context_state":{"source":{"source_complete_for_generation":true,"source_complete_including_binary_bodies":false,"source_metadata_complete":true,"source_text_complete":true,"source_tree_complete":false,"descendants_loaded":7,"descendants_total":10,"descendants_complete":false,"descendants_pages_complete":true,"descendants_comments_complete":false,"descendants_attachments_complete":true,"comments_bundle_ref_count":6,"children_bundle_ref_count":2,"auxiliary_source_complete":true,"text_attachment_bodies_complete":true,"binary_attachment_bodies_available":false,"binary_attachment_bodies_skipped_count":2,"binary_attachment_body_policy":"metadata_only","partial_output_saved":true},"generation":{"generated_artifact_ref_count":3,"generation_done":false,"current_phase":"skill_generation","next_phase":"finalize","completed_phases_count":2,"completion_criteria_count":5,"source_digest_chunk_coverage_count":4,"completion_criteria_status_count":9,"completion_criteria_satisfied_count":7,"next_incomplete_phase":"publish"},"budget":{"oversized_output_saved":true}}}',
+        metadata_json='{"context_state":{"source":{"source_complete_for_generation":true,"source_complete_including_binary_bodies":false,"source_metadata_complete":true,"source_text_complete":true,"source_tree_complete":false,"descendants_loaded":7,"descendants_total":10,"descendants_complete":false,"descendants_pages_complete":true,"descendants_comments_complete":false,"descendants_attachments_complete":true,"comments_bundle_ref_count":6,"children_bundle_ref_count":2,"jira_comments_bundle_ref_count":8,"confluence_children_bundle_ref_count":5,"auxiliary_source_session_valid":true,"auxiliary_source_complete":true,"text_attachment_bodies_complete":true,"binary_attachment_bodies_available":false,"binary_attachment_bodies_skipped_count":2,"binary_attachment_body_policy":"metadata_only","partial_output_saved":true},"generation":{"generated_artifact_ref_count":3,"generation_done":false,"current_phase":"skill_generation","next_phase":"finalize","completed_phases_count":2,"completion_criteria_count":5,"source_digest_chunk_coverage_count":4,"completion_criteria_status_count":9,"completion_criteria_satisfied_count":7,"next_incomplete_phase":"publish","generated_artifacts_by_phase_count":3,"current_phase_artifact_count":2,"generation_completion_criteria_met":4,"generation_completion_criteria_total":6},"budget":{"oversized_output_saved":true}}}',
     )
     nested = extract_context_preview(nested_record)
     assert nested["context_source_complete_for_generation"] is True
@@ -567,6 +625,9 @@ def test_extract_context_preview_maps_source_completeness_and_generation_state_f
     assert nested["context_descendants_attachments_complete"] is True
     assert nested["context_comments_bundle_ref_count"] == 6
     assert nested["context_children_bundle_ref_count"] == 2
+    assert nested["context_jira_comments_bundle_ref_count"] == 8
+    assert nested["context_confluence_children_bundle_ref_count"] == 5
+    assert nested["context_auxiliary_source_session_valid"] is True
     assert nested["context_auxiliary_source_complete"] is True
     assert nested["context_text_attachment_bodies_complete"] is True
     assert nested["context_binary_attachment_bodies_available"] is False
@@ -582,13 +643,17 @@ def test_extract_context_preview_maps_source_completeness_and_generation_state_f
     assert nested["context_completion_criteria_status_count"] == 9
     assert nested["context_completion_criteria_satisfied_count"] == 7
     assert nested["context_next_incomplete_phase"] == "publish"
+    assert nested["context_generated_artifacts_by_phase_count"] == 3
+    assert nested["context_current_phase_artifact_count"] == 2
+    assert nested["context_generation_completion_criteria_met"] == 4
+    assert nested["context_generation_completion_criteria_total"] == 6
     assert nested["context_oversized_output_saved"] is True
     assert nested["context_partial_output_saved"] is True
 
     flat_record = SimpleNamespace(
         latest_event_state="running",
         snapshot_version="13",
-        metadata_json='{"source_complete_for_generation":false,"source_complete_including_binary_bodies":true,"source_metadata_complete":false,"source_text_complete":false,"source_tree_complete":true,"descendants_loaded":2,"descendants_total":2,"descendants_complete":true,"descendants_pages_complete":false,"descendants_comments_complete":true,"descendants_attachments_complete":false,"comments_bundle_ref_count":3,"children_bundle_ref_count":1,"auxiliary_source_complete":false,"text_attachment_bodies_complete":false,"binary_attachment_bodies_available":true,"binary_attachment_bodies_skipped_count":0,"binary_attachment_body_policy":"loaded","generated_artifact_ref_count":1,"generation_done":true,"generation_current_phase":"analysis","generation_next_phase":"draft","generation_completed_phases_count":4,"completion_criteria_count":8,"source_digest_chunk_coverage_count":6,"completion_criteria_status_count":10,"completion_criteria_satisfied_count":8,"next_incomplete_phase":"qa","oversized_output_saved":false,"partial_output_saved":false,"output_controller_stage":"recovery","context_state":{"source":{"source_complete_for_generation":true,"descendants_loaded":99,"binary_attachment_body_policy":"unsupported","comments_bundle_ref_count":99},"generation":{"generated_artifact_ref_count":99,"current_phase":"ignored"}}}',
+        metadata_json='{"source_complete_for_generation":false,"source_complete_including_binary_bodies":true,"source_metadata_complete":false,"source_text_complete":false,"source_tree_complete":true,"descendants_loaded":2,"descendants_total":2,"descendants_complete":true,"descendants_pages_complete":false,"descendants_comments_complete":true,"descendants_attachments_complete":false,"comments_bundle_ref_count":3,"children_bundle_ref_count":1,"jira_comments_bundle_ref_count":4,"confluence_children_bundle_ref_count":2,"auxiliary_source_session_valid":false,"auxiliary_source_complete":false,"text_attachment_bodies_complete":false,"binary_attachment_bodies_available":true,"binary_attachment_bodies_skipped_count":0,"binary_attachment_body_policy":"loaded","generated_artifact_ref_count":1,"generation_done":true,"generation_current_phase":"analysis","generation_next_phase":"draft","generation_completed_phases_count":4,"completion_criteria_count":8,"source_digest_chunk_coverage_count":6,"completion_criteria_status_count":10,"completion_criteria_satisfied_count":8,"next_incomplete_phase":"qa","generated_artifacts_by_phase_count":4,"current_phase_artifact_count":1,"generation_completion_criteria_met":8,"generation_completion_criteria_total":9,"oversized_output_saved":false,"partial_output_saved":false,"output_controller_stage":"recovery","context_state":{"source":{"source_complete_for_generation":true,"descendants_loaded":99,"binary_attachment_body_policy":"unsupported","comments_bundle_ref_count":99},"generation":{"generated_artifact_ref_count":99,"current_phase":"ignored"}}}',
     )
     flat = extract_context_preview(flat_record)
     assert flat["context_source_complete_for_generation"] is False
@@ -604,6 +669,9 @@ def test_extract_context_preview_maps_source_completeness_and_generation_state_f
     assert flat["context_descendants_attachments_complete"] is False
     assert flat["context_comments_bundle_ref_count"] == 3
     assert flat["context_children_bundle_ref_count"] == 1
+    assert flat["context_jira_comments_bundle_ref_count"] == 4
+    assert flat["context_confluence_children_bundle_ref_count"] == 2
+    assert flat["context_auxiliary_source_session_valid"] is False
     assert flat["context_auxiliary_source_complete"] is False
     assert flat["context_text_attachment_bodies_complete"] is False
     assert flat["context_binary_attachment_bodies_available"] is True
@@ -619,6 +687,10 @@ def test_extract_context_preview_maps_source_completeness_and_generation_state_f
     assert flat["context_completion_criteria_status_count"] == 10
     assert flat["context_completion_criteria_satisfied_count"] == 8
     assert flat["context_next_incomplete_phase"] == "qa"
+    assert flat["context_generated_artifacts_by_phase_count"] == 4
+    assert flat["context_current_phase_artifact_count"] == 1
+    assert flat["context_generation_completion_criteria_met"] == 8
+    assert flat["context_generation_completion_criteria_total"] == 9
     assert flat["context_oversized_output_saved"] is False
     assert flat["context_partial_output_saved"] is False
     assert flat["context_output_controller_stage"] == "recovery"

@@ -125,6 +125,54 @@
     {% if source_diagnostics.get('output_risk_level') %}
       <div class="portal-panel-note">Output risk level: {{ source_diagnostics.get('output_risk_level') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('max_context_window_tokens') is not none %}
+      <div class="portal-panel-note">Context window: {{ source_diagnostics.get('max_context_window_tokens') }} tokens</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_prompt_tokens') is not none %}
+      <div class="portal-panel-note">Prompt limit: {{ source_diagnostics.get('max_prompt_tokens') }} tokens</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_output_tokens') is not none %}
+      <div class="portal-panel-note">Output limit: {{ source_diagnostics.get('max_output_tokens') }} tokens</div>
+    {% endif %}
+    {% if source_diagnostics.get('effective_max_tokens') is not none %}
+      <div class="portal-panel-note">Effective provider max tokens: {{ source_diagnostics.get('effective_max_tokens') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_chat_output_tokens') is not none or source_diagnostics.get('max_chat_output_chars') is not none %}
+      <div class="portal-panel-note">Chat output boundary: {{ source_diagnostics.get('max_chat_output_tokens') if source_diagnostics.get('max_chat_output_tokens') is not none else '—' }} tokens / {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_boundary_source') %}
+      <div class="portal-panel-note">Output boundary source: {{ source_diagnostics.get('output_boundary_source') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('file_context_budget_status') %}
+      <div class="portal-panel-note">File context budget status: {{ source_diagnostics.get('file_context_budget_status') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('file_context_estimated_tokens') is not none %}
+      <div class="portal-panel-note">File context estimated tokens: {{ source_diagnostics.get('file_context_estimated_tokens') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('file_context_threshold_source') %}
+      <div class="portal-panel-note">File context threshold source: {{ source_diagnostics.get('file_context_threshold_source') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('legacy_max_tokens_ignored') %}
+      <div class="portal-panel-note">Legacy max_tokens ignored: configured {{ source_diagnostics.get('configured_max_tokens') if source_diagnostics.get('configured_max_tokens') is not none else '—' }}, effective {{ source_diagnostics.get('effective_max_tokens') if source_diagnostics.get('effective_max_tokens') is not none else '—' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('legacy_max_chat_output_chars_ignored') %}
+      <div class="portal-panel-note">Legacy low output boundary ignored: configured {{ source_diagnostics.get('configured_max_chat_output_chars') if source_diagnostics.get('configured_max_chat_output_chars') is not none else '—' }} chars, effective {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
+    {% endif %}
+    {% if source_diagnostics.get('budget_max_chat_output_chars_ignored') %}
+      <div class="portal-panel-note">Stale session output boundary ignored: configured {{ source_diagnostics.get('configured_budget_max_chat_output_chars') if source_diagnostics.get('configured_budget_max_chat_output_chars') is not none else '—' }} chars, effective {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
+    {% endif %}
+    {% if source_diagnostics.get('arg_max_chat_output_chars_ignored') %}
+      <div class="portal-panel-note">Runtime output boundary argument ignored: configured {{ source_diagnostics.get('configured_arg_max_chat_output_chars') if source_diagnostics.get('configured_arg_max_chat_output_chars') is not none else '—' }} chars, effective {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
+    {% endif %}
+    {% if source_diagnostics.get('chars_per_token_estimate') is not none %}
+      <div class="portal-panel-note">Chars/token estimate: {{ source_diagnostics.get('chars_per_token_estimate') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('input_context_usage_percent') is not none %}
+      <div class="portal-panel-note">Input context usage: {{ source_diagnostics.get('input_context_usage_percent') }}%</div>
+    {% endif %}
+    {% if source_diagnostics.get('input_context_usage_percent') is not none or source_diagnostics.get('max_output_tokens') is not none or source_diagnostics.get('output_risk_level') %}
+      <div class="portal-panel-note">Input context usage and output limit are separate; low input context usage does not guarantee low output risk.</div>
+    {% endif %}
     {% if source_diagnostics.get('max_chat_output_chars') is not none %}
       <div class="portal-panel-note">Max chat output chars: {{ source_diagnostics.get('max_chat_output_chars') }}</div>
     {% elif 'max_chat_output_chars' in source_diagnostics %}
@@ -190,8 +238,26 @@
     {% if source_diagnostics.get('children_bundle_ref_count') is not none %}
       <div class="portal-panel-note">Children bundle refs: {{ source_diagnostics.get('children_bundle_ref_count') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('jira_comments_bundle_ref_count') is not none %}
+      <div class="portal-panel-note">Jira comment bundles: {{ source_diagnostics.get('jira_comments_bundle_ref_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('confluence_children_bundle_ref_count') is not none %}
+      <div class="portal-panel-note">Confluence child bundles: {{ source_diagnostics.get('confluence_children_bundle_ref_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('auxiliary_source_session_valid') is not none %}
+      <div class="portal-panel-note">Auxiliary source session valid: {{ 'yes' if source_diagnostics.get('auxiliary_source_session_valid') else 'no' }}</div>
+    {% endif %}
     {% if source_diagnostics.get('auxiliary_source_complete') is not none %}
       <div class="portal-panel-note">Auxiliary source complete: {{ 'yes' if source_diagnostics.get('auxiliary_source_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('generated_artifacts_by_phase_count') is not none %}
+      <div class="portal-panel-note">Generated artifact phases: {{ source_diagnostics.get('generated_artifacts_by_phase_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('current_phase_artifact_count') is not none %}
+      <div class="portal-panel-note">Current phase artifacts: {{ source_diagnostics.get('current_phase_artifact_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('generation_completion_criteria_met') is not none or source_diagnostics.get('generation_completion_criteria_total') is not none %}
+      <div class="portal-panel-note">Completion criteria: {{ source_diagnostics.get('generation_completion_criteria_met') if source_diagnostics.get('generation_completion_criteria_met') is not none else '—' }}/{{ source_diagnostics.get('generation_completion_criteria_total') if source_diagnostics.get('generation_completion_criteria_total') is not none else '—' }}</div>
     {% endif %}
     {% if source_diagnostics.get('generation_current_phase') or source_diagnostics.get('generation_next_phase') or source_diagnostics.get('generation_completed_phases_count') is not none %}
       <div class="portal-panel-note">Current phase / Next phase / Completed phases: {{ source_diagnostics.get('generation_current_phase') or '—' }} / {{ source_diagnostics.get('generation_next_phase') or '—' }} / {{ source_diagnostics.get('generation_completed_phases_count') if source_diagnostics.get('generation_completed_phases_count') is not none else '—' }}</div>

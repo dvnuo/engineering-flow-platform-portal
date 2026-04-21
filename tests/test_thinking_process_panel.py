@@ -687,7 +687,26 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "source_complete_including_binary_bodies": True,
                 "generation_mode": "staged",
                 "output_risk_level": "high",
-                "max_chat_output_chars": 12000,
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000,
+                "max_output_tokens": 128000,
+                "effective_max_tokens": 128000,
+                "legacy_max_tokens_ignored": True,
+                "configured_max_tokens": 64000,
+                "max_chat_output_tokens": 120000,
+                "max_chat_output_chars": 480000,
+                "output_boundary_source": "model_limits_derived",
+                "legacy_max_chat_output_chars_ignored": True,
+                "configured_max_chat_output_chars": 8000,
+                "budget_max_chat_output_chars_ignored": True,
+                "configured_budget_max_chat_output_chars": 8000,
+                "arg_max_chat_output_chars_ignored": True,
+                "configured_arg_max_chat_output_chars": 8000,
+                "file_context_budget_status": "within_limit",
+                "file_context_estimated_tokens": 1536,
+                "file_context_threshold_source": "resolved_runtime_profile",
+                "chars_per_token_estimate": 4.0,
+                "input_context_usage_percent": 44.5,
                 "output_controller_applied": True,
                 "output_controller_stage": "tool_loop",
                 "text_attachment_bodies_complete": True,
@@ -703,6 +722,9 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "descendants_attachments_complete": True,
                 "comments_bundle_ref_count": 4,
                 "children_bundle_ref_count": 2,
+                "jira_comments_bundle_ref_count": 6,
+                "confluence_children_bundle_ref_count": 3,
+                "auxiliary_source_session_valid": True,
                 "auxiliary_source_complete": True,
                 "source_bundle": {"raw": "SECRET_BUNDLE_CONTENT"},
                 "jira_body": "SECRET_JIRA_BODY",
@@ -719,6 +741,10 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "completion_criteria_status_count": 8,
                 "completion_criteria_satisfied_count": 6,
                 "next_incomplete_phase": "publish",
+                "generated_artifacts_by_phase_count": 5,
+                "current_phase_artifact_count": 2,
+                "generation_completion_criteria_met": 4,
+                "generation_completion_criteria_total": 7,
             },
         },
     }
@@ -730,7 +756,23 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Source complete including binary bodies: yes" in response.text
     assert "Generation mode: staged" in response.text
     assert "Output risk level: high" in response.text
-    assert "Max chat output chars: 12000" in response.text
+    assert "Context window: 400000 tokens" in response.text
+    assert "Prompt limit: 272000 tokens" in response.text
+    assert "Output limit: 128000 tokens" in response.text
+    assert "Effective provider max tokens: 128000" in response.text
+    assert "Chat output boundary: 120000 tokens / 480000 chars" in response.text
+    assert "Output boundary source: model_limits_derived" in response.text
+    assert "File context budget status: within_limit" in response.text
+    assert "File context estimated tokens: 1536" in response.text
+    assert "File context threshold source: resolved_runtime_profile" in response.text
+    assert "Legacy max_tokens ignored: configured 64000, effective 128000" in response.text
+    assert "Legacy low output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
+    assert "Stale session output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
+    assert "Runtime output boundary argument ignored: configured 8000 chars, effective 480000 chars" in response.text
+    assert "Chars/token estimate: 4.0" in response.text
+    assert "Input context usage: 44.5%" in response.text
+    assert "Input context usage and output limit are separate; low input context usage does not guarantee low output risk." in response.text
+    assert "Max chat output chars: 480000" in response.text
     assert "Output controller applied: yes" in response.text
     assert "Output controller stage: tool_loop" in response.text
     assert "Text attachment bodies complete: yes" in response.text
@@ -745,6 +787,9 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Descendant attachments complete: yes" in response.text
     assert "Comments bundle refs: 4" in response.text
     assert "Children bundle refs: 2" in response.text
+    assert "Jira comment bundles: 6" in response.text
+    assert "Confluence child bundles: 3" in response.text
+    assert "Auxiliary source session valid: yes" in response.text
     assert "Auxiliary source complete: yes" in response.text
     assert "Generated artifacts: 2" in response.text
     assert "Generation done: no" in response.text
@@ -753,6 +798,9 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Next incomplete phase: publish" in response.text
     assert "Digest chunk coverage: 5" in response.text
     assert "Current phase / Next phase / Completed phases: step_definitions / finalize / 4" in response.text
+    assert "Generated artifact phases: 5" in response.text
+    assert "Current phase artifacts: 2" in response.text
+    assert "Completion criteria: 4/7" in response.text
     assert "SECRET_BUNDLE_CONTENT" not in response.text
     assert "SECRET_JIRA_BODY" not in response.text
     assert "ctx://source/abc" not in response.text
