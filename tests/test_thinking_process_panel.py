@@ -695,7 +695,7 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "configured_max_tokens": 64000,
                 "max_chat_output_tokens": 120000,
                 "max_chat_output_chars": 480000,
-                "output_boundary_source": "model_limits_legacy_override_ignored",
+                "output_boundary_source": "model_limits_derived",
                 "legacy_max_chat_output_chars_ignored": True,
                 "configured_max_chat_output_chars": 8000,
                 "budget_max_chat_output_chars_ignored": True,
@@ -758,7 +758,7 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Output limit: 128000 tokens" in response.text
     assert "Effective provider max tokens: 128000" in response.text
     assert "Chat output boundary: 120000 tokens / 480000 chars" in response.text
-    assert "Output boundary source: model_limits_legacy_override_ignored" in response.text
+    assert "Output boundary source: model_limits_derived" in response.text
     assert "Legacy max_tokens ignored: configured 64000, effective 128000" in response.text
     assert "Legacy low output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
     assert "Stale session output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text

@@ -1075,7 +1075,7 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
                 "configured_max_tokens": 64000,
                 "max_chat_output_tokens": 120000,
                 "max_chat_output_chars": 480000,
-                "output_boundary_source": "model_limits_legacy_override_ignored",
+                "output_boundary_source": "model_limits_derived",
                 "legacy_max_chat_output_chars_ignored": True,
                 "configured_max_chat_output_chars": 8000,
                 "budget_max_chat_output_chars_ignored": True,
@@ -1113,7 +1113,7 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
     assert "configured_max_tokens=64000" in detail
     assert "max_chat_output_tokens=120000" in detail
     assert "max_chat_output_chars=480000" in detail
-    assert "output_boundary_source=model_limits_legacy_override_ignored" in detail
+    assert "output_boundary_source=model_limits_derived" in detail
     assert "legacy_max_chat_output_chars_ignored=True" in detail
     assert "configured_max_chat_output_chars=8000" in detail
     assert "budget_max_chat_output_chars_ignored=True" in detail

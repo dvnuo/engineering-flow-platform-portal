@@ -481,7 +481,7 @@ def test_extract_context_preview_maps_effective_model_limits_from_nested_and_fla
     nested_record = SimpleNamespace(
         latest_event_state="running",
         snapshot_version="10",
-        metadata_json='{"context_state":{"budget":{"max_context_window_tokens":400000,"max_prompt_tokens":272000,"max_output_tokens":128000,"effective_max_tokens":128000,"legacy_max_tokens_ignored":true,"configured_max_tokens":64000,"max_chat_output_tokens":120000,"max_chat_output_chars":480000,"output_boundary_source":"model_limits_legacy_override_ignored","legacy_max_chat_output_chars_ignored":true,"configured_max_chat_output_chars":8000,"budget_max_chat_output_chars_ignored":true,"configured_budget_max_chat_output_chars":8000,"arg_max_chat_output_chars_ignored":true,"configured_arg_max_chat_output_chars":8000,"chars_per_token_estimate":4.0,"input_context_usage_percent":21.5},"source":{"output_risk_level":"medium"}}}',
+        metadata_json='{"context_state":{"budget":{"max_context_window_tokens":400000,"max_prompt_tokens":272000,"max_output_tokens":128000,"effective_max_tokens":128000,"legacy_max_tokens_ignored":true,"configured_max_tokens":64000,"max_chat_output_tokens":120000,"max_chat_output_chars":480000,"output_boundary_source":"model_limits_derived","legacy_max_chat_output_chars_ignored":true,"configured_max_chat_output_chars":8000,"budget_max_chat_output_chars_ignored":true,"configured_budget_max_chat_output_chars":8000,"arg_max_chat_output_chars_ignored":true,"configured_arg_max_chat_output_chars":8000,"chars_per_token_estimate":4.0,"input_context_usage_percent":21.5},"source":{"output_risk_level":"medium"}}}',
     )
     nested = extract_context_preview(nested_record)
     assert nested["context_max_context_window_tokens"] == 400000
@@ -492,7 +492,7 @@ def test_extract_context_preview_maps_effective_model_limits_from_nested_and_fla
     assert nested["context_configured_max_tokens"] == 64000
     assert nested["context_max_chat_output_tokens"] == 120000
     assert nested["context_max_chat_output_chars"] == 480000
-    assert nested["context_output_boundary_source"] == "model_limits_legacy_override_ignored"
+    assert nested["context_output_boundary_source"] == "model_limits_derived"
     assert nested["context_legacy_max_chat_output_chars_ignored"] is True
     assert nested["context_configured_max_chat_output_chars"] == 8000
     assert nested["context_budget_max_chat_output_chars_ignored"] is True
