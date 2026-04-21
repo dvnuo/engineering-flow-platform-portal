@@ -233,6 +233,39 @@
     {% if source_diagnostics.get('output_controller_recovery_reason') %}
       <div class="portal-panel-note">Recovery reason: {{ source_diagnostics.get('output_controller_recovery_reason') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('source_complete_definition') %}
+      <div class="portal-panel-note">Source completeness definition: {{ source_diagnostics.get('source_complete_definition') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('issue_fields_complete') is not none %}
+      <div class="portal-panel-note">Issue fields complete: {{ 'yes' if source_diagnostics.get('issue_fields_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('page_body_complete') is not none %}
+      <div class="portal-panel-note">Page body complete: {{ 'yes' if source_diagnostics.get('page_body_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('attachment_metadata_complete') is not none %}
+      <div class="portal-panel-note">Attachment metadata complete: {{ 'yes' if source_diagnostics.get('attachment_metadata_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('text_attachment_bodies_complete') is not none %}
+      <div class="portal-panel-note">Text attachment bodies complete: {{ 'yes' if source_diagnostics.get('text_attachment_bodies_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('binary_attachment_bodies_available') is not none %}
+      <div class="portal-panel-note">Binary attachment bodies available: {{ 'yes' if source_diagnostics.get('binary_attachment_bodies_available') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('binary_attachment_bodies_skipped_count') is not none %}
+      <div class="portal-panel-note">Binary attachment bodies skipped: {{ source_diagnostics.get('binary_attachment_bodies_skipped_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('descendants_supported') is not none %}
+      <div class="portal-panel-note">Descendants supported: {{ 'yes' if source_diagnostics.get('descendants_supported') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('descendants_complete') is not none %}
+      <div class="portal-panel-note">Descendants complete: {{ 'yes' if source_diagnostics.get('descendants_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('partial_output_saved') is not none %}
+      <div class="portal-panel-note">Partial output saved: {{ 'yes' if source_diagnostics.get('partial_output_saved') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('partial_output_ref_count') is not none %}
+      <div class="portal-panel-note">Partial output refs: {{ source_diagnostics.get('partial_output_ref_count') }}</div>
+    {% endif %}
     {% if source_diagnostics.get('input_context_usage_percent') is not none and source_diagnostics.get('output_risk_level') %}
       <div class="portal-panel-note">Low input context usage does not guarantee output safety.</div>
     {% endif %}

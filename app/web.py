@@ -261,6 +261,17 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "preview_tool_used",
         "output_controller_stage",
         "output_controller_recovery_reason",
+        "source_complete_definition",
+        "issue_fields_complete",
+        "page_body_complete",
+        "attachment_metadata_complete",
+        "text_attachment_bodies_complete",
+        "binary_attachment_bodies_available",
+        "binary_attachment_bodies_skipped_count",
+        "descendants_supported",
+        "descendants_complete",
+        "partial_output_saved",
+        "partial_output_ref_count",
     )
     for key in allowlist:
         value = details.get(key)
