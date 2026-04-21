@@ -95,7 +95,7 @@ html[data-theme="dark"] {
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--portal-app-bg); color: var(--portal-text); }
+body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--portal-app-bg); color: var(--portal-text); font-size: 14px }
 .hidden { display: none !important; }
 
 .portal-app-root { height: 100vh; background: var(--portal-app-bg); color: var(--portal-text); padding: 8px; }
@@ -1372,7 +1372,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .portal-panel-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--portal-text);
 }
