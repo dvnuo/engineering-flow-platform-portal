@@ -143,6 +143,15 @@
     {% if source_diagnostics.get('output_boundary_source') %}
       <div class="portal-panel-note">Output boundary source: {{ source_diagnostics.get('output_boundary_source') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('file_context_budget_status') %}
+      <div class="portal-panel-note">File context budget status: {{ source_diagnostics.get('file_context_budget_status') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('file_context_estimated_tokens') is not none %}
+      <div class="portal-panel-note">File context estimated tokens: {{ source_diagnostics.get('file_context_estimated_tokens') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('file_context_threshold_source') %}
+      <div class="portal-panel-note">File context threshold source: {{ source_diagnostics.get('file_context_threshold_source') }}</div>
+    {% endif %}
     {% if source_diagnostics.get('legacy_max_tokens_ignored') %}
       <div class="portal-panel-note">Legacy max_tokens ignored: configured {{ source_diagnostics.get('configured_max_tokens') if source_diagnostics.get('configured_max_tokens') is not none else '—' }}, effective {{ source_diagnostics.get('effective_max_tokens') if source_diagnostics.get('effective_max_tokens') is not none else '—' }}</div>
     {% endif %}

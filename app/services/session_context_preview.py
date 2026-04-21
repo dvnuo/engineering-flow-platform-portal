@@ -77,6 +77,9 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_configured_budget_max_chat_output_chars": metadata.get("configured_budget_max_chat_output_chars"),
         "context_arg_max_chat_output_chars_ignored": metadata.get("arg_max_chat_output_chars_ignored"),
         "context_configured_arg_max_chat_output_chars": metadata.get("configured_arg_max_chat_output_chars"),
+        "context_file_context_budget_status": _normalize_preview_value(metadata.get("file_context_budget_status")),
+        "context_file_context_estimated_tokens": metadata.get("file_context_estimated_tokens"),
+        "context_file_context_threshold_source": _normalize_preview_value(metadata.get("file_context_threshold_source")),
         "context_chars_per_token_estimate": metadata.get("chars_per_token_estimate"),
         "context_max_output_recovery_applied": metadata.get("max_output_recovery_applied"),
         "context_max_output_recovery_attempts": metadata.get("max_output_recovery_attempts"),
@@ -181,6 +184,13 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_configured_budget_max_chat_output_chars": source.get("configured_budget_max_chat_output_chars") if source.get("configured_budget_max_chat_output_chars") is not None else budget.get("configured_budget_max_chat_output_chars"),
         "context_arg_max_chat_output_chars_ignored": source.get("arg_max_chat_output_chars_ignored") if source.get("arg_max_chat_output_chars_ignored") is not None else budget.get("arg_max_chat_output_chars_ignored"),
         "context_configured_arg_max_chat_output_chars": source.get("configured_arg_max_chat_output_chars") if source.get("configured_arg_max_chat_output_chars") is not None else budget.get("configured_arg_max_chat_output_chars"),
+        "context_file_context_budget_status": _normalize_preview_value(
+            source.get("file_context_budget_status") if source.get("file_context_budget_status") is not None else budget.get("file_context_budget_status")
+        ),
+        "context_file_context_estimated_tokens": source.get("file_context_estimated_tokens") if source.get("file_context_estimated_tokens") is not None else budget.get("file_context_estimated_tokens"),
+        "context_file_context_threshold_source": _normalize_preview_value(
+            source.get("file_context_threshold_source") if source.get("file_context_threshold_source") is not None else budget.get("file_context_threshold_source")
+        ),
         "context_chars_per_token_estimate": source.get("chars_per_token_estimate") if source.get("chars_per_token_estimate") is not None else budget.get("chars_per_token_estimate"),
         "context_max_output_recovery_applied": source.get("max_output_recovery_applied") if source.get("max_output_recovery_applied") is not None else budget.get("max_output_recovery_applied"),
         "context_max_output_recovery_attempts": source.get("max_output_recovery_attempts") if source.get("max_output_recovery_attempts") is not None else budget.get("max_output_recovery_attempts"),
@@ -291,6 +301,9 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_configured_budget_max_chat_output_chars",
             "context_arg_max_chat_output_chars_ignored",
             "context_configured_arg_max_chat_output_chars",
+            "context_file_context_budget_status",
+            "context_file_context_estimated_tokens",
+            "context_file_context_threshold_source",
             "context_chars_per_token_estimate",
             "context_max_output_recovery_applied",
             "context_max_output_recovery_attempts",

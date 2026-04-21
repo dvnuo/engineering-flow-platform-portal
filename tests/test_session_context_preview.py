@@ -481,7 +481,7 @@ def test_extract_context_preview_maps_effective_model_limits_from_nested_and_fla
     nested_record = SimpleNamespace(
         latest_event_state="running",
         snapshot_version="10",
-        metadata_json='{"context_state":{"budget":{"max_context_window_tokens":400000,"max_prompt_tokens":272000,"max_output_tokens":128000,"effective_max_tokens":128000,"legacy_max_tokens_ignored":true,"configured_max_tokens":64000,"max_chat_output_tokens":120000,"max_chat_output_chars":480000,"output_boundary_source":"model_limits_derived","legacy_max_chat_output_chars_ignored":true,"configured_max_chat_output_chars":8000,"budget_max_chat_output_chars_ignored":true,"configured_budget_max_chat_output_chars":8000,"arg_max_chat_output_chars_ignored":true,"configured_arg_max_chat_output_chars":8000,"chars_per_token_estimate":4.0,"input_context_usage_percent":21.5},"source":{"output_risk_level":"medium"}}}',
+        metadata_json='{"context_state":{"budget":{"max_context_window_tokens":400000,"max_prompt_tokens":272000,"max_output_tokens":128000,"effective_max_tokens":128000,"legacy_max_tokens_ignored":true,"configured_max_tokens":64000,"max_chat_output_tokens":120000,"max_chat_output_chars":480000,"output_boundary_source":"model_limits_derived","legacy_max_chat_output_chars_ignored":true,"configured_max_chat_output_chars":8000,"budget_max_chat_output_chars_ignored":true,"configured_budget_max_chat_output_chars":8000,"arg_max_chat_output_chars_ignored":true,"configured_arg_max_chat_output_chars":8000,"file_context_budget_status":"within_limit","file_context_estimated_tokens":1200,"file_context_threshold_source":"resolved_runtime_profile","chars_per_token_estimate":4.0,"input_context_usage_percent":21.5},"source":{"output_risk_level":"medium"}}}',
     )
     nested = extract_context_preview(nested_record)
     assert nested["context_max_context_window_tokens"] == 400000
@@ -499,6 +499,9 @@ def test_extract_context_preview_maps_effective_model_limits_from_nested_and_fla
     assert nested["context_configured_budget_max_chat_output_chars"] == 8000
     assert nested["context_arg_max_chat_output_chars_ignored"] is True
     assert nested["context_configured_arg_max_chat_output_chars"] == 8000
+    assert nested["context_file_context_budget_status"] == "within_limit"
+    assert nested["context_file_context_estimated_tokens"] == 1200
+    assert nested["context_file_context_threshold_source"] == "resolved_runtime_profile"
     assert nested["context_chars_per_token_estimate"] == 4.0
     assert nested["context_input_context_usage_percent"] == 21.5
     assert nested["context_output_risk_level"] == "medium"
@@ -506,7 +509,7 @@ def test_extract_context_preview_maps_effective_model_limits_from_nested_and_fla
     flat_record = SimpleNamespace(
         latest_event_state="running",
         snapshot_version="10",
-        metadata_json='{"max_context_window_tokens":400000,"max_prompt_tokens":272000,"max_output_tokens":128000,"effective_max_tokens":128000,"legacy_max_tokens_ignored":true,"configured_max_tokens":64000,"max_chat_output_tokens":120000,"max_chat_output_chars":480000,"output_boundary_source":"model_limits","legacy_max_chat_output_chars_ignored":false,"configured_max_chat_output_chars":480000,"budget_max_chat_output_chars_ignored":false,"configured_budget_max_chat_output_chars":480000,"arg_max_chat_output_chars_ignored":false,"configured_arg_max_chat_output_chars":480000,"chars_per_token_estimate":4.0,"input_context_usage_percent":34.0,"output_risk_level":"high","context_state":{"budget":{"max_context_window_tokens":1,"max_prompt_tokens":1,"max_output_tokens":1,"effective_max_tokens":1,"legacy_max_tokens_ignored":false,"configured_max_tokens":1,"max_chat_output_tokens":1,"max_chat_output_chars":1,"output_boundary_source":"ignored","legacy_max_chat_output_chars_ignored":true,"configured_max_chat_output_chars":1,"budget_max_chat_output_chars_ignored":true,"configured_budget_max_chat_output_chars":1,"arg_max_chat_output_chars_ignored":true,"configured_arg_max_chat_output_chars":1,"chars_per_token_estimate":1.0,"input_context_usage_percent":1.0},"source":{"output_risk_level":"ignored"}}}',
+        metadata_json='{"max_context_window_tokens":400000,"max_prompt_tokens":272000,"max_output_tokens":128000,"effective_max_tokens":128000,"legacy_max_tokens_ignored":true,"configured_max_tokens":64000,"max_chat_output_tokens":120000,"max_chat_output_chars":480000,"output_boundary_source":"model_limits","legacy_max_chat_output_chars_ignored":false,"configured_max_chat_output_chars":480000,"budget_max_chat_output_chars_ignored":false,"configured_budget_max_chat_output_chars":480000,"arg_max_chat_output_chars_ignored":false,"configured_arg_max_chat_output_chars":480000,"file_context_budget_status":"within_limit","file_context_estimated_tokens":2048,"file_context_threshold_source":"runtime_defaults","chars_per_token_estimate":4.0,"input_context_usage_percent":34.0,"output_risk_level":"high","context_state":{"budget":{"max_context_window_tokens":1,"max_prompt_tokens":1,"max_output_tokens":1,"effective_max_tokens":1,"legacy_max_tokens_ignored":false,"configured_max_tokens":1,"max_chat_output_tokens":1,"max_chat_output_chars":1,"output_boundary_source":"ignored","legacy_max_chat_output_chars_ignored":true,"configured_max_chat_output_chars":1,"budget_max_chat_output_chars_ignored":true,"configured_budget_max_chat_output_chars":1,"arg_max_chat_output_chars_ignored":true,"configured_arg_max_chat_output_chars":1,"file_context_budget_status":"ignored","file_context_estimated_tokens":1,"file_context_threshold_source":"ignored","chars_per_token_estimate":1.0,"input_context_usage_percent":1.0},"source":{"output_risk_level":"ignored"}}}',
     )
     flat = extract_context_preview(flat_record)
     assert flat["context_max_context_window_tokens"] == 400000
@@ -524,6 +527,9 @@ def test_extract_context_preview_maps_effective_model_limits_from_nested_and_fla
     assert flat["context_configured_budget_max_chat_output_chars"] == 480000
     assert flat["context_arg_max_chat_output_chars_ignored"] is False
     assert flat["context_configured_arg_max_chat_output_chars"] == 480000
+    assert flat["context_file_context_budget_status"] == "within_limit"
+    assert flat["context_file_context_estimated_tokens"] == 2048
+    assert flat["context_file_context_threshold_source"] == "runtime_defaults"
     assert flat["context_chars_per_token_estimate"] == 4.0
     assert flat["context_input_context_usage_percent"] == 34.0
     assert flat["context_output_risk_level"] == "high"

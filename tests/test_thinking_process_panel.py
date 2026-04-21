@@ -702,6 +702,9 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "configured_budget_max_chat_output_chars": 8000,
                 "arg_max_chat_output_chars_ignored": True,
                 "configured_arg_max_chat_output_chars": 8000,
+                "file_context_budget_status": "within_limit",
+                "file_context_estimated_tokens": 1536,
+                "file_context_threshold_source": "resolved_runtime_profile",
                 "chars_per_token_estimate": 4.0,
                 "input_context_usage_percent": 44.5,
                 "output_controller_applied": True,
@@ -759,6 +762,9 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Effective provider max tokens: 128000" in response.text
     assert "Chat output boundary: 120000 tokens / 480000 chars" in response.text
     assert "Output boundary source: model_limits_derived" in response.text
+    assert "File context budget status: within_limit" in response.text
+    assert "File context estimated tokens: 1536" in response.text
+    assert "File context threshold source: resolved_runtime_profile" in response.text
     assert "Legacy max_tokens ignored: configured 64000, effective 128000" in response.text
     assert "Legacy low output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
     assert "Stale session output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
