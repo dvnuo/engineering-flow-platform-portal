@@ -700,6 +700,8 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "configured_max_chat_output_chars": 8000,
                 "budget_max_chat_output_chars_ignored": True,
                 "configured_budget_max_chat_output_chars": 8000,
+                "arg_max_chat_output_chars_ignored": True,
+                "configured_arg_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "input_context_usage_percent": 44.5,
                 "output_controller_applied": True,
@@ -760,6 +762,7 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Legacy max_tokens ignored: configured 64000, effective 128000" in response.text
     assert "Legacy low output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
     assert "Stale session output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
+    assert "Runtime output boundary argument ignored: configured 8000 chars, effective 480000 chars" in response.text
     assert "Chars/token estimate: 4.0" in response.text
     assert "Input context usage: 44.5%" in response.text
     assert "Input context usage and output limit are separate; low input context usage does not guarantee low output risk." in response.text

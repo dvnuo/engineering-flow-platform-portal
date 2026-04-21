@@ -207,6 +207,8 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "effective_max_tokens",
         "budget_max_chat_output_chars_ignored",
         "configured_budget_max_chat_output_chars",
+        "arg_max_chat_output_chars_ignored",
+        "configured_arg_max_chat_output_chars",
         "output_boundary_source",
         "max_context_window_tokens",
         "max_prompt_tokens",

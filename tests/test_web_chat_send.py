@@ -1005,6 +1005,8 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
                 "configured_max_chat_output_chars": 8000,
                 "budget_max_chat_output_chars_ignored": True,
                 "configured_budget_max_chat_output_chars": 8000,
+                "arg_max_chat_output_chars_ignored": True,
+                "configured_arg_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "medium",
                 "input_context_usage_percent": 22.5,
@@ -1035,6 +1037,8 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
     assert "configured_max_chat_output_chars=8000" in detail
     assert "budget_max_chat_output_chars_ignored=True" in detail
     assert "configured_budget_max_chat_output_chars=8000" in detail
+    assert "arg_max_chat_output_chars_ignored=True" in detail
+    assert "configured_arg_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
     assert "input_context_usage_percent=" not in detail
@@ -1076,6 +1080,8 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
                 "configured_max_chat_output_chars": 8000,
                 "budget_max_chat_output_chars_ignored": True,
                 "configured_budget_max_chat_output_chars": 8000,
+                "arg_max_chat_output_chars_ignored": True,
+                "configured_arg_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "high",
                 "input_context_usage_percent": 35.0,
@@ -1112,6 +1118,8 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
     assert "configured_max_chat_output_chars=8000" in detail
     assert "budget_max_chat_output_chars_ignored=True" in detail
     assert "configured_budget_max_chat_output_chars=8000" in detail
+    assert "arg_max_chat_output_chars_ignored=True" in detail
+    assert "configured_arg_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
     assert "input_context_usage_percent=" not in detail
@@ -1161,6 +1169,8 @@ def test_app_chat_send_runtime_error_includes_model_limit_phase_scalars_only(mon
                 "configured_max_chat_output_chars": 8000,
                 "budget_max_chat_output_chars_ignored": True,
                 "configured_budget_max_chat_output_chars": 8000,
+                "arg_max_chat_output_chars_ignored": True,
+                "configured_arg_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "normal",
                 "input_context_usage_percent": 18.5,
@@ -1199,6 +1209,8 @@ def test_app_chat_send_runtime_error_includes_model_limit_phase_scalars_only(mon
     assert "configured_max_chat_output_chars=8000" in detail
     assert "budget_max_chat_output_chars_ignored=True" in detail
     assert "configured_budget_max_chat_output_chars=8000" in detail
+    assert "arg_max_chat_output_chars_ignored=True" in detail
+    assert "configured_arg_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
     assert "input_context_usage_percent=" not in detail
@@ -1249,6 +1261,8 @@ def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monk
                 "configured_max_chat_output_chars": 8000,
                 "budget_max_chat_output_chars_ignored": True,
                 "configured_budget_max_chat_output_chars": 8000,
+                "arg_max_chat_output_chars_ignored": True,
+                "configured_arg_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "medium",
                 "input_context_usage_percent": 42.0,
@@ -1286,6 +1300,8 @@ def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monk
     assert "configured_max_chat_output_chars=8000" in detail
     assert "budget_max_chat_output_chars_ignored=True" in detail
     assert "configured_budget_max_chat_output_chars=8000" in detail
+    assert "arg_max_chat_output_chars_ignored=True" in detail
+    assert "configured_arg_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
     assert "input_context_usage_percent=" not in detail

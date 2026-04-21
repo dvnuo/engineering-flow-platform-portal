@@ -152,6 +152,9 @@
     {% if source_diagnostics.get('budget_max_chat_output_chars_ignored') %}
       <div class="portal-panel-note">Stale session output boundary ignored: configured {{ source_diagnostics.get('configured_budget_max_chat_output_chars') if source_diagnostics.get('configured_budget_max_chat_output_chars') is not none else '—' }} chars, effective {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
     {% endif %}
+    {% if source_diagnostics.get('arg_max_chat_output_chars_ignored') %}
+      <div class="portal-panel-note">Runtime output boundary argument ignored: configured {{ source_diagnostics.get('configured_arg_max_chat_output_chars') if source_diagnostics.get('configured_arg_max_chat_output_chars') is not none else '—' }} chars, effective {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
+    {% endif %}
     {% if source_diagnostics.get('chars_per_token_estimate') is not none %}
       <div class="portal-panel-note">Chars/token estimate: {{ source_diagnostics.get('chars_per_token_estimate') }}</div>
     {% endif %}
