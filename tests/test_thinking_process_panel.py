@@ -683,19 +683,20 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
         "session_id": "s-1",
         "context_state": {
             "source": {
-                "source_complete": False,
-                "comments_loaded": 3,
-                "comments_total": 9,
-                "attachments_loaded": 1,
-                "attachments_total": 2,
-                "source_partial_reasons_count": 2,
-                "generation_mode": "staged",
-                "current_generation_phase": "step_definitions",
-                "large_generation_guard_reason": "guarded_large_output",
+                "source_complete_for_generation": False,
+                "source_complete_including_binary_bodies": True,
+                "source_metadata_complete": True,
+                "source_text_complete": False,
+                "source_tree_complete": True,
+                "descendants_loaded": 3,
+                "descendants_total": 9,
+                "descendants_complete": False,
                 "source_bundle": {"raw": "SECRET_BUNDLE_CONTENT"},
                 "jira_body": "SECRET_JIRA_BODY",
                 "ctx_refs": ["ctx://source/abc"],
-            }
+            },
+            "generation": {"generated_artifact_ref_count": 2, "generation_done": False, "current_phase": "step_definitions"},
+            "budget": {"generation_next_phase": "finalize", "oversized_output_saved": True, "partial_output_saved": True},
         },
     }
     client = _setup_thinking_panel_client(monkeypatch, chatlog)
@@ -703,35 +704,29 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
 
     assert response.status_code == 200
-    assert "Source complete: no" in response.text
-    assert "Comments loaded: 3/9" in response.text
-    assert "Attachments loaded: 1/2" in response.text
-    assert "Partial source reasons: 2" in response.text
-    assert "Generation mode: staged" in response.text
-    assert "Current phase: step_definitions" in response.text
-    assert "Large generation guard reason: guarded_large_output" in response.text
+    assert "Source complete for generation: no" in response.text
+    assert "Source complete including binary bodies: yes" in response.text
+    assert "Source metadata complete: yes" in response.text
+    assert "Source text complete: no" in response.text
+    assert "Source tree complete: yes" in response.text
+    assert "Descendants loaded: 3/9" in response.text
+    assert "Descendants complete: no" in response.text
+    assert "Generated artifacts: 2" in response.text
+    assert "Generation done: no" in response.text
+    assert "Current phase / Next phase: step_definitions / finalize" in response.text
+    assert "Oversized output saved: yes" in response.text
+    assert "Partial output saved: yes" in response.text
     assert "SECRET_BUNDLE_CONTENT" not in response.text
     assert "SECRET_JIRA_BODY" not in response.text
     assert "ctx://source/abc" not in response.text
 
 
-def test_thinking_process_panel_renders_new_source_and_output_recovery_diagnostics(monkeypatch):
+def test_thinking_process_panel_hides_lines_for_missing_compact_source_diagnostics(monkeypatch):
     chatlog = {
         "session_id": "s-1",
         "context_state": {
             "source": {
-                "source_type": "Jira",
-                "source_digest_chunk_count": 5,
-                "children_loaded": 3,
-                "children_total": 4,
-            },
-            "budget": {
-                "output_risk_level": "low",
-                "max_chat_output_chars": 10000,
-                "max_output_recovery_applied": True,
-                "max_output_recovery_attempts": 2,
-                "output_token_limit": 4096,
-                "input_context_usage_percent": 24.5,
+                "source_complete_for_generation": True,
             },
         },
     }
@@ -740,110 +735,6 @@ def test_thinking_process_panel_renders_new_source_and_output_recovery_diagnosti
     response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
 
     assert response.status_code == 200
-    assert "Source type: Jira" in response.text
-    assert "Digest chunks: 5" in response.text
-    assert "Children loaded: 3/4" in response.text
-    assert "Output risk: low" in response.text
-    assert "Max chat output: 10000 chars" in response.text
-    assert "Output recovery: applied" in response.text
-    assert "Recovery attempts: 2" in response.text
-    assert "Output token limit: 4096" in response.text
-    assert "Input context usage: 24.5%" in response.text
-    assert "Low input context usage does not guarantee output safety." in response.text
-
-
-def test_thinking_process_panel_renders_new_completeness_and_oversized_output_diagnostics(monkeypatch):
-    chatlog = {
-        "session_id": "s-1",
-        "context_state": {
-            "source": {
-                "comments_complete": True,
-                "attachments_complete": False,
-                "children_complete": True,
-                "text_attachments_loaded": 4,
-                "text_attachments_total": 6,
-                "text_attachments_preview_only": 2,
-                "binary_attachment_bodies_skipped_count": 3,
-            },
-            "budget": {
-                "attachment_body_complete": True,
-                "max_chat_output_enforced": True,
-                "oversized_output_saved": True,
-                "oversized_output_ref_count": 2,
-            },
-        },
-    }
-    client = _setup_thinking_panel_client(monkeypatch, chatlog)
-    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
-
-    assert response.status_code == 200
-    assert "Comments complete: yes" in response.text
-    assert "Attachments complete: no" in response.text
-    assert "Children complete: yes" in response.text
-    assert "Text attachments: 4/6" in response.text
-    assert "Text attachment preview-only: 2" in response.text
-    assert "Binary attachment bodies skipped: 3" in response.text
-    assert "Attachment body complete: yes" in response.text
-    assert "Max chat output enforced: yes" in response.text
-    assert "Oversized output saved: yes" in response.text
-    assert "Oversized output refs: 2" in response.text
-
-
-def test_thinking_process_panel_renders_output_controller_phase_diagnostics(monkeypatch):
-    chatlog = {
-        "session_id": "s-1",
-        "context_state": {
-            "source": {
-                "output_controller_applied": True,
-                "source_context_mode": "preview",
-                "default_source_complete_applied": False,
-                "source_preview_tool_used": True,
-            },
-            "generation": {
-                "completed_phases_count": 2,
-                "next_phase": "feature",
-                "state_active": True,
-            },
-        },
-    }
-    client = _setup_thinking_panel_client(monkeypatch, chatlog)
-    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
-
-    assert response.status_code == 200
-    assert "Output controller: applied" in response.text
-    assert "Source mode: preview" in response.text
-    assert "Default source-complete: not applied" in response.text
-    assert "Preview source tool used: yes" in response.text
-    assert "Next phase: feature" in response.text
-    assert "Completed phases: 2" in response.text
-    assert "Generation state active: yes" in response.text
-
-
-def test_thinking_process_panel_renders_source_ref_session_and_controller_recovery_fields(monkeypatch):
-    chatlog = {
-        "session_id": "s-1",
-        "context_state": {
-            "source": {
-                "source_ref_session_valid": False,
-                "default_source_complete_ref_session": "unknown_session",
-                "model_facing_preview_tool_available": True,
-                "preview_tool_used": False,
-                "output_controller_stage": "skill_generation",
-                "output_controller_recovery_reason": "max_output_tokens",
-                "oversized_output_saved": True,
-                "oversized_output_ref_count": 3,
-            }
-        },
-    }
-    client = _setup_thinking_panel_client(monkeypatch, chatlog)
-    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
-
-    assert response.status_code == 200
-    assert "Source ref session valid: no" in response.text
-    assert "Source ref session: unknown_session" in response.text
-    assert "Model-facing preview tools available: yes" in response.text
-    assert "Preview tool used: no" in response.text
-    assert "Output controller stage: skill_generation" in response.text
-    assert "Recovery reason: max_output_tokens" in response.text
-    assert "Oversized output saved: yes" in response.text
-    assert "Oversized output refs: 3" in response.text
+    assert "Source complete for generation: yes" in response.text
+    assert "Generated artifacts:" not in response.text
+    assert "Current phase / Next phase:" not in response.text

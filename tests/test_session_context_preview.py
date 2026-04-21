@@ -536,6 +536,52 @@ def test_extract_context_preview_maps_output_controller_generation_fields_flat_a
     assert flat["context_generation_state_active"] is False
 
 
+def test_extract_context_preview_maps_source_completeness_and_generation_state_fields():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="13",
+        metadata_json='{"context_state":{"source":{"source_complete_for_generation":true,"source_complete_including_binary_bodies":false,"source_metadata_complete":true,"source_text_complete":true,"source_tree_complete":false,"descendants_loaded":7,"descendants_total":10,"descendants_complete":false,"partial_output_saved":true},"generation":{"generated_artifact_ref_count":3,"generation_done":false,"current_phase":"skill_generation","next_phase":"finalize","completed_phases_count":2},"budget":{"oversized_output_saved":true}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_source_complete_for_generation"] is True
+    assert nested["context_source_complete_including_binary_bodies"] is False
+    assert nested["context_source_metadata_complete"] is True
+    assert nested["context_source_text_complete"] is True
+    assert nested["context_source_tree_complete"] is False
+    assert nested["context_descendants_loaded"] == 7
+    assert nested["context_descendants_total"] == 10
+    assert nested["context_descendants_complete"] is False
+    assert nested["context_generated_artifact_ref_count"] == 3
+    assert nested["context_generation_done"] is False
+    assert nested["context_generation_current_phase"] == "skill_generation"
+    assert nested["context_generation_next_phase"] == "finalize"
+    assert nested["context_generation_completed_phases_count"] == 2
+    assert nested["context_oversized_output_saved"] is True
+    assert nested["context_partial_output_saved"] is True
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="13",
+        metadata_json='{"source_complete_for_generation":false,"source_complete_including_binary_bodies":true,"source_metadata_complete":false,"source_text_complete":false,"source_tree_complete":true,"descendants_loaded":2,"descendants_total":2,"descendants_complete":true,"generated_artifact_ref_count":1,"generation_done":true,"generation_current_phase":"analysis","generation_next_phase":"draft","generation_completed_phases_count":4,"oversized_output_saved":false,"partial_output_saved":false,"output_controller_stage":"recovery","context_state":{"source":{"source_complete_for_generation":true,"descendants_loaded":99},"generation":{"generated_artifact_ref_count":99,"current_phase":"ignored"}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_source_complete_for_generation"] is False
+    assert flat["context_source_complete_including_binary_bodies"] is True
+    assert flat["context_source_metadata_complete"] is False
+    assert flat["context_source_text_complete"] is False
+    assert flat["context_source_tree_complete"] is True
+    assert flat["context_descendants_loaded"] == 2
+    assert flat["context_descendants_total"] == 2
+    assert flat["context_descendants_complete"] is True
+    assert flat["context_generated_artifact_ref_count"] == 1
+    assert flat["context_generation_done"] is True
+    assert flat["context_generation_current_phase"] == "analysis"
+    assert flat["context_generation_next_phase"] == "draft"
+    assert flat["context_generation_completed_phases_count"] == 4
+    assert flat["context_oversized_output_saved"] is False
+    assert flat["context_partial_output_saved"] is False
+    assert flat["context_output_controller_stage"] == "recovery"
+
 def test_extract_context_preview_maps_source_ref_and_controller_reason_fields():
     nested_record = SimpleNamespace(
         latest_event_state="running",

@@ -103,6 +103,16 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_preview_tool_used": metadata.get("preview_tool_used"),
         "context_output_controller_stage": _normalize_preview_value(metadata.get("output_controller_stage")),
         "context_output_controller_recovery_reason": _normalize_preview_value(metadata.get("output_controller_recovery_reason")),
+        "context_source_complete_for_generation": metadata.get("source_complete_for_generation"),
+        "context_source_complete_including_binary_bodies": metadata.get("source_complete_including_binary_bodies"),
+        "context_source_metadata_complete": metadata.get("source_metadata_complete"),
+        "context_source_text_complete": metadata.get("source_text_complete"),
+        "context_source_tree_complete": metadata.get("source_tree_complete"),
+        "context_descendants_loaded": metadata.get("descendants_loaded"),
+        "context_descendants_total": metadata.get("descendants_total"),
+        "context_generated_artifact_ref_count": metadata.get("generated_artifact_ref_count"),
+        "context_generation_done": metadata.get("generation_done"),
+        "context_generation_current_phase": _normalize_preview_value(metadata.get("generation_current_phase") or metadata.get("current_generation_phase")),
     }
 
     nested_preview = {
@@ -163,6 +173,22 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_preview_tool_used": source.get("preview_tool_used") if source.get("preview_tool_used") is not None else budget.get("preview_tool_used"),
         "context_output_controller_stage": _normalize_preview_value(source.get("output_controller_stage") or budget.get("output_controller_stage") or generation.get("output_controller_stage")),
         "context_output_controller_recovery_reason": _normalize_preview_value(source.get("output_controller_recovery_reason") or budget.get("output_controller_recovery_reason") or generation.get("output_controller_recovery_reason")),
+        "context_source_complete_for_generation": source.get("source_complete_for_generation") if source.get("source_complete_for_generation") is not None else budget.get("source_complete_for_generation"),
+        "context_source_complete_including_binary_bodies": source.get("source_complete_including_binary_bodies") if source.get("source_complete_including_binary_bodies") is not None else budget.get("source_complete_including_binary_bodies"),
+        "context_source_metadata_complete": source.get("source_metadata_complete") if source.get("source_metadata_complete") is not None else budget.get("source_metadata_complete"),
+        "context_source_text_complete": source.get("source_text_complete") if source.get("source_text_complete") is not None else budget.get("source_text_complete"),
+        "context_source_tree_complete": source.get("source_tree_complete") if source.get("source_tree_complete") is not None else budget.get("source_tree_complete"),
+        "context_descendants_loaded": source.get("descendants_loaded") if source.get("descendants_loaded") is not None else budget.get("descendants_loaded"),
+        "context_descendants_total": source.get("descendants_total") if source.get("descendants_total") is not None else budget.get("descendants_total"),
+        "context_generated_artifact_ref_count": generation.get("generated_artifact_ref_count") if generation.get("generated_artifact_ref_count") is not None else budget.get("generated_artifact_ref_count"),
+        "context_generation_done": generation.get("generation_done") if generation.get("generation_done") is not None else generation.get("done"),
+        "context_generation_current_phase": _normalize_preview_value(
+            generation.get("current_phase")
+            or generation.get("generation_current_phase")
+            or budget.get("generation_current_phase")
+            or source.get("generation_current_phase")
+            or source.get("current_generation_phase")
+        ),
     }
 
     merged = {
@@ -223,6 +249,16 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_preview_tool_used",
             "context_output_controller_stage",
             "context_output_controller_recovery_reason",
+            "context_source_complete_for_generation",
+            "context_source_complete_including_binary_bodies",
+            "context_source_metadata_complete",
+            "context_source_text_complete",
+            "context_source_tree_complete",
+            "context_descendants_loaded",
+            "context_descendants_total",
+            "context_generated_artifact_ref_count",
+            "context_generation_done",
+            "context_generation_current_phase",
         )
     }
 

@@ -398,7 +398,7 @@ def test_app_chat_send_normalizes_json_runtime_error(monkeypatch):
     assert "Runtime error:" in detail
     assert "Model output was truncated because max_output_tokens was reached" in detail
     assert "code=max_output_tokens_exceeded" in detail
-    assert "incomplete_reason=max_output_tokens" in detail
+    assert "incomplete_reason=" not in detail
 
 
 def test_app_chat_send_runtime_error_non_json_is_bounded(monkeypatch):
@@ -472,9 +472,9 @@ def test_app_chat_send_runtime_error_hides_large_or_sensitive_fields(monkeypatch
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "prompt_budget_tokens=32000" in detail
-    assert "request_estimated_tokens=34000" in detail
-    assert "reserved_output_tokens=4000" in detail
+    assert "prompt_budget_tokens=" not in detail
+    assert "request_estimated_tokens=" not in detail
+    assert "reserved_output_tokens=" not in detail
     assert "SECRET_PROMPT_PAYLOAD" not in detail
     assert "VERY_LARGE_BODY" not in detail
     assert "SECRET_KEY" not in detail
@@ -525,14 +525,14 @@ def test_app_chat_send_runtime_error_top_level_error_shape_includes_code_and_det
     assert "Runtime error:" in detail
     assert "Model output was truncated because max_output_tokens was reached" in detail
     assert "code=max_output_tokens_exceeded" in detail
-    assert "incomplete_reason=max_output_tokens" in detail
-    assert "request_estimated_tokens=34000" in detail
-    assert "prompt_budget_tokens=32000" in detail
-    assert "reserved_output_tokens=16000" in detail
-    assert "request_over_budget=True" in detail
-    assert "max_prompt_tokens=32000" in detail
-    assert "safety_margin_tokens=1000" in detail
-    assert "max_output_tokens=16000" in detail
+    assert "incomplete_reason=" not in detail
+    assert "request_estimated_tokens=" not in detail
+    assert "prompt_budget_tokens=" not in detail
+    assert "reserved_output_tokens=" not in detail
+    assert "request_over_budget=" not in detail
+    assert "max_prompt_tokens=" not in detail
+    assert "safety_margin_tokens=" not in detail
+    assert "max_output_tokens=" not in detail
     assert "SECRET_PROMPT" not in detail
     assert "SECRET" not in detail
     assert "prompt=" not in detail
@@ -585,14 +585,14 @@ def test_app_chat_send_runtime_error_merges_top_level_and_nested_details(monkeyp
     assert response.status_code == 502
     detail = response.json()["detail"]
     assert "request exceeded limit" in detail
-    assert "incomplete_reason=max_output_tokens" in detail
-    assert "request_estimated_tokens=34000" in detail
-    assert "prompt_budget_tokens=33000" in detail
-    assert "reserved_output_tokens=16000" in detail
-    assert "request_over_budget=True" in detail
-    assert "safety_margin_tokens=1000" in detail
-    assert "max_prompt_tokens=32000" in detail
-    assert "max_output_tokens=16000" in detail
+    assert "incomplete_reason=" not in detail
+    assert "request_estimated_tokens=" not in detail
+    assert "prompt_budget_tokens=" not in detail
+    assert "reserved_output_tokens=" not in detail
+    assert "request_over_budget=" not in detail
+    assert "safety_margin_tokens=" not in detail
+    assert "max_prompt_tokens=" not in detail
+    assert "max_output_tokens=" not in detail
     assert "HUGE" not in detail
     assert "SECRET_TOKEN" not in detail
 
@@ -643,12 +643,12 @@ def test_app_chat_send_runtime_error_context_budget_exceeded_is_sanitized(monkey
     detail = response.json()["detail"]
     assert "Runtime error:" in detail
     assert "code=context_budget_exceeded" in detail
-    assert "request_estimated_tokens=50000" in detail
-    assert "prompt_budget_tokens=32000" in detail
-    assert "reserved_output_tokens=16000" in detail
-    assert "max_prompt_tokens=32000" in detail
-    assert "max_output_tokens=64000" in detail
-    assert "request_over_budget=True" in detail
+    assert "request_estimated_tokens=" not in detail
+    assert "prompt_budget_tokens=" not in detail
+    assert "reserved_output_tokens=" not in detail
+    assert "max_prompt_tokens=" not in detail
+    assert "max_output_tokens=" not in detail
+    assert "request_over_budget=" not in detail
     assert "SECRET" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
@@ -762,7 +762,7 @@ def test_app_chat_send_runtime_error_prefers_request_budget_stage_over_stage(mon
     assert "request_budget_stage=tool_loop" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_new_safe_projection_diagnostics_only(monkeypatch):
+def test_app_chat_send_runtime_error_does_not_include_projection_diagnostics(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -807,11 +807,11 @@ def test_app_chat_send_runtime_error_includes_new_safe_projection_diagnostics_on
     response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "projected_recent_assistant_messages=5" in detail
-    assert "projected_plain_assistant_messages=2" in detail
-    assert "assistant_projection_chars_saved=1500" in detail
-    assert "output_size_guard_applied=True" in detail
-    assert "large_generation_guard_applied=True" in detail
+    assert "projected_recent_assistant_messages=" not in detail
+    assert "projected_plain_assistant_messages=" not in detail
+    assert "assistant_projection_chars_saved=" not in detail
+    assert "output_size_guard_applied=" not in detail
+    assert "large_generation_guard_applied=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -825,7 +825,7 @@ def test_app_chat_send_runtime_error_includes_new_safe_projection_diagnostics_on
     assert "SECRET_CONFLUENCE_RAW" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_safe_source_and_generation_diagnostics_only(monkeypatch):
+def test_app_chat_send_runtime_error_does_not_include_legacy_source_generation_diagnostics(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -873,17 +873,17 @@ def test_app_chat_send_runtime_error_includes_safe_source_and_generation_diagnos
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "source_complete=False" in detail
-    assert "source_bundle_ref_count=4" in detail
-    assert "source_digest_ref_count=2" in detail
-    assert "comments_loaded=11" in detail
-    assert "comments_total=12" in detail
-    assert "attachments_loaded=5" in detail
-    assert "attachments_total=8" in detail
-    assert "source_partial_reasons_count=3" in detail
-    assert "generation_mode=staged" in detail
-    assert "current_generation_phase=feature" in detail
-    assert "large_generation_guard_reason=large_context_guard" in detail
+    assert "source_complete=" not in detail
+    assert "source_bundle_ref_count=" not in detail
+    assert "source_digest_ref_count=" not in detail
+    assert "comments_loaded=" not in detail
+    assert "comments_total=" not in detail
+    assert "attachments_loaded=" not in detail
+    assert "attachments_total=" not in detail
+    assert "source_partial_reasons_count=" not in detail
+    assert "generation_mode=" not in detail
+    assert "current_generation_phase=" not in detail
+    assert "large_generation_guard_reason=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -894,7 +894,7 @@ def test_app_chat_send_runtime_error_includes_safe_source_and_generation_diagnos
     assert "SECRET_RAW_BUNDLE" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_new_safe_output_recovery_diagnostics_only(monkeypatch):
+def test_app_chat_send_runtime_error_does_not_include_legacy_output_recovery_diagnostics(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -947,16 +947,16 @@ def test_app_chat_send_runtime_error_includes_new_safe_output_recovery_diagnosti
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "source_type=Confluence" in detail
-    assert "source_digest_chunk_count=12" in detail
-    assert "children_loaded=6" in detail
-    assert "children_total=9" in detail
-    assert "output_risk_level=high" in detail
-    assert "max_chat_output_chars=8000" in detail
-    assert "max_output_recovery_applied=True" in detail
-    assert "max_output_recovery_attempts=3" in detail
-    assert "output_token_limit=2048" in detail
-    assert "input_context_usage_percent=18.2" in detail
+    assert "source_type=" not in detail
+    assert "source_digest_chunk_count=" not in detail
+    assert "children_loaded=" not in detail
+    assert "children_total=" not in detail
+    assert "output_risk_level=" not in detail
+    assert "max_chat_output_chars=" not in detail
+    assert "max_output_recovery_applied=" not in detail
+    assert "max_output_recovery_attempts=" not in detail
+    assert "output_token_limit=" not in detail
+    assert "input_context_usage_percent=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -972,7 +972,7 @@ def test_app_chat_send_runtime_error_includes_new_safe_output_recovery_diagnosti
     assert "ctx://" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_new_attachment_and_oversized_output_scalars_only(monkeypatch):
+def test_app_chat_send_runtime_error_includes_source_completeness_and_output_scalars_only(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -992,18 +992,16 @@ def test_app_chat_send_runtime_error_includes_new_attachment_and_oversized_outpu
         payload = {
             "error": "runtime failed",
             "details": {
-                "comments_complete": True,
-                "attachments_complete": False,
-                "children_complete": True,
-                "text_attachments_loaded": 4,
-                "text_attachments_total": 6,
-                "text_attachments_complete": False,
-                "text_attachments_preview_only": 2,
-                "binary_attachment_bodies_skipped_count": 3,
-                "attachment_body_complete": True,
-                "max_chat_output_enforced": True,
+                "source_complete_for_generation": True,
+                "source_complete_including_binary_bodies": False,
+                "source_metadata_complete": True,
+                "source_text_complete": True,
+                "source_tree_complete": False,
+                "descendants_loaded": 4,
+                "descendants_total": 6,
+                "descendants_complete": False,
                 "oversized_output_saved": True,
-                "oversized_output_ref_count": 2,
+                "partial_output_saved": True,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1024,18 +1022,16 @@ def test_app_chat_send_runtime_error_includes_new_attachment_and_oversized_outpu
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "comments_complete=True" in detail
-    assert "attachments_complete=False" in detail
-    assert "children_complete=True" in detail
-    assert "text_attachments_loaded=4" in detail
-    assert "text_attachments_total=6" in detail
-    assert "text_attachments_complete=False" in detail
-    assert "text_attachments_preview_only=2" in detail
-    assert "binary_attachment_bodies_skipped_count=3" in detail
-    assert "attachment_body_complete=True" in detail
-    assert "max_chat_output_enforced=True" in detail
+    assert "source_complete_for_generation=True" in detail
+    assert "source_complete_including_binary_bodies=False" in detail
+    assert "source_metadata_complete=True" in detail
+    assert "source_text_complete=True" in detail
+    assert "source_tree_complete=False" in detail
+    assert "descendants_loaded=4" in detail
+    assert "descendants_total=6" in detail
+    assert "descendants_complete=False" in detail
     assert "oversized_output_saved=True" in detail
-    assert "oversized_output_ref_count=2" in detail
+    assert "partial_output_saved=True" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1069,12 +1065,9 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
             "error": "runtime failed",
             "details": {
                 "generation_completed_phases_count": 3,
+                "generation_current_phase": "skill_generation",
                 "generation_next_phase": "step_definitions",
-                "generation_state_active": True,
-                "output_controller_applied": True,
-                "source_context_mode": "preview",
-                "default_source_complete_applied": True,
-                "source_preview_tool_used": False,
+                "output_controller_stage": "recovery",
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1098,12 +1091,9 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
     assert response.status_code == 502
     detail = response.json()["detail"]
     assert "generation_completed_phases_count=3" in detail
+    assert "generation_current_phase=skill_generation" in detail
     assert "generation_next_phase=step_definitions" in detail
-    assert "generation_state_active=True" in detail
-    assert "output_controller_applied=True" in detail
-    assert "source_context_mode=preview" in detail
-    assert "default_source_complete_applied=True" in detail
-    assert "source_preview_tool_used=False" in detail
+    assert "output_controller_stage=recovery" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1118,7 +1108,7 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
     assert "ctx://" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_source_ref_and_controller_recovery_scalars_only(monkeypatch):
+def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalars(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -1138,14 +1128,22 @@ def test_app_chat_send_runtime_error_includes_source_ref_and_controller_recovery
         payload = {
             "error": "runtime failed",
             "details": {
-                "source_ref_session_valid": True,
-                "default_source_complete_ref_session": "current",
-                "model_facing_preview_tool_available": True,
-                "preview_tool_used": False,
+                "source_complete_for_generation": True,
+                "source_complete_including_binary_bodies": False,
+                "source_metadata_complete": True,
+                "source_text_complete": True,
+                "source_tree_complete": False,
+                "descendants_loaded": 8,
+                "descendants_total": 10,
+                "descendants_complete": False,
+                "generated_artifact_ref_count": 4,
+                "generation_done": False,
+                "generation_current_phase": "skill_generation",
+                "generation_next_phase": "finalize",
+                "generation_completed_phases_count": 2,
                 "output_controller_stage": "initial_plan",
-                "output_controller_recovery_reason": "oversized_output",
                 "oversized_output_saved": True,
-                "oversized_output_ref_count": 2,
+                "partial_output_saved": True,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1167,14 +1165,22 @@ def test_app_chat_send_runtime_error_includes_source_ref_and_controller_recovery
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "source_ref_session_valid=True" in detail
-    assert "default_source_complete_ref_session=current" in detail
-    assert "model_facing_preview_tool_available=True" in detail
-    assert "preview_tool_used=False" in detail
+    assert "source_complete_for_generation=True" in detail
+    assert "source_complete_including_binary_bodies=False" in detail
+    assert "source_metadata_complete=True" in detail
+    assert "source_text_complete=True" in detail
+    assert "source_tree_complete=False" in detail
+    assert "descendants_loaded=8" in detail
+    assert "descendants_total=10" in detail
+    assert "descendants_complete=False" in detail
+    assert "generated_artifact_ref_count=4" in detail
+    assert "generation_done=False" in detail
+    assert "generation_current_phase=skill_generation" in detail
+    assert "generation_next_phase=finalize" in detail
+    assert "generation_completed_phases_count=2" in detail
     assert "output_controller_stage=initial_plan" in detail
-    assert "output_controller_recovery_reason=oversized_output" in detail
     assert "oversized_output_saved=True" in detail
-    assert "oversized_output_ref_count=2" in detail
+    assert "partial_output_saved=True" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1186,3 +1192,4 @@ def test_app_chat_send_runtime_error_includes_source_ref_and_controller_recovery
     assert "token=" not in detail
     assert "SECRET_CONTEXT" not in detail
     assert "ctx://" not in detail
+    assert "raw_output=" not in detail
