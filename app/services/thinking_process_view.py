@@ -40,6 +40,93 @@ def _normalize_context_blob_refs_created(value: Any):
     return value
 
 
+def _build_source_diagnostics(metadata_dict: dict, context_state: dict, budget: dict) -> dict:
+    source = _as_dict(context_state.get("source"))
+    budget = _as_dict(budget)
+    generation = _as_dict(context_state.get("generation"))
+
+    diagnostics = {
+        "source_complete": metadata_dict.get("source_complete") if metadata_dict.get("source_complete") is not None else source.get("source_complete"),
+        "comments_loaded": metadata_dict.get("comments_loaded") if metadata_dict.get("comments_loaded") is not None else source.get("comments_loaded"),
+        "comments_total": metadata_dict.get("comments_total") if metadata_dict.get("comments_total") is not None else source.get("comments_total"),
+        "attachments_loaded": metadata_dict.get("attachments_loaded") if metadata_dict.get("attachments_loaded") is not None else source.get("attachments_loaded"),
+        "attachments_total": metadata_dict.get("attachments_total") if metadata_dict.get("attachments_total") is not None else source.get("attachments_total"),
+        "source_partial_reasons_count": metadata_dict.get("source_partial_reasons_count") if metadata_dict.get("source_partial_reasons_count") is not None else source.get("source_partial_reasons_count"),
+        "generation_mode": metadata_dict.get("generation_mode") if metadata_dict.get("generation_mode") is not None else (source.get("generation_mode") if source.get("generation_mode") is not None else budget.get("generation_mode")),
+        "current_generation_phase": metadata_dict.get("current_generation_phase") if metadata_dict.get("current_generation_phase") is not None else (source.get("current_generation_phase") if source.get("current_generation_phase") is not None else budget.get("current_generation_phase")),
+        "large_generation_guard_reason": metadata_dict.get("large_generation_guard_reason") if metadata_dict.get("large_generation_guard_reason") is not None else (source.get("large_generation_guard_reason") if source.get("large_generation_guard_reason") is not None else budget.get("large_generation_guard_reason")),
+        "source_type": metadata_dict.get("source_type") if metadata_dict.get("source_type") is not None else source.get("source_type"),
+        "source_digest_chunk_count": metadata_dict.get("source_digest_chunk_count") if metadata_dict.get("source_digest_chunk_count") is not None else source.get("source_digest_chunk_count"),
+        "children_loaded": metadata_dict.get("children_loaded") if metadata_dict.get("children_loaded") is not None else source.get("children_loaded"),
+        "children_total": metadata_dict.get("children_total") if metadata_dict.get("children_total") is not None else source.get("children_total"),
+        "output_risk_level": metadata_dict.get("output_risk_level") if metadata_dict.get("output_risk_level") is not None else (source.get("output_risk_level") if source.get("output_risk_level") is not None else budget.get("output_risk_level")),
+        "max_chat_output_chars": metadata_dict.get("max_chat_output_chars") if metadata_dict.get("max_chat_output_chars") is not None else (source.get("max_chat_output_chars") if source.get("max_chat_output_chars") is not None else budget.get("max_chat_output_chars")),
+        "max_output_recovery_applied": metadata_dict.get("max_output_recovery_applied") if metadata_dict.get("max_output_recovery_applied") is not None else (source.get("max_output_recovery_applied") if source.get("max_output_recovery_applied") is not None else budget.get("max_output_recovery_applied")),
+        "max_output_recovery_attempts": metadata_dict.get("max_output_recovery_attempts") if metadata_dict.get("max_output_recovery_attempts") is not None else (source.get("max_output_recovery_attempts") if source.get("max_output_recovery_attempts") is not None else budget.get("max_output_recovery_attempts")),
+        "output_token_limit": metadata_dict.get("output_token_limit") if metadata_dict.get("output_token_limit") is not None else (source.get("output_token_limit") if source.get("output_token_limit") is not None else budget.get("output_token_limit")),
+        "input_context_usage_percent": metadata_dict.get("input_context_usage_percent") if metadata_dict.get("input_context_usage_percent") is not None else (source.get("input_context_usage_percent") if source.get("input_context_usage_percent") is not None else budget.get("input_context_usage_percent")),
+        "comments_complete": metadata_dict.get("comments_complete") if metadata_dict.get("comments_complete") is not None else source.get("comments_complete"),
+        "attachments_complete": metadata_dict.get("attachments_complete") if metadata_dict.get("attachments_complete") is not None else source.get("attachments_complete"),
+        "children_complete": metadata_dict.get("children_complete") if metadata_dict.get("children_complete") is not None else source.get("children_complete"),
+        "text_attachments_loaded": metadata_dict.get("text_attachments_loaded") if metadata_dict.get("text_attachments_loaded") is not None else source.get("text_attachments_loaded"),
+        "text_attachments_total": metadata_dict.get("text_attachments_total") if metadata_dict.get("text_attachments_total") is not None else source.get("text_attachments_total"),
+        "text_attachments_complete": metadata_dict.get("text_attachments_complete") if metadata_dict.get("text_attachments_complete") is not None else source.get("text_attachments_complete"),
+        "text_attachments_preview_only": metadata_dict.get("text_attachments_preview_only") if metadata_dict.get("text_attachments_preview_only") is not None else source.get("text_attachments_preview_only"),
+        "binary_attachment_bodies_skipped_count": metadata_dict.get("binary_attachment_bodies_skipped_count") if metadata_dict.get("binary_attachment_bodies_skipped_count") is not None else source.get("binary_attachment_bodies_skipped_count"),
+        "attachment_body_complete": metadata_dict.get("attachment_body_complete") if metadata_dict.get("attachment_body_complete") is not None else (source.get("attachment_body_complete") if source.get("attachment_body_complete") is not None else budget.get("attachment_body_complete")),
+        "max_chat_output_enforced": metadata_dict.get("max_chat_output_enforced") if metadata_dict.get("max_chat_output_enforced") is not None else (source.get("max_chat_output_enforced") if source.get("max_chat_output_enforced") is not None else budget.get("max_chat_output_enforced")),
+        "oversized_output_saved": metadata_dict.get("oversized_output_saved") if metadata_dict.get("oversized_output_saved") is not None else (source.get("oversized_output_saved") if source.get("oversized_output_saved") is not None else budget.get("oversized_output_saved")),
+        "oversized_output_ref_count": metadata_dict.get("oversized_output_ref_count") if metadata_dict.get("oversized_output_ref_count") is not None else (source.get("oversized_output_ref_count") if source.get("oversized_output_ref_count") is not None else budget.get("oversized_output_ref_count")),
+        "generation_completed_phases_count": metadata_dict.get("generation_completed_phases_count") if metadata_dict.get("generation_completed_phases_count") is not None else (generation.get("completed_phases_count") if generation.get("completed_phases_count") is not None else budget.get("generation_completed_phases_count")),
+        "generation_next_phase": metadata_dict.get("generation_next_phase") if metadata_dict.get("generation_next_phase") is not None else (generation.get("next_phase") if generation.get("next_phase") is not None else budget.get("generation_next_phase")),
+        "generation_state_active": metadata_dict.get("generation_state_active") if metadata_dict.get("generation_state_active") is not None else (generation.get("state_active") if generation.get("state_active") is not None else budget.get("generation_state_active")),
+        "output_controller_applied": metadata_dict.get("output_controller_applied") if metadata_dict.get("output_controller_applied") is not None else (source.get("output_controller_applied") if source.get("output_controller_applied") is not None else budget.get("output_controller_applied")),
+        "source_context_mode": metadata_dict.get("source_context_mode") if metadata_dict.get("source_context_mode") is not None else (source.get("source_context_mode") if source.get("source_context_mode") is not None else budget.get("source_context_mode")),
+        "default_source_complete_applied": metadata_dict.get("default_source_complete_applied") if metadata_dict.get("default_source_complete_applied") is not None else (source.get("default_source_complete_applied") if source.get("default_source_complete_applied") is not None else budget.get("default_source_complete_applied")),
+        "source_preview_tool_used": metadata_dict.get("source_preview_tool_used") if metadata_dict.get("source_preview_tool_used") is not None else (source.get("source_preview_tool_used") if source.get("source_preview_tool_used") is not None else budget.get("source_preview_tool_used")),
+        "source_complete_definition": metadata_dict.get("source_complete_definition") if metadata_dict.get("source_complete_definition") is not None else (source.get("source_complete_definition") if source.get("source_complete_definition") is not None else budget.get("source_complete_definition")),
+        "issue_fields_complete": metadata_dict.get("issue_fields_complete") if metadata_dict.get("issue_fields_complete") is not None else (source.get("issue_fields_complete") if source.get("issue_fields_complete") is not None else budget.get("issue_fields_complete")),
+        "page_body_complete": metadata_dict.get("page_body_complete") if metadata_dict.get("page_body_complete") is not None else (source.get("page_body_complete") if source.get("page_body_complete") is not None else budget.get("page_body_complete")),
+        "attachment_metadata_complete": metadata_dict.get("attachment_metadata_complete") if metadata_dict.get("attachment_metadata_complete") is not None else (source.get("attachment_metadata_complete") if source.get("attachment_metadata_complete") is not None else budget.get("attachment_metadata_complete")),
+        "text_attachment_bodies_complete": metadata_dict.get("text_attachment_bodies_complete") if metadata_dict.get("text_attachment_bodies_complete") is not None else (source.get("text_attachment_bodies_complete") if source.get("text_attachment_bodies_complete") is not None else budget.get("text_attachment_bodies_complete")),
+        "binary_attachment_bodies_available": metadata_dict.get("binary_attachment_bodies_available") if metadata_dict.get("binary_attachment_bodies_available") is not None else (source.get("binary_attachment_bodies_available") if source.get("binary_attachment_bodies_available") is not None else budget.get("binary_attachment_bodies_available")),
+        "binary_attachment_bodies_skipped_count": metadata_dict.get("binary_attachment_bodies_skipped_count") if metadata_dict.get("binary_attachment_bodies_skipped_count") is not None else (source.get("binary_attachment_bodies_skipped_count") if source.get("binary_attachment_bodies_skipped_count") is not None else budget.get("binary_attachment_bodies_skipped_count")),
+        "binary_attachment_body_policy": metadata_dict.get("binary_attachment_body_policy") if metadata_dict.get("binary_attachment_body_policy") is not None else (source.get("binary_attachment_body_policy") if source.get("binary_attachment_body_policy") is not None else budget.get("binary_attachment_body_policy")),
+        "descendants_supported": metadata_dict.get("descendants_supported") if metadata_dict.get("descendants_supported") is not None else (source.get("descendants_supported") if source.get("descendants_supported") is not None else budget.get("descendants_supported")),
+        "descendants_complete": metadata_dict.get("descendants_complete") if metadata_dict.get("descendants_complete") is not None else (source.get("descendants_complete") if source.get("descendants_complete") is not None else budget.get("descendants_complete")),
+        "partial_output_saved": metadata_dict.get("partial_output_saved") if metadata_dict.get("partial_output_saved") is not None else (source.get("partial_output_saved") if source.get("partial_output_saved") is not None else budget.get("partial_output_saved")),
+        "partial_output_ref_count": metadata_dict.get("partial_output_ref_count") if metadata_dict.get("partial_output_ref_count") is not None else (source.get("partial_output_ref_count") if source.get("partial_output_ref_count") is not None else budget.get("partial_output_ref_count")),
+        "source_ref_session_valid": metadata_dict.get("source_ref_session_valid") if metadata_dict.get("source_ref_session_valid") is not None else (source.get("source_ref_session_valid") if source.get("source_ref_session_valid") is not None else budget.get("source_ref_session_valid")),
+        "default_source_complete_ref_session": metadata_dict.get("default_source_complete_ref_session") if metadata_dict.get("default_source_complete_ref_session") is not None else (source.get("default_source_complete_ref_session") if source.get("default_source_complete_ref_session") is not None else budget.get("default_source_complete_ref_session")),
+        "model_facing_preview_tool_available": metadata_dict.get("model_facing_preview_tool_available") if metadata_dict.get("model_facing_preview_tool_available") is not None else (source.get("model_facing_preview_tool_available") if source.get("model_facing_preview_tool_available") is not None else budget.get("model_facing_preview_tool_available")),
+        "preview_tool_used": metadata_dict.get("preview_tool_used") if metadata_dict.get("preview_tool_used") is not None else (source.get("preview_tool_used") if source.get("preview_tool_used") is not None else budget.get("preview_tool_used")),
+        "output_controller_stage": metadata_dict.get("output_controller_stage") if metadata_dict.get("output_controller_stage") is not None else (source.get("output_controller_stage") if source.get("output_controller_stage") is not None else (budget.get("output_controller_stage") if budget.get("output_controller_stage") is not None else generation.get("output_controller_stage"))),
+        "output_controller_recovery_reason": metadata_dict.get("output_controller_recovery_reason") if metadata_dict.get("output_controller_recovery_reason") is not None else (source.get("output_controller_recovery_reason") if source.get("output_controller_recovery_reason") is not None else (budget.get("output_controller_recovery_reason") if budget.get("output_controller_recovery_reason") is not None else generation.get("output_controller_recovery_reason"))),
+        "source_complete_for_generation": metadata_dict.get("source_complete_for_generation") if metadata_dict.get("source_complete_for_generation") is not None else (source.get("source_complete_for_generation") if source.get("source_complete_for_generation") is not None else budget.get("source_complete_for_generation")),
+        "source_complete_including_binary_bodies": metadata_dict.get("source_complete_including_binary_bodies") if metadata_dict.get("source_complete_including_binary_bodies") is not None else (source.get("source_complete_including_binary_bodies") if source.get("source_complete_including_binary_bodies") is not None else budget.get("source_complete_including_binary_bodies")),
+        "source_metadata_complete": metadata_dict.get("source_metadata_complete") if metadata_dict.get("source_metadata_complete") is not None else (source.get("source_metadata_complete") if source.get("source_metadata_complete") is not None else budget.get("source_metadata_complete")),
+        "source_text_complete": metadata_dict.get("source_text_complete") if metadata_dict.get("source_text_complete") is not None else (source.get("source_text_complete") if source.get("source_text_complete") is not None else budget.get("source_text_complete")),
+        "source_tree_complete": metadata_dict.get("source_tree_complete") if metadata_dict.get("source_tree_complete") is not None else (source.get("source_tree_complete") if source.get("source_tree_complete") is not None else budget.get("source_tree_complete")),
+        "descendants_loaded": metadata_dict.get("descendants_loaded") if metadata_dict.get("descendants_loaded") is not None else (source.get("descendants_loaded") if source.get("descendants_loaded") is not None else budget.get("descendants_loaded")),
+        "descendants_total": metadata_dict.get("descendants_total") if metadata_dict.get("descendants_total") is not None else (source.get("descendants_total") if source.get("descendants_total") is not None else budget.get("descendants_total")),
+        "generated_artifact_ref_count": metadata_dict.get("generated_artifact_ref_count") if metadata_dict.get("generated_artifact_ref_count") is not None else (generation.get("generated_artifact_ref_count") if generation.get("generated_artifact_ref_count") is not None else budget.get("generated_artifact_ref_count")),
+        "generation_done": metadata_dict.get("generation_done") if metadata_dict.get("generation_done") is not None else (generation.get("generation_done") if generation.get("generation_done") is not None else generation.get("done")),
+        "generation_current_phase": metadata_dict.get("generation_current_phase") if metadata_dict.get("generation_current_phase") is not None else (generation.get("current_phase") if generation.get("current_phase") is not None else (generation.get("generation_current_phase") if generation.get("generation_current_phase") is not None else (source.get("generation_current_phase") if source.get("generation_current_phase") is not None else source.get("current_generation_phase")))),
+        "completion_criteria_count": metadata_dict.get("completion_criteria_count") if metadata_dict.get("completion_criteria_count") is not None else (generation.get("completion_criteria_count") if generation.get("completion_criteria_count") is not None else budget.get("completion_criteria_count")),
+        "source_digest_chunk_coverage_count": metadata_dict.get("source_digest_chunk_coverage_count") if metadata_dict.get("source_digest_chunk_coverage_count") is not None else (generation.get("source_digest_chunk_coverage_count") if generation.get("source_digest_chunk_coverage_count") is not None else budget.get("source_digest_chunk_coverage_count")),
+        "descendants_pages_complete": metadata_dict.get("descendants_pages_complete") if metadata_dict.get("descendants_pages_complete") is not None else (source.get("descendants_pages_complete") if source.get("descendants_pages_complete") is not None else budget.get("descendants_pages_complete")),
+        "descendants_comments_complete": metadata_dict.get("descendants_comments_complete") if metadata_dict.get("descendants_comments_complete") is not None else (source.get("descendants_comments_complete") if source.get("descendants_comments_complete") is not None else budget.get("descendants_comments_complete")),
+        "descendants_attachments_complete": metadata_dict.get("descendants_attachments_complete") if metadata_dict.get("descendants_attachments_complete") is not None else (source.get("descendants_attachments_complete") if source.get("descendants_attachments_complete") is not None else budget.get("descendants_attachments_complete")),
+        "completion_criteria_status_count": metadata_dict.get("completion_criteria_status_count") if metadata_dict.get("completion_criteria_status_count") is not None else (generation.get("completion_criteria_status_count") if generation.get("completion_criteria_status_count") is not None else budget.get("completion_criteria_status_count")),
+        "completion_criteria_satisfied_count": metadata_dict.get("completion_criteria_satisfied_count") if metadata_dict.get("completion_criteria_satisfied_count") is not None else (generation.get("completion_criteria_satisfied_count") if generation.get("completion_criteria_satisfied_count") is not None else budget.get("completion_criteria_satisfied_count")),
+        "next_incomplete_phase": metadata_dict.get("next_incomplete_phase") if metadata_dict.get("next_incomplete_phase") is not None else (generation.get("next_incomplete_phase") if generation.get("next_incomplete_phase") is not None else budget.get("next_incomplete_phase")),
+        "comments_bundle_ref_count": metadata_dict.get("comments_bundle_ref_count") if metadata_dict.get("comments_bundle_ref_count") is not None else (source.get("comments_bundle_ref_count") if source.get("comments_bundle_ref_count") is not None else budget.get("comments_bundle_ref_count")),
+        "children_bundle_ref_count": metadata_dict.get("children_bundle_ref_count") if metadata_dict.get("children_bundle_ref_count") is not None else (source.get("children_bundle_ref_count") if source.get("children_bundle_ref_count") is not None else budget.get("children_bundle_ref_count")),
+        "auxiliary_source_complete": metadata_dict.get("auxiliary_source_complete") if metadata_dict.get("auxiliary_source_complete") is not None else (source.get("auxiliary_source_complete") if source.get("auxiliary_source_complete") is not None else budget.get("auxiliary_source_complete")),
+    }
+    return {key: value for key, value in diagnostics.items() if value is not None}
+
+
 def _build_budget_from_metadata(metadata_dict: dict) -> dict:
     if not isinstance(metadata_dict, dict):
         return {}
@@ -93,6 +180,17 @@ def _has_meaningful_context_state(value: Any) -> bool:
     budget = value.get("budget")
     if isinstance(budget, dict):
         for item in budget.values():
+            if item is None or item == "":
+                continue
+            if isinstance(item, list) and len(item) == 0:
+                continue
+            if isinstance(item, dict) and len(item) == 0:
+                continue
+            return True
+
+    source = value.get("source")
+    if isinstance(source, dict):
+        for item in source.values():
             if item is None or item == "":
                 continue
             if isinstance(item, list) and len(item) == 0:
@@ -307,10 +405,13 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "metadata_preview": "Persisted Context Preview",
             "none": "No context snapshot captured",
         }.get(context_source, "Final Context Snapshot")
+    source_diagnostics = _build_source_diagnostics(metadata_dict, context_state, budget)
+
     has_data = bool(
         events
         or budget
         or has_context
+        or source_diagnostics
         or active_skill.get("name")
         or fallback.get("latest_event_type")
         or fallback.get("latest_event_state")
@@ -324,6 +425,7 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
         "request_id": chatlog.get("request_id") or metadata.get("request_id") or getattr(metadata_record, "last_execution_id", "") or "",
         "model": llm_request_request.get("model") or metadata_dict.get("model") or "",
         "active_skill": active_skill,
+        "source_diagnostics": source_diagnostics,
         "context_source": context_source,
         "context_source_label": context_source_label,
         "has_context": has_context,
@@ -366,6 +468,16 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "tokens_until_hard_threshold": budget.get("tokens_until_hard_threshold"),
             "next_compaction_action": budget.get("next_compaction_action"),
             "next_pruning_policy": budget.get("next_pruning_policy"),
+            "output_risk_level": budget.get("output_risk_level"),
+            "max_chat_output_chars": budget.get("max_chat_output_chars"),
+            "max_output_recovery_applied": budget.get("max_output_recovery_applied"),
+            "max_output_recovery_attempts": budget.get("max_output_recovery_attempts"),
+            "output_token_limit": budget.get("output_token_limit"),
+            "input_context_usage_percent": budget.get("input_context_usage_percent"),
+            "max_chat_output_enforced": budget.get("max_chat_output_enforced"),
+            "oversized_output_saved": budget.get("oversized_output_saved"),
+            "oversized_output_ref_count": budget.get("oversized_output_ref_count"),
+            "attachment_body_complete": budget.get("attachment_body_complete"),
         } if budget else {},
         "events": events,
         "debug": {
