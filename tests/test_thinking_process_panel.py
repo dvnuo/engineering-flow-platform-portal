@@ -687,11 +687,11 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "source_complete_including_binary_bodies": True,
                 "generation_mode": "staged",
                 "output_risk_level": "high",
-                "max_context_window_tokens": 264000,
-                "max_prompt_tokens": 128000,
-                "max_output_tokens": 64000,
-                "max_chat_output_tokens": 60000,
-                "max_chat_output_chars": 240000,
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000,
+                "max_output_tokens": 128000,
+                "max_chat_output_tokens": 120000,
+                "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits_legacy_override_ignored",
                 "legacy_max_chat_output_chars_ignored": True,
                 "configured_max_chat_output_chars": 8000,
@@ -746,16 +746,16 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Source complete including binary bodies: yes" in response.text
     assert "Generation mode: staged" in response.text
     assert "Output risk level: high" in response.text
-    assert "Context window: 264000 tokens" in response.text
-    assert "Prompt limit: 128000 tokens" in response.text
-    assert "Output limit: 64000 tokens" in response.text
-    assert "Chat output boundary: 60000 tokens / 240000 chars" in response.text
+    assert "Context window: 400000 tokens" in response.text
+    assert "Prompt limit: 272000 tokens" in response.text
+    assert "Output limit: 128000 tokens" in response.text
+    assert "Chat output boundary: 120000 tokens / 480000 chars" in response.text
     assert "Output boundary source: model_limits_legacy_override_ignored" in response.text
-    assert "Legacy low output boundary ignored: configured 8000 chars, effective 240000 chars" in response.text
+    assert "Legacy low output boundary ignored: configured 8000 chars, effective 480000 chars" in response.text
     assert "Chars/token estimate: 4.0" in response.text
     assert "Input context usage: 44.5%" in response.text
     assert "Input context usage and output limit are separate; low input context usage does not guarantee low output risk." in response.text
-    assert "Max chat output chars: 240000" in response.text
+    assert "Max chat output chars: 480000" in response.text
     assert "Output controller applied: yes" in response.text
     assert "Output controller stage: tool_loop" in response.text
     assert "Text attachment bodies complete: yes" in response.text

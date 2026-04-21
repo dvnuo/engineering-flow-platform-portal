@@ -992,11 +992,11 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
             "error": "int() argument must be a string, a bytes-like object or a real number, not 'NoneType'",
             "error_type": "TypeError",
             "details": {
-                "max_context_window_tokens": 264000,
-                "max_prompt_tokens": 128000,
-                "max_output_tokens": 64000,
-                "max_chat_output_tokens": 60000,
-                "max_chat_output_chars": 240000,
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000,
+                "max_output_tokens": 128000,
+                "max_chat_output_tokens": 120000,
+                "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits",
                 "legacy_max_chat_output_chars_ignored": True,
                 "configured_max_chat_output_chars": 8000,
@@ -1017,11 +1017,11 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
     detail = response.json()["detail"]
     assert "Runtime error: int() argument must be a string" in detail
     assert "error_type=TypeError" in detail
-    assert "max_context_window_tokens=264000" in detail
-    assert "max_prompt_tokens=128000" in detail
-    assert "max_output_tokens=64000" in detail
-    assert "max_chat_output_tokens=60000" in detail
-    assert "max_chat_output_chars=240000" in detail
+    assert "max_context_window_tokens=400000" in detail
+    assert "max_prompt_tokens=272000" in detail
+    assert "max_output_tokens=128000" in detail
+    assert "max_chat_output_tokens=120000" in detail
+    assert "max_chat_output_chars=480000" in detail
     assert "output_boundary_source=model_limits" in detail
     assert "legacy_max_chat_output_chars_ignored=True" in detail
     assert "configured_max_chat_output_chars=8000" in detail
@@ -1053,11 +1053,11 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
         payload = {
             "error": "runtime failed",
             "details": {
-                "max_context_window_tokens": 264000,
-                "max_prompt_tokens": 128000,
-                "max_output_tokens": 64000,
-                "max_chat_output_tokens": 60000,
-                "max_chat_output_chars": 240000,
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000,
+                "max_output_tokens": 128000,
+                "max_chat_output_tokens": 120000,
+                "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits_legacy_override_ignored",
                 "legacy_max_chat_output_chars_ignored": True,
                 "configured_max_chat_output_chars": 8000,
@@ -1084,11 +1084,11 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "max_context_window_tokens=264000" in detail
-    assert "max_prompt_tokens=128000" in detail
-    assert "max_output_tokens=64000" in detail
-    assert "max_chat_output_tokens=60000" in detail
-    assert "max_chat_output_chars=240000" in detail
+    assert "max_context_window_tokens=400000" in detail
+    assert "max_prompt_tokens=272000" in detail
+    assert "max_output_tokens=128000" in detail
+    assert "max_chat_output_tokens=120000" in detail
+    assert "max_chat_output_chars=480000" in detail
     assert "output_boundary_source=model_limits_legacy_override_ignored" in detail
     assert "legacy_max_chat_output_chars_ignored=True" in detail
     assert "configured_max_chat_output_chars=8000" in detail
@@ -1128,11 +1128,11 @@ def test_app_chat_send_runtime_error_includes_model_limit_phase_scalars_only(mon
         payload = {
             "error": "runtime failed",
             "details": {
-                "max_context_window_tokens": 264000,
-                "max_prompt_tokens": 128000,
-                "max_output_tokens": 64000,
-                "max_chat_output_tokens": 60000,
-                "max_chat_output_chars": 240000,
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000,
+                "max_output_tokens": 128000,
+                "max_chat_output_tokens": 120000,
+                "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits",
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "normal",
@@ -1159,11 +1159,11 @@ def test_app_chat_send_runtime_error_includes_model_limit_phase_scalars_only(mon
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "max_context_window_tokens=264000" in detail
-    assert "max_prompt_tokens=128000" in detail
-    assert "max_output_tokens=64000" in detail
-    assert "max_chat_output_tokens=60000" in detail
-    assert "max_chat_output_chars=240000" in detail
+    assert "max_context_window_tokens=400000" in detail
+    assert "max_prompt_tokens=272000" in detail
+    assert "max_output_tokens=128000" in detail
+    assert "max_chat_output_tokens=120000" in detail
+    assert "max_chat_output_chars=480000" in detail
     assert "output_boundary_source=model_limits" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
@@ -1202,11 +1202,11 @@ def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monk
         payload = {
             "error": "runtime failed",
             "details": {
-                "max_context_window_tokens": 264000,
-                "max_prompt_tokens": 128000,
-                "max_output_tokens": 64000,
-                "max_chat_output_tokens": 60000,
-                "max_chat_output_chars": 240000,
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000,
+                "max_output_tokens": 128000,
+                "max_chat_output_tokens": 120000,
+                "max_chat_output_chars": 480000,
                 "output_boundary_source": "model_limits",
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "medium",
@@ -1232,11 +1232,11 @@ def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monk
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "max_context_window_tokens=264000" in detail
-    assert "max_prompt_tokens=128000" in detail
-    assert "max_output_tokens=64000" in detail
-    assert "max_chat_output_tokens=60000" in detail
-    assert "max_chat_output_chars=240000" in detail
+    assert "max_context_window_tokens=400000" in detail
+    assert "max_prompt_tokens=272000" in detail
+    assert "max_output_tokens=128000" in detail
+    assert "max_chat_output_tokens=120000" in detail
+    assert "max_chat_output_chars=480000" in detail
     assert "output_boundary_source=model_limits" in detail
     assert "chars_per_token_estimate=4.0" in detail
     assert "output_risk_level=" not in detail
