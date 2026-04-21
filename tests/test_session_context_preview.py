@@ -477,6 +477,40 @@ def test_extract_context_preview_keeps_max_chat_output_chars_none_without_failur
     assert extracted["context_output_controller_stage"] == "tool_loop"
 
 
+def test_extract_context_preview_maps_effective_model_limits_from_nested_and_flat():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"context_state":{"budget":{"max_context_window_tokens":264000,"max_prompt_tokens":128000,"max_output_tokens":64000,"max_chat_output_tokens":60000,"max_chat_output_chars":240000,"output_boundary_source":"model_limits","chars_per_token_estimate":4.0,"input_context_usage_percent":21.5},"source":{"output_risk_level":"medium"}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_max_context_window_tokens"] == 264000
+    assert nested["context_max_prompt_tokens"] == 128000
+    assert nested["context_max_output_tokens"] == 64000
+    assert nested["context_max_chat_output_tokens"] == 60000
+    assert nested["context_max_chat_output_chars"] == 240000
+    assert nested["context_output_boundary_source"] == "model_limits"
+    assert nested["context_chars_per_token_estimate"] == 4.0
+    assert nested["context_input_context_usage_percent"] == 21.5
+    assert nested["context_output_risk_level"] == "medium"
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"max_context_window_tokens":264000,"max_prompt_tokens":128000,"max_output_tokens":64000,"max_chat_output_tokens":60000,"max_chat_output_chars":240000,"output_boundary_source":"model_limits","chars_per_token_estimate":4.0,"input_context_usage_percent":34.0,"output_risk_level":"high","context_state":{"budget":{"max_context_window_tokens":1,"max_prompt_tokens":1,"max_output_tokens":1,"max_chat_output_tokens":1,"max_chat_output_chars":1,"output_boundary_source":"ignored","chars_per_token_estimate":1.0,"input_context_usage_percent":1.0},"source":{"output_risk_level":"ignored"}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_max_context_window_tokens"] == 264000
+    assert flat["context_max_prompt_tokens"] == 128000
+    assert flat["context_max_output_tokens"] == 64000
+    assert flat["context_max_chat_output_tokens"] == 60000
+    assert flat["context_max_chat_output_chars"] == 240000
+    assert flat["context_output_boundary_source"] == "model_limits"
+    assert flat["context_chars_per_token_estimate"] == 4.0
+    assert flat["context_input_context_usage_percent"] == 34.0
+    assert flat["context_output_risk_level"] == "high"
+
+
 def test_extract_context_preview_maps_new_completeness_and_output_flags_from_flat_and_nested():
     nested_record = SimpleNamespace(
         latest_event_state="running",

@@ -530,9 +530,9 @@ def test_app_chat_send_runtime_error_top_level_error_shape_includes_code_and_det
     assert "prompt_budget_tokens=" not in detail
     assert "reserved_output_tokens=" not in detail
     assert "request_over_budget=" not in detail
-    assert "max_prompt_tokens=" not in detail
+    assert "max_prompt_tokens=32000" in detail
     assert "safety_margin_tokens=" not in detail
-    assert "max_output_tokens=" not in detail
+    assert "max_output_tokens=16000" in detail
     assert "SECRET_PROMPT" not in detail
     assert "SECRET" not in detail
     assert "prompt=" not in detail
@@ -591,8 +591,8 @@ def test_app_chat_send_runtime_error_merges_top_level_and_nested_details(monkeyp
     assert "reserved_output_tokens=" not in detail
     assert "request_over_budget=" not in detail
     assert "safety_margin_tokens=" not in detail
-    assert "max_prompt_tokens=" not in detail
-    assert "max_output_tokens=" not in detail
+    assert "max_prompt_tokens=32000" in detail
+    assert "max_output_tokens=16000" in detail
     assert "HUGE" not in detail
     assert "SECRET_TOKEN" not in detail
 
@@ -646,8 +646,8 @@ def test_app_chat_send_runtime_error_context_budget_exceeded_is_sanitized(monkey
     assert "request_estimated_tokens=" not in detail
     assert "prompt_budget_tokens=" not in detail
     assert "reserved_output_tokens=" not in detail
-    assert "max_prompt_tokens=" not in detail
-    assert "max_output_tokens=" not in detail
+    assert "max_prompt_tokens=32000" in detail
+    assert "max_output_tokens=64000" in detail
     assert "request_over_budget=" not in detail
     assert "SECRET" not in detail
     assert "prompt=" not in detail
@@ -950,12 +950,12 @@ def test_app_chat_send_runtime_error_does_not_include_non_allowlisted_output_rec
     assert "source_digest_chunk_count=" not in detail
     assert "children_loaded=" not in detail
     assert "children_total=" not in detail
-    assert "output_risk_level=" not in detail
-    assert "max_chat_output_chars=" not in detail
+    assert "output_risk_level=high" in detail
+    assert "max_chat_output_chars=8000" in detail
     assert "max_output_recovery_applied=" not in detail
     assert "max_output_recovery_attempts=" not in detail
     assert "output_token_limit=" not in detail
-    assert "input_context_usage_percent=" not in detail
+    assert "input_context_usage_percent=18.2" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -992,8 +992,15 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
             "error": "int() argument must be a string, a bytes-like object or a real number, not 'NoneType'",
             "error_type": "TypeError",
             "details": {
-                "jira_comments_bundle_ref_count": 4,
-                "auxiliary_source_complete": True,
+                "max_context_window_tokens": 264000,
+                "max_prompt_tokens": 128000,
+                "max_output_tokens": 64000,
+                "max_chat_output_tokens": 60000,
+                "max_chat_output_chars": 240000,
+                "output_boundary_source": "model_limits",
+                "chars_per_token_estimate": 4.0,
+                "output_risk_level": "medium",
+                "input_context_usage_percent": 22.5,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "context_blob": {"raw": "SECRET_CONTEXT"},
@@ -1008,14 +1015,21 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
     detail = response.json()["detail"]
     assert "Runtime error: int() argument must be a string" in detail
     assert "error_type=TypeError" in detail
-    assert "jira_comments_bundle_ref_count=4" in detail
-    assert "auxiliary_source_complete=True" in detail
+    assert "max_context_window_tokens=264000" in detail
+    assert "max_prompt_tokens=128000" in detail
+    assert "max_output_tokens=64000" in detail
+    assert "max_chat_output_tokens=60000" in detail
+    assert "max_chat_output_chars=240000" in detail
+    assert "output_boundary_source=model_limits" in detail
+    assert "chars_per_token_estimate=4.0" in detail
+    assert "output_risk_level=medium" in detail
+    assert "input_context_usage_percent=22.5" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "SECRET_CONTEXT" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_source_completeness_and_output_scalars_only(monkeypatch):
+def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -1035,14 +1049,15 @@ def test_app_chat_send_runtime_error_includes_source_completeness_and_output_sca
         payload = {
             "error": "runtime failed",
             "details": {
-                "jira_comments_bundle_ref_count": 4,
-                "confluence_children_bundle_ref_count": 2,
-                "auxiliary_source_session_valid": True,
-                "auxiliary_source_complete": True,
-                "generated_artifacts_by_phase_count": 3,
-                "current_phase_artifact_count": 1,
-                "generation_completion_criteria_met": 5,
-                "generation_completion_criteria_total": 8,
+                "max_context_window_tokens": 264000,
+                "max_prompt_tokens": 128000,
+                "max_output_tokens": 64000,
+                "max_chat_output_tokens": 60000,
+                "max_chat_output_chars": 240000,
+                "output_boundary_source": "model_limits",
+                "chars_per_token_estimate": 4.0,
+                "output_risk_level": "high",
+                "input_context_usage_percent": 35.0,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1063,15 +1078,16 @@ def test_app_chat_send_runtime_error_includes_source_completeness_and_output_sca
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "jira_comments_bundle_ref_count=4" in detail
-    assert "confluence_children_bundle_ref_count=2" in detail
-    assert "auxiliary_source_session_valid=True" in detail
-    assert "auxiliary_source_complete=True" in detail
-    assert "generated_artifacts_by_phase_count=3" in detail
-    assert "current_phase_artifact_count=1" in detail
-    assert "generation_completion_criteria_met=5" in detail
-    assert "generation_completion_criteria_total=8" in detail
-    assert " comments_bundle_ref_count=" not in detail
+    assert "max_context_window_tokens=264000" in detail
+    assert "max_prompt_tokens=128000" in detail
+    assert "max_output_tokens=64000" in detail
+    assert "max_chat_output_tokens=60000" in detail
+    assert "max_chat_output_chars=240000" in detail
+    assert "output_boundary_source=model_limits" in detail
+    assert "chars_per_token_estimate=4.0" in detail
+    assert "output_risk_level=high" in detail
+    assert "input_context_usage_percent=35.0" in detail
+    assert "jira_comments_bundle_ref_count=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1084,7 +1100,7 @@ def test_app_chat_send_runtime_error_includes_source_completeness_and_output_sca
     assert "ctx://" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_only(monkeypatch):
+def test_app_chat_send_runtime_error_includes_model_limit_phase_scalars_only(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -1104,10 +1120,15 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
         payload = {
             "error": "runtime failed",
             "details": {
-                "generated_artifacts_by_phase_count": 3,
-                "current_phase_artifact_count": 2,
-                "generation_completion_criteria_met": 5,
-                "generation_completion_criteria_total": 9,
+                "max_context_window_tokens": 264000,
+                "max_prompt_tokens": 128000,
+                "max_output_tokens": 64000,
+                "max_chat_output_tokens": 60000,
+                "max_chat_output_chars": 240000,
+                "output_boundary_source": "model_limits",
+                "chars_per_token_estimate": 4.0,
+                "output_risk_level": "normal",
+                "input_context_usage_percent": 18.5,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1130,10 +1151,15 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "generated_artifacts_by_phase_count=3" in detail
-    assert "current_phase_artifact_count=2" in detail
-    assert "generation_completion_criteria_met=5" in detail
-    assert "generation_completion_criteria_total=9" in detail
+    assert "max_context_window_tokens=264000" in detail
+    assert "max_prompt_tokens=128000" in detail
+    assert "max_output_tokens=64000" in detail
+    assert "max_chat_output_tokens=60000" in detail
+    assert "max_chat_output_chars=240000" in detail
+    assert "output_boundary_source=model_limits" in detail
+    assert "chars_per_token_estimate=4.0" in detail
+    assert "output_risk_level=normal" in detail
+    assert "input_context_usage_percent=18.5" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1148,7 +1174,7 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
     assert "ctx://" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalars(monkeypatch):
+def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -1168,14 +1194,15 @@ def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalar
         payload = {
             "error": "runtime failed",
             "details": {
-                "jira_comments_bundle_ref_count": 3,
-                "confluence_children_bundle_ref_count": 1,
-                "auxiliary_source_session_valid": False,
-                "auxiliary_source_complete": False,
-                "generated_artifacts_by_phase_count": 4,
-                "current_phase_artifact_count": 2,
-                "generation_completion_criteria_met": 4,
-                "generation_completion_criteria_total": 7,
+                "max_context_window_tokens": 264000,
+                "max_prompt_tokens": 128000,
+                "max_output_tokens": 64000,
+                "max_chat_output_tokens": 60000,
+                "max_chat_output_chars": 240000,
+                "output_boundary_source": "model_limits",
+                "chars_per_token_estimate": 4.0,
+                "output_risk_level": "medium",
+                "input_context_usage_percent": 42.0,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1197,16 +1224,16 @@ def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalar
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "jira_comments_bundle_ref_count=3" in detail
-    assert "confluence_children_bundle_ref_count=1" in detail
-    assert "auxiliary_source_session_valid=False" in detail
-    assert "auxiliary_source_complete=False" in detail
-    assert "generated_artifacts_by_phase_count=4" in detail
-    assert "current_phase_artifact_count=2" in detail
-    assert "generation_completion_criteria_met=4" in detail
-    assert "generation_completion_criteria_total=7" in detail
-    assert " comments_bundle_ref_count=" not in detail
-    assert "completion_criteria_status_count=" not in detail
+    assert "max_context_window_tokens=264000" in detail
+    assert "max_prompt_tokens=128000" in detail
+    assert "max_output_tokens=64000" in detail
+    assert "max_chat_output_tokens=60000" in detail
+    assert "max_chat_output_chars=240000" in detail
+    assert "output_boundary_source=model_limits" in detail
+    assert "chars_per_token_estimate=4.0" in detail
+    assert "output_risk_level=medium" in detail
+    assert "input_context_usage_percent=42.0" in detail
+    assert "jira_comments_bundle_ref_count=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail

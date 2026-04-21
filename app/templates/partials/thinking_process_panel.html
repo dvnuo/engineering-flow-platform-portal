@@ -125,6 +125,30 @@
     {% if source_diagnostics.get('output_risk_level') %}
       <div class="portal-panel-note">Output risk level: {{ source_diagnostics.get('output_risk_level') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('max_context_window_tokens') is not none %}
+      <div class="portal-panel-note">Context window: {{ source_diagnostics.get('max_context_window_tokens') }} tokens</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_prompt_tokens') is not none %}
+      <div class="portal-panel-note">Prompt limit: {{ source_diagnostics.get('max_prompt_tokens') }} tokens</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_output_tokens') is not none %}
+      <div class="portal-panel-note">Output limit: {{ source_diagnostics.get('max_output_tokens') }} tokens</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_chat_output_tokens') is not none or source_diagnostics.get('max_chat_output_chars') is not none %}
+      <div class="portal-panel-note">Chat output boundary: {{ source_diagnostics.get('max_chat_output_tokens') if source_diagnostics.get('max_chat_output_tokens') is not none else '—' }} tokens / {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_boundary_source') %}
+      <div class="portal-panel-note">Output boundary source: {{ source_diagnostics.get('output_boundary_source') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('chars_per_token_estimate') is not none %}
+      <div class="portal-panel-note">Chars/token estimate: {{ source_diagnostics.get('chars_per_token_estimate') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('input_context_usage_percent') is not none %}
+      <div class="portal-panel-note">Input context usage: {{ source_diagnostics.get('input_context_usage_percent') }}%</div>
+    {% endif %}
+    {% if source_diagnostics.get('input_context_usage_percent') is not none or source_diagnostics.get('max_output_tokens') is not none or source_diagnostics.get('output_risk_level') %}
+      <div class="portal-panel-note">Input context usage and output limit are separate; low context usage does not guarantee low output risk.</div>
+    {% endif %}
     {% if source_diagnostics.get('max_chat_output_chars') is not none %}
       <div class="portal-panel-note">Max chat output chars: {{ source_diagnostics.get('max_chat_output_chars') }}</div>
     {% elif 'max_chat_output_chars' in source_diagnostics %}
