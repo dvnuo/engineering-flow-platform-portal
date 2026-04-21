@@ -86,6 +86,12 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_source_context_mode": _normalize_preview_value(metadata.get("source_context_mode")),
         "context_default_source_complete_applied": metadata.get("default_source_complete_applied"),
         "context_source_preview_tool_used": metadata.get("source_preview_tool_used"),
+        "context_source_ref_session_valid": metadata.get("source_ref_session_valid"),
+        "context_default_source_complete_ref_session": _normalize_preview_value(metadata.get("default_source_complete_ref_session")),
+        "context_model_facing_preview_tool_available": metadata.get("model_facing_preview_tool_available"),
+        "context_preview_tool_used": metadata.get("preview_tool_used"),
+        "context_output_controller_stage": _normalize_preview_value(metadata.get("output_controller_stage")),
+        "context_output_controller_recovery_reason": _normalize_preview_value(metadata.get("output_controller_recovery_reason")),
     }
 
     nested_preview = {
@@ -129,6 +135,12 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_source_context_mode": _normalize_preview_value(source.get("source_context_mode") or budget.get("source_context_mode")),
         "context_default_source_complete_applied": source.get("default_source_complete_applied") if source.get("default_source_complete_applied") is not None else budget.get("default_source_complete_applied"),
         "context_source_preview_tool_used": source.get("source_preview_tool_used") if source.get("source_preview_tool_used") is not None else budget.get("source_preview_tool_used"),
+        "context_source_ref_session_valid": source.get("source_ref_session_valid") if source.get("source_ref_session_valid") is not None else budget.get("source_ref_session_valid"),
+        "context_default_source_complete_ref_session": _normalize_preview_value(source.get("default_source_complete_ref_session") or budget.get("default_source_complete_ref_session")),
+        "context_model_facing_preview_tool_available": source.get("model_facing_preview_tool_available") if source.get("model_facing_preview_tool_available") is not None else budget.get("model_facing_preview_tool_available"),
+        "context_preview_tool_used": source.get("preview_tool_used") if source.get("preview_tool_used") is not None else budget.get("preview_tool_used"),
+        "context_output_controller_stage": _normalize_preview_value(source.get("output_controller_stage") or budget.get("output_controller_stage") or generation.get("output_controller_stage")),
+        "context_output_controller_recovery_reason": _normalize_preview_value(source.get("output_controller_recovery_reason") or budget.get("output_controller_recovery_reason") or generation.get("output_controller_recovery_reason")),
     }
 
     merged = {
@@ -172,6 +184,12 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_source_context_mode",
             "context_default_source_complete_applied",
             "context_source_preview_tool_used",
+            "context_source_ref_session_valid",
+            "context_default_source_complete_ref_session",
+            "context_model_facing_preview_tool_available",
+            "context_preview_tool_used",
+            "context_output_controller_stage",
+            "context_output_controller_recovery_reason",
         )
     }
 

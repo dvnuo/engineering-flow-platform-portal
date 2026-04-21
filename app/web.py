@@ -255,6 +255,12 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "source_context_mode",
         "default_source_complete_applied",
         "source_preview_tool_used",
+        "source_ref_session_valid",
+        "default_source_complete_ref_session",
+        "model_facing_preview_tool_available",
+        "preview_tool_used",
+        "output_controller_stage",
+        "output_controller_recovery_reason",
     )
     for key in allowlist:
         value = details.get(key)

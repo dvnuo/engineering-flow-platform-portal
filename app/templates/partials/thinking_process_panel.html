@@ -215,6 +215,24 @@
     {% if source_diagnostics.get('generation_state_active') is not none %}
       <div class="portal-panel-note">Generation state active: {{ 'yes' if source_diagnostics.get('generation_state_active') else 'no' }}</div>
     {% endif %}
+    {% if source_diagnostics.get('source_ref_session_valid') is not none %}
+      <div class="portal-panel-note">Source ref session valid: {{ 'yes' if source_diagnostics.get('source_ref_session_valid') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('default_source_complete_ref_session') %}
+      <div class="portal-panel-note">Source ref session: {{ source_diagnostics.get('default_source_complete_ref_session') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('model_facing_preview_tool_available') is not none %}
+      <div class="portal-panel-note">Model-facing preview tools available: {{ 'yes' if source_diagnostics.get('model_facing_preview_tool_available') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('preview_tool_used') is not none %}
+      <div class="portal-panel-note">Preview tool used: {{ 'yes' if source_diagnostics.get('preview_tool_used') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_controller_stage') %}
+      <div class="portal-panel-note">Output controller stage: {{ source_diagnostics.get('output_controller_stage') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_controller_recovery_reason') %}
+      <div class="portal-panel-note">Recovery reason: {{ source_diagnostics.get('output_controller_recovery_reason') }}</div>
+    {% endif %}
     {% if source_diagnostics.get('input_context_usage_percent') is not none and source_diagnostics.get('output_risk_level') %}
       <div class="portal-panel-note">Low input context usage does not guarantee output safety.</div>
     {% endif %}

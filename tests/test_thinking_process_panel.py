@@ -817,3 +817,33 @@ def test_thinking_process_panel_renders_output_controller_phase_diagnostics(monk
     assert "Next phase: feature" in response.text
     assert "Completed phases: 2" in response.text
     assert "Generation state active: yes" in response.text
+
+
+def test_thinking_process_panel_renders_source_ref_session_and_controller_recovery_fields(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "source": {
+                "source_ref_session_valid": False,
+                "default_source_complete_ref_session": "unknown_session",
+                "model_facing_preview_tool_available": True,
+                "preview_tool_used": False,
+                "output_controller_stage": "skill_generation",
+                "output_controller_recovery_reason": "max_output_tokens",
+                "oversized_output_saved": True,
+                "oversized_output_ref_count": 3,
+            }
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Source ref session valid: no" in response.text
+    assert "Source ref session: unknown_session" in response.text
+    assert "Model-facing preview tools available: yes" in response.text
+    assert "Preview tool used: no" in response.text
+    assert "Output controller stage: skill_generation" in response.text
+    assert "Recovery reason: max_output_tokens" in response.text
+    assert "Oversized output saved: yes" in response.text
+    assert "Oversized output refs: 3" in response.text

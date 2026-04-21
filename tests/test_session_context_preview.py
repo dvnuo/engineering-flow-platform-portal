@@ -534,3 +534,31 @@ def test_extract_context_preview_maps_output_controller_generation_fields_flat_a
     assert flat["context_generation_completed_phases_count"] == 5
     assert flat["context_generation_next_phase"] == "feature"
     assert flat["context_generation_state_active"] is False
+
+
+def test_extract_context_preview_maps_source_ref_and_controller_reason_fields():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="13",
+        metadata_json='{"context_state":{"source":{"source_ref_session_valid":true,"default_source_complete_ref_session":"current","model_facing_preview_tool_available":true,"preview_tool_used":true,"output_controller_stage":"tool_loop","output_controller_recovery_reason":"oversized_output"}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_source_ref_session_valid"] is True
+    assert nested["context_default_source_complete_ref_session"] == "current"
+    assert nested["context_model_facing_preview_tool_available"] is True
+    assert nested["context_preview_tool_used"] is True
+    assert nested["context_output_controller_stage"] == "tool_loop"
+    assert nested["context_output_controller_recovery_reason"] == "oversized_output"
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="13",
+        metadata_json='{"source_ref_session_valid":false,"default_source_complete_ref_session":"mismatch","model_facing_preview_tool_available":false,"preview_tool_used":false,"output_controller_stage":"finalizer","output_controller_recovery_reason":"max_output_tokens","context_state":{"source":{"source_ref_session_valid":true,"default_source_complete_ref_session":"current","model_facing_preview_tool_available":true,"preview_tool_used":true,"output_controller_stage":"tool_loop","output_controller_recovery_reason":"oversized_output"}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_source_ref_session_valid"] is False
+    assert flat["context_default_source_complete_ref_session"] == "mismatch"
+    assert flat["context_model_facing_preview_tool_available"] is False
+    assert flat["context_preview_tool_used"] is False
+    assert flat["context_output_controller_stage"] == "finalizer"
+    assert flat["context_output_controller_recovery_reason"] == "max_output_tokens"
