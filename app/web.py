@@ -200,15 +200,15 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
     if not isinstance(details, dict):
         return
     allowlist = (
+        "legacy_max_chat_output_chars_ignored",
+        "configured_max_chat_output_chars",
+        "output_boundary_source",
         "max_context_window_tokens",
         "max_prompt_tokens",
         "max_output_tokens",
         "max_chat_output_tokens",
         "max_chat_output_chars",
-        "output_boundary_source",
         "chars_per_token_estimate",
-        "output_risk_level",
-        "input_context_usage_percent",
     )
     for key in allowlist:
         if key not in details:

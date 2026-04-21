@@ -140,6 +140,9 @@
     {% if source_diagnostics.get('output_boundary_source') %}
       <div class="portal-panel-note">Output boundary source: {{ source_diagnostics.get('output_boundary_source') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('legacy_max_chat_output_chars_ignored') %}
+      <div class="portal-panel-note">Legacy low output boundary ignored: configured {{ source_diagnostics.get('configured_max_chat_output_chars') if source_diagnostics.get('configured_max_chat_output_chars') is not none else '—' }} chars, effective {{ source_diagnostics.get('max_chat_output_chars') if source_diagnostics.get('max_chat_output_chars') is not none else '—' }} chars</div>
+    {% endif %}
     {% if source_diagnostics.get('chars_per_token_estimate') is not none %}
       <div class="portal-panel-note">Chars/token estimate: {{ source_diagnostics.get('chars_per_token_estimate') }}</div>
     {% endif %}
@@ -147,7 +150,7 @@
       <div class="portal-panel-note">Input context usage: {{ source_diagnostics.get('input_context_usage_percent') }}%</div>
     {% endif %}
     {% if source_diagnostics.get('input_context_usage_percent') is not none or source_diagnostics.get('max_output_tokens') is not none or source_diagnostics.get('output_risk_level') %}
-      <div class="portal-panel-note">Input context usage and output limit are separate; low context usage does not guarantee low output risk.</div>
+      <div class="portal-panel-note">Input context usage and output limit are separate; low input context usage does not guarantee low output risk.</div>
     {% endif %}
     {% if source_diagnostics.get('max_chat_output_chars') is not none %}
       <div class="portal-panel-note">Max chat output chars: {{ source_diagnostics.get('max_chat_output_chars') }}</div>

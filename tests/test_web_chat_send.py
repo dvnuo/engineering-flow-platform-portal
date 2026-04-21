@@ -950,12 +950,12 @@ def test_app_chat_send_runtime_error_does_not_include_non_allowlisted_output_rec
     assert "source_digest_chunk_count=" not in detail
     assert "children_loaded=" not in detail
     assert "children_total=" not in detail
-    assert "output_risk_level=high" in detail
+    assert "output_risk_level=" not in detail
     assert "max_chat_output_chars=8000" in detail
     assert "max_output_recovery_applied=" not in detail
     assert "max_output_recovery_attempts=" not in detail
     assert "output_token_limit=" not in detail
-    assert "input_context_usage_percent=18.2" in detail
+    assert "input_context_usage_percent=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -998,6 +998,8 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
                 "max_chat_output_tokens": 60000,
                 "max_chat_output_chars": 240000,
                 "output_boundary_source": "model_limits",
+                "legacy_max_chat_output_chars_ignored": True,
+                "configured_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "medium",
                 "input_context_usage_percent": 22.5,
@@ -1021,9 +1023,11 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
     assert "max_chat_output_tokens=60000" in detail
     assert "max_chat_output_chars=240000" in detail
     assert "output_boundary_source=model_limits" in detail
+    assert "legacy_max_chat_output_chars_ignored=True" in detail
+    assert "configured_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
-    assert "output_risk_level=medium" in detail
-    assert "input_context_usage_percent=22.5" in detail
+    assert "output_risk_level=" not in detail
+    assert "input_context_usage_percent=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "SECRET_CONTEXT" not in detail
@@ -1054,7 +1058,9 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
                 "max_output_tokens": 64000,
                 "max_chat_output_tokens": 60000,
                 "max_chat_output_chars": 240000,
-                "output_boundary_source": "model_limits",
+                "output_boundary_source": "model_limits_legacy_override_ignored",
+                "legacy_max_chat_output_chars_ignored": True,
+                "configured_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "output_risk_level": "high",
                 "input_context_usage_percent": 35.0,
@@ -1083,10 +1089,12 @@ def test_app_chat_send_runtime_error_includes_model_limit_scalars_only(monkeypat
     assert "max_output_tokens=64000" in detail
     assert "max_chat_output_tokens=60000" in detail
     assert "max_chat_output_chars=240000" in detail
-    assert "output_boundary_source=model_limits" in detail
+    assert "output_boundary_source=model_limits_legacy_override_ignored" in detail
+    assert "legacy_max_chat_output_chars_ignored=True" in detail
+    assert "configured_max_chat_output_chars=8000" in detail
     assert "chars_per_token_estimate=4.0" in detail
-    assert "output_risk_level=high" in detail
-    assert "input_context_usage_percent=35.0" in detail
+    assert "output_risk_level=" not in detail
+    assert "input_context_usage_percent=" not in detail
     assert "jira_comments_bundle_ref_count=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
@@ -1158,8 +1166,8 @@ def test_app_chat_send_runtime_error_includes_model_limit_phase_scalars_only(mon
     assert "max_chat_output_chars=240000" in detail
     assert "output_boundary_source=model_limits" in detail
     assert "chars_per_token_estimate=4.0" in detail
-    assert "output_risk_level=normal" in detail
-    assert "input_context_usage_percent=18.5" in detail
+    assert "output_risk_level=" not in detail
+    assert "input_context_usage_percent=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1231,8 +1239,8 @@ def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monk
     assert "max_chat_output_chars=240000" in detail
     assert "output_boundary_source=model_limits" in detail
     assert "chars_per_token_estimate=4.0" in detail
-    assert "output_risk_level=medium" in detail
-    assert "input_context_usage_percent=42.0" in detail
+    assert "output_risk_level=" not in detail
+    assert "input_context_usage_percent=" not in detail
     assert "jira_comments_bundle_ref_count=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail

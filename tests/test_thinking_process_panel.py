@@ -691,8 +691,10 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "max_prompt_tokens": 128000,
                 "max_output_tokens": 64000,
                 "max_chat_output_tokens": 60000,
-                "max_chat_output_chars": 12000,
-                "output_boundary_source": "model_limits",
+                "max_chat_output_chars": 240000,
+                "output_boundary_source": "model_limits_legacy_override_ignored",
+                "legacy_max_chat_output_chars_ignored": True,
+                "configured_max_chat_output_chars": 8000,
                 "chars_per_token_estimate": 4.0,
                 "input_context_usage_percent": 44.5,
                 "output_controller_applied": True,
@@ -747,12 +749,13 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Context window: 264000 tokens" in response.text
     assert "Prompt limit: 128000 tokens" in response.text
     assert "Output limit: 64000 tokens" in response.text
-    assert "Chat output boundary: 60000 tokens / 12000 chars" in response.text
-    assert "Output boundary source: model_limits" in response.text
+    assert "Chat output boundary: 60000 tokens / 240000 chars" in response.text
+    assert "Output boundary source: model_limits_legacy_override_ignored" in response.text
+    assert "Legacy low output boundary ignored: configured 8000 chars, effective 240000 chars" in response.text
     assert "Chars/token estimate: 4.0" in response.text
     assert "Input context usage: 44.5%" in response.text
-    assert "Input context usage and output limit are separate; low context usage does not guarantee low output risk." in response.text
-    assert "Max chat output chars: 12000" in response.text
+    assert "Input context usage and output limit are separate; low input context usage does not guarantee low output risk." in response.text
+    assert "Max chat output chars: 240000" in response.text
     assert "Output controller applied: yes" in response.text
     assert "Output controller stage: tool_loop" in response.text
     assert "Text attachment bodies complete: yes" in response.text
