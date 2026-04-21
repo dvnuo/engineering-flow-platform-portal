@@ -194,6 +194,27 @@
     {% if source_diagnostics.get('oversized_output_ref_count') is not none %}
       <div class="portal-panel-note">Oversized output refs: {{ source_diagnostics.get('oversized_output_ref_count') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('output_controller_applied') %}
+      <div class="portal-panel-note">Output controller: applied</div>
+    {% endif %}
+    {% if source_diagnostics.get('source_context_mode') %}
+      <div class="portal-panel-note">Source mode: {{ source_diagnostics.get('source_context_mode') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('default_source_complete_applied') is not none %}
+      <div class="portal-panel-note">Default source-complete: {{ 'applied' if source_diagnostics.get('default_source_complete_applied') else 'not applied' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('source_preview_tool_used') is not none %}
+      <div class="portal-panel-note">Preview source tool used: {{ 'yes' if source_diagnostics.get('source_preview_tool_used') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('generation_next_phase') %}
+      <div class="portal-panel-note">Next phase: {{ source_diagnostics.get('generation_next_phase') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('generation_completed_phases_count') is not none %}
+      <div class="portal-panel-note">Completed phases: {{ source_diagnostics.get('generation_completed_phases_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('generation_state_active') is not none %}
+      <div class="portal-panel-note">Generation state active: {{ 'yes' if source_diagnostics.get('generation_state_active') else 'no' }}</div>
+    {% endif %}
     {% if source_diagnostics.get('input_context_usage_percent') is not none and source_diagnostics.get('output_risk_level') %}
       <div class="portal-panel-note">Low input context usage does not guarantee output safety.</div>
     {% endif %}

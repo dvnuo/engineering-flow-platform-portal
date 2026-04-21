@@ -787,3 +787,33 @@ def test_thinking_process_panel_renders_new_completeness_and_oversized_output_di
     assert "Max chat output enforced: yes" in response.text
     assert "Oversized output saved: yes" in response.text
     assert "Oversized output refs: 2" in response.text
+
+
+def test_thinking_process_panel_renders_output_controller_phase_diagnostics(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "source": {
+                "output_controller_applied": True,
+                "source_context_mode": "preview",
+                "default_source_complete_applied": False,
+                "source_preview_tool_used": True,
+            },
+            "generation": {
+                "completed_phases_count": 2,
+                "next_phase": "feature",
+                "state_active": True,
+            },
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Output controller: applied" in response.text
+    assert "Source mode: preview" in response.text
+    assert "Default source-complete: not applied" in response.text
+    assert "Preview source tool used: yes" in response.text
+    assert "Next phase: feature" in response.text
+    assert "Completed phases: 2" in response.text
+    assert "Generation state active: yes" in response.text

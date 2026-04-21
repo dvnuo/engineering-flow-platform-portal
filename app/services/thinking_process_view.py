@@ -43,6 +43,7 @@ def _normalize_context_blob_refs_created(value: Any):
 def _build_source_diagnostics(metadata_dict: dict, context_state: dict, budget: dict) -> dict:
     source = _as_dict(context_state.get("source"))
     budget = _as_dict(budget)
+    generation = _as_dict(context_state.get("generation"))
 
     diagnostics = {
         "source_complete": metadata_dict.get("source_complete") if metadata_dict.get("source_complete") is not None else source.get("source_complete"),
@@ -76,6 +77,13 @@ def _build_source_diagnostics(metadata_dict: dict, context_state: dict, budget: 
         "max_chat_output_enforced": metadata_dict.get("max_chat_output_enforced") if metadata_dict.get("max_chat_output_enforced") is not None else (source.get("max_chat_output_enforced") if source.get("max_chat_output_enforced") is not None else budget.get("max_chat_output_enforced")),
         "oversized_output_saved": metadata_dict.get("oversized_output_saved") if metadata_dict.get("oversized_output_saved") is not None else (source.get("oversized_output_saved") if source.get("oversized_output_saved") is not None else budget.get("oversized_output_saved")),
         "oversized_output_ref_count": metadata_dict.get("oversized_output_ref_count") if metadata_dict.get("oversized_output_ref_count") is not None else (source.get("oversized_output_ref_count") if source.get("oversized_output_ref_count") is not None else budget.get("oversized_output_ref_count")),
+        "generation_completed_phases_count": metadata_dict.get("generation_completed_phases_count") if metadata_dict.get("generation_completed_phases_count") is not None else (generation.get("completed_phases_count") if generation.get("completed_phases_count") is not None else budget.get("generation_completed_phases_count")),
+        "generation_next_phase": metadata_dict.get("generation_next_phase") if metadata_dict.get("generation_next_phase") is not None else (generation.get("next_phase") if generation.get("next_phase") is not None else budget.get("generation_next_phase")),
+        "generation_state_active": metadata_dict.get("generation_state_active") if metadata_dict.get("generation_state_active") is not None else (generation.get("state_active") if generation.get("state_active") is not None else budget.get("generation_state_active")),
+        "output_controller_applied": metadata_dict.get("output_controller_applied") if metadata_dict.get("output_controller_applied") is not None else (source.get("output_controller_applied") if source.get("output_controller_applied") is not None else budget.get("output_controller_applied")),
+        "source_context_mode": metadata_dict.get("source_context_mode") if metadata_dict.get("source_context_mode") is not None else (source.get("source_context_mode") if source.get("source_context_mode") is not None else budget.get("source_context_mode")),
+        "default_source_complete_applied": metadata_dict.get("default_source_complete_applied") if metadata_dict.get("default_source_complete_applied") is not None else (source.get("default_source_complete_applied") if source.get("default_source_complete_applied") is not None else budget.get("default_source_complete_applied")),
+        "source_preview_tool_used": metadata_dict.get("source_preview_tool_used") if metadata_dict.get("source_preview_tool_used") is not None else (source.get("source_preview_tool_used") if source.get("source_preview_tool_used") is not None else budget.get("source_preview_tool_used")),
     }
     return {key: value for key, value in diagnostics.items() if value is not None}
 

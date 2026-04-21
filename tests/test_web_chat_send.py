@@ -1046,3 +1046,73 @@ def test_app_chat_send_runtime_error_includes_new_attachment_and_oversized_outpu
     assert "token=" not in detail
     assert "SECRET_JIRA" not in detail
     assert "ctx://" not in detail
+
+
+def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_only(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "details": {
+                "generation_completed_phases_count": 3,
+                "generation_next_phase": "step_definitions",
+                "generation_state_active": True,
+                "output_controller_applied": True,
+                "source_context_mode": "preview",
+                "default_source_complete_applied": True,
+                "source_preview_tool_used": False,
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "raw_output": "SECRET_RAW_OUTPUT",
+                "response": "SECRET_RESPONSE",
+                "authorization": "Bearer SECRET",
+                "api_key": "SECRET_KEY",
+                "token": "SECRET_TOKEN",
+                "jira_raw": "SECRET_JIRA",
+                "context_blob": {"raw": "SECRET_CONTEXT"},
+                "ctx_refs": ["ctx://raw/1"],
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "generation_completed_phases_count=3" in detail
+    assert "generation_next_phase=step_definitions" in detail
+    assert "generation_state_active=True" in detail
+    assert "output_controller_applied=True" in detail
+    assert "source_context_mode=preview" in detail
+    assert "default_source_complete_applied=True" in detail
+    assert "source_preview_tool_used=False" in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "raw_output=" not in detail
+    assert "response=" not in detail
+    assert "authorization=" not in detail
+    assert "api_key=" not in detail
+    assert "token=" not in detail
+    assert "SECRET_JIRA" not in detail
+    assert "SECRET_CONTEXT" not in detail
+    assert "ctx://" not in detail

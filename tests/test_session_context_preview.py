@@ -504,3 +504,33 @@ def test_extract_context_preview_maps_new_completeness_and_output_flags_from_fla
     assert flat["context_max_chat_output_enforced"] is False
     assert flat["context_oversized_output_saved"] is False
     assert flat["context_oversized_output_ref_count"] == 7
+
+
+def test_extract_context_preview_maps_output_controller_generation_fields_flat_and_nested():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="12",
+        metadata_json='{"context_state":{"source":{"output_controller_applied":true,"source_context_mode":"preview","default_source_complete_applied":true,"source_preview_tool_used":true},"generation":{"completed_phases_count":3,"next_phase":"step_definitions","state_active":true}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_output_controller_applied"] is True
+    assert nested["context_source_context_mode"] == "preview"
+    assert nested["context_default_source_complete_applied"] is True
+    assert nested["context_source_preview_tool_used"] is True
+    assert nested["context_generation_completed_phases_count"] == 3
+    assert nested["context_generation_next_phase"] == "step_definitions"
+    assert nested["context_generation_state_active"] is True
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="12",
+        metadata_json='{"output_controller_applied":false,"source_context_mode":"source_complete","default_source_complete_applied":false,"source_preview_tool_used":false,"generation_completed_phases_count":5,"generation_next_phase":"feature","generation_state_active":false,"context_state":{"source":{"output_controller_applied":true,"source_context_mode":"preview","default_source_complete_applied":true,"source_preview_tool_used":true},"generation":{"completed_phases_count":1,"next_phase":"ignored","state_active":true}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_output_controller_applied"] is False
+    assert flat["context_source_context_mode"] == "source_complete"
+    assert flat["context_default_source_complete_applied"] is False
+    assert flat["context_source_preview_tool_used"] is False
+    assert flat["context_generation_completed_phases_count"] == 5
+    assert flat["context_generation_next_phase"] == "feature"
+    assert flat["context_generation_state_active"] is False

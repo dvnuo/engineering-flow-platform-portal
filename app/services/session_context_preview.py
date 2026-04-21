@@ -45,6 +45,7 @@ def _derive_source_preview(metadata: dict) -> dict:
     context_state = metadata.get("context_state") if isinstance(metadata.get("context_state"), dict) else {}
     source = context_state.get("source") if isinstance(context_state.get("source"), dict) else {}
     budget = context_state.get("budget") if isinstance(context_state.get("budget"), dict) else {}
+    generation = context_state.get("generation") if isinstance(context_state.get("generation"), dict) else {}
 
     flat_preview = {
         "context_source_complete": metadata.get("source_complete"),
@@ -78,6 +79,13 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_max_chat_output_enforced": metadata.get("max_chat_output_enforced"),
         "context_oversized_output_saved": metadata.get("oversized_output_saved"),
         "context_oversized_output_ref_count": metadata.get("oversized_output_ref_count"),
+        "context_generation_completed_phases_count": metadata.get("generation_completed_phases_count"),
+        "context_generation_next_phase": _normalize_preview_value(metadata.get("generation_next_phase")),
+        "context_generation_state_active": metadata.get("generation_state_active"),
+        "context_output_controller_applied": metadata.get("output_controller_applied"),
+        "context_source_context_mode": _normalize_preview_value(metadata.get("source_context_mode")),
+        "context_default_source_complete_applied": metadata.get("default_source_complete_applied"),
+        "context_source_preview_tool_used": metadata.get("source_preview_tool_used"),
     }
 
     nested_preview = {
@@ -114,6 +122,13 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_max_chat_output_enforced": source.get("max_chat_output_enforced") if source.get("max_chat_output_enforced") is not None else budget.get("max_chat_output_enforced"),
         "context_oversized_output_saved": source.get("oversized_output_saved") if source.get("oversized_output_saved") is not None else budget.get("oversized_output_saved"),
         "context_oversized_output_ref_count": source.get("oversized_output_ref_count") if source.get("oversized_output_ref_count") is not None else budget.get("oversized_output_ref_count"),
+        "context_generation_completed_phases_count": generation.get("completed_phases_count") if generation.get("completed_phases_count") is not None else budget.get("generation_completed_phases_count"),
+        "context_generation_next_phase": _normalize_preview_value(generation.get("next_phase") or budget.get("generation_next_phase")),
+        "context_generation_state_active": generation.get("state_active") if generation.get("state_active") is not None else budget.get("generation_state_active"),
+        "context_output_controller_applied": source.get("output_controller_applied") if source.get("output_controller_applied") is not None else budget.get("output_controller_applied"),
+        "context_source_context_mode": _normalize_preview_value(source.get("source_context_mode") or budget.get("source_context_mode")),
+        "context_default_source_complete_applied": source.get("default_source_complete_applied") if source.get("default_source_complete_applied") is not None else budget.get("default_source_complete_applied"),
+        "context_source_preview_tool_used": source.get("source_preview_tool_used") if source.get("source_preview_tool_used") is not None else budget.get("source_preview_tool_used"),
     }
 
     merged = {
@@ -150,6 +165,13 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_max_chat_output_enforced",
             "context_oversized_output_saved",
             "context_oversized_output_ref_count",
+            "context_generation_completed_phases_count",
+            "context_generation_next_phase",
+            "context_generation_state_active",
+            "context_output_controller_applied",
+            "context_source_context_mode",
+            "context_default_source_complete_applied",
+            "context_source_preview_tool_used",
         )
     }
 
@@ -189,6 +211,7 @@ def _derive_budget_preview(metadata: dict) -> dict:
     }
     context_state = metadata.get("context_state") if isinstance(metadata.get("context_state"), dict) else {}
     budget = context_state.get("budget") if isinstance(context_state.get("budget"), dict) else {}
+    generation = context_state.get("generation") if isinstance(context_state.get("generation"), dict) else {}
     context_blob_refs_created = _normalize_context_blob_refs_created(budget.get("context_blob_refs_created"))
     nested_preview = {
         "context_usage_percent": budget.get("prepared_usage_percent") if budget.get("prepared_usage_percent") is not None else budget.get("usage_percent"),

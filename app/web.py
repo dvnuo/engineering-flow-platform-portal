@@ -248,6 +248,13 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "max_chat_output_enforced",
         "oversized_output_saved",
         "oversized_output_ref_count",
+        "generation_completed_phases_count",
+        "generation_next_phase",
+        "generation_state_active",
+        "output_controller_applied",
+        "source_context_mode",
+        "default_source_complete_applied",
+        "source_preview_tool_used",
     )
     for key in allowlist:
         value = details.get(key)
