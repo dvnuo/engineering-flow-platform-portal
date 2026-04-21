@@ -164,6 +164,36 @@
     {% if source_diagnostics.get('input_context_usage_percent') is not none %}
       <div class="portal-panel-note">Input context usage: {{ source_diagnostics.get('input_context_usage_percent') }}%</div>
     {% endif %}
+    {% if source_diagnostics.get('comments_complete') is not none %}
+      <div class="portal-panel-note">Comments complete: {{ 'yes' if source_diagnostics.get('comments_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('attachments_complete') is not none %}
+      <div class="portal-panel-note">Attachments complete: {{ 'yes' if source_diagnostics.get('attachments_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('children_complete') is not none %}
+      <div class="portal-panel-note">Children complete: {{ 'yes' if source_diagnostics.get('children_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('text_attachments_loaded') is not none or source_diagnostics.get('text_attachments_total') is not none %}
+      <div class="portal-panel-note">Text attachments: {{ source_diagnostics.get('text_attachments_loaded') if source_diagnostics.get('text_attachments_loaded') is not none else '—' }}/{{ source_diagnostics.get('text_attachments_total') if source_diagnostics.get('text_attachments_total') is not none else '—' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('text_attachments_preview_only') is not none %}
+      <div class="portal-panel-note">Text attachment preview-only: {{ source_diagnostics.get('text_attachments_preview_only') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('binary_attachment_bodies_skipped_count') is not none %}
+      <div class="portal-panel-note">Binary attachment bodies skipped: {{ source_diagnostics.get('binary_attachment_bodies_skipped_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('attachment_body_complete') is not none %}
+      <div class="portal-panel-note">Attachment body complete: {{ 'yes' if source_diagnostics.get('attachment_body_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_chat_output_enforced') is not none %}
+      <div class="portal-panel-note">Max chat output enforced: {{ 'yes' if source_diagnostics.get('max_chat_output_enforced') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('oversized_output_saved') is not none %}
+      <div class="portal-panel-note">Oversized output saved: {{ 'yes' if source_diagnostics.get('oversized_output_saved') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('oversized_output_ref_count') is not none %}
+      <div class="portal-panel-note">Oversized output refs: {{ source_diagnostics.get('oversized_output_ref_count') }}</div>
+    {% endif %}
     {% if source_diagnostics.get('input_context_usage_percent') is not none and source_diagnostics.get('output_risk_level') %}
       <div class="portal-panel-note">Low input context usage does not guarantee output safety.</div>
     {% endif %}

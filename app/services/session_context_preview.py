@@ -66,6 +66,18 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_max_output_recovery_attempts": metadata.get("max_output_recovery_attempts"),
         "context_output_token_limit": metadata.get("output_token_limit"),
         "context_input_context_usage_percent": metadata.get("input_context_usage_percent"),
+        "context_comments_complete": metadata.get("comments_complete"),
+        "context_attachments_complete": metadata.get("attachments_complete"),
+        "context_children_complete": metadata.get("children_complete"),
+        "context_text_attachments_loaded": metadata.get("text_attachments_loaded"),
+        "context_text_attachments_total": metadata.get("text_attachments_total"),
+        "context_text_attachments_complete": metadata.get("text_attachments_complete"),
+        "context_text_attachments_preview_only": metadata.get("text_attachments_preview_only"),
+        "context_binary_attachment_bodies_skipped_count": metadata.get("binary_attachment_bodies_skipped_count"),
+        "context_attachment_body_complete": metadata.get("attachment_body_complete"),
+        "context_max_chat_output_enforced": metadata.get("max_chat_output_enforced"),
+        "context_oversized_output_saved": metadata.get("oversized_output_saved"),
+        "context_oversized_output_ref_count": metadata.get("oversized_output_ref_count"),
     }
 
     nested_preview = {
@@ -90,6 +102,18 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_max_output_recovery_attempts": source.get("max_output_recovery_attempts") if source.get("max_output_recovery_attempts") is not None else budget.get("max_output_recovery_attempts"),
         "context_output_token_limit": source.get("output_token_limit") if source.get("output_token_limit") is not None else budget.get("output_token_limit"),
         "context_input_context_usage_percent": source.get("input_context_usage_percent") if source.get("input_context_usage_percent") is not None else budget.get("input_context_usage_percent"),
+        "context_comments_complete": source.get("comments_complete"),
+        "context_attachments_complete": source.get("attachments_complete"),
+        "context_children_complete": source.get("children_complete"),
+        "context_text_attachments_loaded": source.get("text_attachments_loaded"),
+        "context_text_attachments_total": source.get("text_attachments_total"),
+        "context_text_attachments_complete": source.get("text_attachments_complete"),
+        "context_text_attachments_preview_only": source.get("text_attachments_preview_only"),
+        "context_binary_attachment_bodies_skipped_count": source.get("binary_attachment_bodies_skipped_count"),
+        "context_attachment_body_complete": source.get("attachment_body_complete") if source.get("attachment_body_complete") is not None else budget.get("attachment_body_complete"),
+        "context_max_chat_output_enforced": source.get("max_chat_output_enforced") if source.get("max_chat_output_enforced") is not None else budget.get("max_chat_output_enforced"),
+        "context_oversized_output_saved": source.get("oversized_output_saved") if source.get("oversized_output_saved") is not None else budget.get("oversized_output_saved"),
+        "context_oversized_output_ref_count": source.get("oversized_output_ref_count") if source.get("oversized_output_ref_count") is not None else budget.get("oversized_output_ref_count"),
     }
 
     merged = {
@@ -114,6 +138,18 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_max_output_recovery_attempts",
             "context_output_token_limit",
             "context_input_context_usage_percent",
+            "context_comments_complete",
+            "context_attachments_complete",
+            "context_children_complete",
+            "context_text_attachments_loaded",
+            "context_text_attachments_total",
+            "context_text_attachments_complete",
+            "context_text_attachments_preview_only",
+            "context_binary_attachment_bodies_skipped_count",
+            "context_attachment_body_complete",
+            "context_max_chat_output_enforced",
+            "context_oversized_output_saved",
+            "context_oversized_output_ref_count",
         )
     }
 

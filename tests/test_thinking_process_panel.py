@@ -750,3 +750,40 @@ def test_thinking_process_panel_renders_new_source_and_output_recovery_diagnosti
     assert "Output token limit: 4096" in response.text
     assert "Input context usage: 24.5%" in response.text
     assert "Low input context usage does not guarantee output safety." in response.text
+
+
+def test_thinking_process_panel_renders_new_completeness_and_oversized_output_diagnostics(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "source": {
+                "comments_complete": True,
+                "attachments_complete": False,
+                "children_complete": True,
+                "text_attachments_loaded": 4,
+                "text_attachments_total": 6,
+                "text_attachments_preview_only": 2,
+                "binary_attachment_bodies_skipped_count": 3,
+            },
+            "budget": {
+                "attachment_body_complete": True,
+                "max_chat_output_enforced": True,
+                "oversized_output_saved": True,
+                "oversized_output_ref_count": 2,
+            },
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Comments complete: yes" in response.text
+    assert "Attachments complete: no" in response.text
+    assert "Children complete: yes" in response.text
+    assert "Text attachments: 4/6" in response.text
+    assert "Text attachment preview-only: 2" in response.text
+    assert "Binary attachment bodies skipped: 3" in response.text
+    assert "Attachment body complete: yes" in response.text
+    assert "Max chat output enforced: yes" in response.text
+    assert "Oversized output saved: yes" in response.text
+    assert "Oversized output refs: 2" in response.text

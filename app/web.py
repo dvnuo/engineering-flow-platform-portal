@@ -236,6 +236,18 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "max_output_recovery_attempts",
         "output_token_limit",
         "input_context_usage_percent",
+        "comments_complete",
+        "attachments_complete",
+        "children_complete",
+        "text_attachments_loaded",
+        "text_attachments_total",
+        "text_attachments_complete",
+        "text_attachments_preview_only",
+        "binary_attachment_bodies_skipped_count",
+        "attachment_body_complete",
+        "max_chat_output_enforced",
+        "oversized_output_saved",
+        "oversized_output_ref_count",
     )
     for key in allowlist:
         value = details.get(key)

@@ -464,3 +464,43 @@ def test_extract_context_preview_maps_new_source_and_output_recovery_fields():
     assert flat["context_max_output_recovery_attempts"] == 1
     assert flat["context_output_token_limit"] == 2048
     assert flat["context_input_context_usage_percent"] == 22.0
+
+
+def test_extract_context_preview_maps_new_completeness_and_output_flags_from_flat_and_nested():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="11",
+        metadata_json='{"context_state":{"source":{"comments_complete":true,"attachments_complete":false,"children_complete":true,"text_attachments_loaded":4,"text_attachments_total":6,"text_attachments_complete":false,"text_attachments_preview_only":2,"binary_attachment_bodies_skipped_count":3},"budget":{"attachment_body_complete":true,"max_chat_output_enforced":true,"oversized_output_saved":true,"oversized_output_ref_count":2}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_comments_complete"] is True
+    assert nested["context_attachments_complete"] is False
+    assert nested["context_children_complete"] is True
+    assert nested["context_text_attachments_loaded"] == 4
+    assert nested["context_text_attachments_total"] == 6
+    assert nested["context_text_attachments_complete"] is False
+    assert nested["context_text_attachments_preview_only"] == 2
+    assert nested["context_binary_attachment_bodies_skipped_count"] == 3
+    assert nested["context_attachment_body_complete"] is True
+    assert nested["context_max_chat_output_enforced"] is True
+    assert nested["context_oversized_output_saved"] is True
+    assert nested["context_oversized_output_ref_count"] == 2
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="11",
+        metadata_json='{"comments_complete":false,"attachments_complete":true,"children_complete":false,"text_attachments_loaded":9,"text_attachments_total":10,"text_attachments_complete":true,"text_attachments_preview_only":1,"binary_attachment_bodies_skipped_count":0,"attachment_body_complete":false,"max_chat_output_enforced":false,"oversized_output_saved":false,"oversized_output_ref_count":7,"context_state":{"source":{"comments_complete":true,"attachments_complete":false,"children_complete":true,"text_attachments_loaded":1,"text_attachments_total":99,"text_attachments_complete":false,"text_attachments_preview_only":5,"binary_attachment_bodies_skipped_count":9},"budget":{"attachment_body_complete":true,"max_chat_output_enforced":true,"oversized_output_saved":true,"oversized_output_ref_count":99}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_comments_complete"] is False
+    assert flat["context_attachments_complete"] is True
+    assert flat["context_children_complete"] is False
+    assert flat["context_text_attachments_loaded"] == 9
+    assert flat["context_text_attachments_total"] == 10
+    assert flat["context_text_attachments_complete"] is True
+    assert flat["context_text_attachments_preview_only"] == 1
+    assert flat["context_binary_attachment_bodies_skipped_count"] == 0
+    assert flat["context_attachment_body_complete"] is False
+    assert flat["context_max_chat_output_enforced"] is False
+    assert flat["context_oversized_output_saved"] is False
+    assert flat["context_oversized_output_ref_count"] == 7

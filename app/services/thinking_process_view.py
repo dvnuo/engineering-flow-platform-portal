@@ -64,6 +64,18 @@ def _build_source_diagnostics(metadata_dict: dict, context_state: dict, budget: 
         "max_output_recovery_attempts": metadata_dict.get("max_output_recovery_attempts") if metadata_dict.get("max_output_recovery_attempts") is not None else (source.get("max_output_recovery_attempts") if source.get("max_output_recovery_attempts") is not None else budget.get("max_output_recovery_attempts")),
         "output_token_limit": metadata_dict.get("output_token_limit") if metadata_dict.get("output_token_limit") is not None else (source.get("output_token_limit") if source.get("output_token_limit") is not None else budget.get("output_token_limit")),
         "input_context_usage_percent": metadata_dict.get("input_context_usage_percent") if metadata_dict.get("input_context_usage_percent") is not None else (source.get("input_context_usage_percent") if source.get("input_context_usage_percent") is not None else budget.get("input_context_usage_percent")),
+        "comments_complete": metadata_dict.get("comments_complete") if metadata_dict.get("comments_complete") is not None else source.get("comments_complete"),
+        "attachments_complete": metadata_dict.get("attachments_complete") if metadata_dict.get("attachments_complete") is not None else source.get("attachments_complete"),
+        "children_complete": metadata_dict.get("children_complete") if metadata_dict.get("children_complete") is not None else source.get("children_complete"),
+        "text_attachments_loaded": metadata_dict.get("text_attachments_loaded") if metadata_dict.get("text_attachments_loaded") is not None else source.get("text_attachments_loaded"),
+        "text_attachments_total": metadata_dict.get("text_attachments_total") if metadata_dict.get("text_attachments_total") is not None else source.get("text_attachments_total"),
+        "text_attachments_complete": metadata_dict.get("text_attachments_complete") if metadata_dict.get("text_attachments_complete") is not None else source.get("text_attachments_complete"),
+        "text_attachments_preview_only": metadata_dict.get("text_attachments_preview_only") if metadata_dict.get("text_attachments_preview_only") is not None else source.get("text_attachments_preview_only"),
+        "binary_attachment_bodies_skipped_count": metadata_dict.get("binary_attachment_bodies_skipped_count") if metadata_dict.get("binary_attachment_bodies_skipped_count") is not None else source.get("binary_attachment_bodies_skipped_count"),
+        "attachment_body_complete": metadata_dict.get("attachment_body_complete") if metadata_dict.get("attachment_body_complete") is not None else (source.get("attachment_body_complete") if source.get("attachment_body_complete") is not None else budget.get("attachment_body_complete")),
+        "max_chat_output_enforced": metadata_dict.get("max_chat_output_enforced") if metadata_dict.get("max_chat_output_enforced") is not None else (source.get("max_chat_output_enforced") if source.get("max_chat_output_enforced") is not None else budget.get("max_chat_output_enforced")),
+        "oversized_output_saved": metadata_dict.get("oversized_output_saved") if metadata_dict.get("oversized_output_saved") is not None else (source.get("oversized_output_saved") if source.get("oversized_output_saved") is not None else budget.get("oversized_output_saved")),
+        "oversized_output_ref_count": metadata_dict.get("oversized_output_ref_count") if metadata_dict.get("oversized_output_ref_count") is not None else (source.get("oversized_output_ref_count") if source.get("oversized_output_ref_count") is not None else budget.get("oversized_output_ref_count")),
     }
     return {key: value for key, value in diagnostics.items() if value is not None}
 
@@ -415,6 +427,10 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "max_output_recovery_attempts": budget.get("max_output_recovery_attempts"),
             "output_token_limit": budget.get("output_token_limit"),
             "input_context_usage_percent": budget.get("input_context_usage_percent"),
+            "max_chat_output_enforced": budget.get("max_chat_output_enforced"),
+            "oversized_output_saved": budget.get("oversized_output_saved"),
+            "oversized_output_ref_count": budget.get("oversized_output_ref_count"),
+            "attachment_body_complete": budget.get("attachment_body_complete"),
         } if budget else {},
         "events": events,
         "debug": {
