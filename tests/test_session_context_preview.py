@@ -392,3 +392,249 @@ def test_serialize_agent_session_metadata_with_preview_supports_nested_context_s
     assert serialized["context_objective_preview"] == "Nested objective"
     assert serialized["context_summary_preview"] == "Nested summary"
     assert serialized["context_next_step_preview"] == "Nested next"
+
+
+def test_extract_context_preview_maps_source_diagnostics_from_nested_and_flat_fields():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="9",
+        metadata_json='{"context_state":{"source":{"source_complete":false,"comments_loaded":7,"comments_total":10,"attachments_loaded":2,"attachments_total":4,"source_partial_reasons_count":3,"generation_mode":"staged","current_generation_phase":"manifest","large_generation_guard_reason":"budget_guard"}}}',
+    )
+
+    nested = extract_context_preview(nested_record)
+    assert nested["context_source_complete"] is False
+    assert nested["context_comments_loaded"] == 7
+    assert nested["context_comments_total"] == 10
+    assert nested["context_attachments_loaded"] == 2
+    assert nested["context_attachments_total"] == 4
+    assert nested["context_source_partial_reasons_count"] == 3
+    assert nested["context_generation_mode"] == "staged"
+    assert nested["context_current_generation_phase"] == "manifest"
+    assert nested["context_large_generation_guard_reason"] == "budget_guard"
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="9",
+        metadata_json='{"source_complete":true,"comments_loaded":11,"comments_total":12,"attachments_loaded":5,"attachments_total":6,"source_partial_reasons_count":1,"generation_mode":"staged","current_generation_phase":"feature","large_generation_guard_reason":"guard_flat","context_state":{"source":{"source_complete":false,"comments_loaded":1,"comments_total":99,"attachments_loaded":0,"attachments_total":99,"source_partial_reasons_count":8,"generation_mode":"legacy","current_generation_phase":"ignored","large_generation_guard_reason":"ignored"}}}',
+    )
+
+    flat = extract_context_preview(flat_record)
+    assert flat["context_source_complete"] is True
+    assert flat["context_comments_loaded"] == 11
+    assert flat["context_comments_total"] == 12
+    assert flat["context_attachments_loaded"] == 5
+    assert flat["context_attachments_total"] == 6
+    assert flat["context_source_partial_reasons_count"] == 1
+    assert flat["context_generation_mode"] == "staged"
+    assert flat["context_current_generation_phase"] == "feature"
+    assert flat["context_large_generation_guard_reason"] == "guard_flat"
+
+
+def test_extract_context_preview_maps_new_source_and_output_recovery_fields():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"context_state":{"source":{"source_type":"Jira","source_digest_chunk_count":6,"children_loaded":4,"children_total":7},"budget":{"output_risk_level":"medium","max_chat_output_chars":12000,"max_output_recovery_applied":true,"max_output_recovery_attempts":2,"output_token_limit":4096,"input_context_usage_percent":41.5}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_source_type"] == "Jira"
+    assert nested["context_source_digest_chunk_count"] == 6
+    assert nested["context_children_loaded"] == 4
+    assert nested["context_children_total"] == 7
+    assert nested["context_output_risk_level"] == "medium"
+    assert nested["context_max_chat_output_chars"] == 12000
+    assert nested["context_max_output_recovery_applied"] is True
+    assert nested["context_max_output_recovery_attempts"] == 2
+    assert nested["context_output_token_limit"] == 4096
+    assert nested["context_input_context_usage_percent"] == 41.5
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"source_type":"Confluence","source_digest_chunk_count":9,"children_loaded":8,"children_total":8,"output_risk_level":"high","max_chat_output_chars":9000,"max_output_recovery_applied":false,"max_output_recovery_attempts":1,"output_token_limit":2048,"input_context_usage_percent":22.0,"context_state":{"source":{"source_type":"Jira","source_digest_chunk_count":1,"children_loaded":1,"children_total":99},"budget":{"output_risk_level":"low","max_chat_output_chars":1,"max_output_recovery_applied":true,"max_output_recovery_attempts":99,"output_token_limit":1,"input_context_usage_percent":99.0}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_source_type"] == "Confluence"
+    assert flat["context_source_digest_chunk_count"] == 9
+    assert flat["context_children_loaded"] == 8
+    assert flat["context_children_total"] == 8
+    assert flat["context_output_risk_level"] == "high"
+    assert flat["context_max_chat_output_chars"] == 9000
+    assert flat["context_max_output_recovery_applied"] is False
+    assert flat["context_max_output_recovery_attempts"] == 1
+    assert flat["context_output_token_limit"] == 2048
+    assert flat["context_input_context_usage_percent"] == 22.0
+
+
+def test_extract_context_preview_maps_new_completeness_and_output_flags_from_flat_and_nested():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="11",
+        metadata_json='{"context_state":{"source":{"comments_complete":true,"attachments_complete":false,"children_complete":true,"text_attachments_loaded":4,"text_attachments_total":6,"text_attachments_complete":false,"text_attachments_preview_only":2,"binary_attachment_bodies_skipped_count":3},"budget":{"attachment_body_complete":true,"max_chat_output_enforced":true,"oversized_output_saved":true,"oversized_output_ref_count":2}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_comments_complete"] is True
+    assert nested["context_attachments_complete"] is False
+    assert nested["context_children_complete"] is True
+    assert nested["context_text_attachments_loaded"] == 4
+    assert nested["context_text_attachments_total"] == 6
+    assert nested["context_text_attachments_complete"] is False
+    assert nested["context_text_attachments_preview_only"] == 2
+    assert nested["context_binary_attachment_bodies_skipped_count"] == 3
+    assert nested["context_attachment_body_complete"] is True
+    assert nested["context_max_chat_output_enforced"] is True
+    assert nested["context_oversized_output_saved"] is True
+    assert nested["context_oversized_output_ref_count"] == 2
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="11",
+        metadata_json='{"comments_complete":false,"attachments_complete":true,"children_complete":false,"text_attachments_loaded":9,"text_attachments_total":10,"text_attachments_complete":true,"text_attachments_preview_only":1,"binary_attachment_bodies_skipped_count":0,"attachment_body_complete":false,"max_chat_output_enforced":false,"oversized_output_saved":false,"oversized_output_ref_count":7,"context_state":{"source":{"comments_complete":true,"attachments_complete":false,"children_complete":true,"text_attachments_loaded":1,"text_attachments_total":99,"text_attachments_complete":false,"text_attachments_preview_only":5,"binary_attachment_bodies_skipped_count":9},"budget":{"attachment_body_complete":true,"max_chat_output_enforced":true,"oversized_output_saved":true,"oversized_output_ref_count":99}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_comments_complete"] is False
+    assert flat["context_attachments_complete"] is True
+    assert flat["context_children_complete"] is False
+    assert flat["context_text_attachments_loaded"] == 9
+    assert flat["context_text_attachments_total"] == 10
+    assert flat["context_text_attachments_complete"] is True
+    assert flat["context_text_attachments_preview_only"] == 1
+    assert flat["context_binary_attachment_bodies_skipped_count"] == 0
+    assert flat["context_attachment_body_complete"] is False
+    assert flat["context_max_chat_output_enforced"] is False
+    assert flat["context_oversized_output_saved"] is False
+    assert flat["context_oversized_output_ref_count"] == 7
+
+
+def test_extract_context_preview_maps_output_controller_generation_fields_flat_and_nested():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="12",
+        metadata_json='{"context_state":{"source":{"output_controller_applied":true,"source_context_mode":"preview","default_source_complete_applied":true,"source_preview_tool_used":true},"generation":{"completed_phases_count":3,"next_phase":"step_definitions","state_active":true}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_output_controller_applied"] is True
+    assert nested["context_source_context_mode"] == "preview"
+    assert nested["context_default_source_complete_applied"] is True
+    assert nested["context_source_preview_tool_used"] is True
+    assert nested["context_generation_completed_phases_count"] == 3
+    assert nested["context_generation_next_phase"] == "step_definitions"
+    assert nested["context_generation_state_active"] is True
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="12",
+        metadata_json='{"output_controller_applied":false,"source_context_mode":"source_complete","default_source_complete_applied":false,"source_preview_tool_used":false,"generation_completed_phases_count":5,"generation_next_phase":"feature","generation_state_active":false,"context_state":{"source":{"output_controller_applied":true,"source_context_mode":"preview","default_source_complete_applied":true,"source_preview_tool_used":true},"generation":{"completed_phases_count":1,"next_phase":"ignored","state_active":true}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_output_controller_applied"] is False
+    assert flat["context_source_context_mode"] == "source_complete"
+    assert flat["context_default_source_complete_applied"] is False
+    assert flat["context_source_preview_tool_used"] is False
+    assert flat["context_generation_completed_phases_count"] == 5
+    assert flat["context_generation_next_phase"] == "feature"
+    assert flat["context_generation_state_active"] is False
+
+
+def test_extract_context_preview_maps_source_completeness_and_generation_state_fields():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="13",
+        metadata_json='{"context_state":{"source":{"source_complete_for_generation":true,"source_complete_including_binary_bodies":false,"source_metadata_complete":true,"source_text_complete":true,"source_tree_complete":false,"descendants_loaded":7,"descendants_total":10,"descendants_complete":false,"descendants_pages_complete":true,"descendants_comments_complete":false,"descendants_attachments_complete":true,"comments_bundle_ref_count":6,"children_bundle_ref_count":2,"auxiliary_source_complete":true,"text_attachment_bodies_complete":true,"binary_attachment_bodies_available":false,"binary_attachment_bodies_skipped_count":2,"binary_attachment_body_policy":"metadata_only","partial_output_saved":true},"generation":{"generated_artifact_ref_count":3,"generation_done":false,"current_phase":"skill_generation","next_phase":"finalize","completed_phases_count":2,"completion_criteria_count":5,"source_digest_chunk_coverage_count":4,"completion_criteria_status_count":9,"completion_criteria_satisfied_count":7,"next_incomplete_phase":"publish"},"budget":{"oversized_output_saved":true}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_source_complete_for_generation"] is True
+    assert nested["context_source_complete_including_binary_bodies"] is False
+    assert nested["context_source_metadata_complete"] is True
+    assert nested["context_source_text_complete"] is True
+    assert nested["context_source_tree_complete"] is False
+    assert nested["context_descendants_loaded"] == 7
+    assert nested["context_descendants_total"] == 10
+    assert nested["context_descendants_complete"] is False
+    assert nested["context_descendants_pages_complete"] is True
+    assert nested["context_descendants_comments_complete"] is False
+    assert nested["context_descendants_attachments_complete"] is True
+    assert nested["context_comments_bundle_ref_count"] == 6
+    assert nested["context_children_bundle_ref_count"] == 2
+    assert nested["context_auxiliary_source_complete"] is True
+    assert nested["context_text_attachment_bodies_complete"] is True
+    assert nested["context_binary_attachment_bodies_available"] is False
+    assert nested["context_binary_attachment_bodies_skipped_count"] == 2
+    assert nested["context_binary_attachment_body_policy"] == "metadata_only"
+    assert nested["context_generated_artifact_ref_count"] == 3
+    assert nested["context_generation_done"] is False
+    assert nested["context_generation_current_phase"] == "skill_generation"
+    assert nested["context_generation_next_phase"] == "finalize"
+    assert nested["context_generation_completed_phases_count"] == 2
+    assert nested["context_completion_criteria_count"] == 5
+    assert nested["context_source_digest_chunk_coverage_count"] == 4
+    assert nested["context_completion_criteria_status_count"] == 9
+    assert nested["context_completion_criteria_satisfied_count"] == 7
+    assert nested["context_next_incomplete_phase"] == "publish"
+    assert nested["context_oversized_output_saved"] is True
+    assert nested["context_partial_output_saved"] is True
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="13",
+        metadata_json='{"source_complete_for_generation":false,"source_complete_including_binary_bodies":true,"source_metadata_complete":false,"source_text_complete":false,"source_tree_complete":true,"descendants_loaded":2,"descendants_total":2,"descendants_complete":true,"descendants_pages_complete":false,"descendants_comments_complete":true,"descendants_attachments_complete":false,"comments_bundle_ref_count":3,"children_bundle_ref_count":1,"auxiliary_source_complete":false,"text_attachment_bodies_complete":false,"binary_attachment_bodies_available":true,"binary_attachment_bodies_skipped_count":0,"binary_attachment_body_policy":"loaded","generated_artifact_ref_count":1,"generation_done":true,"generation_current_phase":"analysis","generation_next_phase":"draft","generation_completed_phases_count":4,"completion_criteria_count":8,"source_digest_chunk_coverage_count":6,"completion_criteria_status_count":10,"completion_criteria_satisfied_count":8,"next_incomplete_phase":"qa","oversized_output_saved":false,"partial_output_saved":false,"output_controller_stage":"recovery","context_state":{"source":{"source_complete_for_generation":true,"descendants_loaded":99,"binary_attachment_body_policy":"unsupported","comments_bundle_ref_count":99},"generation":{"generated_artifact_ref_count":99,"current_phase":"ignored"}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_source_complete_for_generation"] is False
+    assert flat["context_source_complete_including_binary_bodies"] is True
+    assert flat["context_source_metadata_complete"] is False
+    assert flat["context_source_text_complete"] is False
+    assert flat["context_source_tree_complete"] is True
+    assert flat["context_descendants_loaded"] == 2
+    assert flat["context_descendants_total"] == 2
+    assert flat["context_descendants_complete"] is True
+    assert flat["context_descendants_pages_complete"] is False
+    assert flat["context_descendants_comments_complete"] is True
+    assert flat["context_descendants_attachments_complete"] is False
+    assert flat["context_comments_bundle_ref_count"] == 3
+    assert flat["context_children_bundle_ref_count"] == 1
+    assert flat["context_auxiliary_source_complete"] is False
+    assert flat["context_text_attachment_bodies_complete"] is False
+    assert flat["context_binary_attachment_bodies_available"] is True
+    assert flat["context_binary_attachment_bodies_skipped_count"] == 0
+    assert flat["context_binary_attachment_body_policy"] == "loaded"
+    assert flat["context_generated_artifact_ref_count"] == 1
+    assert flat["context_generation_done"] is True
+    assert flat["context_generation_current_phase"] == "analysis"
+    assert flat["context_generation_next_phase"] == "draft"
+    assert flat["context_generation_completed_phases_count"] == 4
+    assert flat["context_completion_criteria_count"] == 8
+    assert flat["context_source_digest_chunk_coverage_count"] == 6
+    assert flat["context_completion_criteria_status_count"] == 10
+    assert flat["context_completion_criteria_satisfied_count"] == 8
+    assert flat["context_next_incomplete_phase"] == "qa"
+    assert flat["context_oversized_output_saved"] is False
+    assert flat["context_partial_output_saved"] is False
+    assert flat["context_output_controller_stage"] == "recovery"
+
+def test_extract_context_preview_maps_source_ref_and_controller_reason_fields():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="13",
+        metadata_json='{"context_state":{"source":{"source_ref_session_valid":true,"default_source_complete_ref_session":"current","model_facing_preview_tool_available":true,"preview_tool_used":true,"output_controller_stage":"tool_loop","output_controller_recovery_reason":"oversized_output"}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_source_ref_session_valid"] is True
+    assert nested["context_default_source_complete_ref_session"] == "current"
+    assert nested["context_model_facing_preview_tool_available"] is True
+    assert nested["context_preview_tool_used"] is True
+    assert nested["context_output_controller_stage"] == "tool_loop"
+    assert nested["context_output_controller_recovery_reason"] == "oversized_output"
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="13",
+        metadata_json='{"source_ref_session_valid":false,"default_source_complete_ref_session":"mismatch","model_facing_preview_tool_available":false,"preview_tool_used":false,"output_controller_stage":"finalizer","output_controller_recovery_reason":"max_output_tokens","context_state":{"source":{"source_ref_session_valid":true,"default_source_complete_ref_session":"current","model_facing_preview_tool_available":true,"preview_tool_used":true,"output_controller_stage":"tool_loop","output_controller_recovery_reason":"oversized_output"}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_source_ref_session_valid"] is False
+    assert flat["context_default_source_complete_ref_session"] == "mismatch"
+    assert flat["context_model_facing_preview_tool_available"] is False
+    assert flat["context_preview_tool_used"] is False
+    assert flat["context_output_controller_stage"] == "finalizer"
+    assert flat["context_output_controller_recovery_reason"] == "max_output_tokens"

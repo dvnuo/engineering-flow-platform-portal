@@ -676,3 +676,92 @@ def test_thinking_view_empty_event_budget_does_not_block_context_state_budget_ca
     assert view["context"]["summary"] == "Event summary without budget"
     assert view["budget"]["usage_percent"] == 11.0
     assert view["budget"]["context_window_tokens"] == 1000
+
+
+def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "source": {
+                "source_complete_for_generation": False,
+                "source_complete_including_binary_bodies": True,
+                "text_attachment_bodies_complete": True,
+                "binary_attachment_bodies_available": False,
+                "binary_attachment_bodies_skipped_count": 3,
+                "binary_attachment_body_policy": "metadata_only",
+                "source_tree_complete": True,
+                "descendants_loaded": 3,
+                "descendants_total": 9,
+                "descendants_complete": False,
+                "descendants_pages_complete": True,
+                "descendants_comments_complete": False,
+                "descendants_attachments_complete": True,
+                "comments_bundle_ref_count": 4,
+                "children_bundle_ref_count": 2,
+                "auxiliary_source_complete": True,
+                "source_bundle": {"raw": "SECRET_BUNDLE_CONTENT"},
+                "jira_body": "SECRET_JIRA_BODY",
+                "ctx_refs": ["ctx://source/abc"],
+            },
+            "generation": {
+                "generated_artifact_ref_count": 2,
+                "generation_done": False,
+                "current_phase": "step_definitions",
+                "next_phase": "finalize",
+                "completed_phases_count": 4,
+                "completion_criteria_count": 6,
+                "source_digest_chunk_coverage_count": 5,
+                "completion_criteria_status_count": 8,
+                "completion_criteria_satisfied_count": 6,
+                "next_incomplete_phase": "publish",
+            },
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Source complete including binary bodies: yes" in response.text
+    assert "Text attachment bodies complete: yes" in response.text
+    assert "Binary attachment bodies available: no" in response.text
+    assert "Binary attachment bodies skipped: 3" in response.text
+    assert "Binary attachment body policy: metadata_only" in response.text
+    assert "Source tree complete: yes" in response.text
+    assert "Descendants loaded: 3/9" in response.text
+    assert "Descendants complete: no" in response.text
+    assert "Descendant pages complete: yes" in response.text
+    assert "Descendant comments complete: no" in response.text
+    assert "Descendant attachments complete: yes" in response.text
+    assert "Comments bundle refs: 4" in response.text
+    assert "Children bundle refs: 2" in response.text
+    assert "Auxiliary source complete: yes" in response.text
+    assert "Generated artifacts: 2" in response.text
+    assert "Generation done: no" in response.text
+    assert "Completion criteria: 6" in response.text
+    assert "Completion criteria satisfied: 6/8" in response.text
+    assert "Next incomplete phase: publish" in response.text
+    assert "Digest chunk coverage: 5" in response.text
+    assert "Current phase / Next phase / Completed phases: step_definitions / finalize / 4" in response.text
+    assert "SECRET_BUNDLE_CONTENT" not in response.text
+    assert "SECRET_JIRA_BODY" not in response.text
+    assert "ctx://source/abc" not in response.text
+
+
+def test_thinking_process_panel_hides_lines_for_missing_compact_source_diagnostics(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "source": {
+                "source_complete_for_generation": True,
+            },
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Source complete including binary bodies:" not in response.text
+    assert "Generated artifacts:" not in response.text
+    assert "Current phase / Next phase / Completed phases:" not in response.text

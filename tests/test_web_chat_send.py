@@ -398,7 +398,7 @@ def test_app_chat_send_normalizes_json_runtime_error(monkeypatch):
     assert "Runtime error:" in detail
     assert "Model output was truncated because max_output_tokens was reached" in detail
     assert "code=max_output_tokens_exceeded" in detail
-    assert "incomplete_reason=max_output_tokens" in detail
+    assert "incomplete_reason=" not in detail
 
 
 def test_app_chat_send_runtime_error_non_json_is_bounded(monkeypatch):
@@ -472,9 +472,9 @@ def test_app_chat_send_runtime_error_hides_large_or_sensitive_fields(monkeypatch
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "prompt_budget_tokens=32000" in detail
-    assert "request_estimated_tokens=34000" in detail
-    assert "reserved_output_tokens=4000" in detail
+    assert "prompt_budget_tokens=" not in detail
+    assert "request_estimated_tokens=" not in detail
+    assert "reserved_output_tokens=" not in detail
     assert "SECRET_PROMPT_PAYLOAD" not in detail
     assert "VERY_LARGE_BODY" not in detail
     assert "SECRET_KEY" not in detail
@@ -525,14 +525,14 @@ def test_app_chat_send_runtime_error_top_level_error_shape_includes_code_and_det
     assert "Runtime error:" in detail
     assert "Model output was truncated because max_output_tokens was reached" in detail
     assert "code=max_output_tokens_exceeded" in detail
-    assert "incomplete_reason=max_output_tokens" in detail
-    assert "request_estimated_tokens=34000" in detail
-    assert "prompt_budget_tokens=32000" in detail
-    assert "reserved_output_tokens=16000" in detail
-    assert "request_over_budget=True" in detail
-    assert "max_prompt_tokens=32000" in detail
-    assert "safety_margin_tokens=1000" in detail
-    assert "max_output_tokens=16000" in detail
+    assert "incomplete_reason=" not in detail
+    assert "request_estimated_tokens=" not in detail
+    assert "prompt_budget_tokens=" not in detail
+    assert "reserved_output_tokens=" not in detail
+    assert "request_over_budget=" not in detail
+    assert "max_prompt_tokens=" not in detail
+    assert "safety_margin_tokens=" not in detail
+    assert "max_output_tokens=" not in detail
     assert "SECRET_PROMPT" not in detail
     assert "SECRET" not in detail
     assert "prompt=" not in detail
@@ -585,14 +585,14 @@ def test_app_chat_send_runtime_error_merges_top_level_and_nested_details(monkeyp
     assert response.status_code == 502
     detail = response.json()["detail"]
     assert "request exceeded limit" in detail
-    assert "incomplete_reason=max_output_tokens" in detail
-    assert "request_estimated_tokens=34000" in detail
-    assert "prompt_budget_tokens=33000" in detail
-    assert "reserved_output_tokens=16000" in detail
-    assert "request_over_budget=True" in detail
-    assert "safety_margin_tokens=1000" in detail
-    assert "max_prompt_tokens=32000" in detail
-    assert "max_output_tokens=16000" in detail
+    assert "incomplete_reason=" not in detail
+    assert "request_estimated_tokens=" not in detail
+    assert "prompt_budget_tokens=" not in detail
+    assert "reserved_output_tokens=" not in detail
+    assert "request_over_budget=" not in detail
+    assert "safety_margin_tokens=" not in detail
+    assert "max_prompt_tokens=" not in detail
+    assert "max_output_tokens=" not in detail
     assert "HUGE" not in detail
     assert "SECRET_TOKEN" not in detail
 
@@ -643,12 +643,12 @@ def test_app_chat_send_runtime_error_context_budget_exceeded_is_sanitized(monkey
     detail = response.json()["detail"]
     assert "Runtime error:" in detail
     assert "code=context_budget_exceeded" in detail
-    assert "request_estimated_tokens=50000" in detail
-    assert "prompt_budget_tokens=32000" in detail
-    assert "reserved_output_tokens=16000" in detail
-    assert "max_prompt_tokens=32000" in detail
-    assert "max_output_tokens=64000" in detail
-    assert "request_over_budget=True" in detail
+    assert "request_estimated_tokens=" not in detail
+    assert "prompt_budget_tokens=" not in detail
+    assert "reserved_output_tokens=" not in detail
+    assert "max_prompt_tokens=" not in detail
+    assert "max_output_tokens=" not in detail
+    assert "request_over_budget=" not in detail
     assert "SECRET" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
@@ -692,7 +692,7 @@ def test_app_chat_send_runtime_error_includes_request_budget_stage(monkeypatch):
     response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "request_budget_stage=skill_finalizer" in detail
+    assert "request_budget_stage=" not in detail
     assert "prompt=" not in detail
     assert "SECRET" not in detail
 
@@ -726,7 +726,7 @@ def test_app_chat_send_runtime_error_uses_legacy_stage_as_fallback(monkeypatch):
     response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "request_budget_stage=tool_loop" in detail
+    assert "request_budget_stage=" not in detail
 
 
 def test_app_chat_send_runtime_error_prefers_request_budget_stage_over_stage(monkeypatch):
@@ -758,11 +758,10 @@ def test_app_chat_send_runtime_error_prefers_request_budget_stage_over_stage(mon
     response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "request_budget_stage=skill_finalizer" in detail
-    assert "request_budget_stage=tool_loop" not in detail
+    assert "request_budget_stage=" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_new_safe_projection_diagnostics_only(monkeypatch):
+def test_app_chat_send_runtime_error_does_not_include_projection_diagnostics(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -807,11 +806,11 @@ def test_app_chat_send_runtime_error_includes_new_safe_projection_diagnostics_on
     response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "projected_recent_assistant_messages=5" in detail
-    assert "projected_plain_assistant_messages=2" in detail
-    assert "assistant_projection_chars_saved=1500" in detail
-    assert "output_size_guard_applied=True" in detail
-    assert "large_generation_guard_applied=True" in detail
+    assert "projected_recent_assistant_messages=" not in detail
+    assert "projected_plain_assistant_messages=" not in detail
+    assert "assistant_projection_chars_saved=" not in detail
+    assert "output_size_guard_applied=" not in detail
+    assert "large_generation_guard_applied=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -823,3 +822,384 @@ def test_app_chat_send_runtime_error_includes_new_safe_projection_diagnostics_on
     assert "token=" not in detail
     assert "SECRET_JIRA_BODY" not in detail
     assert "SECRET_CONFLUENCE_RAW" not in detail
+
+
+def test_app_chat_send_runtime_error_does_not_include_legacy_source_generation_diagnostics(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "details": {
+                "source_complete": False,
+                "source_bundle_ref_count": 4,
+                "source_digest_ref_count": 2,
+                "comments_loaded": 11,
+                "comments_total": 12,
+                "attachments_loaded": 5,
+                "attachments_total": 8,
+                "source_partial_reasons_count": 3,
+                "generation_mode": "staged",
+                "current_generation_phase": "feature",
+                "large_generation_guard_reason": "large_context_guard",
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "authorization": "Bearer SECRET",
+                "context_blob": {"jira": "SECRET_JIRA_BODY", "source_bundle": "SECRET_SOURCE_BUNDLE"},
+                "source_bundle": {"raw": "SECRET_RAW_BUNDLE"},
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "source_complete=" not in detail
+    assert "source_bundle_ref_count=" not in detail
+    assert "source_digest_ref_count=" not in detail
+    assert "comments_loaded=" not in detail
+    assert "comments_total=" not in detail
+    assert "attachments_loaded=" not in detail
+    assert "attachments_total=" not in detail
+    assert "source_partial_reasons_count=" not in detail
+    assert "generation_mode=" not in detail
+    assert "current_generation_phase=" not in detail
+    assert "large_generation_guard_reason=" not in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "authorization=" not in detail
+    assert "SECRET_JIRA_BODY" not in detail
+    assert "SECRET_SOURCE_BUNDLE" not in detail
+    assert "SECRET_RAW_BUNDLE" not in detail
+
+
+def test_app_chat_send_runtime_error_does_not_include_legacy_output_recovery_diagnostics(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "details": {
+                "source_type": "Confluence",
+                "source_digest_chunk_count": 12,
+                "children_loaded": 6,
+                "children_total": 9,
+                "output_risk_level": "high",
+                "max_chat_output_chars": 8000,
+                "max_output_recovery_applied": True,
+                "max_output_recovery_attempts": 3,
+                "output_token_limit": 2048,
+                "input_context_usage_percent": 18.2,
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "raw_output": "SECRET_RAW",
+                "response": "SECRET_RESPONSE",
+                "authorization": "Bearer SECRET",
+                "api_key": "SECRET_KEY",
+                "token": "SECRET_TOKEN",
+                "jira_raw": "SECRET_JIRA",
+                "confluence_raw": "SECRET_CONF",
+                "context_blob": {"raw": "SECRET_CONTEXT"},
+                "ctx_refs": ["ctx://ref/1"],
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "source_type=" not in detail
+    assert "source_digest_chunk_count=" not in detail
+    assert "children_loaded=" not in detail
+    assert "children_total=" not in detail
+    assert "output_risk_level=" not in detail
+    assert "max_chat_output_chars=" not in detail
+    assert "max_output_recovery_applied=" not in detail
+    assert "max_output_recovery_attempts=" not in detail
+    assert "output_token_limit=" not in detail
+    assert "input_context_usage_percent=" not in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "raw_output=" not in detail
+    assert "response=" not in detail
+    assert "authorization=" not in detail
+    assert "api_key=" not in detail
+    assert "token=" not in detail
+    assert "SECRET_JIRA" not in detail
+    assert "SECRET_CONF" not in detail
+    assert "SECRET_CONTEXT" not in detail
+    assert "ctx://" not in detail
+
+
+def test_app_chat_send_runtime_error_includes_source_completeness_and_output_scalars_only(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "details": {
+                "source_complete_including_binary_bodies": False,
+                "source_tree_complete": False,
+                "descendants_loaded": 4,
+                "descendants_total": 6,
+                "descendants_complete": False,
+                "descendants_pages_complete": True,
+                "descendants_comments_complete": False,
+                "descendants_attachments_complete": True,
+                "comments_bundle_ref_count": 4,
+                "children_bundle_ref_count": 2,
+                "auxiliary_source_complete": True,
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "response": "SECRET_RESPONSE",
+                "authorization": "Bearer SECRET",
+                "api_key": "SECRET_KEY",
+                "token": "SECRET_TOKEN",
+                "context_blob": {"jira": "SECRET_JIRA"},
+                "ctx_refs": ["ctx://raw/1"],
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "source_complete_including_binary_bodies=" not in detail
+    assert "source_tree_complete=" not in detail
+    assert "descendants_loaded=" not in detail
+    assert "descendants_total=" not in detail
+    assert "descendants_complete=" not in detail
+    assert "descendants_pages_complete=True" in detail
+    assert "descendants_comments_complete=False" in detail
+    assert "descendants_attachments_complete=True" in detail
+    assert "comments_bundle_ref_count=4" in detail
+    assert "children_bundle_ref_count=2" in detail
+    assert "auxiliary_source_complete=True" in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "response=" not in detail
+    assert "authorization=" not in detail
+    assert "api_key=" not in detail
+    assert "token=" not in detail
+    assert "SECRET_JIRA" not in detail
+    assert "ctx://" not in detail
+
+
+def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_only(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "details": {
+                "generation_completed_phases_count": 3,
+                "completion_criteria_status_count": 7,
+                "completion_criteria_satisfied_count": 5,
+                "next_incomplete_phase": "finalize",
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "raw_output": "SECRET_RAW_OUTPUT",
+                "response": "SECRET_RESPONSE",
+                "authorization": "Bearer SECRET",
+                "api_key": "SECRET_KEY",
+                "token": "SECRET_TOKEN",
+                "jira_raw": "SECRET_JIRA",
+                "context_blob": {"raw": "SECRET_CONTEXT"},
+                "ctx_refs": ["ctx://raw/1"],
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "generation_completed_phases_count=" not in detail
+    assert "completion_criteria_status_count=7" in detail
+    assert "completion_criteria_satisfied_count=5" in detail
+    assert "next_incomplete_phase=finalize" in detail
+    assert "generation_current_phase=" not in detail
+    assert "generation_next_phase=" not in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "raw_output=" not in detail
+    assert "response=" not in detail
+    assert "authorization=" not in detail
+    assert "api_key=" not in detail
+    assert "token=" not in detail
+    assert "SECRET_JIRA" not in detail
+    assert "SECRET_CONTEXT" not in detail
+    assert "ctx://" not in detail
+
+
+def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalars(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "details": {
+                "source_complete_for_generation": True,
+                "source_complete_including_binary_bodies": False,
+                "source_tree_complete": False,
+                "descendants_loaded": 8,
+                "descendants_total": 10,
+                "descendants_complete": False,
+                "descendants_pages_complete": False,
+                "descendants_comments_complete": True,
+                "descendants_attachments_complete": False,
+                "comments_bundle_ref_count": 3,
+                "children_bundle_ref_count": 1,
+                "auxiliary_source_complete": False,
+                "generated_artifact_ref_count": 4,
+                "generation_done": False,
+                "completion_criteria_status_count": 7,
+                "completion_criteria_satisfied_count": 4,
+                "next_incomplete_phase": "publish",
+                "generation_current_phase": "skill_generation",
+                "generation_next_phase": "finalize",
+                "generation_completed_phases_count": 2,
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "raw_output": "SECRET_RAW",
+                "response": "SECRET_RESPONSE",
+                "authorization": "Bearer SECRET",
+                "api_key": "SECRET_KEY",
+                "token": "SECRET_TOKEN",
+                "context_blob": {"raw": "SECRET_CONTEXT"},
+                "ctx_refs": ["ctx://leak/1"],
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "source_complete_including_binary_bodies=" not in detail
+    assert "source_tree_complete=" not in detail
+    assert "descendants_loaded=" not in detail
+    assert "descendants_total=" not in detail
+    assert "descendants_complete=" not in detail
+    assert "descendants_pages_complete=False" in detail
+    assert "descendants_comments_complete=True" in detail
+    assert "descendants_attachments_complete=False" in detail
+    assert "comments_bundle_ref_count=3" in detail
+    assert "children_bundle_ref_count=1" in detail
+    assert "auxiliary_source_complete=False" in detail
+    assert "generated_artifact_ref_count=" not in detail
+    assert "generation_done=" not in detail
+    assert "completion_criteria_status_count=7" in detail
+    assert "completion_criteria_satisfied_count=4" in detail
+    assert "next_incomplete_phase=publish" in detail
+    assert "generation_current_phase=" not in detail
+    assert "generation_next_phase=" not in detail
+    assert "generation_completed_phases_count=" not in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "raw_output=" not in detail
+    assert "response=" not in detail
+    assert "authorization=" not in detail
+    assert "api_key=" not in detail
+    assert "token=" not in detail
+    assert "SECRET_CONTEXT" not in detail
+    assert "ctx://" not in detail
+    assert "raw_output=" not in detail
