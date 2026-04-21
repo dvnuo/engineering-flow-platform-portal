@@ -4,6 +4,7 @@
 {% set budget = v.get('budget', {}) if v.get('budget') is mapping else {} %}
 {% set events = v.get('events', []) if v.get('events') is iterable else [] %}
 {% set debug = v.get('debug', {}) if v.get('debug') is mapping else {} %}
+{% set source_diagnostics = v.get('source_diagnostics', {}) if v.get('source_diagnostics') is mapping else {} %}
 {% set has_data = v.get('has_data') %}
 <div
   class="portal-panel-stack"
@@ -108,6 +109,33 @@
     <ul>
       {% for tool in active_skill.get('allowed_tools', [])[:8] %}<li>{{ tool }}</li>{% endfor %}
     </ul>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if source_diagnostics %}
+  <div class="portal-panel-section">
+    <div class="portal-panel-title">Source Diagnostics</div>
+    {% if source_diagnostics.get('source_complete') is not none %}
+      <div class="portal-panel-note">Source complete: {{ 'yes' if source_diagnostics.get('source_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('comments_loaded') is not none or source_diagnostics.get('comments_total') is not none %}
+      <div class="portal-panel-note">Comments loaded: {{ source_diagnostics.get('comments_loaded') if source_diagnostics.get('comments_loaded') is not none else '—' }}/{{ source_diagnostics.get('comments_total') if source_diagnostics.get('comments_total') is not none else '—' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('attachments_loaded') is not none or source_diagnostics.get('attachments_total') is not none %}
+      <div class="portal-panel-note">Attachments loaded: {{ source_diagnostics.get('attachments_loaded') if source_diagnostics.get('attachments_loaded') is not none else '—' }}/{{ source_diagnostics.get('attachments_total') if source_diagnostics.get('attachments_total') is not none else '—' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('source_partial_reasons_count') is not none %}
+      <div class="portal-panel-note">Partial source reasons: {{ source_diagnostics.get('source_partial_reasons_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('generation_mode') %}
+      <div class="portal-panel-note">Generation mode: {{ source_diagnostics.get('generation_mode') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('current_generation_phase') %}
+      <div class="portal-panel-note">Current phase: {{ source_diagnostics.get('current_generation_phase') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('large_generation_guard_reason') %}
+      <div class="portal-panel-note">Large generation guard reason: {{ source_diagnostics.get('large_generation_guard_reason') }}</div>
     {% endif %}
   </div>
   {% endif %}

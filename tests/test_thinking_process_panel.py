@@ -676,3 +676,40 @@ def test_thinking_view_empty_event_budget_does_not_block_context_state_budget_ca
     assert view["context"]["summary"] == "Event summary without budget"
     assert view["budget"]["usage_percent"] == 11.0
     assert view["budget"]["context_window_tokens"] == 1000
+
+
+def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "source": {
+                "source_complete": False,
+                "comments_loaded": 3,
+                "comments_total": 9,
+                "attachments_loaded": 1,
+                "attachments_total": 2,
+                "source_partial_reasons_count": 2,
+                "generation_mode": "staged",
+                "current_generation_phase": "step_definitions",
+                "large_generation_guard_reason": "guarded_large_output",
+                "source_bundle": {"raw": "SECRET_BUNDLE_CONTENT"},
+                "jira_body": "SECRET_JIRA_BODY",
+                "ctx_refs": ["ctx://source/abc"],
+            }
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Source complete: no" in response.text
+    assert "Comments loaded: 3/9" in response.text
+    assert "Attachments loaded: 1/2" in response.text
+    assert "Partial source reasons: 2" in response.text
+    assert "Generation mode: staged" in response.text
+    assert "Current phase: step_definitions" in response.text
+    assert "Large generation guard reason: guarded_large_output" in response.text
+    assert "SECRET_BUNDLE_CONTENT" not in response.text
+    assert "SECRET_JIRA_BODY" not in response.text
+    assert "ctx://source/abc" not in response.text

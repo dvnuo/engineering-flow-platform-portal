@@ -38,6 +38,58 @@ def _normalize_context_blob_refs_created(value):
     return value
 
 
+def _derive_source_preview(metadata: dict) -> dict:
+    if not isinstance(metadata, dict):
+        return {}
+
+    context_state = metadata.get("context_state") if isinstance(metadata.get("context_state"), dict) else {}
+    source = context_state.get("source") if isinstance(context_state.get("source"), dict) else {}
+    budget = context_state.get("budget") if isinstance(context_state.get("budget"), dict) else {}
+
+    flat_preview = {
+        "context_source_complete": metadata.get("source_complete"),
+        "context_comments_loaded": metadata.get("comments_loaded"),
+        "context_comments_total": metadata.get("comments_total"),
+        "context_attachments_loaded": metadata.get("attachments_loaded"),
+        "context_attachments_total": metadata.get("attachments_total"),
+        "context_source_partial_reasons_count": metadata.get("source_partial_reasons_count"),
+        "context_generation_mode": _normalize_preview_value(metadata.get("generation_mode")),
+        "context_current_generation_phase": _normalize_preview_value(metadata.get("current_generation_phase")),
+        "context_large_generation_guard_reason": _normalize_preview_value(metadata.get("large_generation_guard_reason")),
+    }
+
+    nested_preview = {
+        "context_source_complete": source.get("source_complete"),
+        "context_comments_loaded": source.get("comments_loaded"),
+        "context_comments_total": source.get("comments_total"),
+        "context_attachments_loaded": source.get("attachments_loaded"),
+        "context_attachments_total": source.get("attachments_total"),
+        "context_source_partial_reasons_count": source.get("source_partial_reasons_count"),
+        "context_generation_mode": _normalize_preview_value(source.get("generation_mode") or budget.get("generation_mode")),
+        "context_current_generation_phase": _normalize_preview_value(source.get("current_generation_phase") or budget.get("current_generation_phase")),
+        "context_large_generation_guard_reason": _normalize_preview_value(
+            source.get("large_generation_guard_reason") or budget.get("large_generation_guard_reason")
+        ),
+    }
+
+    merged = {
+        key: (flat_preview.get(key) if flat_preview.get(key) is not None else nested_preview.get(key))
+        for key in (
+            "context_source_complete",
+            "context_comments_loaded",
+            "context_comments_total",
+            "context_attachments_loaded",
+            "context_attachments_total",
+            "context_source_partial_reasons_count",
+            "context_generation_mode",
+            "context_current_generation_phase",
+            "context_large_generation_guard_reason",
+        )
+    }
+
+    return {key: value for key, value in merged.items() if value is not None}
+
+
 def _derive_budget_preview(metadata: dict) -> dict:
     if not isinstance(metadata, dict):
         return {}
@@ -192,6 +244,7 @@ def extract_context_preview(record) -> dict:
         )
     }
     budget_preview = _derive_budget_preview(metadata)
+    source_preview = _derive_source_preview(metadata)
     active_skill_preview = _derive_active_skill_preview(metadata)
     snapshot_version = getattr(record, "snapshot_version", None)
     snapshot_version_text = _normalize_preview_value(str(snapshot_version) if snapshot_version is not None else None)
@@ -200,6 +253,7 @@ def extract_context_preview(record) -> dict:
         "snapshot_version": snapshot_version_text,
         **merged_preview,
         **budget_preview,
+        **source_preview,
         **active_skill_preview,
     }
     return {key: value for key, value in preview.items() if value is not None}

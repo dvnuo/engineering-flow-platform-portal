@@ -392,3 +392,39 @@ def test_serialize_agent_session_metadata_with_preview_supports_nested_context_s
     assert serialized["context_objective_preview"] == "Nested objective"
     assert serialized["context_summary_preview"] == "Nested summary"
     assert serialized["context_next_step_preview"] == "Nested next"
+
+
+def test_extract_context_preview_maps_source_diagnostics_from_nested_and_flat_fields():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="9",
+        metadata_json='{"context_state":{"source":{"source_complete":false,"comments_loaded":7,"comments_total":10,"attachments_loaded":2,"attachments_total":4,"source_partial_reasons_count":3,"generation_mode":"staged","current_generation_phase":"manifest","large_generation_guard_reason":"budget_guard"}}}',
+    )
+
+    nested = extract_context_preview(nested_record)
+    assert nested["context_source_complete"] is False
+    assert nested["context_comments_loaded"] == 7
+    assert nested["context_comments_total"] == 10
+    assert nested["context_attachments_loaded"] == 2
+    assert nested["context_attachments_total"] == 4
+    assert nested["context_source_partial_reasons_count"] == 3
+    assert nested["context_generation_mode"] == "staged"
+    assert nested["context_current_generation_phase"] == "manifest"
+    assert nested["context_large_generation_guard_reason"] == "budget_guard"
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="9",
+        metadata_json='{"source_complete":true,"comments_loaded":11,"comments_total":12,"attachments_loaded":5,"attachments_total":6,"source_partial_reasons_count":1,"generation_mode":"staged","current_generation_phase":"feature","large_generation_guard_reason":"guard_flat","context_state":{"source":{"source_complete":false,"comments_loaded":1,"comments_total":99,"attachments_loaded":0,"attachments_total":99,"source_partial_reasons_count":8,"generation_mode":"legacy","current_generation_phase":"ignored","large_generation_guard_reason":"ignored"}}}',
+    )
+
+    flat = extract_context_preview(flat_record)
+    assert flat["context_source_complete"] is True
+    assert flat["context_comments_loaded"] == 11
+    assert flat["context_comments_total"] == 12
+    assert flat["context_attachments_loaded"] == 5
+    assert flat["context_attachments_total"] == 6
+    assert flat["context_source_partial_reasons_count"] == 1
+    assert flat["context_generation_mode"] == "staged"
+    assert flat["context_current_generation_phase"] == "feature"
+    assert flat["context_large_generation_guard_reason"] == "guard_flat"

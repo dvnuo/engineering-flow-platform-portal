@@ -215,6 +215,17 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "assistant_projection_chars_saved",
         "output_size_guard_applied",
         "large_generation_guard_applied",
+        "source_complete",
+        "source_bundle_ref_count",
+        "source_digest_ref_count",
+        "comments_loaded",
+        "comments_total",
+        "attachments_loaded",
+        "attachments_total",
+        "source_partial_reasons_count",
+        "large_generation_guard_reason",
+        "generation_mode",
+        "current_generation_phase",
     )
     for key in allowlist:
         value = details.get(key)

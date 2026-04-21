@@ -823,3 +823,72 @@ def test_app_chat_send_runtime_error_includes_new_safe_projection_diagnostics_on
     assert "token=" not in detail
     assert "SECRET_JIRA_BODY" not in detail
     assert "SECRET_CONFLUENCE_RAW" not in detail
+
+
+def test_app_chat_send_runtime_error_includes_safe_source_and_generation_diagnostics_only(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "details": {
+                "source_complete": False,
+                "source_bundle_ref_count": 4,
+                "source_digest_ref_count": 2,
+                "comments_loaded": 11,
+                "comments_total": 12,
+                "attachments_loaded": 5,
+                "attachments_total": 8,
+                "source_partial_reasons_count": 3,
+                "generation_mode": "staged",
+                "current_generation_phase": "feature",
+                "large_generation_guard_reason": "large_context_guard",
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "authorization": "Bearer SECRET",
+                "context_blob": {"jira": "SECRET_JIRA_BODY", "source_bundle": "SECRET_SOURCE_BUNDLE"},
+                "source_bundle": {"raw": "SECRET_RAW_BUNDLE"},
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "source_complete=False" in detail
+    assert "source_bundle_ref_count=4" in detail
+    assert "source_digest_ref_count=2" in detail
+    assert "comments_loaded=11" in detail
+    assert "comments_total=12" in detail
+    assert "attachments_loaded=5" in detail
+    assert "attachments_total=8" in detail
+    assert "source_partial_reasons_count=3" in detail
+    assert "generation_mode=staged" in detail
+    assert "current_generation_phase=feature" in detail
+    assert "large_generation_guard_reason=large_context_guard" in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "authorization=" not in detail
+    assert "SECRET_JIRA_BODY" not in detail
+    assert "SECRET_SOURCE_BUNDLE" not in detail
+    assert "SECRET_RAW_BUNDLE" not in detail

@@ -40,6 +40,24 @@ def _normalize_context_blob_refs_created(value: Any):
     return value
 
 
+def _build_source_diagnostics(metadata_dict: dict, context_state: dict, budget: dict) -> dict:
+    source = _as_dict(context_state.get("source"))
+    budget = _as_dict(budget)
+
+    diagnostics = {
+        "source_complete": metadata_dict.get("source_complete") if metadata_dict.get("source_complete") is not None else source.get("source_complete"),
+        "comments_loaded": metadata_dict.get("comments_loaded") if metadata_dict.get("comments_loaded") is not None else source.get("comments_loaded"),
+        "comments_total": metadata_dict.get("comments_total") if metadata_dict.get("comments_total") is not None else source.get("comments_total"),
+        "attachments_loaded": metadata_dict.get("attachments_loaded") if metadata_dict.get("attachments_loaded") is not None else source.get("attachments_loaded"),
+        "attachments_total": metadata_dict.get("attachments_total") if metadata_dict.get("attachments_total") is not None else source.get("attachments_total"),
+        "source_partial_reasons_count": metadata_dict.get("source_partial_reasons_count") if metadata_dict.get("source_partial_reasons_count") is not None else source.get("source_partial_reasons_count"),
+        "generation_mode": metadata_dict.get("generation_mode") if metadata_dict.get("generation_mode") is not None else (source.get("generation_mode") if source.get("generation_mode") is not None else budget.get("generation_mode")),
+        "current_generation_phase": metadata_dict.get("current_generation_phase") if metadata_dict.get("current_generation_phase") is not None else (source.get("current_generation_phase") if source.get("current_generation_phase") is not None else budget.get("current_generation_phase")),
+        "large_generation_guard_reason": metadata_dict.get("large_generation_guard_reason") if metadata_dict.get("large_generation_guard_reason") is not None else (source.get("large_generation_guard_reason") if source.get("large_generation_guard_reason") is not None else budget.get("large_generation_guard_reason")),
+    }
+    return {key: value for key, value in diagnostics.items() if value is not None}
+
+
 def _build_budget_from_metadata(metadata_dict: dict) -> dict:
     if not isinstance(metadata_dict, dict):
         return {}
@@ -93,6 +111,17 @@ def _has_meaningful_context_state(value: Any) -> bool:
     budget = value.get("budget")
     if isinstance(budget, dict):
         for item in budget.values():
+            if item is None or item == "":
+                continue
+            if isinstance(item, list) and len(item) == 0:
+                continue
+            if isinstance(item, dict) and len(item) == 0:
+                continue
+            return True
+
+    source = value.get("source")
+    if isinstance(source, dict):
+        for item in source.values():
             if item is None or item == "":
                 continue
             if isinstance(item, list) and len(item) == 0:
@@ -307,10 +336,13 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "metadata_preview": "Persisted Context Preview",
             "none": "No context snapshot captured",
         }.get(context_source, "Final Context Snapshot")
+    source_diagnostics = _build_source_diagnostics(metadata_dict, context_state, budget)
+
     has_data = bool(
         events
         or budget
         or has_context
+        or source_diagnostics
         or active_skill.get("name")
         or fallback.get("latest_event_type")
         or fallback.get("latest_event_state")
@@ -324,6 +356,7 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
         "request_id": chatlog.get("request_id") or metadata.get("request_id") or getattr(metadata_record, "last_execution_id", "") or "",
         "model": llm_request_request.get("model") or metadata_dict.get("model") or "",
         "active_skill": active_skill,
+        "source_diagnostics": source_diagnostics,
         "context_source": context_source,
         "context_source_label": context_source_label,
         "has_context": has_context,
