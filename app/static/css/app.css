@@ -1372,7 +1372,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .portal-panel-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--portal-text);
 }
