@@ -200,20 +200,14 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
     if not isinstance(details, dict):
         return
     allowlist = (
-        "max_chat_output_chars",
-        "output_controller_applied",
-        "output_controller_stage",
-        "output_risk_level",
-        "generation_mode",
-        "descendants_pages_complete",
-        "descendants_comments_complete",
-        "descendants_attachments_complete",
-        "completion_criteria_status_count",
-        "completion_criteria_satisfied_count",
-        "next_incomplete_phase",
-        "comments_bundle_ref_count",
-        "children_bundle_ref_count",
+        "jira_comments_bundle_ref_count",
+        "confluence_children_bundle_ref_count",
+        "auxiliary_source_session_valid",
         "auxiliary_source_complete",
+        "generated_artifacts_by_phase_count",
+        "current_phase_artifact_count",
+        "generation_completion_criteria_met",
+        "generation_completion_criteria_total",
     )
     for key in allowlist:
         if key not in details:

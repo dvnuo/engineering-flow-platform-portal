@@ -703,6 +703,9 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "descendants_attachments_complete": True,
                 "comments_bundle_ref_count": 4,
                 "children_bundle_ref_count": 2,
+                "jira_comments_bundle_ref_count": 6,
+                "confluence_children_bundle_ref_count": 3,
+                "auxiliary_source_session_valid": True,
                 "auxiliary_source_complete": True,
                 "source_bundle": {"raw": "SECRET_BUNDLE_CONTENT"},
                 "jira_body": "SECRET_JIRA_BODY",
@@ -719,6 +722,10 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "completion_criteria_status_count": 8,
                 "completion_criteria_satisfied_count": 6,
                 "next_incomplete_phase": "publish",
+                "generated_artifacts_by_phase_count": 5,
+                "current_phase_artifact_count": 2,
+                "generation_completion_criteria_met": 4,
+                "generation_completion_criteria_total": 7,
             },
         },
     }
@@ -745,6 +752,9 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Descendant attachments complete: yes" in response.text
     assert "Comments bundle refs: 4" in response.text
     assert "Children bundle refs: 2" in response.text
+    assert "Jira comment bundles: 6" in response.text
+    assert "Confluence child bundles: 3" in response.text
+    assert "Auxiliary source session valid: yes" in response.text
     assert "Auxiliary source complete: yes" in response.text
     assert "Generated artifacts: 2" in response.text
     assert "Generation done: no" in response.text
@@ -753,6 +763,9 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "Next incomplete phase: publish" in response.text
     assert "Digest chunk coverage: 5" in response.text
     assert "Current phase / Next phase / Completed phases: step_definitions / finalize / 4" in response.text
+    assert "Generated artifact phases: 5" in response.text
+    assert "Current phase artifacts: 2" in response.text
+    assert "Completion criteria: 4/7" in response.text
     assert "SECRET_BUNDLE_CONTENT" not in response.text
     assert "SECRET_JIRA_BODY" not in response.text
     assert "ctx://source/abc" not in response.text

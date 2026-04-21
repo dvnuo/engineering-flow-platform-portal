@@ -880,7 +880,7 @@ def test_app_chat_send_runtime_error_does_not_include_legacy_source_generation_d
     assert "attachments_loaded=" not in detail
     assert "attachments_total=" not in detail
     assert "source_partial_reasons_count=" not in detail
-    assert "generation_mode=staged" in detail
+    assert "generation_mode=" not in detail
     assert "current_generation_phase=" not in detail
     assert "large_generation_guard_reason=" not in detail
     assert "prompt=" not in detail
@@ -893,7 +893,7 @@ def test_app_chat_send_runtime_error_does_not_include_legacy_source_generation_d
     assert "SECRET_RAW_BUNDLE" not in detail
 
 
-def test_app_chat_send_runtime_error_includes_safe_output_recovery_scalars(monkeypatch):
+def test_app_chat_send_runtime_error_does_not_include_non_allowlisted_output_recovery_scalars(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -950,8 +950,8 @@ def test_app_chat_send_runtime_error_includes_safe_output_recovery_scalars(monke
     assert "source_digest_chunk_count=" not in detail
     assert "children_loaded=" not in detail
     assert "children_total=" not in detail
-    assert "output_risk_level=high" in detail
-    assert "max_chat_output_chars=8000" in detail
+    assert "output_risk_level=" not in detail
+    assert "max_chat_output_chars=" not in detail
     assert "max_output_recovery_applied=" not in detail
     assert "max_output_recovery_attempts=" not in detail
     assert "output_token_limit=" not in detail
@@ -992,8 +992,8 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
             "error": "int() argument must be a string, a bytes-like object or a real number, not 'NoneType'",
             "error_type": "TypeError",
             "details": {
-                "output_controller_stage": "tool_loop",
-                "max_chat_output_chars": None,
+                "jira_comments_bundle_ref_count": 4,
+                "auxiliary_source_complete": True,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "context_blob": {"raw": "SECRET_CONTEXT"},
@@ -1008,8 +1008,8 @@ def test_app_chat_send_runtime_error_typeerror_includes_safe_controller_fields(m
     detail = response.json()["detail"]
     assert "Runtime error: int() argument must be a string" in detail
     assert "error_type=TypeError" in detail
-    assert "output_controller_stage=tool_loop" in detail
-    assert "max_chat_output_chars=None" in detail
+    assert "jira_comments_bundle_ref_count=4" in detail
+    assert "auxiliary_source_complete=True" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "SECRET_CONTEXT" not in detail
@@ -1035,17 +1035,14 @@ def test_app_chat_send_runtime_error_includes_source_completeness_and_output_sca
         payload = {
             "error": "runtime failed",
             "details": {
-                "source_complete_including_binary_bodies": False,
-                "source_tree_complete": False,
-                "descendants_loaded": 4,
-                "descendants_total": 6,
-                "descendants_complete": False,
-                "descendants_pages_complete": True,
-                "descendants_comments_complete": False,
-                "descendants_attachments_complete": True,
-                "comments_bundle_ref_count": 4,
-                "children_bundle_ref_count": 2,
+                "jira_comments_bundle_ref_count": 4,
+                "confluence_children_bundle_ref_count": 2,
+                "auxiliary_source_session_valid": True,
                 "auxiliary_source_complete": True,
+                "generated_artifacts_by_phase_count": 3,
+                "current_phase_artifact_count": 1,
+                "generation_completion_criteria_met": 5,
+                "generation_completion_criteria_total": 8,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1066,17 +1063,15 @@ def test_app_chat_send_runtime_error_includes_source_completeness_and_output_sca
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "source_complete_including_binary_bodies=" not in detail
-    assert "source_tree_complete=" not in detail
-    assert "descendants_loaded=" not in detail
-    assert "descendants_total=" not in detail
-    assert "descendants_complete=" not in detail
-    assert "descendants_pages_complete=True" in detail
-    assert "descendants_comments_complete=False" in detail
-    assert "descendants_attachments_complete=True" in detail
-    assert "comments_bundle_ref_count=4" in detail
-    assert "children_bundle_ref_count=2" in detail
+    assert "jira_comments_bundle_ref_count=4" in detail
+    assert "confluence_children_bundle_ref_count=2" in detail
+    assert "auxiliary_source_session_valid=True" in detail
     assert "auxiliary_source_complete=True" in detail
+    assert "generated_artifacts_by_phase_count=3" in detail
+    assert "current_phase_artifact_count=1" in detail
+    assert "generation_completion_criteria_met=5" in detail
+    assert "generation_completion_criteria_total=8" in detail
+    assert " comments_bundle_ref_count=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1109,10 +1104,10 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
         payload = {
             "error": "runtime failed",
             "details": {
-                "generation_completed_phases_count": 3,
-                "completion_criteria_status_count": 7,
-                "completion_criteria_satisfied_count": 5,
-                "next_incomplete_phase": "finalize",
+                "generated_artifacts_by_phase_count": 3,
+                "current_phase_artifact_count": 2,
+                "generation_completion_criteria_met": 5,
+                "generation_completion_criteria_total": 9,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1135,12 +1130,10 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "generation_completed_phases_count=" not in detail
-    assert "completion_criteria_status_count=7" in detail
-    assert "completion_criteria_satisfied_count=5" in detail
-    assert "next_incomplete_phase=finalize" in detail
-    assert "generation_current_phase=" not in detail
-    assert "generation_next_phase=" not in detail
+    assert "generated_artifacts_by_phase_count=3" in detail
+    assert "current_phase_artifact_count=2" in detail
+    assert "generation_completion_criteria_met=5" in detail
+    assert "generation_completion_criteria_total=9" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1175,26 +1168,14 @@ def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalar
         payload = {
             "error": "runtime failed",
             "details": {
-                "source_complete_for_generation": True,
-                "source_complete_including_binary_bodies": False,
-                "source_tree_complete": False,
-                "descendants_loaded": 8,
-                "descendants_total": 10,
-                "descendants_complete": False,
-                "descendants_pages_complete": False,
-                "descendants_comments_complete": True,
-                "descendants_attachments_complete": False,
-                "comments_bundle_ref_count": 3,
-                "children_bundle_ref_count": 1,
+                "jira_comments_bundle_ref_count": 3,
+                "confluence_children_bundle_ref_count": 1,
+                "auxiliary_source_session_valid": False,
                 "auxiliary_source_complete": False,
-                "generated_artifact_ref_count": 4,
-                "generation_done": False,
-                "completion_criteria_status_count": 7,
-                "completion_criteria_satisfied_count": 4,
-                "next_incomplete_phase": "publish",
-                "generation_current_phase": "skill_generation",
-                "generation_next_phase": "finalize",
-                "generation_completed_phases_count": 2,
+                "generated_artifacts_by_phase_count": 4,
+                "current_phase_artifact_count": 2,
+                "generation_completion_criteria_met": 4,
+                "generation_completion_criteria_total": 7,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1216,25 +1197,16 @@ def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalar
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "source_complete_including_binary_bodies=" not in detail
-    assert "source_tree_complete=" not in detail
-    assert "descendants_loaded=" not in detail
-    assert "descendants_total=" not in detail
-    assert "descendants_complete=" not in detail
-    assert "descendants_pages_complete=False" in detail
-    assert "descendants_comments_complete=True" in detail
-    assert "descendants_attachments_complete=False" in detail
-    assert "comments_bundle_ref_count=3" in detail
-    assert "children_bundle_ref_count=1" in detail
+    assert "jira_comments_bundle_ref_count=3" in detail
+    assert "confluence_children_bundle_ref_count=1" in detail
+    assert "auxiliary_source_session_valid=False" in detail
     assert "auxiliary_source_complete=False" in detail
-    assert "generated_artifact_ref_count=" not in detail
-    assert "generation_done=" not in detail
-    assert "completion_criteria_status_count=7" in detail
-    assert "completion_criteria_satisfied_count=4" in detail
-    assert "next_incomplete_phase=publish" in detail
-    assert "generation_current_phase=" not in detail
-    assert "generation_next_phase=" not in detail
-    assert "generation_completed_phases_count=" not in detail
+    assert "generated_artifacts_by_phase_count=4" in detail
+    assert "current_phase_artifact_count=2" in detail
+    assert "generation_completion_criteria_met=4" in detail
+    assert "generation_completion_criteria_total=7" in detail
+    assert " comments_bundle_ref_count=" not in detail
+    assert "completion_criteria_status_count=" not in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail

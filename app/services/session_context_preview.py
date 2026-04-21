@@ -124,7 +124,14 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_next_incomplete_phase": _normalize_preview_value(metadata.get("next_incomplete_phase")),
         "context_comments_bundle_ref_count": metadata.get("comments_bundle_ref_count"),
         "context_children_bundle_ref_count": metadata.get("children_bundle_ref_count"),
+        "context_jira_comments_bundle_ref_count": metadata.get("jira_comments_bundle_ref_count"),
+        "context_confluence_children_bundle_ref_count": metadata.get("confluence_children_bundle_ref_count"),
+        "context_auxiliary_source_session_valid": metadata.get("auxiliary_source_session_valid"),
         "context_auxiliary_source_complete": metadata.get("auxiliary_source_complete"),
+        "context_generated_artifacts_by_phase_count": metadata.get("generated_artifacts_by_phase_count"),
+        "context_current_phase_artifact_count": metadata.get("current_phase_artifact_count"),
+        "context_generation_completion_criteria_met": metadata.get("generation_completion_criteria_met"),
+        "context_generation_completion_criteria_total": metadata.get("generation_completion_criteria_total"),
     }
 
     nested_preview = {
@@ -212,7 +219,14 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_next_incomplete_phase": _normalize_preview_value(generation.get("next_incomplete_phase") or budget.get("next_incomplete_phase")),
         "context_comments_bundle_ref_count": source.get("comments_bundle_ref_count") if source.get("comments_bundle_ref_count") is not None else budget.get("comments_bundle_ref_count"),
         "context_children_bundle_ref_count": source.get("children_bundle_ref_count") if source.get("children_bundle_ref_count") is not None else budget.get("children_bundle_ref_count"),
+        "context_jira_comments_bundle_ref_count": source.get("jira_comments_bundle_ref_count") if source.get("jira_comments_bundle_ref_count") is not None else budget.get("jira_comments_bundle_ref_count"),
+        "context_confluence_children_bundle_ref_count": source.get("confluence_children_bundle_ref_count") if source.get("confluence_children_bundle_ref_count") is not None else budget.get("confluence_children_bundle_ref_count"),
+        "context_auxiliary_source_session_valid": source.get("auxiliary_source_session_valid") if source.get("auxiliary_source_session_valid") is not None else budget.get("auxiliary_source_session_valid"),
         "context_auxiliary_source_complete": source.get("auxiliary_source_complete") if source.get("auxiliary_source_complete") is not None else budget.get("auxiliary_source_complete"),
+        "context_generated_artifacts_by_phase_count": generation.get("generated_artifacts_by_phase_count") if generation.get("generated_artifacts_by_phase_count") is not None else budget.get("generated_artifacts_by_phase_count"),
+        "context_current_phase_artifact_count": generation.get("current_phase_artifact_count") if generation.get("current_phase_artifact_count") is not None else budget.get("current_phase_artifact_count"),
+        "context_generation_completion_criteria_met": generation.get("generation_completion_criteria_met") if generation.get("generation_completion_criteria_met") is not None else budget.get("generation_completion_criteria_met"),
+        "context_generation_completion_criteria_total": generation.get("generation_completion_criteria_total") if generation.get("generation_completion_criteria_total") is not None else budget.get("generation_completion_criteria_total"),
     }
 
     merged = {
@@ -294,7 +308,14 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_next_incomplete_phase",
             "context_comments_bundle_ref_count",
             "context_children_bundle_ref_count",
+            "context_jira_comments_bundle_ref_count",
+            "context_confluence_children_bundle_ref_count",
+            "context_auxiliary_source_session_valid",
             "context_auxiliary_source_complete",
+            "context_generated_artifacts_by_phase_count",
+            "context_current_phase_artifact_count",
+            "context_generation_completion_criteria_met",
+            "context_generation_completion_criteria_total",
         )
     }
 

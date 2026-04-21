@@ -190,8 +190,26 @@
     {% if source_diagnostics.get('children_bundle_ref_count') is not none %}
       <div class="portal-panel-note">Children bundle refs: {{ source_diagnostics.get('children_bundle_ref_count') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('jira_comments_bundle_ref_count') is not none %}
+      <div class="portal-panel-note">Jira comment bundles: {{ source_diagnostics.get('jira_comments_bundle_ref_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('confluence_children_bundle_ref_count') is not none %}
+      <div class="portal-panel-note">Confluence child bundles: {{ source_diagnostics.get('confluence_children_bundle_ref_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('auxiliary_source_session_valid') is not none %}
+      <div class="portal-panel-note">Auxiliary source session valid: {{ 'yes' if source_diagnostics.get('auxiliary_source_session_valid') else 'no' }}</div>
+    {% endif %}
     {% if source_diagnostics.get('auxiliary_source_complete') is not none %}
       <div class="portal-panel-note">Auxiliary source complete: {{ 'yes' if source_diagnostics.get('auxiliary_source_complete') else 'no' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('generated_artifacts_by_phase_count') is not none %}
+      <div class="portal-panel-note">Generated artifact phases: {{ source_diagnostics.get('generated_artifacts_by_phase_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('current_phase_artifact_count') is not none %}
+      <div class="portal-panel-note">Current phase artifacts: {{ source_diagnostics.get('current_phase_artifact_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('generation_completion_criteria_met') is not none or source_diagnostics.get('generation_completion_criteria_total') is not none %}
+      <div class="portal-panel-note">Completion criteria: {{ source_diagnostics.get('generation_completion_criteria_met') if source_diagnostics.get('generation_completion_criteria_met') is not none else '—' }}/{{ source_diagnostics.get('generation_completion_criteria_total') if source_diagnostics.get('generation_completion_criteria_total') is not none else '—' }}</div>
     {% endif %}
     {% if source_diagnostics.get('generation_current_phase') or source_diagnostics.get('generation_next_phase') or source_diagnostics.get('generation_completed_phases_count') is not none %}
       <div class="portal-panel-note">Current phase / Next phase / Completed phases: {{ source_diagnostics.get('generation_current_phase') or '—' }} / {{ source_diagnostics.get('generation_next_phase') or '—' }} / {{ source_diagnostics.get('generation_completed_phases_count') if source_diagnostics.get('generation_completed_phases_count') is not none else '—' }}</div>
