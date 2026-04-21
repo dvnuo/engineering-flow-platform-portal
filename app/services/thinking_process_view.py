@@ -54,6 +54,16 @@ def _build_source_diagnostics(metadata_dict: dict, context_state: dict, budget: 
         "generation_mode": metadata_dict.get("generation_mode") if metadata_dict.get("generation_mode") is not None else (source.get("generation_mode") if source.get("generation_mode") is not None else budget.get("generation_mode")),
         "current_generation_phase": metadata_dict.get("current_generation_phase") if metadata_dict.get("current_generation_phase") is not None else (source.get("current_generation_phase") if source.get("current_generation_phase") is not None else budget.get("current_generation_phase")),
         "large_generation_guard_reason": metadata_dict.get("large_generation_guard_reason") if metadata_dict.get("large_generation_guard_reason") is not None else (source.get("large_generation_guard_reason") if source.get("large_generation_guard_reason") is not None else budget.get("large_generation_guard_reason")),
+        "source_type": metadata_dict.get("source_type") if metadata_dict.get("source_type") is not None else source.get("source_type"),
+        "source_digest_chunk_count": metadata_dict.get("source_digest_chunk_count") if metadata_dict.get("source_digest_chunk_count") is not None else source.get("source_digest_chunk_count"),
+        "children_loaded": metadata_dict.get("children_loaded") if metadata_dict.get("children_loaded") is not None else source.get("children_loaded"),
+        "children_total": metadata_dict.get("children_total") if metadata_dict.get("children_total") is not None else source.get("children_total"),
+        "output_risk_level": metadata_dict.get("output_risk_level") if metadata_dict.get("output_risk_level") is not None else (source.get("output_risk_level") if source.get("output_risk_level") is not None else budget.get("output_risk_level")),
+        "max_chat_output_chars": metadata_dict.get("max_chat_output_chars") if metadata_dict.get("max_chat_output_chars") is not None else (source.get("max_chat_output_chars") if source.get("max_chat_output_chars") is not None else budget.get("max_chat_output_chars")),
+        "max_output_recovery_applied": metadata_dict.get("max_output_recovery_applied") if metadata_dict.get("max_output_recovery_applied") is not None else (source.get("max_output_recovery_applied") if source.get("max_output_recovery_applied") is not None else budget.get("max_output_recovery_applied")),
+        "max_output_recovery_attempts": metadata_dict.get("max_output_recovery_attempts") if metadata_dict.get("max_output_recovery_attempts") is not None else (source.get("max_output_recovery_attempts") if source.get("max_output_recovery_attempts") is not None else budget.get("max_output_recovery_attempts")),
+        "output_token_limit": metadata_dict.get("output_token_limit") if metadata_dict.get("output_token_limit") is not None else (source.get("output_token_limit") if source.get("output_token_limit") is not None else budget.get("output_token_limit")),
+        "input_context_usage_percent": metadata_dict.get("input_context_usage_percent") if metadata_dict.get("input_context_usage_percent") is not None else (source.get("input_context_usage_percent") if source.get("input_context_usage_percent") is not None else budget.get("input_context_usage_percent")),
     }
     return {key: value for key, value in diagnostics.items() if value is not None}
 
@@ -399,6 +409,12 @@ def build_thinking_process_view(chatlog: dict | None, metadata_record=None) -> d
             "tokens_until_hard_threshold": budget.get("tokens_until_hard_threshold"),
             "next_compaction_action": budget.get("next_compaction_action"),
             "next_pruning_policy": budget.get("next_pruning_policy"),
+            "output_risk_level": budget.get("output_risk_level"),
+            "max_chat_output_chars": budget.get("max_chat_output_chars"),
+            "max_output_recovery_applied": budget.get("max_output_recovery_applied"),
+            "max_output_recovery_attempts": budget.get("max_output_recovery_attempts"),
+            "output_token_limit": budget.get("output_token_limit"),
+            "input_context_usage_percent": budget.get("input_context_usage_percent"),
         } if budget else {},
         "events": events,
         "debug": {

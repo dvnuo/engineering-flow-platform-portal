@@ -428,3 +428,39 @@ def test_extract_context_preview_maps_source_diagnostics_from_nested_and_flat_fi
     assert flat["context_generation_mode"] == "staged"
     assert flat["context_current_generation_phase"] == "feature"
     assert flat["context_large_generation_guard_reason"] == "guard_flat"
+
+
+def test_extract_context_preview_maps_new_source_and_output_recovery_fields():
+    nested_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"context_state":{"source":{"source_type":"Jira","source_digest_chunk_count":6,"children_loaded":4,"children_total":7},"budget":{"output_risk_level":"medium","max_chat_output_chars":12000,"max_output_recovery_applied":true,"max_output_recovery_attempts":2,"output_token_limit":4096,"input_context_usage_percent":41.5}}}',
+    )
+    nested = extract_context_preview(nested_record)
+    assert nested["context_source_type"] == "Jira"
+    assert nested["context_source_digest_chunk_count"] == 6
+    assert nested["context_children_loaded"] == 4
+    assert nested["context_children_total"] == 7
+    assert nested["context_output_risk_level"] == "medium"
+    assert nested["context_max_chat_output_chars"] == 12000
+    assert nested["context_max_output_recovery_applied"] is True
+    assert nested["context_max_output_recovery_attempts"] == 2
+    assert nested["context_output_token_limit"] == 4096
+    assert nested["context_input_context_usage_percent"] == 41.5
+
+    flat_record = SimpleNamespace(
+        latest_event_state="running",
+        snapshot_version="10",
+        metadata_json='{"source_type":"Confluence","source_digest_chunk_count":9,"children_loaded":8,"children_total":8,"output_risk_level":"high","max_chat_output_chars":9000,"max_output_recovery_applied":false,"max_output_recovery_attempts":1,"output_token_limit":2048,"input_context_usage_percent":22.0,"context_state":{"source":{"source_type":"Jira","source_digest_chunk_count":1,"children_loaded":1,"children_total":99},"budget":{"output_risk_level":"low","max_chat_output_chars":1,"max_output_recovery_applied":true,"max_output_recovery_attempts":99,"output_token_limit":1,"input_context_usage_percent":99.0}}}',
+    )
+    flat = extract_context_preview(flat_record)
+    assert flat["context_source_type"] == "Confluence"
+    assert flat["context_source_digest_chunk_count"] == 9
+    assert flat["context_children_loaded"] == 8
+    assert flat["context_children_total"] == 8
+    assert flat["context_output_risk_level"] == "high"
+    assert flat["context_max_chat_output_chars"] == 9000
+    assert flat["context_max_output_recovery_applied"] is False
+    assert flat["context_max_output_recovery_attempts"] == 1
+    assert flat["context_output_token_limit"] == 2048
+    assert flat["context_input_context_usage_percent"] == 22.0

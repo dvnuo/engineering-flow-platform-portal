@@ -892,3 +892,81 @@ def test_app_chat_send_runtime_error_includes_safe_source_and_generation_diagnos
     assert "SECRET_JIRA_BODY" not in detail
     assert "SECRET_SOURCE_BUNDLE" not in detail
     assert "SECRET_RAW_BUNDLE" not in detail
+
+
+def test_app_chat_send_runtime_error_includes_new_safe_output_recovery_diagnostics_only(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    async def _fake_forward(**_kwargs):
+        payload = {
+            "error": "runtime failed",
+            "details": {
+                "source_type": "Confluence",
+                "source_digest_chunk_count": 12,
+                "children_loaded": 6,
+                "children_total": 9,
+                "output_risk_level": "high",
+                "max_chat_output_chars": 8000,
+                "max_output_recovery_applied": True,
+                "max_output_recovery_attempts": 3,
+                "output_token_limit": 2048,
+                "input_context_usage_percent": 18.2,
+                "prompt": "SECRET_PROMPT",
+                "payload": "SECRET_PAYLOAD",
+                "input": "SECRET_INPUT",
+                "output": "SECRET_OUTPUT",
+                "raw_output": "SECRET_RAW",
+                "response": "SECRET_RESPONSE",
+                "authorization": "Bearer SECRET",
+                "api_key": "SECRET_KEY",
+                "token": "SECRET_TOKEN",
+                "jira_raw": "SECRET_JIRA",
+                "confluence_raw": "SECRET_CONF",
+                "context_blob": {"raw": "SECRET_CONTEXT"},
+                "ctx_refs": ["ctx://ref/1"],
+            },
+        }
+        return 500, json.dumps(payload).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "source_type=Confluence" in detail
+    assert "source_digest_chunk_count=12" in detail
+    assert "children_loaded=6" in detail
+    assert "children_total=9" in detail
+    assert "output_risk_level=high" in detail
+    assert "max_chat_output_chars=8000" in detail
+    assert "max_output_recovery_applied=True" in detail
+    assert "max_output_recovery_attempts=3" in detail
+    assert "output_token_limit=2048" in detail
+    assert "input_context_usage_percent=18.2" in detail
+    assert "prompt=" not in detail
+    assert "payload=" not in detail
+    assert "input=" not in detail
+    assert "output=" not in detail
+    assert "raw_output=" not in detail
+    assert "response=" not in detail
+    assert "authorization=" not in detail
+    assert "api_key=" not in detail
+    assert "token=" not in detail
+    assert "SECRET_JIRA" not in detail
+    assert "SECRET_CONF" not in detail
+    assert "SECRET_CONTEXT" not in detail
+    assert "ctx://" not in detail

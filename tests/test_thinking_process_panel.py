@@ -713,3 +713,40 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     assert "SECRET_BUNDLE_CONTENT" not in response.text
     assert "SECRET_JIRA_BODY" not in response.text
     assert "ctx://source/abc" not in response.text
+
+
+def test_thinking_process_panel_renders_new_source_and_output_recovery_diagnostics(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "context_state": {
+            "source": {
+                "source_type": "Jira",
+                "source_digest_chunk_count": 5,
+                "children_loaded": 3,
+                "children_total": 4,
+            },
+            "budget": {
+                "output_risk_level": "low",
+                "max_chat_output_chars": 10000,
+                "max_output_recovery_applied": True,
+                "max_output_recovery_attempts": 2,
+                "output_token_limit": 4096,
+                "input_context_usage_percent": 24.5,
+            },
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Source type: Jira" in response.text
+    assert "Digest chunks: 5" in response.text
+    assert "Children loaded: 3/4" in response.text
+    assert "Output risk: low" in response.text
+    assert "Max chat output: 10000 chars" in response.text
+    assert "Output recovery: applied" in response.text
+    assert "Recovery attempts: 2" in response.text
+    assert "Output token limit: 4096" in response.text
+    assert "Input context usage: 24.5%" in response.text
+    assert "Low input context usage does not guarantee output safety." in response.text

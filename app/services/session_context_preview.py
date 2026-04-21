@@ -56,6 +56,16 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_generation_mode": _normalize_preview_value(metadata.get("generation_mode")),
         "context_current_generation_phase": _normalize_preview_value(metadata.get("current_generation_phase")),
         "context_large_generation_guard_reason": _normalize_preview_value(metadata.get("large_generation_guard_reason")),
+        "context_source_type": _normalize_preview_value(metadata.get("source_type")),
+        "context_source_digest_chunk_count": metadata.get("source_digest_chunk_count"),
+        "context_children_loaded": metadata.get("children_loaded"),
+        "context_children_total": metadata.get("children_total"),
+        "context_output_risk_level": _normalize_preview_value(metadata.get("output_risk_level")),
+        "context_max_chat_output_chars": metadata.get("max_chat_output_chars"),
+        "context_max_output_recovery_applied": metadata.get("max_output_recovery_applied"),
+        "context_max_output_recovery_attempts": metadata.get("max_output_recovery_attempts"),
+        "context_output_token_limit": metadata.get("output_token_limit"),
+        "context_input_context_usage_percent": metadata.get("input_context_usage_percent"),
     }
 
     nested_preview = {
@@ -70,6 +80,16 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_large_generation_guard_reason": _normalize_preview_value(
             source.get("large_generation_guard_reason") or budget.get("large_generation_guard_reason")
         ),
+        "context_source_type": _normalize_preview_value(source.get("source_type")),
+        "context_source_digest_chunk_count": source.get("source_digest_chunk_count"),
+        "context_children_loaded": source.get("children_loaded"),
+        "context_children_total": source.get("children_total"),
+        "context_output_risk_level": _normalize_preview_value(source.get("output_risk_level") or budget.get("output_risk_level")),
+        "context_max_chat_output_chars": source.get("max_chat_output_chars") if source.get("max_chat_output_chars") is not None else budget.get("max_chat_output_chars"),
+        "context_max_output_recovery_applied": source.get("max_output_recovery_applied") if source.get("max_output_recovery_applied") is not None else budget.get("max_output_recovery_applied"),
+        "context_max_output_recovery_attempts": source.get("max_output_recovery_attempts") if source.get("max_output_recovery_attempts") is not None else budget.get("max_output_recovery_attempts"),
+        "context_output_token_limit": source.get("output_token_limit") if source.get("output_token_limit") is not None else budget.get("output_token_limit"),
+        "context_input_context_usage_percent": source.get("input_context_usage_percent") if source.get("input_context_usage_percent") is not None else budget.get("input_context_usage_percent"),
     }
 
     merged = {
@@ -84,6 +104,16 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_generation_mode",
             "context_current_generation_phase",
             "context_large_generation_guard_reason",
+            "context_source_type",
+            "context_source_digest_chunk_count",
+            "context_children_loaded",
+            "context_children_total",
+            "context_output_risk_level",
+            "context_max_chat_output_chars",
+            "context_max_output_recovery_applied",
+            "context_max_output_recovery_attempts",
+            "context_output_token_limit",
+            "context_input_context_usage_percent",
         )
     }
 

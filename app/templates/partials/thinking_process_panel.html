@@ -137,6 +137,36 @@
     {% if source_diagnostics.get('large_generation_guard_reason') %}
       <div class="portal-panel-note">Large generation guard reason: {{ source_diagnostics.get('large_generation_guard_reason') }}</div>
     {% endif %}
+    {% if source_diagnostics.get('source_type') %}
+      <div class="portal-panel-note">Source type: {{ source_diagnostics.get('source_type') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('source_digest_chunk_count') is not none %}
+      <div class="portal-panel-note">Digest chunks: {{ source_diagnostics.get('source_digest_chunk_count') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('children_loaded') is not none or source_diagnostics.get('children_total') is not none %}
+      <div class="portal-panel-note">Children loaded: {{ source_diagnostics.get('children_loaded') if source_diagnostics.get('children_loaded') is not none else '—' }}/{{ source_diagnostics.get('children_total') if source_diagnostics.get('children_total') is not none else '—' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_risk_level') %}
+      <div class="portal-panel-note">Output risk: {{ source_diagnostics.get('output_risk_level') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_chat_output_chars') is not none %}
+      <div class="portal-panel-note">Max chat output: {{ source_diagnostics.get('max_chat_output_chars') }} chars</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_output_recovery_applied') is not none %}
+      <div class="portal-panel-note">Output recovery: {{ 'applied' if source_diagnostics.get('max_output_recovery_applied') else 'not applied' }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('max_output_recovery_attempts') is not none %}
+      <div class="portal-panel-note">Recovery attempts: {{ source_diagnostics.get('max_output_recovery_attempts') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('output_token_limit') is not none %}
+      <div class="portal-panel-note">Output token limit: {{ source_diagnostics.get('output_token_limit') }}</div>
+    {% endif %}
+    {% if source_diagnostics.get('input_context_usage_percent') is not none %}
+      <div class="portal-panel-note">Input context usage: {{ source_diagnostics.get('input_context_usage_percent') }}%</div>
+    {% endif %}
+    {% if source_diagnostics.get('input_context_usage_percent') is not none and source_diagnostics.get('output_risk_level') %}
+      <div class="portal-panel-note">Low input context usage does not guarantee output safety.</div>
+    {% endif %}
   </div>
   {% endif %}
 

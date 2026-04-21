@@ -226,6 +226,16 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
         "large_generation_guard_reason",
         "generation_mode",
         "current_generation_phase",
+        "source_type",
+        "source_digest_chunk_count",
+        "children_loaded",
+        "children_total",
+        "output_risk_level",
+        "max_chat_output_chars",
+        "max_output_recovery_applied",
+        "max_output_recovery_attempts",
+        "output_token_limit",
+        "input_context_usage_percent",
     )
     for key in allowlist:
         value = details.get(key)
