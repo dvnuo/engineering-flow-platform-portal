@@ -692,7 +692,7 @@ def test_app_chat_send_runtime_error_includes_request_budget_stage(monkeypatch):
     response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "request_budget_stage=skill_finalizer" in detail
+    assert "request_budget_stage=" not in detail
     assert "prompt=" not in detail
     assert "SECRET" not in detail
 
@@ -726,7 +726,7 @@ def test_app_chat_send_runtime_error_uses_legacy_stage_as_fallback(monkeypatch):
     response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "request_budget_stage=tool_loop" in detail
+    assert "request_budget_stage=" not in detail
 
 
 def test_app_chat_send_runtime_error_prefers_request_budget_stage_over_stage(monkeypatch):
@@ -758,8 +758,7 @@ def test_app_chat_send_runtime_error_prefers_request_budget_stage_over_stage(mon
     response = client.post("/app/chat/send", data={"agent_id": "agent-1", "message": "hi"})
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "request_budget_stage=skill_finalizer" in detail
-    assert "request_budget_stage=tool_loop" not in detail
+    assert "request_budget_stage=" not in detail
 
 
 def test_app_chat_send_runtime_error_does_not_include_projection_diagnostics(monkeypatch):
@@ -992,16 +991,15 @@ def test_app_chat_send_runtime_error_includes_source_completeness_and_output_sca
         payload = {
             "error": "runtime failed",
             "details": {
-                "source_complete_for_generation": True,
                 "source_complete_including_binary_bodies": False,
-                "source_metadata_complete": True,
-                "source_text_complete": True,
                 "source_tree_complete": False,
                 "descendants_loaded": 4,
                 "descendants_total": 6,
                 "descendants_complete": False,
-                "oversized_output_saved": True,
-                "partial_output_saved": True,
+                "text_attachment_bodies_complete": True,
+                "binary_attachment_bodies_available": False,
+                "binary_attachment_bodies_skipped_count": 2,
+                "binary_attachment_body_policy": "metadata_only",
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1022,16 +1020,15 @@ def test_app_chat_send_runtime_error_includes_source_completeness_and_output_sca
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "source_complete_for_generation=True" in detail
     assert "source_complete_including_binary_bodies=False" in detail
-    assert "source_metadata_complete=True" in detail
-    assert "source_text_complete=True" in detail
     assert "source_tree_complete=False" in detail
     assert "descendants_loaded=4" in detail
     assert "descendants_total=6" in detail
     assert "descendants_complete=False" in detail
-    assert "oversized_output_saved=True" in detail
-    assert "partial_output_saved=True" in detail
+    assert "text_attachment_bodies_complete=True" in detail
+    assert "binary_attachment_bodies_available=False" in detail
+    assert "binary_attachment_bodies_skipped_count=2" in detail
+    assert "binary_attachment_body_policy=metadata_only" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1065,9 +1062,10 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
             "error": "runtime failed",
             "details": {
                 "generation_completed_phases_count": 3,
+                "completion_criteria_count": 5,
+                "source_digest_chunk_coverage_count": 4,
                 "generation_current_phase": "skill_generation",
                 "generation_next_phase": "step_definitions",
-                "output_controller_stage": "recovery",
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1091,9 +1089,10 @@ def test_app_chat_send_runtime_error_includes_output_controller_phase_scalars_on
     assert response.status_code == 502
     detail = response.json()["detail"]
     assert "generation_completed_phases_count=3" in detail
+    assert "completion_criteria_count=5" in detail
+    assert "source_digest_chunk_coverage_count=4" in detail
     assert "generation_current_phase=skill_generation" in detail
     assert "generation_next_phase=step_definitions" in detail
-    assert "output_controller_stage=recovery" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail
@@ -1130,20 +1129,21 @@ def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalar
             "details": {
                 "source_complete_for_generation": True,
                 "source_complete_including_binary_bodies": False,
-                "source_metadata_complete": True,
-                "source_text_complete": True,
                 "source_tree_complete": False,
                 "descendants_loaded": 8,
                 "descendants_total": 10,
                 "descendants_complete": False,
+                "text_attachment_bodies_complete": True,
+                "binary_attachment_bodies_available": False,
+                "binary_attachment_bodies_skipped_count": 4,
+                "binary_attachment_body_policy": "unsupported",
                 "generated_artifact_ref_count": 4,
                 "generation_done": False,
+                "completion_criteria_count": 7,
+                "source_digest_chunk_coverage_count": 5,
                 "generation_current_phase": "skill_generation",
                 "generation_next_phase": "finalize",
                 "generation_completed_phases_count": 2,
-                "output_controller_stage": "initial_plan",
-                "oversized_output_saved": True,
-                "partial_output_saved": True,
                 "prompt": "SECRET_PROMPT",
                 "payload": "SECRET_PAYLOAD",
                 "input": "SECRET_INPUT",
@@ -1165,22 +1165,22 @@ def test_app_chat_send_runtime_error_includes_only_safe_source_generation_scalar
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert "source_complete_for_generation=True" in detail
     assert "source_complete_including_binary_bodies=False" in detail
-    assert "source_metadata_complete=True" in detail
-    assert "source_text_complete=True" in detail
     assert "source_tree_complete=False" in detail
     assert "descendants_loaded=8" in detail
     assert "descendants_total=10" in detail
     assert "descendants_complete=False" in detail
+    assert "text_attachment_bodies_complete=True" in detail
+    assert "binary_attachment_bodies_available=False" in detail
+    assert "binary_attachment_bodies_skipped_count=4" in detail
+    assert "binary_attachment_body_policy=unsupported" in detail
     assert "generated_artifact_ref_count=4" in detail
     assert "generation_done=False" in detail
+    assert "completion_criteria_count=7" in detail
+    assert "source_digest_chunk_coverage_count=5" in detail
     assert "generation_current_phase=skill_generation" in detail
     assert "generation_next_phase=finalize" in detail
     assert "generation_completed_phases_count=2" in detail
-    assert "output_controller_stage=initial_plan" in detail
-    assert "oversized_output_saved=True" in detail
-    assert "partial_output_saved=True" in detail
     assert "prompt=" not in detail
     assert "payload=" not in detail
     assert "input=" not in detail

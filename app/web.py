@@ -201,31 +201,28 @@ def _append_allowlisted_error_details(parts: list[str], details) -> None:
     if not isinstance(details, dict):
         return
     allowlist = (
-        "request_budget_stage",
-        "source_complete_for_generation",
-        "source_complete_including_binary_bodies",
-        "source_metadata_complete",
-        "source_text_complete",
         "source_tree_complete",
         "descendants_loaded",
         "descendants_total",
         "descendants_complete",
+        "binary_attachment_body_policy",
+        "binary_attachment_bodies_available",
+        "binary_attachment_bodies_skipped_count",
+        "source_complete_including_binary_bodies",
+        "text_attachment_bodies_complete",
         "generated_artifact_ref_count",
         "generation_done",
+        "completion_criteria_count",
+        "source_digest_chunk_coverage_count",
         "generation_current_phase",
         "generation_next_phase",
         "generation_completed_phases_count",
-        "output_controller_stage",
-        "oversized_output_saved",
-        "partial_output_saved",
     )
     for key in allowlist:
         value = details.get(key)
         if value is None:
             continue
         parts.append(f"{key}={value}")
-    if details.get("request_budget_stage") is None and details.get("stage") is not None:
-        parts.append(f"request_budget_stage={details.get('stage')}")
 
 
 def _merge_error_details(top_level_details, nested_details) -> dict:

@@ -685,8 +685,10 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
             "source": {
                 "source_complete_for_generation": False,
                 "source_complete_including_binary_bodies": True,
-                "source_metadata_complete": True,
-                "source_text_complete": False,
+                "text_attachment_bodies_complete": True,
+                "binary_attachment_bodies_available": False,
+                "binary_attachment_bodies_skipped_count": 3,
+                "binary_attachment_body_policy": "metadata_only",
                 "source_tree_complete": True,
                 "descendants_loaded": 3,
                 "descendants_total": 9,
@@ -695,8 +697,15 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
                 "jira_body": "SECRET_JIRA_BODY",
                 "ctx_refs": ["ctx://source/abc"],
             },
-            "generation": {"generated_artifact_ref_count": 2, "generation_done": False, "current_phase": "step_definitions"},
-            "budget": {"generation_next_phase": "finalize", "oversized_output_saved": True, "partial_output_saved": True},
+            "generation": {
+                "generated_artifact_ref_count": 2,
+                "generation_done": False,
+                "current_phase": "step_definitions",
+                "next_phase": "finalize",
+                "completed_phases_count": 4,
+                "completion_criteria_count": 6,
+                "source_digest_chunk_coverage_count": 5,
+            },
         },
     }
     client = _setup_thinking_panel_client(monkeypatch, chatlog)
@@ -704,18 +713,19 @@ def test_thinking_process_panel_renders_safe_source_diagnostics_only(monkeypatch
     response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
 
     assert response.status_code == 200
-    assert "Source complete for generation: no" in response.text
     assert "Source complete including binary bodies: yes" in response.text
-    assert "Source metadata complete: yes" in response.text
-    assert "Source text complete: no" in response.text
+    assert "Text attachment bodies complete: yes" in response.text
+    assert "Binary attachment bodies available: no" in response.text
+    assert "Binary attachment bodies skipped: 3" in response.text
+    assert "Binary attachment body policy: metadata_only" in response.text
     assert "Source tree complete: yes" in response.text
     assert "Descendants loaded: 3/9" in response.text
     assert "Descendants complete: no" in response.text
     assert "Generated artifacts: 2" in response.text
     assert "Generation done: no" in response.text
-    assert "Current phase / Next phase: step_definitions / finalize" in response.text
-    assert "Oversized output saved: yes" in response.text
-    assert "Partial output saved: yes" in response.text
+    assert "Completion criteria: 6" in response.text
+    assert "Digest chunk coverage: 5" in response.text
+    assert "Current phase / Next phase / Completed phases: step_definitions / finalize / 4" in response.text
     assert "SECRET_BUNDLE_CONTENT" not in response.text
     assert "SECRET_JIRA_BODY" not in response.text
     assert "ctx://source/abc" not in response.text
@@ -735,6 +745,6 @@ def test_thinking_process_panel_hides_lines_for_missing_compact_source_diagnosti
     response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
 
     assert response.status_code == 200
-    assert "Source complete for generation: yes" in response.text
+    assert "Source complete including binary bodies:" not in response.text
     assert "Generated artifacts:" not in response.text
-    assert "Current phase / Next phase:" not in response.text
+    assert "Current phase / Next phase / Completed phases:" not in response.text

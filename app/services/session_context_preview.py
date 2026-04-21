@@ -93,6 +93,7 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_text_attachment_bodies_complete": metadata.get("text_attachment_bodies_complete"),
         "context_binary_attachment_bodies_available": metadata.get("binary_attachment_bodies_available"),
         "context_binary_attachment_bodies_skipped_count": metadata.get("binary_attachment_bodies_skipped_count"),
+        "context_binary_attachment_body_policy": _normalize_preview_value(metadata.get("binary_attachment_body_policy")),
         "context_descendants_supported": metadata.get("descendants_supported"),
         "context_descendants_complete": metadata.get("descendants_complete"),
         "context_partial_output_saved": metadata.get("partial_output_saved"),
@@ -113,6 +114,8 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_generated_artifact_ref_count": metadata.get("generated_artifact_ref_count"),
         "context_generation_done": metadata.get("generation_done"),
         "context_generation_current_phase": _normalize_preview_value(metadata.get("generation_current_phase") or metadata.get("current_generation_phase")),
+        "context_completion_criteria_count": metadata.get("completion_criteria_count"),
+        "context_source_digest_chunk_coverage_count": metadata.get("source_digest_chunk_coverage_count"),
     }
 
     nested_preview = {
@@ -163,6 +166,7 @@ def _derive_source_preview(metadata: dict) -> dict:
         "context_text_attachment_bodies_complete": source.get("text_attachment_bodies_complete") if source.get("text_attachment_bodies_complete") is not None else budget.get("text_attachment_bodies_complete"),
         "context_binary_attachment_bodies_available": source.get("binary_attachment_bodies_available") if source.get("binary_attachment_bodies_available") is not None else budget.get("binary_attachment_bodies_available"),
         "context_binary_attachment_bodies_skipped_count": source.get("binary_attachment_bodies_skipped_count") if source.get("binary_attachment_bodies_skipped_count") is not None else budget.get("binary_attachment_bodies_skipped_count"),
+        "context_binary_attachment_body_policy": _normalize_preview_value(source.get("binary_attachment_body_policy") or budget.get("binary_attachment_body_policy")),
         "context_descendants_supported": source.get("descendants_supported") if source.get("descendants_supported") is not None else budget.get("descendants_supported"),
         "context_descendants_complete": source.get("descendants_complete") if source.get("descendants_complete") is not None else budget.get("descendants_complete"),
         "context_partial_output_saved": source.get("partial_output_saved") if source.get("partial_output_saved") is not None else budget.get("partial_output_saved"),
@@ -189,6 +193,8 @@ def _derive_source_preview(metadata: dict) -> dict:
             or source.get("generation_current_phase")
             or source.get("current_generation_phase")
         ),
+        "context_completion_criteria_count": generation.get("completion_criteria_count") if generation.get("completion_criteria_count") is not None else budget.get("completion_criteria_count"),
+        "context_source_digest_chunk_coverage_count": generation.get("source_digest_chunk_coverage_count") if generation.get("source_digest_chunk_coverage_count") is not None else budget.get("source_digest_chunk_coverage_count"),
     }
 
     merged = {
@@ -239,6 +245,7 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_text_attachment_bodies_complete",
             "context_binary_attachment_bodies_available",
             "context_binary_attachment_bodies_skipped_count",
+            "context_binary_attachment_body_policy",
             "context_descendants_supported",
             "context_descendants_complete",
             "context_partial_output_saved",
@@ -259,6 +266,8 @@ def _derive_source_preview(metadata: dict) -> dict:
             "context_generated_artifact_ref_count",
             "context_generation_done",
             "context_generation_current_phase",
+            "context_completion_criteria_count",
+            "context_source_digest_chunk_coverage_count",
         )
     }
 
