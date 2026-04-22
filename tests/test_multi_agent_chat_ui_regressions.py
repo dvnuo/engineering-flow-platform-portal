@@ -1951,7 +1951,44 @@ def test_submit_chat_has_active_request_guard_regression():
     submit_start = js_source.find("async function submitChatForSelectedAgent()")
     assert submit_start >= 0
     submit_slice = js_source[submit_start: submit_start + 1500]
-    assert "if (hasActiveChatRequestForAgent(agentIdAtSend)) return;" in submit_slice
+    assert 'guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")' in submit_slice
+
+
+def test_success_completion_clears_active_request_before_resyncing_controls():
+    js_source = _chat_ui_js_source()
+    success_start = js_source.find("async function handleAgentChatSuccess")
+    assert success_start >= 0
+    success_slice = js_source[success_start: success_start + 4500]
+
+    idx_clear_active = success_slice.find("chatState.activeRequest = null;")
+    idx_clear_inflight = success_slice.find("chatState.inflightThinking = null;")
+    idx_clear_pending = success_slice.find("chatState.pendingThinkingEvents = null;")
+    idx_resync_controls = success_slice.find("setChatSubmittingForAgent(agentIdAtSend, false);")
+
+    assert idx_clear_active >= 0
+    assert idx_clear_inflight >= 0
+    assert idx_clear_pending >= 0
+    assert idx_resync_controls >= 0
+    assert idx_clear_active < idx_resync_controls
+    assert idx_clear_inflight < idx_resync_controls
+    assert idx_clear_pending < idx_resync_controls
+
+
+def test_failure_completion_marks_inflight_done_before_resyncing_controls():
+    js_source = _chat_ui_js_source()
+    failure_start = js_source.find("function handleAgentChatFailure")
+    assert failure_start >= 0
+    failure_slice = js_source[failure_start: failure_start + 3000]
+
+    idx_clear_active = failure_slice.find("chatState.activeRequest = null;")
+    idx_mark_done = failure_slice.find("chatState.inflightThinking.completed = true;")
+    idx_resync_controls = failure_slice.find("setChatSubmittingForAgent(agentIdAtSend, false);")
+
+    assert idx_clear_active >= 0
+    assert idx_mark_done >= 0
+    assert idx_resync_controls >= 0
+    assert idx_clear_active < idx_resync_controls
+    assert idx_mark_done < idx_resync_controls
 
 
 def test_event_message_does_not_claim_empty_session_without_matching_request():
@@ -1970,6 +2007,7 @@ def test_event_message_does_not_claim_empty_session_without_matching_request():
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
     update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
+    has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
     script = f"""
@@ -1992,6 +2030,7 @@ function scheduleThinkingPanelRefresh() {{}}
 {has_meaningful}
 {has_contents}
 {update_context}
+{has_active}
 {handle_event}
 const chatState = ensureChatState("agent-A");
 chatState.sessionId = "";
@@ -2007,6 +2046,8 @@ console.log(JSON.stringify({{
   sessionId: chatState.sessionId,
   hasAgentSession: state.agentSessionIds.has("agent-A"),
   domSession: dom.chatSessionId.value,
+  inflightThinking: !!chatState.inflightThinking,
+  busy: hasActiveChatRequestForAgent("agent-A"),
 }}));
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
@@ -2014,6 +2055,8 @@ console.log(JSON.stringify({{
     assert data["sessionId"] == ""
     assert data["hasAgentSession"] is False
     assert data["domSession"] == ""
+    assert data["inflightThinking"] is False
+    assert data["busy"] is False
 
 
 def test_event_message_can_claim_empty_session_when_matching_active_request():

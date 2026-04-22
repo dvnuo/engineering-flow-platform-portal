@@ -1437,6 +1437,18 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const eventMatchesSocketRequest = Boolean(
     entry.request_id && socketRequestId && entry.request_id === socketRequestId
   );
+  const eventMatchesLastCompletedRequest = Boolean(
+    entry.request_id
+    && chatState.lastCompletedRequestId
+    && entry.request_id === chatState.lastCompletedRequestId
+  );
+  if (
+    entry.session_id
+    && !currentSessionId
+    && !(eventMatchesActiveRequest || eventMatchesSocketRequest || eventMatchesLastCompletedRequest)
+  ) {
+    return;
+  }
 
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
@@ -1447,9 +1459,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
 
   const isLateEventForCompletedRequest = Boolean(
     !chatState.activeRequest
-    && entry.request_id
-    && chatState.lastCompletedRequestId
-    && entry.request_id === chatState.lastCompletedRequestId
+    && eventMatchesLastCompletedRequest
     && chatState.lastThinkingSnapshot
   );
 
@@ -2733,7 +2743,7 @@ async function submitChatForSelectedAgent() {
   const agentIdAtSend = state.selectedAgentId;
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
-  if (hasActiveChatRequestForAgent(agentIdAtSend)) return;
+  if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   const uploadingFiles = chatState.pendingFiles.filter((pf) => pf.status === "uploading");
   if (uploadingFiles.length) {
     showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
@@ -2911,12 +2921,12 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   };
   chatState.lastThinkingSnapshot = finalThinkingSnapshot;
   const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
-  setChatSubmittingForAgent(agentIdAtSend, false);
   chatState.activeRequest = null;
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
+  setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
     if (canRenderThinkingPanel) {
       if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
@@ -3005,7 +3015,6 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     !!chatState.didAppendAttachmentHistoryForPendingSend &&
     Array.isArray(chatState.attachmentHistory) &&
     chatState.attachmentHistory.length > 0;
-  setChatSubmittingForAgent(agentIdAtSend, false);
   chatState.activeRequest = null;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   const errorMsg = error?.message || "Send failed";
@@ -3024,6 +3033,7 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     chatState.inflightThinking.completed = true;
     chatState.lastThinkingSnapshot = { ...chatState.inflightThinking };
   }
+  setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
     if (shouldRollbackAttachmentHistory) {
       chatState.attachmentHistory.pop();
