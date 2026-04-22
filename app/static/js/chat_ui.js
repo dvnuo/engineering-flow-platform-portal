@@ -2975,10 +2975,32 @@ function decodeHtml(text) {
 }
 
 // ===== markdown + icons lifecycle =====
+function shouldDecorateChatSwapTarget(target) {
+  if (!target || !(target instanceof Element)) return false;
+  if (target.id === "message-list") return true;
+  if (target.closest?.("#message-list")) return true;
+  return !!target.querySelector?.(".message-row-assistant, .message-row-user");
+}
+
+function decorateChatMessageRegion(target) {
+  const isMessageListTarget = target?.id === "message-list";
+  const scope = isMessageListTarget ? target : (dom.messageList || target);
+  if (!scope) return;
+  renderMarkdown(scope);
+  decorateToolMessages(scope);
+  addEditButtonsToMessages();
+  renderIcons();
+}
+
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
-    if (event.target?.id === "tool-panel-body" || event.target?.id === "workspace-detail-content") {
+    const target = event.target;
+    if (target?.id === "tool-panel-body" || target?.id === "workspace-detail-content") {
       initializeManagedSettingsPanels();
+    }
+    if (shouldDecorateChatSwapTarget(target)) {
+      decorateChatMessageRegion(target);
+      return;
     }
     renderIcons();
   });
@@ -5639,6 +5661,35 @@ function findPrecedingUserArticle(row) {
   return null;
 }
 
+function getDisplayBlockCopyText(block) {
+  if (!block || typeof block !== "object") return "";
+  const type = String(block.type || "").trim().toLowerCase();
+
+  if (type === "code") {
+    return pickFirstMeaningfulBlockValue(block, ["code", "content", "text", "message", "output", "result", "value"]);
+  }
+
+  if (type === "table") {
+    const direct = getDisplayBlockText(block);
+    if (direct) return direct;
+
+    const headers = Array.isArray(block.headers) ? block.headers : (Array.isArray(block.columns) ? block.columns : []);
+    const rows = Array.isArray(block.rows) ? block.rows : [];
+    const lines = [];
+    if (headers.length) {
+      lines.push(headers.map((cell) => String(cell ?? "")).join(" | "));
+    }
+    rows.forEach((row) => {
+      if (Array.isArray(row)) {
+        lines.push(row.map((cell) => String(cell ?? "")).join(" | "));
+      }
+    });
+    return lines.join("\n");
+  }
+
+  return getDisplayBlockText(block);
+}
+
 function getAssistantCopyText(article) {
   const markdownEl = article?.querySelector(".message-markdown");
   const rawMarkdown = markdownEl?.dataset?.md || "";
@@ -5646,20 +5697,21 @@ function getAssistantCopyText(article) {
 
   const blocks = parseDisplayBlocks(markdownEl?.dataset?.displayBlocks || "");
   const blockText = blocks
-    .map((block) => {
-      for (const key of ["content", "text", "message", "output", "code"]) {
-        if (block?.[key] !== null && block?.[key] !== undefined) {
-          const value = String(block[key]).trim();
-          if (value) return value;
-        }
-      }
-      return "";
-    })
-    .filter(Boolean)
+    .map(getDisplayBlockCopyText)
+    .filter((text) => String(text || "").trim().length > 0)
     .join("\n\n");
   if (blockText) return blockText;
 
   return article?.textContent || "";
+}
+
+function hasFollowingMessageRows(row) {
+  let cursor = row?.nextElementSibling || null;
+  while (cursor) {
+    if (cursor.matches?.(".message-row")) return true;
+    cursor = cursor.nextElementSibling;
+  }
+  return false;
 }
 
 function truncateDomFromUserArticle(userArticle) {
@@ -5720,7 +5772,7 @@ async function retryAssistantMessage(row) {
     return;
   }
 
-  if (row?.nextElementSibling?.matches(".message-row")) {
+  if (hasFollowingMessageRows(row)) {
     const shouldContinue = window.confirm("Retrying this response will remove this message and all messages after it. Continue?");
     if (!shouldContinue) return;
   }
