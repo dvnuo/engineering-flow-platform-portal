@@ -70,17 +70,17 @@
 
     <section class="portal-panel-section" data-managed-section="proxy">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
-        <div class="portal-settings-title-with-toggle">
-          <label class="toggle-switch portal-section-enable-switch" aria-label="Enable Proxy">
-            <input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} />
-            <span class="toggle-slider"></span>
-          </label>
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>Proxy</h6>
           </div>
-          <span class="portal-section-enable-text">Enabled</span>
-        </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable Proxy">
+              <input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
       </div>
       <label class="portal-form-label"><span class="portal-form-label">Proxy URL</span><input type="text" name="proxy_url" value="{{ proxy.get('url', '') }}" placeholder="http://proxy.example.com:8080" class="portal-form-input" /></label>
       <div class="grid grid-cols-2 gap-3">
@@ -143,17 +143,17 @@
 
     <section class="portal-panel-section" data-instance-group="jira" data-managed-section="jira">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
-        <div class="portal-settings-title-with-toggle">
-          <label class="toggle-switch portal-section-enable-switch" aria-label="Enable Jira">
-            <input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} />
-            <span class="toggle-slider"></span>
-          </label>
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>Jira</h6>
           </div>
-          <span class="portal-section-enable-text">Enabled</span>
-        </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable Jira">
+              <input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
       </div>
       <input type="hidden" name="jira_instance_count" value="{{ jira_instances|length }}" data-instance-count="jira" />
       <div class="space-y-2" data-instance-container="jira">{% for inst in jira_instances %}<div class="portal-settings-instance-card" data-instance-item="jira"><div class="portal-settings-instance-head"><span class="portal-settings-instance-title">Instance {{ loop.index }}</span><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="jira">Remove</button></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="portal-form-input" /><input type="text" data-field="project" value="{{ inst.get('project','') }}" placeholder="Project" class="portal-form-input" /></div></div>{% endfor %}</div>
@@ -163,17 +163,17 @@
 
     <section class="portal-panel-section" data-instance-group="confluence" data-managed-section="confluence">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
-        <div class="portal-settings-title-with-toggle">
-          <label class="toggle-switch portal-section-enable-switch" aria-label="Enable Confluence">
-            <input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} />
-            <span class="toggle-slider"></span>
-          </label>
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>Confluence</h6>
           </div>
-          <span class="portal-section-enable-text">Enabled</span>
-        </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable Confluence">
+              <input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
       </div>
       <input type="hidden" name="confluence_instance_count" value="{{ confluence_instances|length }}" data-instance-count="confluence" />
       <div class="space-y-2" data-instance-container="confluence">{% for inst in confluence_instances %}<div class="portal-settings-instance-card" data-instance-item="confluence"><div class="portal-settings-instance-head"><span class="portal-settings-instance-title">Instance {{ loop.index }}</span><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="confluence">Remove</button></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://yourcompany.atlassian.net/wiki)" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API Token" class="portal-form-input" /><input type="text" data-field="space" value="{{ inst.get('space','') }}" placeholder="Space Key" class="portal-form-input" /></div></div>{% endfor %}</div>
@@ -183,17 +183,17 @@
 
     <section class="portal-panel-section" data-managed-section="github">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
-        <div class="portal-settings-title-with-toggle">
-          <label class="toggle-switch portal-section-enable-switch" aria-label="Enable GitHub">
-            <input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} />
-            <span class="toggle-slider"></span>
-          </label>
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>GitHub</h6>
           </div>
-          <span class="portal-section-enable-text">Enabled</span>
-        </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable GitHub">
+              <input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label"><span class="portal-form-label">GitHub API Base URL</span><input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="portal-form-input" /><span class="portal-form-hint">Leave blank to use the public GitHub API default.</span></label>
@@ -209,17 +209,17 @@
 
     <section class="portal-panel-section" data-managed-section="debug">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
-        <div class="portal-settings-title-with-toggle">
-          <label class="toggle-switch portal-section-enable-switch" aria-label="Enable Debug">
-            <input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} />
-            <span class="toggle-slider"></span>
-          </label>
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>Debug</h6>
           </div>
-          <span class="portal-section-enable-text">Enabled</span>
-        </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable Debug">
+              <input type="checkbox" name="debug_enabled" {% if debug.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
       </div>
       <label class="portal-form-label"><span class="portal-form-label">Log Level</span><select name="debug_log_level" class="portal-form-select"><option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option><option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option><option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option><option value="ERROR" {% if debug.get('log_level', 'INFO') == 'ERROR' %}selected{% endif %}>ERROR</option></select></label>
     </section>
