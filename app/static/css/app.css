@@ -1969,6 +1969,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .portal-timeline-event { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; padding: 6px 0; border-top: 1px solid var(--portal-border); }
 .portal-timeline-event:first-child { border-top: 0; }
 .portal-timeline-event-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--portal-text-muted); }
+.portal-timeline-event-icon svg { width: 16px; height: 16px; }
 .portal-timeline-event-body { min-width: 0; color: var(--portal-text); }
 .portal-debug-details { border: 1px solid var(--portal-border); border-radius: 10px; padding: 8px; background: var(--portal-surface-muted); }
 

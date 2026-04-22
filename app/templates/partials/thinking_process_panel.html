@@ -287,9 +287,12 @@
     <div class="portal-panel-title">Execution Timeline ({{ events|length }})</div>
     {% for event in events[-100:] %}
       <div class="portal-timeline-event">
-        <span class="portal-timeline-event-icon">•</span>
+        <span class="portal-timeline-event-icon"><i data-lucide="{{ event.get('icon') or 'circle' }}"></i></span>
         <div class="portal-timeline-event-body">
-          <div class="portal-panel-note">{{ event.get('type') }} · {{ event.get('title') }}</div>
+          <div class="portal-panel-title">{{ event.get('display_title') or event.get('title') }}</div>
+          {% if event.get('display_detail') or event.get('message') %}
+            <div class="portal-panel-note">{{ event.get('display_detail') or event.get('message') }}</div>
+          {% endif %}
           {% if event.get('message') %}<pre class="portal-panel-pre">{{ event.get('message')[:800] }}</pre>{% endif %}
           {% if event.get('data') and event.get('type') in ['context_snapshot', 'context_compaction_planned', 'context_compaction_applied'] %}
             <pre class="portal-panel-pre">{{ event.get('data')|tojson }}</pre>

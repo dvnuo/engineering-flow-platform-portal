@@ -40,6 +40,197 @@ def _normalize_context_blob_refs_created(value: Any):
     return value
 
 
+def _normalize_skill_label(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(
+            value.get("name")
+            or value.get("skill")
+            or value.get("skill_name")
+            or value.get("command")
+            or ""
+        )
+    return str(value or "")
+
+
+def _format_context_event_detail(data: dict, fallback: str) -> str:
+    context_state = _as_dict(data.get("context_state"))
+    budget = _as_dict(data.get("budget")) or _as_dict(context_state.get("budget"))
+    pieces: list[str] = []
+
+    context_pct = (
+        budget.get("prepared_usage_percent")
+        if budget.get("prepared_usage_percent") is not None
+        else budget.get("usage_percent")
+    )
+    if context_pct is not None:
+        pieces.append(f"{context_pct}% used")
+    if data.get("stage"):
+        pieces.append(str(data.get("stage")))
+    if budget.get("tokens_until_soft_threshold") is not None:
+        pieces.append(f"{budget.get('tokens_until_soft_threshold')} tokens until soft threshold")
+    if budget.get("next_compaction_action"):
+        pieces.append(f"next: {budget.get('next_compaction_action')}")
+    pruning_policy = data.get("next_pruning_policy") or budget.get("next_pruning_policy")
+    if pruning_policy:
+        pieces.append(str(pruning_policy))
+
+    return " · ".join(pieces) or fallback
+
+
+def _build_thinking_event_display(event_type: str, data: dict) -> dict:
+    event_type = str(event_type or "event")
+
+    by_type = {
+        "execution.started": {
+            "icon": "play-circle",
+            "display_title": "Execution Started",
+            "display_detail": data.get("message") or "Execution started",
+        },
+        "execution.completed": {
+            "icon": "flag",
+            "display_title": "Execution Completed",
+            "display_detail": data.get("message") or "Execution complete",
+        },
+        "execution.failed": {
+            "icon": "x-circle",
+            "display_title": "Execution Failed",
+            "display_detail": data.get("error") or data.get("message") or "Execution failed",
+        },
+        "iteration_start": {
+            "icon": "rotate-cw",
+            "display_title": "Iteration Start",
+            "display_detail": f"Iteration {data.get('iteration') or 1}"
+            f"{('/' + str(data.get('total'))) if data.get('total') else ''}",
+        },
+        "llm_thinking": {
+            "icon": "brain",
+            "display_title": "LLM Thinking",
+            "display_detail": data.get("message")
+            or data.get("thinking")
+            or "Model is reasoning",
+        },
+        "tool_call": {
+            "icon": "wrench",
+            "display_title": "Tool Call",
+            "display_detail": (
+                f"Calling {data.get('tool')}" if data.get("tool") else "Calling tool"
+            ),
+        },
+        "tool_result": {
+            "icon": "x-circle" if data.get("success") is False else "check-circle-2",
+            "display_title": "Tool Result",
+            "display_detail": (
+                data.get("error") or "Tool failed"
+            ) if data.get("success") is False else (
+                f"{data.get('tool')} completed" if data.get("tool") else "Tool completed"
+            ),
+        },
+        "skill_matched": {
+            "icon": "zap",
+            "display_title": "Skill Matched",
+            "display_detail": _normalize_skill_label(data.get("skill")) or "Skill matched",
+        },
+        "complete": {
+            "icon": "flag",
+            "display_title": "Complete",
+            "display_detail": "Execution complete",
+        },
+        "context_snapshot": {
+            "icon": "gauge",
+            "display_title": "Context Snapshot",
+            "display_detail": _format_context_event_detail(data, "Context updated"),
+        },
+        "context_compaction_planned": {
+            "icon": "scissors",
+            "display_title": "Compaction Planned",
+            "display_detail": _format_context_event_detail(data, "Compaction planned"),
+        },
+        "context_compaction_applied": {
+            "icon": "archive",
+            "display_title": "Context Compaction Applied",
+            "display_detail": _format_context_event_detail(data, "Context compaction applied"),
+        },
+        "skill_mode_start": {
+            "icon": "play-circle",
+            "display_title": "Skill Mode",
+            "display_detail": f"Starting: {data.get('skill') or 'Skill'}",
+        },
+        "skill_step": {
+            "icon": "list-checks",
+            "display_title": f"Step: {data.get('step') or 'Step'}",
+            "display_detail": data.get("detail") or "",
+        },
+        "skill_session_start": {
+            "icon": "clipboard-list",
+            "display_title": "Skill Session",
+            "display_detail": f"Goal: {data.get('goal') or ''}",
+        },
+        "skill_compaction": {
+            "icon": "archive" if data.get("status") == "completed" else "scissors",
+            "display_title": "Compaction",
+            "display_detail": (
+                f"Steps: {data.get('remaining_steps')}"
+                if data.get("status") == "completed"
+                else f"Tokens: {data.get('current_tokens')}"
+            ),
+        },
+        "skill_complete": {
+            "icon": "check-square",
+            "display_title": (
+                "Skill Finished"
+                if data.get("reason") == "finish"
+                else "Skill Awaiting Input"
+            ),
+            "display_detail": data.get("result") or data.get("question") or "",
+        },
+        "skill_runtime_applied": {
+            "icon": "layers",
+            "display_title": "Skill Runtime Applied",
+            "display_detail": (
+                f"Using {data.get('skill')}"
+                if data.get("skill")
+                else "Skill runtime applied"
+            ),
+        },
+        "skill_contract_active": {
+            "icon": "pin",
+            "display_title": "Active Skill",
+            "display_detail": (
+                f"{data.get('skill')}{(' · ' + str(data.get('reason'))) if data.get('reason') else ''}"
+                if data.get("skill")
+                else "Active skill"
+            ),
+        },
+        "skill_tool_denied": {
+            "icon": "shield-alert",
+            "display_title": "Skill Tool Denied",
+            "display_detail": (
+                f"{data.get('tool')} denied by {data.get('skill') or 'active skill'}"
+                if data.get("tool")
+                else "Tool denied by active skill"
+            ),
+        },
+        "skill_contract_cleared": {
+            "icon": "x-circle",
+            "display_title": "Active Skill Cleared",
+            "display_detail": (
+                f"{data.get('skill')} cleared"
+                if data.get("skill")
+                else "Active skill cleared"
+            ),
+        },
+    }
+
+    return by_type.get(
+        event_type,
+        {
+            "icon": "circle",
+            "display_title": event_type.replace("_", " ").replace(".", " ").title(),
+            "display_detail": "",
+        },
+    )
+
+
 def _build_source_diagnostics(metadata_dict: dict, context_state: dict, budget: dict) -> dict:
     source = _as_dict(context_state.get("source"))
     budget = _as_dict(budget)
@@ -359,6 +550,7 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
                 "session_id": session_id,
                 "agent_id": agent_id,
             }
+            normalized.update(_build_thinking_event_display(event_type, data))
             key = f"{normalized['type']}|{request_id}|{session_id}|{normalized['ts']}|{json.dumps(data, sort_keys=True, default=str)}"
             if key in seen:
                 continue
