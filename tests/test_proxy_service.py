@@ -242,6 +242,58 @@ def test_proxy_service_forward_drops_unsafe_content_disposition(monkeypatch):
     assert response_headers == {}
 
 
+def test_proxy_service_forward_base_url_error_returns_three_tuple_by_default(monkeypatch):
+    service = ProxyService()
+
+    def _raise_base_url(_agent):
+        raise ValueError("Cannot determine node IP")
+
+    monkeypatch.setattr(service, "build_agent_base_url", _raise_base_url)
+
+    agent = SimpleNamespace(service_name="svc", namespace="efp-agents")
+    result = asyncio.run(service.forward(
+        agent=agent,
+        method="GET",
+        subpath="api/server-files/download",
+        query_items=[],
+        body=None,
+        headers={},
+    ))
+
+    assert len(result) == 3
+    status_code, content, content_type = result
+    assert status_code == 502
+    assert content_type == "text/plain"
+    assert b"Cannot determine node IP" in content
+
+
+def test_proxy_service_forward_base_url_error_returns_four_tuple_when_headers_requested(monkeypatch):
+    service = ProxyService()
+
+    def _raise_base_url(_agent):
+        raise ValueError("Cannot determine node IP")
+
+    monkeypatch.setattr(service, "build_agent_base_url", _raise_base_url)
+
+    agent = SimpleNamespace(service_name="svc", namespace="efp-agents")
+    result = asyncio.run(service.forward(
+        agent=agent,
+        method="GET",
+        subpath="api/server-files/download",
+        query_items=[],
+        body=None,
+        headers={},
+        return_response_headers=True,
+    ))
+
+    assert len(result) == 4
+    status_code, content, content_type, response_headers = result
+    assert status_code == 502
+    assert content_type == "text/plain"
+    assert response_headers == {}
+    assert b"Cannot determine node IP" in content
+
+
 def test_build_portal_identity_headers_sanitizes_and_omits_blank_name():
     user = SimpleNamespace(
         id=7,

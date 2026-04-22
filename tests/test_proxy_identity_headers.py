@@ -1227,3 +1227,97 @@ def test_proxy_agent_server_files_download_multiple_paths_fallback_filename(monk
 
     assert response.status_code == 200
     assert response.headers["content-disposition"] == 'attachment; filename="server-files-selection.zip"'
+
+
+def test_proxy_agent_server_files_download_single_file_fallback_filename_when_runtime_header_missing(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=55, username="owner", nickname="Owner", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=55,
+        visibility="private",
+        status="running",
+        name="Agent One",
+        capability_profile_id=None,
+        policy_profile_id=None,
+    )
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
+
+        async def _fake_forward(**kwargs):
+            assert kwargs["subpath"] == "api/server-files/download"
+            assert kwargs["return_response_headers"] is True
+            return 200, b"# hello", "text/markdown", {}
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+
+        client = TestClient(app)
+        response = client.get("/a/agent-1/api/server-files/download?paths=/workspace/notes.md")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == 'attachment; filename="notes.md"'
+    assert response.headers["content-type"].startswith("text/markdown")
+
+
+def test_proxy_agent_server_files_content_does_not_force_attachment(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=55, username="owner", nickname="Owner", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=55,
+        visibility="private",
+        status="running",
+        name="Agent One",
+        capability_profile_id=None,
+        policy_profile_id=None,
+    )
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(
+            proxy_module,
+            "AgentRepository",
+            lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+        )
+
+        async def _fake_forward(**kwargs):
+            assert kwargs["subpath"] == "api/server-files/content"
+            assert "return_response_headers" not in kwargs or kwargs["return_response_headers"] is False
+            return 200, b"# hello", "text/markdown"
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+
+        client = TestClient(app)
+        response = client.get("/a/agent-1/api/server-files/content?path=/workspace/notes.md")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "content-disposition" not in response.headers
+    assert response.headers["content-type"].startswith("text/markdown")
