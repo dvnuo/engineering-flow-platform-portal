@@ -5586,8 +5586,185 @@ function closeEditMessageModal() {
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
 }
 
+function getUserArticleContent(article) {
+  const contentEl = article?.querySelector(".message-body, .whitespace-pre-wrap");
+  return contentEl ? contentEl.textContent || "" : "";
+}
+
+function getUserArticleAttachments(article) {
+  const attachments = [];
+
+  if (article?.dataset?.attachments) {
+    try {
+      const parsedAttachments = JSON.parse(article.dataset.attachments);
+      if (Array.isArray(parsedAttachments)) attachments.push(...parsedAttachments);
+    } catch (_error) {}
+  }
+
+  if (attachments.length === 0 && dom.messageList && article) {
+    const allUserArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
+    const articleIndex = allUserArticles.indexOf(article);
+    const chatState = getChatState();
+    if (
+      chatState &&
+      articleIndex >= 0 &&
+      Array.isArray(chatState.attachmentHistory) &&
+      articleIndex < chatState.attachmentHistory.length &&
+      Array.isArray(chatState.attachmentHistory[articleIndex])
+    ) {
+      attachments.push(...chatState.attachmentHistory[articleIndex]);
+    }
+  }
+
+  if (attachments.length === 0 && article) {
+    const images = article.querySelectorAll("img");
+    images.forEach((img) => {
+      if (img.src && img.src.startsWith("blob:")) {
+        const fileId = getFileIdFromBlobUrl(img.src);
+        if (fileId) attachments.push(fileId);
+      }
+    });
+  }
+
+  return attachments;
+}
+
+function findPrecedingUserArticle(row) {
+  let current = row?.previousElementSibling || null;
+  while (current) {
+    const userArticle = current.querySelector('article[data-local-user="1"]');
+    if (userArticle) return userArticle;
+    current = current.previousElementSibling;
+  }
+  return null;
+}
+
+function getAssistantCopyText(article) {
+  const markdownEl = article?.querySelector(".message-markdown");
+  const rawMarkdown = markdownEl?.dataset?.md || "";
+  if (rawMarkdown.trim()) return rawMarkdown;
+
+  const blocks = parseDisplayBlocks(markdownEl?.dataset?.displayBlocks || "");
+  const blockText = blocks
+    .map((block) => {
+      for (const key of ["content", "text", "message", "output", "code"]) {
+        if (block?.[key] !== null && block?.[key] !== undefined) {
+          const value = String(block[key]).trim();
+          if (value) return value;
+        }
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  if (blockText) return blockText;
+
+  return article?.textContent || "";
+}
+
+function truncateDomFromUserArticle(userArticle) {
+  const selectedChatState = getChatState();
+  if (!dom.messageList || !userArticle) {
+    clearMessageListToWelcome();
+    if (selectedChatState) selectedChatState.attachmentHistory = [];
+    return;
+  }
+
+  const rows = Array.from(dom.messageList.querySelectorAll(".message-row"));
+  const targetRow = userArticle.closest(".message-row");
+  const targetRowIndex = rows.indexOf(targetRow);
+  const userArticlesBeforeDelete = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
+  const targetUserIndex = userArticlesBeforeDelete.indexOf(userArticle);
+
+  if (!targetRow || targetRowIndex < 0) {
+    clearMessageListToWelcome();
+    if (selectedChatState) selectedChatState.attachmentHistory = [];
+    return;
+  }
+
+  for (let i = rows.length - 1; i >= targetRowIndex; i -= 1) {
+    rows[i].remove();
+  }
+
+  if (Array.isArray(selectedChatState?.attachmentHistory)) {
+    const safeTargetUserIndex = targetUserIndex >= 0 ? targetUserIndex : selectedChatState.attachmentHistory.length;
+    selectedChatState.attachmentHistory = selectedChatState.attachmentHistory.slice(0, safeTargetUserIndex);
+  }
+}
+
+async function retryAssistantMessage(row) {
+  const agentId = state.selectedAgentId;
+  const sessionId = document.getElementById("chat-session-id")?.value || currentSessionIdForAgent(agentId);
+  const chatState = getChatState(agentId);
+
+  if (!agentId || !sessionId) {
+    showToast("No active session");
+    return;
+  }
+  if (chatState?.isSubmitting) {
+    showToast("Please wait for the current response to finish");
+    return;
+  }
+
+  const userArticle = findPrecedingUserArticle(row);
+  const userMessageId = userArticle?.dataset?.messageId || "";
+  if (!userMessageId || userMessageId.startsWith("local-")) {
+    showToast("Cannot retry this message yet");
+    return;
+  }
+
+  const content = getUserArticleContent(userArticle).trim();
+  const attachments = getUserArticleAttachments(userArticle);
+  if (!content) {
+    showToast("Original message is empty");
+    return;
+  }
+
+  if (row?.nextElementSibling?.matches(".message-row")) {
+    const shouldContinue = window.confirm("Retrying this response will remove this message and all messages after it. Continue?");
+    if (!shouldContinue) return;
+  }
+
+  const retryBtn = row?.querySelector(".assistant-retry-btn");
+  if (retryBtn) retryBtn.disabled = true;
+  try {
+    const response = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(userMessageId)}/delete-from-here`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    let result = {};
+    try {
+      result = await response.json();
+    } catch (_error) {
+      showToast("Failed to delete message");
+      return;
+    }
+
+    if (!response.ok || !result.success) {
+      showToast(result.error || "Failed to delete message");
+      return;
+    }
+
+    truncateDomFromUserArticle(userArticle);
+    if (chatState) chatState.pendingFiles = [];
+    if (dom.chatInput) dom.chatInput.value = content;
+    const attachmentsInput = document.getElementById("chat-attachments");
+    if (attachmentsInput) attachmentsInput.value = JSON.stringify(attachments);
+    setChatStatus("Retrying...");
+    await submitChatForSelectedAgent();
+  } catch (err) {
+    showToast("Retry failed: " + (err?.message || String(err)));
+    setChatStatus("Ready");
+  } finally {
+    if (retryBtn) retryBtn.disabled = false;
+  }
+}
+
 // Add edit buttons to user messages
-function addEditButtonsToMessages() {
+function addUserEditButtonsToMessages() {
+  if (!dom.messageList) return;
   const messages = dom.messageList.querySelectorAll('article[data-local-user="1"]');
 
   messages.forEach(article => {
@@ -5603,33 +5780,8 @@ function addEditButtonsToMessages() {
     editBtn.title = "Edit message";
     editBtn.setAttribute("aria-label", "Edit message");
     editBtn.onclick = () => {
-      const contentEl = article.querySelector('.message-body, .whitespace-pre-wrap');
-      const content = contentEl ? contentEl.textContent : '';
-      const attachments = [];
-
-      if (article.dataset.attachments) {
-        try { attachments.push(...JSON.parse(article.dataset.attachments)); } catch (e) {}
-      }
-
-      if (attachments.length === 0) {
-        const allUserArticles = Array.from(dom.messageList?.querySelectorAll('article[data-local-user="1"]') || []);
-        const articleIndex = allUserArticles.indexOf(article);
-        const chatState = getChatState();
-        if (chatState && articleIndex >= 0 && articleIndex < chatState.attachmentHistory.length) {
-          attachments.push(...chatState.attachmentHistory[articleIndex]);
-        }
-      }
-
-      if (attachments.length === 0) {
-        const images = article.querySelectorAll('img');
-        images.forEach(img => {
-          if (img.src && img.src.startsWith('blob:')) {
-            const fileId = getFileIdFromBlobUrl(img.src);
-            if (fileId) attachments.push(fileId);
-          }
-        });
-      }
-
+      const content = getUserArticleContent(article);
+      const attachments = getUserArticleAttachments(article);
       openEditMessageModal(messageId, content, attachments);
     };
 
@@ -5637,6 +5789,58 @@ function addEditButtonsToMessages() {
     container.tabIndex = 0;
     container.setAttribute("aria-label", "User message actions");
   });
+}
+
+function addAssistantActionsToMessages() {
+  if (!dom.messageList) return;
+  const rows = dom.messageList.querySelectorAll(".message-row-assistant");
+  rows.forEach((row) => {
+    if (row.dataset.welcome === "1") return;
+    if (row.dataset.temporaryAssistant === "1") return;
+    if (row.classList.contains("message-row-error")) return;
+    if (row.querySelector(".assistant-msg-actions")) return;
+
+    const article = row.querySelector("article.assistant-message");
+    if (!article) return;
+    if (article.dataset.pendingAssistant === "1") return;
+
+    const previousUserArticle = findPrecedingUserArticle(row);
+    if (!previousUserArticle) return;
+
+    const actions = document.createElement("div");
+    actions.className = "assistant-msg-actions message-actions message-actions-assistant";
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "message-action-btn assistant-copy-btn";
+    copyBtn.title = "Copy message";
+    copyBtn.setAttribute("aria-label", "Copy assistant message");
+    copyBtn.innerHTML = `<i data-lucide="copy" class="w-4 h-4"></i>`;
+    copyBtn.addEventListener("click", async () => {
+      const copied = await copyText(getAssistantCopyText(article));
+      showToast(copied ? "Copied" : "Copy failed");
+    });
+
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.className = "message-action-btn assistant-retry-btn";
+    retryBtn.title = "Retry";
+    retryBtn.setAttribute("aria-label", "Retry assistant response");
+    retryBtn.innerHTML = `<i data-lucide="refresh-ccw" class="w-4 h-4"></i>`;
+    retryBtn.addEventListener("click", () => retryAssistantMessage(row));
+
+    actions.appendChild(copyBtn);
+    actions.appendChild(retryBtn);
+    row.appendChild(actions);
+    row.tabIndex = 0;
+    row.setAttribute("aria-label", "Assistant message actions");
+  });
+  renderIcons();
+}
+
+function addEditButtonsToMessages() {
+  addUserEditButtonsToMessages();
+  addAssistantActionsToMessages();
 }
 
 // Simple hash function for generating temporary message IDs
@@ -5750,31 +5954,17 @@ function bindEvents() {
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
       if (result.success) {
-        // Remove the target message and subsequent messages from the UI
-        // This ensures the old messages are cleared before the new ones are added
+        let targetUserArticle = null;
         if (dom.messageList) {
-          const rows = Array.from(dom.messageList.querySelectorAll('.message-row'));
-          const targetRowIndex = rows.findIndex((row) => {
-            const article = row.querySelector('article[data-message-id]');
-            return article && article.dataset.messageId === messageId;
-          });
-
-          if (targetRowIndex >= 0) {
-            for (let i = rows.length - 1; i >= targetRowIndex; i -= 1) {
-              rows[i].remove();
-            }
-
-            const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
-            const targetUserIndex = userArticles.findIndex((article) => article.dataset.messageId === messageId);
-            const selectedChatState = getChatState();
-            if (targetUserIndex >= 0 && Array.isArray(selectedChatState?.attachmentHistory)) {
-              selectedChatState.attachmentHistory = selectedChatState.attachmentHistory.slice(0, targetUserIndex);
-            }
-          } else {
-            clearMessageListToWelcome();
-            const selectedChatState = getChatState();
-            if (selectedChatState) selectedChatState.attachmentHistory = [];
-          }
+          const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
+          targetUserArticle = userArticles.find((article) => article.dataset.messageId === messageId) || null;
+        }
+        if (targetUserArticle) {
+          truncateDomFromUserArticle(targetUserArticle);
+        } else {
+          clearMessageListToWelcome();
+          const selectedChatState = getChatState();
+          if (selectedChatState) selectedChatState.attachmentHistory = [];
         }
         
         // Now send the edited message to LLM for processing

@@ -719,13 +719,46 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .message-row .message-timestamp { opacity: .55; transition: opacity 140ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .message-row:hover .message-timestamp { opacity: 1; }
+.message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.message-actions-assistant { margin-right: auto; }
+.message-action-btn {
+  border: 1px solid var(--portal-border);
+  border-radius: 10px;
+  background: var(--portal-surface);
+  color: var(--portal-text-muted);
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 140ms cubic-bezier(0.2, 0.8, 0.2, 1), color 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.message-action-btn:hover {
+  background: var(--portal-surface-soft);
+  color: var(--portal-text);
+}
+.message-action-btn:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
 .edit-msg-btn { margin-top: 6px; margin-left: auto; border: 1px solid var(--portal-border); border-radius: 10px; background: var(--portal-surface); color: var(--portal-text-muted); width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 140ms cubic-bezier(0.2, 0.8, 0.2, 1), background 140ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .message-row:hover .edit-msg-btn,
 .message-row:focus-within .edit-msg-btn { opacity: 1; }
+.message-row:hover .message-actions,
+.message-row:focus-within .message-actions { opacity: 1; }
 
 @media (hover: none) {
   .message-row .message-timestamp,
-  .edit-msg-btn { opacity: 1; }
+  .edit-msg-btn,
+  .message-actions { opacity: 1; }
 }
 
 .portal-tool-panel {
