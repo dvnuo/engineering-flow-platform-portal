@@ -858,6 +858,21 @@ def test_thinking_process_panel_renders_lucide_timeline_icons_in_persisted_panel
                 },
             },
         ],
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert 'data-lucide="brain"' in response.text
+    assert 'data-lucide="wrench"' in response.text
+    assert 'data-lucide="gauge"' in response.text
+    assert ">•</span>" not in response.text
+    assert "llm_thinking · Reasoning" in response.text
+    assert "tool_call · Calling bash" in response.text
+    assert "context_snapshot · 42.0% used · pre_request" in response.text
+
+
 def test_thinking_process_panel_renders_copy_controls_for_advanced_debug(monkeypatch):
     chatlog = {
         "llm_debug": {
@@ -880,13 +895,17 @@ def test_thinking_process_panel_renders_copy_controls_for_advanced_debug(monkeyp
     response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
 
     assert response.status_code == 200
-    assert 'data-lucide="brain"' in response.text
-    assert 'data-lucide="wrench"' in response.text
-    assert 'data-lucide="gauge"' in response.text
-    assert ">•</span>" not in response.text
-    assert "llm_thinking · Reasoning" in response.text
-    assert "tool_call · Calling bash" in response.text
-    assert "context_snapshot · 42.0% used · pre_request" in response.text
+    assert "Advanced Debug" in response.text
+    assert "SYSTEM PROMPT TEXT" in response.text
+    assert response.text.count('data-copy-debug-text="1"') == 4
+    assert response.text.count('data-copyable-text-block="1"') == 4
+    assert response.text.count('data-copy-source="1"') == 4
+    assert 'data-copy-label="System Prompt"' in response.text
+    assert 'data-copy-label="Request Flow"' in response.text
+    assert 'data-copy-label="Available Tools"' in response.text
+    assert 'data-copy-label="Final Response"' in response.text
+    assert 'aria-label="Copy System Prompt"' in response.text
+    assert 'data-lucide="copy"' in response.text
 
 
 def test_thinking_process_view_uses_whitelisted_icon_mapping_not_payload_icon():
@@ -931,14 +950,3 @@ def test_thinking_process_view_falls_back_to_circle_for_unknown_event_type():
     assert event["icon"] == "circle"
     assert event["display_title"] == "Custom Unknown Event"
     assert event["display_detail"] == ""
-    assert "Advanced Debug" in response.text
-    assert "SYSTEM PROMPT TEXT" in response.text
-    assert response.text.count('data-copy-debug-text="1"') == 4
-    assert response.text.count('data-copyable-text-block="1"') == 4
-    assert response.text.count('data-copy-source="1"') == 4
-    assert 'data-copy-label="System Prompt"' in response.text
-    assert 'data-copy-label="Request Flow"' in response.text
-    assert 'data-copy-label="Available Tools"' in response.text
-    assert 'data-copy-label="Final Response"' in response.text
-    assert 'aria-label="Copy System Prompt"' in response.text
-    assert 'data-lucide="copy"' in response.text
