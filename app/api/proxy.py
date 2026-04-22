@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from pathlib import PurePosixPath
 logger = logging.getLogger(__name__)
 from urllib.parse import urlencode
 
@@ -71,6 +72,49 @@ def _is_control_plane_only_runtime_path(subpath: str) -> bool:
 
 def _filter_proxy_query_items(query_items):
     return [(k, v) for k, v in query_items if k.lower() != "token"]
+
+
+def _safe_download_filename(name: str, fallback: str = "download") -> str:
+    candidate = str(name or "")
+    candidate = candidate.replace("\r", "").replace("\n", "").replace("\t", "").replace("\x00", "")
+    candidate = candidate.replace("/", "").replace("\\", "").replace('"', "'").strip()
+    return candidate or fallback
+
+
+def _attachment_content_disposition(filename: str) -> str:
+    safe_filename = _safe_download_filename(filename, fallback="download")
+    return f'attachment; filename="{safe_filename}"'
+
+
+def _is_zip_content_type(content_type: str | None) -> bool:
+    if not content_type:
+        return False
+    return "application/zip" in content_type.lower()
+
+
+def _server_files_download_fallback_filename(query_items, content_type: str) -> str:
+    paths = [value for key, value in query_items if key == "paths" and value]
+    if not paths:
+        single_path = next((value for key, value in query_items if key == "path" and value), "")
+        if single_path:
+            paths = [single_path]
+
+    if len(paths) > 1:
+        return "server-files-selection.zip"
+
+    selected_path = paths[0] if paths else ""
+    basename = PurePosixPath(selected_path).name if selected_path else ""
+
+    if _is_zip_content_type(content_type):
+        if basename:
+            if not basename.lower().endswith(".zip"):
+                basename = f"{basename}.zip"
+        else:
+            basename = "server-files.zip"
+    elif not basename:
+        basename = "server-files"
+
+    return _safe_download_filename(basename, fallback="server-files.zip" if _is_zip_content_type(content_type) else "server-files")
 
 
 
@@ -252,11 +296,28 @@ async def proxy_agent(
                 background=BackgroundTask(_close_stream_resources),
             )
 
+        filtered_query_items = _filter_proxy_query_items(request.query_params.multi_items())
+        if request.method.upper() == "GET" and normalized_subpath == "api/server-files/download":
+            status_code, content, content_type, response_headers = await proxy_service.forward(
+                agent=agent,
+                method=request.method,
+                subpath=subpath,
+                query_items=filtered_query_items,
+                body=request_body,
+                headers=forward_headers,
+                extra_headers=extra_headers,
+                return_response_headers=True,
+            )
+            if status_code < 400 and "Content-Disposition" not in response_headers:
+                fallback_filename = _server_files_download_fallback_filename(filtered_query_items, content_type)
+                response_headers["Content-Disposition"] = _attachment_content_disposition(fallback_filename)
+            return Response(status_code=status_code, content=content, media_type=content_type, headers=response_headers)
+
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
             method=request.method,
             subpath=subpath,
-            query_items=_filter_proxy_query_items(request.query_params.multi_items()),
+            query_items=filtered_query_items,
             body=request_body,
             headers=forward_headers,
             extra_headers=extra_headers,

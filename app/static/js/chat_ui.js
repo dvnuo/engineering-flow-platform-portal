@@ -4555,7 +4555,14 @@ function downloadSelectedFiles(paths) {
   // Use repeated query params to avoid comma ambiguity
   const url = new URL(`${window.location.origin}/a/${state.selectedAgentId}/api/server-files/download`);
   paths.forEach(p => url.searchParams.append('paths', p));
-  window.open(url.toString());
+
+  const link = document.createElement('a');
+  link.href = url.toString();
+  link.download = '';
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 async function previewServerFile(filePath, currentDir, rootPath) {
