@@ -843,12 +843,19 @@ def test_thinking_process_panel_renders_lucide_timeline_icons_in_persisted_panel
         "session_id": "s-1",
         "runtime_events": [
             {
-                "event_type": "execution.started",
-                "detail_payload": {"message": "Started run"},
+                "event_type": "llm_thinking",
+                "detail_payload": {"message": "Reasoning"},
             },
             {
                 "event_type": "tool_call",
-                "detail_payload": {"tool": "search_docs"},
+                "detail_payload": {"tool": "bash"},
+            },
+            {
+                "event_type": "context_snapshot",
+                "detail_payload": {
+                    "stage": "pre_request",
+                    "budget": {"usage_percent": 42.0},
+                },
             },
         ],
     }
@@ -857,9 +864,13 @@ def test_thinking_process_panel_renders_lucide_timeline_icons_in_persisted_panel
     response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
 
     assert response.status_code == 200
-    assert 'data-lucide="play-circle"' in response.text
+    assert 'data-lucide="brain"' in response.text
     assert 'data-lucide="wrench"' in response.text
-    assert '<span class="portal-timeline-event-icon">•</span>' not in response.text
+    assert 'data-lucide="gauge"' in response.text
+    assert ">•</span>" not in response.text
+    assert "llm_thinking · Reasoning" in response.text
+    assert "tool_call · Calling bash" in response.text
+    assert "context_snapshot · 42.0% used · pre_request" in response.text
 
 
 def test_thinking_process_view_uses_whitelisted_icon_mapping_not_payload_icon():
@@ -881,3 +892,26 @@ def test_thinking_process_view_uses_whitelisted_icon_mapping_not_payload_icon():
 
     assert view["events"][0]["icon"] == "wrench"
     assert view["events"][0]["display_title"] == "Tool Call"
+
+
+def test_thinking_process_view_falls_back_to_circle_for_unknown_event_type():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    view = build_thinking_process_view(
+        {
+            "runtime_events": [
+                {
+                    "event_type": "custom_unknown_event",
+                    "detail_payload": {
+                        "icon": "skull",
+                        "message": "Something custom",
+                    },
+                }
+            ]
+        }
+    )
+
+    event = view["events"][0]
+    assert event["icon"] == "circle"
+    assert event["display_title"] == "Custom Unknown Event"
+    assert event["display_detail"] == ""
