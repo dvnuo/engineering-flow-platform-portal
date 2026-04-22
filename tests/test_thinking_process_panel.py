@@ -836,3 +836,38 @@ def test_thinking_process_panel_renders_max_chat_output_chars_placeholder_for_no
     response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
     assert response.status_code == 200
     assert "Max chat output chars:" not in response.text
+
+
+def test_thinking_process_panel_renders_copy_controls_for_advanced_debug(monkeypatch):
+    chatlog = {
+        "llm_debug": {
+            "llm_request": {
+                "request": {
+                    "instructions": "SYSTEM PROMPT TEXT\nline 2",
+                    "input": [{"role": "user", "content": "hello"}],
+                    "tools": [{"type": "function", "name": "bash"}],
+                },
+                "response": {
+                    "content": "final text",
+                    "usage": {"input_tokens": 1, "output_tokens": 2},
+                },
+            },
+            "final_response": "final text",
+        },
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Advanced Debug" in response.text
+    assert "SYSTEM PROMPT TEXT" in response.text
+    assert response.text.count('data-copy-debug-text="1"') == 4
+    assert response.text.count('data-copyable-text-block="1"') == 4
+    assert response.text.count('data-copy-source="1"') == 4
+    assert 'data-copy-label="System Prompt"' in response.text
+    assert 'data-copy-label="Request Flow"' in response.text
+    assert 'data-copy-label="Available Tools"' in response.text
+    assert 'data-copy-label="Final Response"' in response.text
+    assert 'aria-label="Copy System Prompt"' in response.text
+    assert 'data-lucide="copy"' in response.text

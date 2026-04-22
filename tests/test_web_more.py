@@ -1643,3 +1643,28 @@ async function runScenario(mode) {{
     assert len(data["missingStatus"]["clearedIntervals"]) >= 2
     assert data["missingStatus"]["statusText"] != "Waiting for authorization..."
     assert "missing status" in data["missingStatus"]["statusText"]
+
+
+def test_thinking_process_advanced_debug_copy_controls_are_wired():
+    template = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    css = Path("app/static/css/app.css").read_text(encoding="utf-8")
+
+    assert 'data-copy-debug-text="1"' in template
+    assert 'data-copyable-text-block="1"' in template
+    assert 'data-copy-source="1"' in template
+    assert 'data-copy-label="System Prompt"' in template
+    assert 'data-copy-label="Request Flow"' in template
+    assert 'data-copy-label="Available Tools"' in template
+    assert 'data-copy-label="Final Response"' in template
+
+    assert 'target?.closest("[data-copy-debug-text]")' in js
+    assert 'closest("[data-copyable-text-block]")' in js
+    assert 'querySelector("[data-copy-source]")' in js
+    assert "copyText(text)" in js
+    assert "setDebugCopyButtonCopied" in js
+    assert "Copied to clipboard" in js
+
+    assert ".portal-copy-icon-btn" in css
+    assert ".portal-copy-icon-btn.is-copied" in css
+    assert ".portal-copyable-text-head" in css

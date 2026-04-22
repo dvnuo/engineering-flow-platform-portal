@@ -1725,6 +1725,58 @@ async function copyText(text) {
   return copied;
 }
 
+
+function setDebugCopyButtonCopied(button) {
+  const label = button?.dataset?.copyLabel || "text";
+  const token = String(Date.now());
+  button.dataset.copyStateToken = token;
+  button.classList.add("is-copied");
+  button.title = `Copied ${label}`;
+  button.setAttribute("aria-label", `Copied ${label}`);
+  button.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i>';
+  renderIcons();
+
+  window.setTimeout(() => {
+    if (button.dataset.copyStateToken !== token) return;
+    button.classList.remove("is-copied");
+    button.title = `Copy ${label}`;
+    button.setAttribute("aria-label", `Copy ${label}`);
+    button.innerHTML = '<i data-lucide="copy" class="w-4 h-4"></i>';
+    delete button.dataset.copyStateToken;
+    renderIcons();
+  }, 1400);
+}
+
+document.addEventListener("click", async (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-copy-debug-text]");
+  if (!button) return;
+
+  const block = button.closest("[data-copyable-text-block]");
+  const source = block?.querySelector("[data-copy-source]");
+  const text = source?.textContent || "";
+
+  if (!text.trim()) {
+    showToast("Nothing to copy");
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const copied = await copyText(text);
+    if (copied) {
+      setDebugCopyButtonCopied(button);
+      showToast("Copied to clipboard");
+    } else {
+      showToast("Copy failed");
+    }
+  } catch (error) {
+    showToast("Copy failed");
+  } finally {
+    button.disabled = false;
+  }
+});
+
 function enhanceMarkdownBlock(root) {
   if (!root) return;
   root.querySelectorAll("a").forEach((anchor) => {

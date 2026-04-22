@@ -303,10 +303,78 @@
 
   <details class="portal-debug-details">
     <summary>Advanced Debug</summary>
-    {% if debug.get('system_prompt') %}<div class="portal-panel-section"><div class="portal-detail-label">System Prompt</div><pre class="portal-panel-pre">{{ debug.get('system_prompt') }}</pre></div>{% endif %}
-    {% if debug.get('request_items') %}<div class="portal-panel-section"><div class="portal-detail-label">Request Flow</div><pre class="portal-panel-pre">{{ debug.get('request_items')|tojson(indent=2) }}</pre></div>{% endif %}
-    {% if debug.get('available_tools') %}<div class="portal-panel-section"><div class="portal-detail-label">Available Tools</div><pre class="portal-panel-pre">{{ debug.get('available_tools')|tojson(indent=2) }}</pre></div>{% endif %}
-    {% if debug.get('final_response') %}<div class="portal-panel-section"><div class="portal-detail-label">Final Response</div><pre class="portal-panel-pre">{{ debug.get('final_response') }}</pre></div>{% endif %}
+    {% if debug.get('system_prompt') %}
+    <div class="portal-panel-section portal-copyable-text-block" data-copyable-text-block="1">
+      <div class="portal-panel-header portal-copyable-text-head">
+        <div class="portal-detail-label">System Prompt</div>
+        <button
+          type="button"
+          class="portal-copy-icon-btn"
+          data-copy-debug-text="1"
+          data-copy-label="System Prompt"
+          aria-label="Copy System Prompt"
+          title="Copy System Prompt"
+        >
+          <i data-lucide="copy" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <pre class="portal-panel-pre" data-copy-source="1">{{ debug.get('system_prompt') }}</pre>
+    </div>
+    {% endif %}
+    {% if debug.get('request_items') %}
+    <div class="portal-panel-section portal-copyable-text-block" data-copyable-text-block="1">
+      <div class="portal-panel-header portal-copyable-text-head">
+        <div class="portal-detail-label">Request Flow</div>
+        <button
+          type="button"
+          class="portal-copy-icon-btn"
+          data-copy-debug-text="1"
+          data-copy-label="Request Flow"
+          aria-label="Copy Request Flow"
+          title="Copy Request Flow"
+        >
+          <i data-lucide="copy" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <pre class="portal-panel-pre" data-copy-source="1">{{ debug.get('request_items')|tojson(indent=2) }}</pre>
+    </div>
+    {% endif %}
+    {% if debug.get('available_tools') %}
+    <div class="portal-panel-section portal-copyable-text-block" data-copyable-text-block="1">
+      <div class="portal-panel-header portal-copyable-text-head">
+        <div class="portal-detail-label">Available Tools</div>
+        <button
+          type="button"
+          class="portal-copy-icon-btn"
+          data-copy-debug-text="1"
+          data-copy-label="Available Tools"
+          aria-label="Copy Available Tools"
+          title="Copy Available Tools"
+        >
+          <i data-lucide="copy" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <pre class="portal-panel-pre" data-copy-source="1">{{ debug.get('available_tools')|tojson(indent=2) }}</pre>
+    </div>
+    {% endif %}
+    {% if debug.get('final_response') %}
+    <div class="portal-panel-section portal-copyable-text-block" data-copyable-text-block="1">
+      <div class="portal-panel-header portal-copyable-text-head">
+        <div class="portal-detail-label">Final Response</div>
+        <button
+          type="button"
+          class="portal-copy-icon-btn"
+          data-copy-debug-text="1"
+          data-copy-label="Final Response"
+          aria-label="Copy Final Response"
+          title="Copy Final Response"
+        >
+          <i data-lucide="copy" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <pre class="portal-panel-pre" data-copy-source="1">{{ debug.get('final_response') }}</pre>
+    </div>
+    {% endif %}
   </details>
 {% endif %}
 </div>
