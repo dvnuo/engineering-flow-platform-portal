@@ -1880,6 +1880,7 @@ console.log(JSON.stringify({{ disabled: dom.sendChatBtn.disabled }}));
 
 
 def test_start_new_chat_is_blocked_while_selected_agent_request_active():
+    # Regression guard: prevent New Chat from clearing/rewiring session during active request.
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1947,6 +1948,7 @@ chatState.sessionId = "s-a";
 
 
 def test_submit_chat_has_active_request_guard_regression():
+    # Source-level guard to prevent accidental rollback to silent duplicate-send behavior.
     js_source = _chat_ui_js_source()
     submit_start = js_source.find("async function submitChatForSelectedAgent()")
     assert submit_start >= 0
@@ -1955,6 +1957,7 @@ def test_submit_chat_has_active_request_guard_regression():
 
 
 def test_derive_session_recovery_notice_for_failed_metadata():
+    # Recovery notice must stay explicit for failed/error metadata after refresh.
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1977,6 +1980,7 @@ console.log(JSON.stringify({{ byType, byState }}));
 
 
 def test_derive_session_recovery_notice_for_running_metadata():
+    # Running notice is intentionally conservative and must not imply restored live progress.
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1994,11 +1998,14 @@ console.log(JSON.stringify({{ byType, byState }}));
     data = json.loads(completed.stdout)
     assert data["byType"]["level"] == "warning"
     assert ("interrupted" in data["byType"]["message"].lower()) or ("still be running" in data["byType"]["message"].lower())
+    assert "cannot be resumed" in data["byType"]["message"].lower()
     assert data["byState"]["level"] == "warning"
     assert ("interrupted" in data["byState"]["message"].lower()) or ("still be running" in data["byState"]["message"].lower())
+    assert "cannot be resumed" in data["byState"]["message"].lower()
 
 
 def test_load_session_uses_recovery_notice_only_when_not_locally_active():
+    # Source-level regression: avoid overwriting local live status while active request exists.
     js_source = _chat_ui_js_source()
     assert "function deriveSessionRecoveryNotice(" in js_source
     load_start = js_source.find("async function loadSessionForAgent(")
@@ -2009,6 +2016,7 @@ def test_load_session_uses_recovery_notice_only_when_not_locally_active():
 
 
 def test_success_completion_clears_active_request_before_resyncing_controls():
+    # Order regression: controls should re-sync only after active/inflight flags are cleared.
     js_source = _chat_ui_js_source()
     success_start = js_source.find("async function handleAgentChatSuccess")
     assert success_start >= 0
@@ -2029,6 +2037,7 @@ def test_success_completion_clears_active_request_before_resyncing_controls():
 
 
 def test_failure_completion_marks_inflight_done_before_resyncing_controls():
+    # Order regression for failure path mirrors success-path control re-sync guarantees.
     js_source = _chat_ui_js_source()
     failure_start = js_source.find("function handleAgentChatFailure")
     assert failure_start >= 0
@@ -2046,6 +2055,7 @@ def test_failure_completion_marks_inflight_done_before_resyncing_controls():
 
 
 def test_event_message_does_not_claim_empty_session_without_matching_request():
+    # Core stale-event guard: no claim + no false-busy side effects on unmatched old events.
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -2114,6 +2124,7 @@ console.log(JSON.stringify({{
 
 
 def test_event_message_can_claim_empty_session_when_matching_active_request():
+    # Positive path: matching active request can still bind new runtime session_id.
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")

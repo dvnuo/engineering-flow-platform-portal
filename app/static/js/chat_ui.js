@@ -392,6 +392,8 @@ function currentSessionIdForAgent(agentId) {
 function hasActiveChatRequestForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return false;
+  // Phase-A constraint: one in-flight chat request per agent.
+  // This keeps guard behavior deterministic without per-session concurrency state.
   return Boolean(
     chatState.isSubmitting
     || chatState.activeRequest
@@ -1447,6 +1449,8 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     && !currentSessionId
     && !(eventMatchesActiveRequest || eventMatchesSocketRequest || eventMatchesLastCompletedRequest)
   ) {
+    // Drop unmatched stale events when no current session is bound.
+    // Otherwise they can recreate inflightThinking and cause false busy/session pollution.
     return;
   }
 
@@ -4200,6 +4204,8 @@ function renderChatHistory(messages, metadata = {}) {
 function deriveSessionRecoveryNotice(metadata = {}) {
   const latestEventType = typeof metadata.latest_event_type === "string" ? metadata.latest_event_type : "";
   const latestEventState = typeof metadata.latest_event_state === "string" ? metadata.latest_event_state : "";
+  // UX-only hint after refresh; this is not live progress recovery/reattach.
+  // Keep wording conservative so users are not told work was resumed.
 
   if (latestEventType === "chat.failed" || latestEventState === "error") {
     return {
