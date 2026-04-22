@@ -1954,6 +1954,60 @@ def test_submit_chat_has_active_request_guard_regression():
     assert 'guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")' in submit_slice
 
 
+def test_derive_session_recovery_notice_for_failed_metadata():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    derive_notice = _extract_js_function(js_file, "deriveSessionRecoveryNotice")
+
+    script = f"""
+{derive_notice}
+const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.failed" }});
+const byState = deriveSessionRecoveryNotice({{ latest_event_state: "error" }});
+console.log(JSON.stringify({{ byType, byState }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["byType"]["level"] == "error"
+    assert "failed" in data["byType"]["message"].lower()
+    assert data["byState"]["level"] == "error"
+    assert "failed" in data["byState"]["message"].lower()
+
+
+def test_derive_session_recovery_notice_for_running_metadata():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    derive_notice = _extract_js_function(js_file, "deriveSessionRecoveryNotice")
+
+    script = f"""
+{derive_notice}
+const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.started" }});
+const byState = deriveSessionRecoveryNotice({{ latest_event_state: "running" }});
+console.log(JSON.stringify({{ byType, byState }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["byType"]["level"] == "warning"
+    assert ("interrupted" in data["byType"]["message"].lower()) or ("still be running" in data["byType"]["message"].lower())
+    assert data["byState"]["level"] == "warning"
+    assert ("interrupted" in data["byState"]["message"].lower()) or ("still be running" in data["byState"]["message"].lower())
+
+
+def test_load_session_uses_recovery_notice_only_when_not_locally_active():
+    js_source = _chat_ui_js_source()
+    assert "function deriveSessionRecoveryNotice(" in js_source
+    load_start = js_source.find("async function loadSessionForAgent(")
+    assert load_start >= 0
+    load_slice = js_source[load_start: load_start + 2200]
+    assert "!hasActiveChatRequestForAgent(agentId)" in load_slice
+    assert "setChatStatus(recoveryNotice.message, recoveryNotice.level === \"error\")" in load_slice
+
+
 def test_success_completion_clears_active_request_before_resyncing_controls():
     js_source = _chat_ui_js_source()
     success_start = js_source.find("async function handleAgentChatSuccess")

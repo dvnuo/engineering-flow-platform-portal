@@ -4197,6 +4197,27 @@ function renderChatHistory(messages, metadata = {}) {
   scrollToBottom();
 }
 
+function deriveSessionRecoveryNotice(metadata = {}) {
+  const latestEventType = typeof metadata.latest_event_type === "string" ? metadata.latest_event_type : "";
+  const latestEventState = typeof metadata.latest_event_state === "string" ? metadata.latest_event_state : "";
+
+  if (latestEventType === "chat.failed" || latestEventState === "error") {
+    return {
+      level: "error",
+      message: "The previous request failed. You can review the last system error and retry.",
+    };
+  }
+
+  if (latestEventType === "chat.started" || latestEventState === "running") {
+    return {
+      level: "warning",
+      message: "The previous request may still be running or was interrupted. Live progress cannot be resumed after refresh yet.",
+    };
+  }
+
+  return null;
+}
+
 async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
@@ -4223,6 +4244,12 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     renderChatHistory(data.messages || [], data.metadata || {});
     addEditButtonsToMessages();
     setChatStatus(`Loaded session ${normalized}`);
+    if (agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId)) {
+      const recoveryNotice = deriveSessionRecoveryNotice(data.metadata || {});
+      if (recoveryNotice) {
+        setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
+      }
+    }
   }
 }
 
