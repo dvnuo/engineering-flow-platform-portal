@@ -389,6 +389,56 @@ function currentSessionIdForAgent(agentId) {
   return ensureChatState(agentId)?.sessionId || "";
 }
 
+function hasActiveChatRequestForAgent(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return false;
+  // Phase-A constraint: one in-flight chat request per agent.
+  // This keeps guard behavior deterministic without per-session concurrency state.
+  return Boolean(
+    chatState.isSubmitting
+    || chatState.activeRequest
+    || (chatState.inflightThinking && chatState.inflightThinking.completed === false)
+  );
+}
+
+function activeChatRequestMessage(actionLabel = "perform this action") {
+  return `This assistant is still working in the current session. Please wait until it finishes before you ${actionLabel}.`;
+}
+
+function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this action") {
+  if (!hasActiveChatRequestForAgent(agentId)) return true;
+  const message = activeChatRequestMessage(actionLabel);
+  showToast(message);
+  setChatStatus(message, true);
+  return false;
+}
+
+function syncSelectedAgentChatActionControls() {
+  const agentId = state.selectedAgentId;
+  const sessionsBtn = document.getElementById("btn-sessions");
+  if (!agentId) {
+    setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
+    setButtonDisabled(sessionsBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
+    if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
+    return;
+  }
+
+  const busy = hasActiveChatRequestForAgent(agentId);
+  const status = getSelectedAgentStatus();
+  const needsStart = status !== "running";
+  const disabled = busy || needsStart;
+  const title = busy
+    ? "This assistant is still working in the current session."
+    : "Start the assistant from Assistant details first";
+
+  setButtonDisabled(dom.headerNewChatBtn, disabled, disabled ? title : "");
+  setButtonDisabled(sessionsBtn, disabled, disabled ? title : "");
+  setButtonDisabled(dom.homeStartChatBtn, disabled, disabled ? title : "");
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = busy || needsStart;
+}
+
+
 const md = window.markdownit({
   html: false,
   linkify: true,
@@ -1379,8 +1429,30 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
-  const currentRequestId = socketCtx.requestId || chatState.activeRequest?.clientRequestId || "";
+  const activeRequestId = chatState.activeRequest?.clientRequestId || "";
+  const socketRequestId = socketCtx.requestId || "";
+  const currentRequestId = socketRequestId || activeRequestId;
   if (entry.request_id && currentRequestId && entry.request_id !== currentRequestId) return;
+  const eventMatchesActiveRequest = Boolean(
+    entry.request_id && activeRequestId && entry.request_id === activeRequestId
+  );
+  const eventMatchesSocketRequest = Boolean(
+    entry.request_id && socketRequestId && entry.request_id === socketRequestId
+  );
+  const eventMatchesLastCompletedRequest = Boolean(
+    entry.request_id
+    && chatState.lastCompletedRequestId
+    && entry.request_id === chatState.lastCompletedRequestId
+  );
+  if (
+    entry.session_id
+    && !currentSessionId
+    && !(eventMatchesActiveRequest || eventMatchesSocketRequest || eventMatchesLastCompletedRequest)
+  ) {
+    // Drop unmatched stale events when no current session is bound.
+    // Otherwise they can recreate inflightThinking and cause false busy/session pollution.
+    return;
+  }
 
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
@@ -1391,9 +1463,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
 
   const isLateEventForCompletedRequest = Boolean(
     !chatState.activeRequest
-    && entry.request_id
-    && chatState.lastCompletedRequestId
-    && entry.request_id === chatState.lastCompletedRequestId
+    && eventMatchesLastCompletedRequest
     && chatState.lastThinkingSnapshot
   );
 
@@ -1430,7 +1500,11 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   if (entry.session_id && !chatState.inflightThinking.sessionId) {
     chatState.inflightThinking.sessionId = entry.session_id;
   }
-  if (entry.session_id && !chatState.sessionId) {
+  if (
+    entry.session_id
+    && !chatState.sessionId
+    && (eventMatchesActiveRequest || eventMatchesSocketRequest)
+  ) {
     chatState.sessionId = entry.session_id;
     state.agentSessionIds.set(currentAgentId, entry.session_id);
     if (currentAgentId === state.selectedAgentId && dom.chatSessionId) {
@@ -2109,7 +2183,12 @@ function setChatSubmittingForAgent(agentId, active) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.isSubmitting = !!active;
-  if (agentId === state.selectedAgentId && dom.sendChatBtn) dom.sendChatBtn.disabled = !!active;
+  if (agentId !== state.selectedAgentId) return;
+  if (typeof syncSelectedAgentChatActionControls === "function") {
+    syncSelectedAgentChatActionControls();
+    return;
+  }
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = !!chatState.isSubmitting;
 }
 
 function setChatSubmitting(active) {
@@ -2165,7 +2244,7 @@ function restoreComposerForAgent(agentId) {
   syncChatInputHeight();
   renderInputPreview();
   renderComposerModelSelectorForAgent(agentId);
-  if (dom.sendChatBtn) dom.sendChatBtn.disabled = !!chatState.isSubmitting;
+  if (agentId === state.selectedAgentId) syncSelectedAgentChatActionControls();
 }
 
 function markAgentUnread(agentId, status) {
@@ -2533,10 +2612,7 @@ async function syncSelectedAgentState() {
   dom.selectedStatus.textContent = status;
   dom.selectedStatus.className = `toolbar-status-badge status-${status}`;
   setChatStatus("Ready");
-  const needsStart = status !== "running";
-  setButtonDisabled(dom.headerNewChatBtn, needsStart, "Start the assistant from Assistant details first");
-  setButtonDisabled(sessionsBtn, needsStart, "Start the assistant from Assistant details first");
-  setButtonDisabled(dom.homeStartChatBtn, needsStart, "Start the assistant from Assistant details first");
+  syncSelectedAgentChatActionControls();
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
   dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
   if (dom.homeAgentSummary) {
@@ -2671,7 +2747,7 @@ async function submitChatForSelectedAgent() {
   const agentIdAtSend = state.selectedAgentId;
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
-  if (chatState.isSubmitting) return;
+  if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   const uploadingFiles = chatState.pendingFiles.filter((pf) => pf.status === "uploading");
   if (uploadingFiles.length) {
     showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
@@ -2849,12 +2925,12 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   };
   chatState.lastThinkingSnapshot = finalThinkingSnapshot;
   const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
-  setChatSubmittingForAgent(agentIdAtSend, false);
   chatState.activeRequest = null;
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
+  setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
     if (canRenderThinkingPanel) {
       if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
@@ -2943,7 +3019,6 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     !!chatState.didAppendAttachmentHistoryForPendingSend &&
     Array.isArray(chatState.attachmentHistory) &&
     chatState.attachmentHistory.length > 0;
-  setChatSubmittingForAgent(agentIdAtSend, false);
   chatState.activeRequest = null;
   chatState.didAppendAttachmentHistoryForPendingSend = false;
   const errorMsg = error?.message || "Send failed";
@@ -2962,6 +3037,7 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     chatState.inflightThinking.completed = true;
     chatState.lastThinkingSnapshot = { ...chatState.inflightThinking };
   }
+  setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
     if (shouldRollbackAttachmentHistory) {
       chatState.attachmentHistory.pop();
@@ -4125,14 +4201,46 @@ function renderChatHistory(messages, metadata = {}) {
   scrollToBottom();
 }
 
+function deriveSessionRecoveryNotice(metadata = {}) {
+  const latestEventType = typeof metadata.latest_event_type === "string" ? metadata.latest_event_type : "";
+  const latestEventState = typeof metadata.latest_event_state === "string" ? metadata.latest_event_state : "";
+  // UX-only hint after refresh; this is not live progress recovery/reattach.
+  // Keep wording conservative so users are not told work was resumed.
+
+  if (latestEventType === "chat.failed" || latestEventState === "error") {
+    return {
+      level: "error",
+      message: "The previous request failed. You can review the last system error and retry.",
+    };
+  }
+
+  if (latestEventType === "chat.started" || latestEventState === "running") {
+    return {
+      level: "warning",
+      message: "The previous request may still be running or was interrupted. Live progress cannot be resumed after refresh yet.",
+    };
+  }
+
+  return null;
+}
+
 async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
 
+  const chatState = ensureChatState(agentId);
+  if (render && hasActiveChatRequestForAgent(agentId)) {
+    const currentSessionId = chatState?.sessionId || "";
+    if (normalized !== currentSessionId) {
+      guardNoActiveChatRequestForAgent(agentId, "switch sessions");
+      return;
+    }
+  }
+
   const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(normalized)}`);
   updateAgentSession(agentId, normalized);
-  const chatState = ensureChatState(agentId);
-  if (chatState) chatState.needsReload = false;
+  const latestChatState = ensureChatState(agentId);
+  if (latestChatState) latestChatState.needsReload = false;
   if (render) {
     // Ensure agent name is set
     if (!state.selectedAgentName && state.selectedAgentId) {
@@ -4142,6 +4250,12 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     renderChatHistory(data.messages || [], data.metadata || {});
     addEditButtonsToMessages();
     setChatStatus(`Loaded session ${normalized}`);
+    if (agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId)) {
+      const recoveryNotice = deriveSessionRecoveryNotice(data.metadata || {});
+      if (recoveryNotice) {
+        setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
+      }
+    }
   }
 }
 
@@ -5274,6 +5388,7 @@ async function setModalFeedback(el, kind, text) {
 }
 
 async function clearChat() {
+  if (!guardNoActiveChatRequestForAgent(state.selectedAgentId, "clear this chat")) return;
   try {
     const sessionId = (document.getElementById("chat-session-id")?.value || "").trim();
     if (sessionId) {
@@ -5298,10 +5413,15 @@ async function clearChat() {
 
 async function startNewChatForSelectedAgent() {
   if (!ensureRunningSelectedAssistant("start a new chat")) return;
+  if (!guardNoActiveChatRequestForAgent(state.selectedAgentId, "start a new chat")) return;
+
   closeSessionsDrawer();
   updateSelectedAgentSession("");
   const chatState = getChatState();
-  if (chatState) chatState.inflightThinking = null;
+  if (chatState) {
+    chatState.inflightThinking = null;
+    chatState.activeRequest = null;
+  }
   removeTemporaryAssistantRows();
   clearMessageListToWelcome();
   setChatSubmitting(false);

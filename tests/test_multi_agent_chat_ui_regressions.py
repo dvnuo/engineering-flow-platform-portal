@@ -1832,6 +1832,8 @@ def test_switching_to_b_while_a_submitting_reenables_send_for_b():
     js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
+    has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
+    sync_controls = _extract_js_function(js_file, "syncSelectedAgentChatActionControls")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
     restore_composer = _extract_js_function(js_file, "restoreComposerForAgent")
 
@@ -1849,14 +1851,19 @@ const attachmentsNode = {{ value: "" }};
 const document = {{
   getElementById(id) {{
     if (id === "chat-attachments") return attachmentsNode;
+    if (id === "btn-sessions") return null;
     return null;
   }},
 }};
+function setButtonDisabled() {{}}
+function getSelectedAgentStatus() {{ return "running"; }}
 function syncChatInputHeight() {{}}
 function renderInputPreview() {{}}
 function renderComposerModelSelectorForAgent() {{}}
 {create_state}
 {ensure_state}
+{has_active}
+{sync_controls}
 {set_submitting}
 {restore_composer}
 ensureChatState("agent-A");
@@ -1870,3 +1877,310 @@ console.log(JSON.stringify({{ disabled: dom.sendChatBtn.disabled }}));
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
     assert data["disabled"] is False
+
+
+def test_start_new_chat_is_blocked_while_selected_agent_request_active():
+    # Regression guard: prevent New Chat from clearing/rewiring session during active request.
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
+    active_message = _extract_js_function(js_file, "activeChatRequestMessage")
+    guard_active = _extract_js_function(js_file, "guardNoActiveChatRequestForAgent")
+    start_new_chat = _extract_js_function(js_file, "startNewChatForSelectedAgent")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const calls = {{
+  updatedSession: 0,
+  setChatSubmittingFalse: 0,
+  toast: [],
+  status: [],
+}};
+const dom = {{
+  chatInput: {{ focus() {{}} }},
+}};
+function ensureRunningSelectedAssistant() {{ return true; }}
+function showToast(message) {{ calls.toast.push(message); }}
+function setChatStatus(message, isError) {{ calls.status.push([message, !!isError]); }}
+function updateSelectedAgentSession() {{ calls.updatedSession += 1; }}
+function closeSessionsDrawer() {{}}
+function removeTemporaryAssistantRows() {{}}
+function clearMessageListToWelcome() {{}}
+function setChatSubmitting(active) {{ if (active === false) calls.setChatSubmittingFalse += 1; }}
+function resetChatInputHeight() {{}}
+function getChatState() {{ return ensureChatState(state.selectedAgentId); }}
+{create_state}
+{ensure_state}
+{has_active}
+{active_message}
+{guard_active}
+{start_new_chat}
+const chatState = ensureChatState("agent-A");
+chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.sessionId = "s-a";
+(async () => {{
+  await startNewChatForSelectedAgent();
+  console.log(JSON.stringify({{
+    updatedSession: calls.updatedSession,
+    setChatSubmittingFalse: calls.setChatSubmittingFalse,
+    sessionId: chatState.sessionId,
+    toast: calls.toast,
+    status: calls.status,
+  }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["updatedSession"] == 0
+    assert data["setChatSubmittingFalse"] == 0
+    assert data["sessionId"] == "s-a"
+    assert any("still working" in msg for msg in data["toast"])
+    assert any("still working" in item[0] and item[1] for item in data["status"])
+
+
+def test_submit_chat_has_active_request_guard_regression():
+    # Source-level guard to prevent accidental rollback to silent duplicate-send behavior.
+    js_source = _chat_ui_js_source()
+    submit_start = js_source.find("async function submitChatForSelectedAgent()")
+    assert submit_start >= 0
+    submit_slice = js_source[submit_start: submit_start + 1500]
+    assert 'guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")' in submit_slice
+
+
+def test_derive_session_recovery_notice_for_failed_metadata():
+    # Recovery notice must stay explicit for failed/error metadata after refresh.
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    derive_notice = _extract_js_function(js_file, "deriveSessionRecoveryNotice")
+
+    script = f"""
+{derive_notice}
+const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.failed" }});
+const byState = deriveSessionRecoveryNotice({{ latest_event_state: "error" }});
+console.log(JSON.stringify({{ byType, byState }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["byType"]["level"] == "error"
+    assert "failed" in data["byType"]["message"].lower()
+    assert data["byState"]["level"] == "error"
+    assert "failed" in data["byState"]["message"].lower()
+
+
+def test_derive_session_recovery_notice_for_running_metadata():
+    # Running notice is intentionally conservative and must not imply restored live progress.
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    derive_notice = _extract_js_function(js_file, "deriveSessionRecoveryNotice")
+
+    script = f"""
+{derive_notice}
+const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.started" }});
+const byState = deriveSessionRecoveryNotice({{ latest_event_state: "running" }});
+console.log(JSON.stringify({{ byType, byState }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["byType"]["level"] == "warning"
+    assert ("interrupted" in data["byType"]["message"].lower()) or ("still be running" in data["byType"]["message"].lower())
+    assert "cannot be resumed" in data["byType"]["message"].lower()
+    assert data["byState"]["level"] == "warning"
+    assert ("interrupted" in data["byState"]["message"].lower()) or ("still be running" in data["byState"]["message"].lower())
+    assert "cannot be resumed" in data["byState"]["message"].lower()
+
+
+def test_load_session_uses_recovery_notice_only_when_not_locally_active():
+    # Source-level regression: avoid overwriting local live status while active request exists.
+    js_source = _chat_ui_js_source()
+    assert "function deriveSessionRecoveryNotice(" in js_source
+    load_start = js_source.find("async function loadSessionForAgent(")
+    assert load_start >= 0
+    load_slice = js_source[load_start: load_start + 2200]
+    assert "!hasActiveChatRequestForAgent(agentId)" in load_slice
+    assert "setChatStatus(recoveryNotice.message, recoveryNotice.level === \"error\")" in load_slice
+
+
+def test_success_completion_clears_active_request_before_resyncing_controls():
+    # Order regression: controls should re-sync only after active/inflight flags are cleared.
+    js_source = _chat_ui_js_source()
+    success_start = js_source.find("async function handleAgentChatSuccess")
+    assert success_start >= 0
+    success_slice = js_source[success_start: success_start + 4500]
+
+    idx_clear_active = success_slice.find("chatState.activeRequest = null;")
+    idx_clear_inflight = success_slice.find("chatState.inflightThinking = null;")
+    idx_clear_pending = success_slice.find("chatState.pendingThinkingEvents = null;")
+    idx_resync_controls = success_slice.find("setChatSubmittingForAgent(agentIdAtSend, false);")
+
+    assert idx_clear_active >= 0
+    assert idx_clear_inflight >= 0
+    assert idx_clear_pending >= 0
+    assert idx_resync_controls >= 0
+    assert idx_clear_active < idx_resync_controls
+    assert idx_clear_inflight < idx_resync_controls
+    assert idx_clear_pending < idx_resync_controls
+
+
+def test_failure_completion_marks_inflight_done_before_resyncing_controls():
+    # Order regression for failure path mirrors success-path control re-sync guarantees.
+    js_source = _chat_ui_js_source()
+    failure_start = js_source.find("function handleAgentChatFailure")
+    assert failure_start >= 0
+    failure_slice = js_source[failure_start: failure_start + 3000]
+
+    idx_clear_active = failure_slice.find("chatState.activeRequest = null;")
+    idx_mark_done = failure_slice.find("chatState.inflightThinking.completed = true;")
+    idx_resync_controls = failure_slice.find("setChatSubmittingForAgent(agentIdAtSend, false);")
+
+    assert idx_clear_active >= 0
+    assert idx_mark_done >= 0
+    assert idx_resync_controls >= 0
+    assert idx_clear_active < idx_resync_controls
+    assert idx_mark_done < idx_resync_controls
+
+
+def test_event_message_does_not_claim_empty_session_without_matching_request():
+    # Core stale-event guard: no claim + no false-busy side effects on unmatched old events.
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    normalize_runtime_event = _extract_js_function(js_file, "normalizeRuntimeEvent")
+    is_completion = _extract_js_function(js_file, "isCompletionRuntimeState")
+    is_trackable = _extract_js_function(js_file, "isTrackableThinkingEvent")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    extract_budget = _extract_js_function(js_file, "extractContextBudget")
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+    update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
+    has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
+    handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const COMPLETION_RUNTIME_STATES = new Set(["completed", "complete", "success", "succeeded"]);
+const dom = {{ chatSessionId: {{ value: "" }} }};
+function isThinkingPanelActiveForAgent() {{ return false; }}
+function scheduleThinkingPanelRefresh() {{}}
+{create_state}
+{ensure_state}
+{normalize_runtime_event}
+{is_completion}
+{is_trackable}
+{merge_events}
+{extract_budget}
+{has_meaningful}
+{has_contents}
+{update_context}
+{has_active}
+{handle_event}
+const chatState = ensureChatState("agent-A");
+chatState.sessionId = "";
+chatState.activeRequest = null;
+handleAgentEventMessage(JSON.stringify({{
+  type: "execution.started",
+  event_type: "execution.started",
+  request_id: "old-req",
+  session_id: "session-A",
+  data: {{ message: "old event" }}
+}}), {{ agentId: "agent-A" }});
+console.log(JSON.stringify({{
+  sessionId: chatState.sessionId,
+  hasAgentSession: state.agentSessionIds.has("agent-A"),
+  domSession: dom.chatSessionId.value,
+  inflightThinking: !!chatState.inflightThinking,
+  busy: hasActiveChatRequestForAgent("agent-A"),
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["sessionId"] == ""
+    assert data["hasAgentSession"] is False
+    assert data["domSession"] == ""
+    assert data["inflightThinking"] is False
+    assert data["busy"] is False
+
+
+def test_event_message_can_claim_empty_session_when_matching_active_request():
+    # Positive path: matching active request can still bind new runtime session_id.
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    create_state = _extract_js_function(js_file, "createDefaultChatState")
+    ensure_state = _extract_js_function(js_file, "ensureChatState")
+    normalize_runtime_event = _extract_js_function(js_file, "normalizeRuntimeEvent")
+    is_completion = _extract_js_function(js_file, "isCompletionRuntimeState")
+    is_trackable = _extract_js_function(js_file, "isTrackableThinkingEvent")
+    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    extract_budget = _extract_js_function(js_file, "extractContextBudget")
+    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
+    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
+    update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
+    handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const COMPLETION_RUNTIME_STATES = new Set(["completed", "complete", "success", "succeeded"]);
+const dom = {{ chatSessionId: {{ value: "" }} }};
+function isThinkingPanelActiveForAgent() {{ return false; }}
+function scheduleThinkingPanelRefresh() {{}}
+{create_state}
+{ensure_state}
+{normalize_runtime_event}
+{is_completion}
+{is_trackable}
+{merge_events}
+{extract_budget}
+{has_meaningful}
+{has_contents}
+{update_context}
+{handle_event}
+const chatState = ensureChatState("agent-A");
+chatState.sessionId = "";
+chatState.activeRequest = {{ clientRequestId: "req-new" }};
+handleAgentEventMessage(JSON.stringify({{
+  type: "execution.started",
+  event_type: "execution.started",
+  request_id: "req-new",
+  session_id: "session-new",
+  data: {{ message: "new event" }}
+}}), {{ agentId: "agent-A" }});
+console.log(JSON.stringify({{
+  sessionId: chatState.sessionId,
+  mappedSession: state.agentSessionIds.get("agent-A"),
+  domSession: dom.chatSessionId.value,
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["sessionId"] == "session-new"
+    assert data["mappedSession"] == "session-new"
+    assert data["domSession"] == "session-new"
