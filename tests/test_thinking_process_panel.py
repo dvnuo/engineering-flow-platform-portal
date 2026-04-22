@@ -858,6 +858,22 @@ def test_thinking_process_panel_renders_lucide_timeline_icons_in_persisted_panel
                 },
             },
         ],
+def test_thinking_process_panel_renders_copy_controls_for_advanced_debug(monkeypatch):
+    chatlog = {
+        "llm_debug": {
+            "llm_request": {
+                "request": {
+                    "instructions": "SYSTEM PROMPT TEXT\nline 2",
+                    "input": [{"role": "user", "content": "hello"}],
+                    "tools": [{"type": "function", "name": "bash"}],
+                },
+                "response": {
+                    "content": "final text",
+                    "usage": {"input_tokens": 1, "output_tokens": 2},
+                },
+            },
+            "final_response": "final text",
+        },
     }
     client = _setup_thinking_panel_client(monkeypatch, chatlog)
 
@@ -915,3 +931,14 @@ def test_thinking_process_view_falls_back_to_circle_for_unknown_event_type():
     assert event["icon"] == "circle"
     assert event["display_title"] == "Custom Unknown Event"
     assert event["display_detail"] == ""
+    assert "Advanced Debug" in response.text
+    assert "SYSTEM PROMPT TEXT" in response.text
+    assert response.text.count('data-copy-debug-text="1"') == 4
+    assert response.text.count('data-copyable-text-block="1"') == 4
+    assert response.text.count('data-copy-source="1"') == 4
+    assert 'data-copy-label="System Prompt"' in response.text
+    assert 'data-copy-label="Request Flow"' in response.text
+    assert 'data-copy-label="Available Tools"' in response.text
+    assert 'data-copy-label="Final Response"' in response.text
+    assert 'aria-label="Copy System Prompt"' in response.text
+    assert 'data-lucide="copy"' in response.text
