@@ -838,6 +838,26 @@ def test_thinking_process_panel_renders_max_chat_output_chars_placeholder_for_no
     assert "Max chat output chars:" not in response.text
 
 
+def test_thinking_process_panel_renders_lucide_timeline_icons_in_persisted_panel(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "runtime_events": [
+            {
+                "event_type": "llm_thinking",
+                "detail_payload": {"message": "Reasoning"},
+            },
+            {
+                "event_type": "tool_call",
+                "detail_payload": {"tool": "bash"},
+            },
+            {
+                "event_type": "context_snapshot",
+                "detail_payload": {
+                    "stage": "pre_request",
+                    "budget": {"usage_percent": 42.0},
+                },
+            },
+        ],
 def test_thinking_process_panel_renders_copy_controls_for_advanced_debug(monkeypatch):
     chatlog = {
         "llm_debug": {
@@ -860,6 +880,57 @@ def test_thinking_process_panel_renders_copy_controls_for_advanced_debug(monkeyp
     response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
 
     assert response.status_code == 200
+    assert 'data-lucide="brain"' in response.text
+    assert 'data-lucide="wrench"' in response.text
+    assert 'data-lucide="gauge"' in response.text
+    assert ">•</span>" not in response.text
+    assert "llm_thinking · Reasoning" in response.text
+    assert "tool_call · Calling bash" in response.text
+    assert "context_snapshot · 42.0% used · pre_request" in response.text
+
+
+def test_thinking_process_view_uses_whitelisted_icon_mapping_not_payload_icon():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    view = build_thinking_process_view(
+        {
+            "runtime_events": [
+                {
+                    "event_type": "tool_call",
+                    "detail_payload": {
+                        "icon": "skull",
+                        "tool": "search_docs",
+                    },
+                }
+            ]
+        }
+    )
+
+    assert view["events"][0]["icon"] == "wrench"
+    assert view["events"][0]["display_title"] == "Tool Call"
+
+
+def test_thinking_process_view_falls_back_to_circle_for_unknown_event_type():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    view = build_thinking_process_view(
+        {
+            "runtime_events": [
+                {
+                    "event_type": "custom_unknown_event",
+                    "detail_payload": {
+                        "icon": "skull",
+                        "message": "Something custom",
+                    },
+                }
+            ]
+        }
+    )
+
+    event = view["events"][0]
+    assert event["icon"] == "circle"
+    assert event["display_title"] == "Custom Unknown Event"
+    assert event["display_detail"] == ""
     assert "Advanced Debug" in response.text
     assert "SYSTEM PROMPT TEXT" in response.text
     assert response.text.count('data-copy-debug-text="1"') == 4
