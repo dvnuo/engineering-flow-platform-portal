@@ -209,7 +209,8 @@ class ProxyService:
         body: Optional[bytes],
         headers: dict[str, str],
         extra_headers: Optional[dict[str, str]] = None,
-    ) -> tuple[int, bytes, str]:
+        return_response_headers: bool = False,
+    ) -> tuple[int, bytes, str] | tuple[int, bytes, str, dict[str, str]]:
         try:
             base = self.build_agent_base_url(agent).rstrip("/")
         except ValueError as e:
@@ -231,7 +232,19 @@ class ProxyService:
                 headers=outbound_headers,
             )
         content_type = resp.headers.get("content-type", "application/octet-stream")
+        if return_response_headers:
+            selected_headers = self._select_passthrough_response_headers(resp.headers)
+            return resp.status_code, resp.content, content_type, selected_headers
         return resp.status_code, resp.content, content_type
+
+    @staticmethod
+    def _select_passthrough_response_headers(headers) -> dict[str, str]:
+        content_disposition = headers.get("content-disposition")
+        if not content_disposition:
+            return {}
+        if "\r" in content_disposition or "\n" in content_disposition:
+            return {}
+        return {"Content-Disposition": content_disposition}
 
     async def forward_multipart(
         self,
