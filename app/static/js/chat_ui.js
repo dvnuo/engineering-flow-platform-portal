@@ -93,72 +93,25 @@ if (dom.chatInput) {
   dom.chatInput.addEventListener('paste', async (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
-    
+
     const files = [];
-    
+
     for (const item of items) {
-      // Only process file items, not strings
       if (item.kind !== 'file') continue;
-      
       const file = item.getAsFile();
       if (!file) continue;
-      
-      const isImage = item.type.startsWith('image/');
-      
-      if (isImage) {
-        const ext = item.type.split('/')[1] || 'png';
-        const name = file.name || 'pasted-image-' + Date.now() + '.' + ext;
-        files.push({ file: file, name: name, isImage: true });
-      }
-      else if (item.type.startsWith('application/') || item.type.startsWith('text/') || item.type.startsWith('audio/') || item.type.startsWith('video/')) {
-        files.push({ file: file, name: file.name || 'pasted-file', isImage: false });
-      }
+      files.push(file);
     }
-    
-    // Only prevent default if there are actual files to upload
-    if (files.length > 0) {
-      e.preventDefault();
-      
-      if (!state.selectedAgentId) {
-        showToast('Please select an assistant first');
-        return;
-      }
-      
-      const agentId = state.selectedAgentId;
-      for (const { file, name, isImage } of files) {
-        const pf = {
-          id: 'paste_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-          file: file,
-          name: name || file.name,
-          isImage: isImage,
-          previewUrl: null,
-          status: 'uploading',
-        };
-        
-        // Generate preview for images only
-        if (isImage) {
-          pf.previewUrl = URL.createObjectURL(file);
-        }
-        
-        ensureChatState(state.selectedAgentId).pendingFiles.push(pf);
-        renderInputPreview();
-        
-        uploadPendingFile(pf, agentId)
-          .then(data => {
-            pf.status = 'uploaded';
-            pf.uploadedData = data;
-            pf.file_id = data.file_id || data.id;
-            renderInputPreview();
-            showToast('File uploaded: ' + name);
-          })
-          .catch(err => {
-            pf.status = 'failed';
-            pf.error = err.message;
-            renderInputPreview();
-            showToast('Upload failed: ' + err.message);
-          });
-      }
+
+    if (!files.length) return;
+    e.preventDefault();
+
+    if (!state.selectedAgentId) {
+      showToast('Please select an assistant first');
+      return;
     }
+
+    await addPendingFilesAndUpload(files);
   });
 }
 
@@ -474,6 +427,99 @@ function generateFileId() {
   return 'file_' + Math.random().toString(36).substr(2, 9);
 }
 
+function generateClientWebchatSessionId() {
+  const now = new Date();
+  const pad2 = (value) => String(value).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+  const randomPart = Math.random().toString(36).slice(2, 10).padEnd(8, "0").slice(0, 8);
+  return `webchat_${timestamp}_${randomPart}`;
+}
+
+function ensureChatSessionId(agentId = state.selectedAgentId) {
+  if (!agentId) return "";
+  const existing = currentSessionIdForAgent(agentId);
+  if (existing) {
+    if (agentId === state.selectedAgentId) syncHiddenSessionInputFromState();
+    return existing;
+  }
+  const sessionId = generateClientWebchatSessionId();
+  updateAgentSession(agentId, sessionId);
+  if (agentId === state.selectedAgentId) {
+    const hiddenSessionInput = document.getElementById("chat-session-id");
+    if (hiddenSessionInput) hiddenSessionInput.value = sessionId;
+  }
+  return sessionId;
+}
+
+const SUPPORTED_UPLOAD_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "text/plain",
+]);
+
+const SUPPORTED_UPLOAD_EXTENSIONS = new Set([
+  "jpg", "jpeg", "png", "webp", "gif",
+  "pdf", "docx", "xlsx", "csv", "txt",
+]);
+
+const AUTO_PARSE_EXTENSIONS = new Set(["pdf", "docx", "xlsx", "csv", "txt"]);
+
+function fileExtensionFromName(name) {
+  const normalized = String(name || "").trim().toLowerCase();
+  const index = normalized.lastIndexOf(".");
+  return index >= 0 ? normalized.slice(index + 1) : "";
+}
+
+function isRuntimeSupportedUpload(file) {
+  if (!file) return false;
+  const mime = String(file.type || "").toLowerCase();
+  const ext = fileExtensionFromName(file.name);
+  if (SUPPORTED_UPLOAD_MIME_TYPES.has(mime)) return true;
+  return SUPPORTED_UPLOAD_EXTENSIONS.has(ext);
+}
+
+function shouldAutoParseUploadedFile(pf, uploadedData) {
+  const fromData = String(uploadedData?.content_type || "").toLowerCase();
+  const fromPf = String(pf?.file?.type || "").toLowerCase();
+  const mime = fromData || fromPf;
+  if (mime.startsWith("image/")) return false;
+  const ext = fileExtensionFromName(uploadedData?.filename || pf?.name || pf?.file?.name || "");
+  return AUTO_PARSE_EXTENSIONS.has(ext);
+}
+
+async function parseUploadedPendingFile(pf, agentId, sessionId) {
+  const response = await fetch(
+    `/a/${agentId}/api/files/parse?session_id=${encodeURIComponent(sessionId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: pf.file_id }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await handleErrorResponse(response));
+  }
+  return await response.json();
+}
+
+function filterRuntimeSupportedUploads(files) {
+  const accepted = [];
+  for (const file of Array.from(files || [])) {
+    if (isRuntimeSupportedUpload(file)) {
+      accepted.push(file);
+    } else {
+      showToast("Unsupported file type. Supported: images, pdf, docx, xlsx, csv, txt.");
+    }
+  }
+  return accepted;
+}
+
 function removePendingFile(id) {
   const chatState = getChatState();
   if (!chatState) return;
@@ -522,7 +568,10 @@ async function addPendingFilesAndUpload(files) {
   const chatState = getChatState();
   if (!chatState) return;
   const agentId = state.selectedAgentId;
-  for (const file of files) {
+  const normalizedFiles = filterRuntimeSupportedUploads(files);
+  if (!normalizedFiles.length) return;
+  const sessionId = ensureChatSessionId(agentId);
+  for (const file of normalizedFiles) {
     const isImage = file.type.startsWith('image/');
     const pf = {
       id: generateFileId(),
@@ -545,17 +594,33 @@ async function addPendingFilesAndUpload(files) {
     // Upload immediately
     try {
       const data = await uploadPendingFile(pf, agentId);
-      pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
-      
+
       // Store blob URL to file ID mapping
       if (pf.previewUrl && pf.file_id) {
         setBlobUrlMapping(pf.previewUrl, pf.file_id);
       }
-      
+
+      if (shouldAutoParseUploadedFile(pf, data)) {
+        pf.status = "parsing";
+        renderInputPreview();
+        try {
+          pf.parseData = await parseUploadedPendingFile(pf, agentId, sessionId);
+          pf.status = "uploaded";
+          pf.parseError = "";
+        } catch (parseError) {
+          pf.status = "failed";
+          pf.parseError = parseError?.message || "Parse failed";
+          renderInputPreview();
+          showToast("File processing failed: " + pf.parseError);
+          continue;
+        }
+      } else {
+        pf.status = "uploaded";
+      }
       renderInputPreview();
-      showToast('File uploaded: ' + file.name);
+      showToast("File uploaded: " + file.name);
 
       // Note: Do NOT add to attachments here - will be built from pendingFiles when sending
       // Image will be shown in input-preview-area via renderInputPreview()
@@ -564,6 +629,7 @@ async function addPendingFilesAndUpload(files) {
       ensureEventSocketForSelectedAgent();
     } catch (error) {
       pf.status = 'failed';
+      pf.error = error?.message || "Upload failed";
       renderInputPreview();
       showToast('Upload failed: ' + error.message);
     }
@@ -594,6 +660,9 @@ function renderInputPreview() {
     // Status badge
     if (pf.status === 'uploading') {
       statusBadge = '<span class="input-preview-badge is-uploading" aria-hidden="true">⏳</span>';
+    } else if (pf.status === 'parsing') {
+      const safeParseError = escapeHtmlAttr(pf.parseError || '');
+      statusBadge = `<span class="input-preview-badge is-uploading" aria-hidden="true" title="${safeParseError || "Processing file"}">🧠</span>`;
     } else if (pf.status === 'uploaded') {
       statusBadge = '<span class="input-preview-badge is-success" aria-hidden="true">✓</span>';
     } else if (pf.status === 'failed') {
@@ -652,7 +721,8 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
     });
     xhr.addEventListener('error', () => { reject(new Error('Network error')); });
     xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')); });
-    const url = '/a/' + agentId + '/api/files/upload';
+    const sessionId = ensureChatSessionId(agentId);
+    const url = `/a/${agentId}/api/files/upload?session_id=${encodeURIComponent(sessionId)}`;
     xhr.open('POST', url);
     xhr.send(formData);
   });
@@ -2749,14 +2819,19 @@ async function submitChatForSelectedAgent() {
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   const uploadingFiles = chatState.pendingFiles.filter((pf) => pf.status === "uploading");
+  const parsingFiles = chatState.pendingFiles.filter((pf) => pf.status === "parsing");
   if (uploadingFiles.length) {
     showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
+    return;
+  }
+  if (parsingFiles.length) {
+    showToast(`Waiting for ${parsingFiles.length} file(s) to finish processing...`);
     return;
   }
   const messageAtSend = dom.chatInput?.value?.trim() || "";
   if (!messageAtSend) return;
   const attachmentsAtSend = buildAttachmentsFromChatState(agentIdAtSend, chatState);
-  const sessionIdAtSend = currentSessionIdForAgent(agentIdAtSend);
+  const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
   const clientRequestId = `portal-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const requestCtx = {
     agentId: agentIdAtSend,
@@ -3185,39 +3260,23 @@ function pickCurrentSuggestion() {
 }
 
 function insertFileReference(fileIdOrRef) {
-  // fileIdOrRef can be either:
-  // - Full file_id (e.g., "1f516fcb...")
-  // - File reference like "@file_xxx"
-  let fileId = fileIdOrRef;
+  if (!dom.chatInput) return;
+  const raw = String(fileIdOrRef || "").trim();
+  if (!raw) return;
 
-  // If it's a reference format, extract the ID
-  const fileIdMatch = fileIdOrRef.match(/@file_(.+)/);
-  if (fileIdMatch) {
-    fileId = fileIdMatch[1];
-  }
-
-  if (fileId) {
-    const chatState = getChatState();
-    if (!chatState) return;
-    // Add to pendingFiles state and render preview in input-preview-area
-    // Attachments will be built from pendingFiles when sending the message
-    const existingPf = chatState.pendingFiles.find(pf => pf.file_id === fileId);
-    if (!existingPf) {
-      const pf = {
-        id: fileId,
-        file_id: fileId,
-        file: { name: 'Uploaded file' },
-        name: 'Uploaded file',
-        previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
-        isImage: false,
-        status: 'uploaded'
-      };
-      chatState.pendingFiles.push(pf);
-      renderInputPreview();
-    }
-  }
-
-  // Don't add to chat input - use attachments field instead
+  const token = raw.startsWith("@file_")
+    ? raw
+    : `@file_${raw.slice(0, 8)}`;
+  const start = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+  const end = dom.chatInput.selectionEnd ?? dom.chatInput.value.length;
+  const before = dom.chatInput.value.slice(0, start);
+  const after = dom.chatInput.value.slice(end);
+  const prefix = before && !/\s$/.test(before) ? " " : "";
+  const suffix = after && !/^\s/.test(after) ? " " : "";
+  dom.chatInput.setRangeText(`${prefix}${token}${suffix}`, start, end, "end");
+  dom.chatInput.focus();
+  syncChatInputHeight();
+  maybeShowSuggest();
 }
 
 // Fetch file preview and update pendingFile
@@ -4170,14 +4229,31 @@ function renderChatHistory(messages, metadata = {}) {
         attachmentDiv.className = "message-attachments";
         attachmentDiv.dataset.attachments = JSON.stringify(normalizedAttachments);
         article.dataset.attachments = JSON.stringify(normalizedAttachments);
-        normalizedAttachments.forEach(fileId => {
-          const img = document.createElement("img");
-          img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
-          img.className = "message-attachment-thumb";
-          img.alt = fileId;
-          img.dataset.fileId = fileId;
-          img.onerror = () => { img.style.display = "none"; };
-          attachmentDiv.appendChild(img);
+        normalizedAttachments.forEach((attachment) => {
+          const isAttachmentObject = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
+          const attachmentType = isAttachmentObject ? String(attachment.type || "").toLowerCase() : "";
+          const imageUrl = isAttachmentObject ? (attachment.url || attachment.previewUrl || "") : "";
+          const fileId = isAttachmentObject
+            ? String(attachment.file_id || attachment.fileId || attachment.id || attachment.filename || "attachment")
+            : String(attachment || "");
+          const fileName = isAttachmentObject
+            ? String(attachment.name || attachment.filename || attachment.file_name || fileId || "attachment")
+            : fileId;
+
+          if (attachmentType === "image" && imageUrl) {
+            const img = document.createElement("img");
+            img.src = imageUrl;
+            img.className = "message-attachment-thumb";
+            img.alt = fileName;
+            img.dataset.fileId = fileId;
+            attachmentDiv.appendChild(img);
+            return;
+          }
+
+          const fileChip = document.createElement("div");
+          fileChip.className = "message-attachment-file";
+          fileChip.textContent = `📄 ${fileName || fileId || "attachment"}`;
+          attachmentDiv.appendChild(fileChip);
         });
         article.appendChild(attachmentDiv);
       }
