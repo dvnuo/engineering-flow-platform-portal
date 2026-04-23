@@ -1828,7 +1828,7 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
 
 
 @router.get("/app/agents/{agent_id}/files/panel")
-async def app_agent_files_panel(request: Request, agent_id: str):
+async def app_agent_files_panel(request: Request, agent_id: str, session_id: str = ""):
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
@@ -1848,12 +1848,13 @@ async def app_agent_files_panel(request: Request, agent_id: str):
                 {"request": request, "agent_id": agent_id, "files": [], "path": "/"},
             )
 
+        query_items = [("session_id", session_id)] if session_id else []
         status_code, content, _ = await _forward_runtime(
             user=user,
             agent=agent,
             method="GET",
             subpath="api/files/list",
-            query_items=[],
+            query_items=query_items,
             body=None,
         )
 
@@ -1865,7 +1866,9 @@ async def app_agent_files_panel(request: Request, agent_id: str):
             "partials/files_panel.html",
             {
                 "request": request,
+                "agent_id": agent_id,
                 "files": payload.get("files") or [],
+                "session_id": session_id,
             },
         )
     finally:
@@ -1901,15 +1904,20 @@ async def agent_files_upload(agent_id: str, request: Request):
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail=f"File too large. Maximum size is 10MB.")
         
+        session_id = (request.query_params.get("session_id") or "").strip()
+        if not session_id:
+            session_id = str(form.get("session_id") or "").strip()
+
         # Prepare files for upload
         files = {"file": (file_field.filename, content, file_field.content_type)}
+        query_items = [("session_id", session_id)] if session_id else []
         
         status_code, content, content_type = await _forward_runtime_multipart(
             user=user,
             agent=agent,
             method="POST",
             subpath="api/files/upload",
-            query_items=[],
+            query_items=query_items,
             files=files,
         )
 
@@ -1961,7 +1969,7 @@ async def agent_server_files_upload(agent_id: str, request: Request):
 
 
 @router.get("/a/{agent_id}/api/files/{file_id}/preview")
-async def agent_files_preview(request: Request, agent_id: str, file_id: str, max_chars: int = 5000):
+async def agent_files_preview(request: Request, agent_id: str, file_id: str, max_chars: int = 5000, session_id: str = ""):
     """Proxy file preview to EFP agent"""
     user = _current_user_from_cookie(request)
     if not user:
@@ -1979,18 +1987,59 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
             raise HTTPException(status_code=403, detail="Forbidden")
 
         # Use proxy_service.forward for consistent proxy behavior
+        query_items = [("max_chars", str(max_chars))]
+        if session_id:
+            query_items.append(("session_id", session_id))
+
         status_code, content, content_type = await _forward_runtime(
             user=user,
             agent=agent,
             method="GET",
             subpath=f"api/files/{file_id}/preview",
-            query_items=[("max_chars", str(max_chars))],
+            query_items=query_items,
             body=None,
         )
         
         if status_code >= 400:
             raise HTTPException(status_code=502, detail="Preview failed")
         
+        return Response(content=content, media_type=content_type, status_code=status_code)
+    finally:
+        db.close()
+
+
+@router.post("/a/{agent_id}/api/files/parse")
+async def agent_files_parse(agent_id: str, request: Request):
+    """Proxy file parse request to EFP agent."""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    session_id = (request.query_params.get("session_id") or "").strip()
+    payload = await request.json()
+
+    db = SessionLocal()
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        if not _can_access(agent, user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        query_items = [("session_id", session_id)] if session_id else []
+        status_code, content, content_type = await _forward_runtime(
+            user=user,
+            agent=agent,
+            method="POST",
+            subpath="api/files/parse",
+            query_items=query_items,
+            body=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+
+        if status_code >= 400:
+            raise HTTPException(status_code=502, detail="Parse failed")
+
         return Response(content=content, media_type=content_type, status_code=status_code)
     finally:
         db.close()
@@ -2465,9 +2514,6 @@ async def app_chat_send(request: Request):
 
     if not agent_id:
         raise HTTPException(status_code=400, detail="Agent not selected")
-    if not message:
-        raise HTTPException(status_code=400, detail="Message required")
-
     # Parse attachments from JSON
     attachments = []
     if attachments_str:
@@ -2477,6 +2523,9 @@ async def app_chat_send(request: Request):
                 attachments = parsed
         except json.JSONDecodeError:
             pass  # Invalid JSON, ignore attachments
+
+    if not message and not attachments:
+        raise HTTPException(status_code=400, detail="Message or attachments required")
 
     db = SessionLocal()
     try:

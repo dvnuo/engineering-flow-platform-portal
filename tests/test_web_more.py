@@ -261,6 +261,27 @@ def test_chat_ui_narrow_startup_defer_logic_present_without_nearby_localstorage_
     assert "localStorage.setItem" not in snippet
 
 
+def test_upload_and_panel_requests_include_session_id_source_markers():
+    js = _chat_ui_js_source()
+    assert "currentSessionIdForAgent(agentId)" in js
+    assert "api/files/upload?session_id=${encodeURIComponent(sessionId)}" in js
+    assert "api/files/parse${query}" in js
+    assert "const panelUrl = `/app/agents/${agentId}/files/panel?session_id=${encodeURIComponent(sessionId)}`;" in js
+
+
+def test_submit_chat_allows_attachment_only_send_source_markers():
+    js = _chat_ui_js_source()
+    submit_fn = _extract_js_function(js, "submitChatForSelectedAgent")
+    assert "if (!messageAtSend && attachmentsAtSend.length === 0) return;" in submit_fn
+    assert "const attachmentsAtSend = buildAttachmentsFromChatState(agentIdAtSend, chatState);" in submit_fn
+
+
+def test_upload_input_accept_list_contains_supported_non_image_types():
+    html = (_repo_root() / "app" / "templates" / "app.html").read_text(encoding="utf-8")
+    assert 'id="upload-input"' in html
+    assert 'accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.docx,.xlsx,.csv,.txt,.md,.json,.yml,.yaml,.xml,.log,.py,.js,.ts,.tsx,.java,.go,.rs,.sh,.sql,.properties,.ini,.cfg"' in html
+
+
 def test_update_model_options_keeps_unknown_initial_but_not_cross_provider_leak():
     node_bin = shutil.which("node")
     if not node_bin:

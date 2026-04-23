@@ -8,22 +8,32 @@
     <div id="uploads-list" class="portal-panel-stack">
       {% for file in files %}
         {% set file_ref = '@file_' ~ (file.file_id[:8]) %}
+        {% set content_type = file.content_type or '' %}
+        {% set parse_status = file.parse_status or '' %}
+        {% set is_image = content_type.startswith('image/') %}
+        {% set preview_url = '/a/' ~ agent_id ~ '/api/files/' ~ file.file_id %}
         <div
           class="file-row portal-panel-section"
           data-file-id="{{ file.file_id }}"
           data-file-ref="{{ file_ref }}"
+          data-file-name="{{ file.filename|default(file.file_id)|data_attr }}"
+          data-content-type="{{ content_type|data_attr }}"
+          data-parse-status="{{ parse_status|data_attr }}"
+          data-preview-url="{{ preview_url|data_attr }}"
+          data-is-image="{{ 'true' if is_image else 'false' }}"
         >
           <div class="portal-panel-header">
             <button
               type="button"
               class="insert-ref-btn flex-1 text-left truncate"
-              title="Insert {{ file_ref }}"
+              title="Attach to message"
             >
               <div class="portal-bundle-title truncate">{{ file.filename }}</div>
               <div class="portal-panel-note truncate">
                 {{ file_ref }}
                 {% if file.content_type %} · {{ file.content_type }}{% endif %}
                 {% if file.size is not none %} · {{ file.size }} B{% endif %}
+                {% if parse_status %} · parse: {{ parse_status }}{% endif %}
               </div>
             </button>
             <div class="flex items-center gap-1">
@@ -49,11 +59,19 @@
     if (!row) return;
 
     const fileId = row.dataset.fileId;
+    const fileMeta = {
+      file_id: fileId,
+      name: row.dataset.fileName || fileId,
+      content_type: row.dataset.contentType || "",
+      parse_status: row.dataset.parseStatus || "",
+      preview_url: row.dataset.previewUrl || "",
+      isImage: row.dataset.isImage === "true",
+    };
 
     if (e.target.closest('.insert-ref-btn')) {
       e.stopPropagation();
       if (typeof insertFileReference === 'function') {
-        insertFileReference(fileId);
+        insertFileReference(fileMeta);
       }
     } else if (e.target.closest('.preview-btn')) {
       await previewFile(fileId);
@@ -84,7 +102,13 @@ async function deleteFile(fileId, row) {
 
 async function previewFile(fileId) {
   try {
-    const resp = await fetch(`/a/${window.selectedAgentId}/api/files/${fileId}/preview?max_chars=5000`);
+    const sessionId = (typeof currentSessionIdForAgent === "function" && window.selectedAgentId)
+      ? (currentSessionIdForAgent(window.selectedAgentId) || "")
+      : "";
+    const query = sessionId
+      ? `?max_chars=5000&session_id=${encodeURIComponent(sessionId)}`
+      : "?max_chars=5000";
+    const resp = await fetch(`/a/${window.selectedAgentId}/api/files/${fileId}/preview${query}`);
     if (!resp.ok) throw new Error('Preview failed');
     const data = await resp.json();
 

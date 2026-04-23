@@ -4,6 +4,40 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 
+def test_app_chat_send_allows_attachment_only_payload(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=123, visibility="private", status="running", name="Agent One")
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(web_module.runtime_execution_context_service, "build_runtime_metadata", lambda _db, _agent: {})
+
+    captured = {}
+
+    async def _fake_forward(**kwargs):
+        captured.update(kwargs)
+        return 200, json.dumps({"response": "ok", "session_id": "s-1", "events": []}).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+    client = TestClient(app)
+    response = client.post(
+        "/app/chat/send",
+        data={"agent_id": "agent-1", "message": "", "attachments": json.dumps(["file-1"])},
+    )
+    assert response.status_code == 200
+    forwarded_payload = json.loads(captured["body"].decode("utf-8"))
+    assert forwarded_payload["message"] == ""
+    assert forwarded_payload["attachments"] == ["file-1"]
+
+
 def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
     from app.main import app
     import app.web as web_module

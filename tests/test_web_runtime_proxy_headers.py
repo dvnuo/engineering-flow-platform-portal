@@ -152,6 +152,32 @@ def test_file_upload_uses_forward_multipart_with_identity_headers(monkeypatch):
     }
 
 
+def test_file_upload_forwards_session_id_query(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running", name="Agent One")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+
+    captured = {}
+
+    async def _fake_forward_multipart(**kwargs):
+        captured.update(kwargs)
+        return 200, b'{"ok": true}', "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward_multipart", _fake_forward_multipart)
+    client = TestClient(app)
+    response = client.post(
+        "/a/agent-1/api/files/upload?session_id=sess-123",
+        files={"file": ("note.txt", b"hello", "text/plain")},
+    )
+    assert response.status_code == 200
+    assert captured["query_items"] == [("session_id", "sess-123")]
+
+
 def test_file_upload_enforces_10mb_limit(monkeypatch):
     from app.main import app
     import app.web as web_module
@@ -312,3 +338,31 @@ def test_non_execution_runtime_proxy_path_keeps_body_untouched(monkeypatch):
     assert captured_calls[-1]["subpath"] == "api/files/list"
     assert captured_calls[-1]["body"] is None
     assert captured_calls[-1]["headers"] == {}
+
+
+def test_files_panel_forwards_session_id_to_runtime_list(monkeypatch):
+    client, captured_calls = _setup_web_runtime_test(monkeypatch)
+    response = client.get("/app/agents/agent-1/files/panel?session_id=sess-list")
+    assert response.status_code == 200
+    assert captured_calls[-1]["subpath"] == "api/files/list"
+    assert captured_calls[-1]["query_items"] == [("session_id", "sess-list")]
+
+
+def test_files_preview_forwards_session_id(monkeypatch):
+    client, captured_calls = _setup_web_runtime_test(monkeypatch)
+    response = client.get("/a/agent-1/api/files/file-1/preview?max_chars=123&session_id=sess-preview")
+    assert response.status_code == 200
+    assert captured_calls[-1]["subpath"] == "api/files/file-1/preview"
+    assert ("session_id", "sess-preview") in captured_calls[-1]["query_items"]
+    assert ("max_chars", "123") in captured_calls[-1]["query_items"]
+
+
+def test_files_parse_proxy_forwards_json_and_session_id(monkeypatch):
+    client, captured_calls = _setup_web_runtime_test(monkeypatch)
+    payload = {"file_id": "file-1", "options": {}}
+    response = client.post("/a/agent-1/api/files/parse?session_id=sess-parse", json=payload)
+    assert response.status_code == 200
+    assert captured_calls[-1]["subpath"] == "api/files/parse"
+    assert captured_calls[-1]["query_items"] == [("session_id", "sess-parse")]
+    assert captured_calls[-1]["headers"] == {"content-type": "application/json"}
+    assert json.loads(captured_calls[-1]["body"].decode("utf-8")) == payload

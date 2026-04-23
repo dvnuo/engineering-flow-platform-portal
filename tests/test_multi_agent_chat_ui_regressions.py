@@ -41,6 +41,23 @@ def test_chat_ui_uses_live_thinking_panel_rendering():
     assert ".portal-live-thinking" in css_source
 
 
+def test_insert_file_reference_uses_real_metadata_and_not_placeholder_name():
+    js_source = _chat_ui_js_source()
+    insert_fn = _extract_js_function(js_source, "insertFileReference")
+    assert "contentType" in insert_fn
+    assert "parseStatus" in insert_fn
+    assert "rememberFileMeta({" in insert_fn
+    assert "Uploaded file" not in insert_fn
+
+
+def test_history_attachment_rendering_uses_metadata_chip_fallback():
+    js_source = _chat_ui_js_source()
+    assert "const fileMetaById = new Map();" in js_source
+    assert "const meta = getFileMeta(fileId);" in js_source
+    assert "chip.className = \"message-attachment-file\";" in js_source
+    assert "if (meta?.isImage)" in js_source
+
+
 def test_composer_model_selector_keeps_per_agent_model_override_isolated():
     node_bin = shutil.which("node")
     if not node_bin:

@@ -265,6 +265,7 @@ const initialUiLayoutPrefs = getInitialUiLayoutPreferences();
 
 // Global mapping from blob URL to file ID
 const blobUrlToFileId = {};
+const fileMetaById = new Map();
 
 function getFileIdFromBlobUrl(blobUrl) {
   const fileId = blobUrlToFileId[blobUrl] || null;
@@ -273,6 +274,31 @@ function getFileIdFromBlobUrl(blobUrl) {
 
 function setBlobUrlMapping(blobUrl, fileId) {
   blobUrlToFileId[blobUrl] = fileId;
+}
+
+function rememberFileMeta(meta = {}) {
+  const fileId = String(meta.file_id || meta.fileId || meta.id || "").trim();
+  if (!fileId) return;
+  const contentType = String(meta.contentType || meta.content_type || "").trim();
+  const name = String(meta.name || meta.filename || fileId).trim();
+  const parseStatus = String(meta.parseStatus || meta.parse_status || "").trim();
+  const isImage = typeof meta.isImage === "boolean" ? meta.isImage : contentType.startsWith("image/");
+  const previewUrl = meta.previewUrl
+    || meta.preview_url
+    || `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
+  fileMetaById.set(fileId, {
+    file_id: fileId,
+    name,
+    contentType,
+    parseStatus,
+    isImage,
+    previewUrl,
+  });
+}
+
+function getFileMeta(fileId) {
+  const key = String(fileId || "").trim();
+  return key ? fileMetaById.get(key) || null : null;
 }
 
 function addToAttachmentHistory(attachments) {
@@ -344,6 +370,7 @@ const state = {
   automations: [],
   selectedAutomationRuleId: null,
   agentDefaults: null,
+  fileMetaById,
 };
 let thinkingPanelRefreshRaf = null;
 let hasRestoredPinnedToolPanel = false;
@@ -548,6 +575,19 @@ async function addPendingFilesAndUpload(files) {
       pf.status = 'uploaded';
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
+      const sessionId = currentSessionIdForAgent(agentId);
+      if (!pf.isImage && pf.file_id) {
+        pf.previewUrl = `/a/${agentId}/api/files/${encodeURIComponent(pf.file_id)}`;
+      }
+      rememberFileMeta({
+        file_id: pf.file_id,
+        name: data.filename || pf.name,
+        content_type: data.content_type || pf.file?.type || "",
+        isImage: pf.isImage,
+        previewUrl: pf.previewUrl,
+        parse_status: data.parse_status || "",
+      });
+      await maybeParseUploadedFile(pf, agentId, sessionId);
       
       // Store blob URL to file ID mapping
       if (pf.previewUrl && pf.file_id) {
@@ -567,6 +607,38 @@ async function addPendingFilesAndUpload(files) {
       renderInputPreview();
       showToast('Upload failed: ' + error.message);
     }
+  }
+}
+
+async function maybeParseUploadedFile(pf, agentId, sessionId = "") {
+  if (!pf?.file_id || pf.isImage === true) return;
+  pf.parseStatus = "processing";
+  renderInputPreview();
+  const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  try {
+    const resp = await fetch(`/a/${agentId}/api/files/parse${query}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: pf.file_id, options: {} }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const parseData = await resp.json().catch(() => ({}));
+    pf.parseStatus = "completed";
+    pf.parseResult = parseData;
+    rememberFileMeta({
+      file_id: pf.file_id,
+      name: pf.name,
+      content_type: pf.contentType || pf.file?.type || "",
+      isImage: pf.isImage,
+      previewUrl: pf.previewUrl,
+      parse_status: "completed",
+    });
+  } catch (error) {
+    pf.parseStatus = "failed";
+    pf.parseError = error.message || "parse failed";
+    showToast(`File parse failed: ${pf.name || pf.file_id}`);
+  } finally {
+    renderInputPreview();
   }
 }
 
@@ -643,6 +715,14 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
           pf.uploadedData = data;
           // Store blob URL to file ID mapping
           const fileId = data.file_id || data.id;
+          rememberFileMeta({
+            file_id: fileId,
+            name: data.filename || pf.name || pf.file?.name || fileId,
+            content_type: data.content_type || pf.file?.type || "",
+            isImage: pf.isImage,
+            previewUrl: pf.previewUrl || `/a/${agentId}/api/files/${encodeURIComponent(fileId || "")}`,
+            parse_status: data.parse_status || "",
+          });
           if (pf.previewUrl && fileId) {
             setBlobUrlMapping(pf.previewUrl, fileId);
           }
@@ -652,7 +732,10 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
     });
     xhr.addEventListener('error', () => { reject(new Error('Network error')); });
     xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')); });
-    const url = '/a/' + agentId + '/api/files/upload';
+    const sessionId = currentSessionIdForAgent(agentId);
+    const url = sessionId
+      ? `/a/${agentId}/api/files/upload?session_id=${encodeURIComponent(sessionId)}`
+      : `/a/${agentId}/api/files/upload`;
     xhr.open('POST', url);
     xhr.send(formData);
   });
@@ -827,7 +910,8 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  const textHtml = text ? `<div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>` : "";
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1">${textHtml}${attachmentHtml}</article></div>`;
 }
 
 function buildPendingAssistantArticle() {
@@ -2754,8 +2838,8 @@ async function submitChatForSelectedAgent() {
     return;
   }
   const messageAtSend = dom.chatInput?.value?.trim() || "";
-  if (!messageAtSend) return;
   const attachmentsAtSend = buildAttachmentsFromChatState(agentIdAtSend, chatState);
+  if (!messageAtSend && attachmentsAtSend.length === 0) return;
   const sessionIdAtSend = currentSessionIdForAgent(agentIdAtSend);
   const clientRequestId = `portal-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const requestCtx = {
@@ -2784,12 +2868,15 @@ async function submitChatForSelectedAgent() {
   removeTemporaryAssistantRows();
   hideSuggest();
   if (agentIdAtSend === state.selectedAgentId && dom.messageList) {
-    const displayAttachments = chatState.pendingFiles.map((pf) => ({
-      name: pf.file?.name || pf.name || "",
-      type: pf.isImage ? "image" : "file",
-      previewUrl: pf.previewUrl,
-      url: pf.uploadedData?.url,
-    }));
+    const displayAttachments = attachmentsAtSend.map((fileId) => {
+      const meta = getFileMeta(fileId);
+      return {
+        name: meta?.name || fileId,
+        type: meta?.isImage ? "image" : "file",
+        previewUrl: meta?.previewUrl || `/a/${agentIdAtSend}/api/files/${encodeURIComponent(fileId)}`,
+        url: meta?.previewUrl || "",
+      };
+    });
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(messageAtSend, displayAttachments));
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
     chatState.inflightThinking = {
@@ -3184,40 +3271,42 @@ function pickCurrentSuggestion() {
   return true;
 }
 
-function insertFileReference(fileIdOrRef) {
-  // fileIdOrRef can be either:
-  // - Full file_id (e.g., "1f516fcb...")
-  // - File reference like "@file_xxx"
-  let fileId = fileIdOrRef;
-
-  // If it's a reference format, extract the ID
-  const fileIdMatch = fileIdOrRef.match(/@file_(.+)/);
-  if (fileIdMatch) {
-    fileId = fileIdMatch[1];
+function insertFileReference(fileMetaOrRef) {
+  const metadata = (fileMetaOrRef && typeof fileMetaOrRef === "object") ? fileMetaOrRef : {};
+  let fileId = metadata.file_id || metadata.fileId || metadata.id || fileMetaOrRef;
+  if (typeof fileId === "string") {
+    const fileIdMatch = fileId.match(/@file_(.+)/);
+    if (fileIdMatch) fileId = fileIdMatch[1];
   }
+  if (!fileId) return;
 
-  if (fileId) {
-    const chatState = getChatState();
-    if (!chatState) return;
-    // Add to pendingFiles state and render preview in input-preview-area
-    // Attachments will be built from pendingFiles when sending the message
-    const existingPf = chatState.pendingFiles.find(pf => pf.file_id === fileId);
-    if (!existingPf) {
-      const pf = {
-        id: fileId,
-        file_id: fileId,
-        file: { name: 'Uploaded file' },
-        name: 'Uploaded file',
-        previewUrl: `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
-        isImage: false,
-        status: 'uploaded'
-      };
-      chatState.pendingFiles.push(pf);
-      renderInputPreview();
-    }
-  }
-
-  // Don't add to chat input - use attachments field instead
+  const chatState = getChatState();
+  if (!chatState) return;
+  const existingPf = chatState.pendingFiles.find((pf) => pf.file_id === fileId);
+  if (existingPf) return;
+  const contentType = metadata.content_type || metadata.contentType || "";
+  const isImage = typeof metadata.isImage === "boolean" ? metadata.isImage : String(contentType).startsWith("image/");
+  const pf = {
+    id: fileId,
+    file_id: fileId,
+    file: { name: metadata.name || metadata.file_name || metadata.filename || fileId },
+    name: metadata.name || metadata.file_name || metadata.filename || fileId,
+    contentType,
+    isImage,
+    previewUrl: metadata.previewUrl || metadata.preview_url || `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`,
+    status: "uploaded",
+    parseStatus: metadata.parse_status || metadata.parseStatus || "",
+  };
+  rememberFileMeta({
+    file_id: pf.file_id,
+    name: pf.name,
+    content_type: pf.contentType,
+    isImage: pf.isImage,
+    previewUrl: pf.previewUrl,
+    parse_status: pf.parseStatus,
+  });
+  chatState.pendingFiles.push(pf);
+  renderInputPreview();
 }
 
 // Fetch file preview and update pendingFile
@@ -4116,6 +4205,7 @@ async function returnFromTaskDetailToSidebar() {
 function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
   const selectedChatState = getChatState();
+  const resolveFileMeta = typeof getFileMeta === "function" ? getFileMeta : () => null;
 
   if (!messages.length) {
     if (selectedChatState) selectedChatState.attachmentHistory = [];
@@ -4170,14 +4260,29 @@ function renderChatHistory(messages, metadata = {}) {
         attachmentDiv.className = "message-attachments";
         attachmentDiv.dataset.attachments = JSON.stringify(normalizedAttachments);
         article.dataset.attachments = JSON.stringify(normalizedAttachments);
-        normalizedAttachments.forEach(fileId => {
-          const img = document.createElement("img");
-          img.src = `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
-          img.className = "message-attachment-thumb";
-          img.alt = fileId;
-          img.dataset.fileId = fileId;
-          img.onerror = () => { img.style.display = "none"; };
-          attachmentDiv.appendChild(img);
+        normalizedAttachments.forEach((fileId) => {
+          const meta = resolveFileMeta(fileId);
+          const previewUrl = meta?.previewUrl || `/a/${state.selectedAgentId}/api/files/${encodeURIComponent(fileId)}`;
+          if (meta?.isImage) {
+            const img = document.createElement("img");
+            img.src = previewUrl;
+            img.className = "message-attachment-thumb";
+            img.alt = meta?.name || fileId;
+            img.dataset.fileId = fileId;
+            img.dataset.previewUrl = previewUrl;
+            img.dataset.previewName = meta?.name || fileId;
+            img.dataset.isImage = "true";
+            attachmentDiv.appendChild(img);
+            return;
+          }
+          const chip = document.createElement("div");
+          chip.className = "message-attachment-file";
+          chip.dataset.fileId = fileId;
+          chip.dataset.previewUrl = previewUrl;
+          chip.dataset.previewName = meta?.name || fileId;
+          chip.dataset.isImage = "false";
+          chip.textContent = `📄 ${meta?.name || fileId}`;
+          attachmentDiv.appendChild(chip);
         });
         article.appendChild(attachmentDiv);
       }
@@ -4787,12 +4892,14 @@ async function openUsagePanel() {
 
 async function openMyUploads() {
   if (!state.selectedAgentId) return;
-
+  const agentId = state.selectedAgentId;
+  const sessionId = currentSessionIdForAgent(agentId) || "";
+  const panelUrl = `/app/agents/${agentId}/files/panel?session_id=${encodeURIComponent(sessionId)}`;
 
   setToolPanel("Select Source", '<div class="portal-inline-state">Loading files…</div>', "uploads");
 
   try {
-    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
+    await htmx.ajax("GET", panelUrl, {
       target: "#tool-panel-body",
       swap: "innerHTML",
     });
