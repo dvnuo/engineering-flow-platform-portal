@@ -102,6 +102,7 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert cfg["llm"]["response_flow"]["staging_policy"] == "explicit_or_complex"
     assert cfg["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
     assert cfg["llm"]["response_flow"]["ask_user_policy"] == "blocked_only"
+    assert cfg["llm"]["response_flow"]["active_skill_conflict_policy"] == "auto_switch_direct"
     assert cfg["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
     assert cfg["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
     assert cfg["llm"]["system-prompt"]["daily_notes"]["enabled"] is True
@@ -318,6 +319,7 @@ def test_runtime_profile_json_sanitizer_preserves_valid_llm_response_flow():
                     "staging_policy": "always",
                     "default_skill_execution_style": "direct",
                     "ask_user_policy": "blocked_only",
+                    "active_skill_conflict_policy": "always_ask",
                     "complexity_prompt_budget_ratio": 0.85,
                     "complexity_min_request_tokens": 24000,
                 },
@@ -331,10 +333,12 @@ def test_runtime_profile_json_sanitizer_preserves_valid_llm_response_flow():
     assert parsed["llm"]["response_flow"]["staging_policy"] == "always"
     assert parsed["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
     assert parsed["llm"]["response_flow"]["ask_user_policy"] == "blocked_only"
+    assert parsed["llm"]["response_flow"]["active_skill_conflict_policy"] == "always_ask"
     assert parsed["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
     assert parsed["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
     assert dumped["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
     assert dumped["llm"]["response_flow"]["staging_policy"] == "always"
+    assert dumped["llm"]["response_flow"]["active_skill_conflict_policy"] == "always_ask"
 
 
 def test_runtime_profile_json_sanitizer_omits_response_flow_when_absent():

@@ -133,6 +133,7 @@ def test_settings_merge_llm_response_flow_writes_nested_dict():
             "llm_response_flow_staging_policy": "always",
             "llm_response_flow_default_skill_execution_style": "direct",
             "llm_response_flow_ask_user_policy": "blocked_only",
+            "llm_response_flow_active_skill_conflict_policy": "always_ask",
             "llm_response_flow_complexity_prompt_budget_ratio": "0.85",
             "llm_response_flow_complexity_min_request_tokens": "24000",
         },
@@ -145,6 +146,7 @@ def test_settings_merge_llm_response_flow_writes_nested_dict():
         "staging_policy": "always",
         "default_skill_execution_style": "direct",
         "ask_user_policy": "blocked_only",
+        "active_skill_conflict_policy": "always_ask",
         "complexity_prompt_budget_ratio": 0.85,
         "complexity_min_request_tokens": 24000,
     }
@@ -168,6 +170,7 @@ def test_settings_merge_llm_response_flow_blank_values_omit_subtree():
             "llm_response_flow_staging_policy": "",
             "llm_response_flow_default_skill_execution_style": "",
             "llm_response_flow_ask_user_policy": "",
+            "llm_response_flow_active_skill_conflict_policy": "",
             "llm_response_flow_complexity_prompt_budget_ratio": "",
             "llm_response_flow_complexity_min_request_tokens": "",
         },
@@ -175,6 +178,37 @@ def test_settings_merge_llm_response_flow_blank_values_omit_subtree():
     assert error is None
     assert "response_flow" not in merged["llm"]
     assert merged["llm"]["provider"] == "openai"
+
+
+def test_settings_merge_llm_response_flow_active_skill_conflict_policy_valid_value_writes_nested_key():
+    merged, error = _settings_merge_payload(
+        {"llm": {"provider": "openai"}},
+        {
+            "__touch_llm": "1",
+            "llm_provider": "openai",
+            "llm_response_flow_active_skill_conflict_policy": "auto_switch_direct",
+        },
+    )
+    assert error is None
+    assert merged["llm"]["response_flow"]["active_skill_conflict_policy"] == "auto_switch_direct"
+
+
+def test_settings_merge_llm_response_flow_active_skill_conflict_policy_blank_value_removes_key():
+    merged, error = _settings_merge_payload(
+        {
+            "llm": {
+                "provider": "openai",
+                "response_flow": {"active_skill_conflict_policy": "always_ask"},
+            }
+        },
+        {
+            "__touch_llm": "1",
+            "llm_provider": "openai",
+            "llm_response_flow_active_skill_conflict_policy": "",
+        },
+    )
+    assert error is None
+    assert "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_llm_response_flow_invalid_ratio_returns_error():

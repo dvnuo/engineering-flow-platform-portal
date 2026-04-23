@@ -75,6 +75,7 @@ class RuntimeProfileService:
                     "staging_policy": "explicit_or_complex",
                     "default_skill_execution_style": "direct",
                     "ask_user_policy": "blocked_only",
+                    "active_skill_conflict_policy": "auto_switch_direct",
                     "complexity_prompt_budget_ratio": 0.85,
                     "complexity_min_request_tokens": 24000,
                 },

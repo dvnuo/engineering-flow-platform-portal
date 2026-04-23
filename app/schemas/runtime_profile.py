@@ -62,6 +62,7 @@ _RESPONSE_FLOW_PLAN_POLICIES = {"explicit_or_complex", "always", "never"}
 _RESPONSE_FLOW_STAGING_POLICIES = {"explicit_or_complex", "always", "never"}
 _RESPONSE_FLOW_DEFAULT_SKILL_EXECUTION_STYLES = {"direct", "stepwise"}
 _RESPONSE_FLOW_ASK_USER_POLICIES = {"blocked_only", "permissive"}
+_RESPONSE_FLOW_ACTIVE_SKILL_CONFLICT_POLICIES = {"auto_switch_direct", "always_ask"}
 
 
 def sanitize_runtime_profile_response_flow(value) -> dict:
@@ -85,6 +86,10 @@ def sanitize_runtime_profile_response_flow(value) -> dict:
     ask_user_policy = value.get("ask_user_policy")
     if isinstance(ask_user_policy, str) and ask_user_policy in _RESPONSE_FLOW_ASK_USER_POLICIES:
         sanitized["ask_user_policy"] = ask_user_policy
+
+    active_skill_conflict_policy = value.get("active_skill_conflict_policy")
+    if isinstance(active_skill_conflict_policy, str) and active_skill_conflict_policy in _RESPONSE_FLOW_ACTIVE_SKILL_CONFLICT_POLICIES:
+        sanitized["active_skill_conflict_policy"] = active_skill_conflict_policy
 
     ratio = value.get("complexity_prompt_budget_ratio")
     try:
