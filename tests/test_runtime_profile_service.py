@@ -98,6 +98,12 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert cfg["llm"]["max_retries"] == 3
     assert cfg["llm"]["retry_delay"] == 1
     assert cfg["llm"]["tools"] == ["*"]
+    assert cfg["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
+    assert cfg["llm"]["response_flow"]["staging_policy"] == "explicit_or_complex"
+    assert cfg["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
+    assert cfg["llm"]["response_flow"]["ask_user_policy"] == "blocked_only"
+    assert cfg["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
+    assert cfg["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
     assert cfg["llm"]["system-prompt"]["daily_notes"]["enabled"] is True
     assert cfg["debug"]["log_level"] == "INFO"
 
@@ -299,3 +305,42 @@ def test_normal_settings_form_like_save_remains_sparse_without_context_fields():
     assert saved == {"llm": {"provider": "openai", "model": "gpt-5-mini", "tools": ["*"]}}
     assert "context_budget" not in saved["llm"]
     assert "context_projection" not in saved["llm"]
+    assert "response_flow" not in saved["llm"]
+
+
+def test_runtime_profile_json_sanitizer_preserves_valid_llm_response_flow():
+    raw = json.dumps(
+        {
+            "llm": {
+                "provider": "openai",
+                "response_flow": {
+                    "plan_policy": "explicit_or_complex",
+                    "staging_policy": "always",
+                    "default_skill_execution_style": "direct",
+                    "ask_user_policy": "blocked_only",
+                    "complexity_prompt_budget_ratio": 0.85,
+                    "complexity_min_request_tokens": 24000,
+                },
+            }
+        }
+    )
+    parsed = parse_runtime_profile_config_json(raw)
+    dumped = json.loads(dump_runtime_profile_config_json(parsed))
+
+    assert parsed["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
+    assert parsed["llm"]["response_flow"]["staging_policy"] == "always"
+    assert parsed["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
+    assert parsed["llm"]["response_flow"]["ask_user_policy"] == "blocked_only"
+    assert parsed["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
+    assert parsed["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
+    assert dumped["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
+    assert dumped["llm"]["response_flow"]["staging_policy"] == "always"
+
+
+def test_runtime_profile_json_sanitizer_omits_response_flow_when_absent():
+    raw = json.dumps({"llm": {"provider": "openai"}})
+    parsed = parse_runtime_profile_config_json(raw)
+    dumped = json.loads(dump_runtime_profile_config_json(parsed))
+
+    assert "response_flow" not in parsed["llm"]
+    assert "response_flow" not in dumped["llm"]

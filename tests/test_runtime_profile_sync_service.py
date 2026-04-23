@@ -170,3 +170,24 @@ def test_build_apply_payload_from_profile_includes_context_budget_when_present()
         assert payload["config"]["llm"]["context_budget"]["tool_loop"]["max_prompt_tokens"] == 32000
     finally:
         db.close()
+
+
+def test_build_apply_payload_from_profile_includes_response_flow_when_present():
+    db, rp, _running, _stopped = _build_db()
+    try:
+        rp.config_json = (
+            '{"llm":{"provider":"openai","response_flow":{"plan_policy":"explicit_or_complex","staging_policy":"always",'
+            '"default_skill_execution_style":"direct","ask_user_policy":"blocked_only","complexity_prompt_budget_ratio":0.85,'
+            '"complexity_min_request_tokens":24000}}}'
+        )
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
+        assert payload["config"]["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
+        assert payload["config"]["llm"]["response_flow"]["staging_policy"] == "always"
+        assert payload["config"]["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
+        assert payload["config"]["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
+    finally:
+        db.close()

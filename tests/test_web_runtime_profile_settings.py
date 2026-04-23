@@ -352,3 +352,46 @@ def test_bindings_panel_available_without_runtime_profile(monkeypatch):
         assert "Assign one from Edit Assistant first." not in resp.text
     finally:
         cleanup()
+
+
+def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"provider": "openai"}})
+        panel = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert panel.status_code == 200
+        assert "Response Flow" in panel.text
+        assert 'name="llm_response_flow_plan_policy"' in panel.text
+        assert 'name="llm_response_flow_staging_policy"' in panel.text
+        assert 'name="llm_response_flow_default_skill_execution_style"' in panel.text
+        assert 'name="llm_response_flow_ask_user_policy"' in panel.text
+        assert 'name="llm_response_flow_complexity_prompt_budget_ratio"' in panel.text
+        assert 'name="llm_response_flow_complexity_min_request_tokens"' in panel.text
+
+        save = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={
+                "__touch_llm": "1",
+                "llm_provider": "openai",
+                "llm_response_flow_plan_policy": "explicit_or_complex",
+                "llm_response_flow_staging_policy": "always",
+                "llm_response_flow_default_skill_execution_style": "direct",
+                "llm_response_flow_ask_user_policy": "blocked_only",
+                "llm_response_flow_complexity_prompt_budget_ratio": "0.85",
+                "llm_response_flow_complexity_min_request_tokens": "24000",
+            },
+        )
+        assert save.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["provider"] == "openai"
+        assert cfg["llm"]["response_flow"] == {
+            "plan_policy": "explicit_or_complex",
+            "staging_policy": "always",
+            "default_skill_execution_style": "direct",
+            "ask_user_policy": "blocked_only",
+            "complexity_prompt_budget_ratio": 0.85,
+            "complexity_min_request_tokens": 24000,
+        }
+    finally:
+        cleanup()

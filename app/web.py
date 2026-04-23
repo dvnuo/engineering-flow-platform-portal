@@ -819,6 +819,39 @@ def _settings_parse_llm_tools_patterns(form) -> list[str]:
         patterns.append(value)
     return patterns
 
+
+def _settings_parse_response_flow_select(form, field_name: str, allowed: set[str]) -> str | None:
+    value = (form.get(field_name) or "").strip()
+    if not value:
+        return None
+    return value if value in allowed else None
+
+
+def _settings_parse_response_flow_ratio(form, field_name: str) -> tuple[float | None, str | None]:
+    value = (form.get(field_name) or "").strip()
+    if not value:
+        return None, None
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None, "Response flow complexity ratio must be a number between 0 and 1."
+    if not (0 < parsed <= 1):
+        return None, "Response flow complexity ratio must be a number between 0 and 1."
+    return parsed, None
+
+
+def _settings_parse_response_flow_min_tokens(form, field_name: str) -> tuple[int | None, str | None]:
+    value = (form.get(field_name) or "").strip()
+    if not value:
+        return None, None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None, "Response flow complexity minimum tokens must be a positive integer."
+    if parsed <= 0:
+        return None, "Response flow complexity minimum tokens must be a positive integer."
+    return parsed, None
+
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
@@ -894,6 +927,75 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             llm["tools"] = []
         elif llm_tools_mode == "custom":
             llm["tools"] = _settings_parse_llm_tools_patterns(form)
+
+        existing_response_flow = llm.get("response_flow") if isinstance(llm.get("response_flow"), dict) else {}
+        response_flow = existing_response_flow.copy() if isinstance(existing_response_flow, dict) else {}
+
+        plan_policy = _settings_parse_response_flow_select(
+            form,
+            "llm_response_flow_plan_policy",
+            {"explicit_or_complex", "always", "never"},
+        )
+        staging_policy = _settings_parse_response_flow_select(
+            form,
+            "llm_response_flow_staging_policy",
+            {"explicit_or_complex", "always", "never"},
+        )
+        default_skill_execution_style = _settings_parse_response_flow_select(
+            form,
+            "llm_response_flow_default_skill_execution_style",
+            {"direct", "stepwise"},
+        )
+        ask_user_policy = _settings_parse_response_flow_select(
+            form,
+            "llm_response_flow_ask_user_policy",
+            {"blocked_only", "permissive"},
+        )
+
+        if plan_policy is not None:
+            response_flow["plan_policy"] = plan_policy
+        else:
+            response_flow.pop("plan_policy", None)
+
+        if staging_policy is not None:
+            response_flow["staging_policy"] = staging_policy
+        else:
+            response_flow.pop("staging_policy", None)
+
+        if default_skill_execution_style is not None:
+            response_flow["default_skill_execution_style"] = default_skill_execution_style
+        else:
+            response_flow.pop("default_skill_execution_style", None)
+
+        if ask_user_policy is not None:
+            response_flow["ask_user_policy"] = ask_user_policy
+        else:
+            response_flow.pop("ask_user_policy", None)
+
+        complexity_prompt_budget_ratio, ratio_error = _settings_parse_response_flow_ratio(
+            form, "llm_response_flow_complexity_prompt_budget_ratio"
+        )
+        if ratio_error:
+            return config_payload, ratio_error
+        if complexity_prompt_budget_ratio is not None:
+            response_flow["complexity_prompt_budget_ratio"] = complexity_prompt_budget_ratio
+        else:
+            response_flow.pop("complexity_prompt_budget_ratio", None)
+
+        complexity_min_request_tokens, min_tokens_error = _settings_parse_response_flow_min_tokens(
+            form, "llm_response_flow_complexity_min_request_tokens"
+        )
+        if min_tokens_error:
+            return config_payload, min_tokens_error
+        if complexity_min_request_tokens is not None:
+            response_flow["complexity_min_request_tokens"] = complexity_min_request_tokens
+        else:
+            response_flow.pop("complexity_min_request_tokens", None)
+
+        if response_flow:
+            llm["response_flow"] = response_flow
+        else:
+            llm.pop("response_flow", None)
 
         if llm:
             config_payload["llm"] = llm
