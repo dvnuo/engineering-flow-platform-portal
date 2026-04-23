@@ -25,6 +25,7 @@ PORTAL_MANAGED_FIELD_TREE = {
         "tools": True,
         "context_budget": True,
         "context_projection": True,
+        "response_flow": True,
     },
     "proxy": {
         "enabled": True,
@@ -56,6 +57,52 @@ PORTAL_MANAGED_FIELD_TREE = {
         "log_level": True,
     },
 }
+
+_RESPONSE_FLOW_PLAN_POLICIES = {"explicit_or_complex", "always", "never"}
+_RESPONSE_FLOW_STAGING_POLICIES = {"explicit_or_complex", "always", "never"}
+_RESPONSE_FLOW_DEFAULT_SKILL_EXECUTION_STYLES = {"direct", "stepwise"}
+_RESPONSE_FLOW_ASK_USER_POLICIES = {"blocked_only", "permissive"}
+
+
+def sanitize_runtime_profile_response_flow(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+
+    sanitized: dict = {}
+
+    plan_policy = value.get("plan_policy")
+    if isinstance(plan_policy, str) and plan_policy in _RESPONSE_FLOW_PLAN_POLICIES:
+        sanitized["plan_policy"] = plan_policy
+
+    staging_policy = value.get("staging_policy")
+    if isinstance(staging_policy, str) and staging_policy in _RESPONSE_FLOW_STAGING_POLICIES:
+        sanitized["staging_policy"] = staging_policy
+
+    default_skill_execution_style = value.get("default_skill_execution_style")
+    if isinstance(default_skill_execution_style, str) and default_skill_execution_style in _RESPONSE_FLOW_DEFAULT_SKILL_EXECUTION_STYLES:
+        sanitized["default_skill_execution_style"] = default_skill_execution_style
+
+    ask_user_policy = value.get("ask_user_policy")
+    if isinstance(ask_user_policy, str) and ask_user_policy in _RESPONSE_FLOW_ASK_USER_POLICIES:
+        sanitized["ask_user_policy"] = ask_user_policy
+
+    ratio = value.get("complexity_prompt_budget_ratio")
+    try:
+        parsed_ratio = float(ratio)
+        if 0 < parsed_ratio <= 1:
+            sanitized["complexity_prompt_budget_ratio"] = parsed_ratio
+    except (TypeError, ValueError):
+        pass
+
+    min_tokens = value.get("complexity_min_request_tokens")
+    try:
+        parsed_min_tokens = int(min_tokens)
+        if parsed_min_tokens > 0:
+            sanitized["complexity_min_request_tokens"] = parsed_min_tokens
+    except (TypeError, ValueError):
+        pass
+
+    return sanitized
 
 
 def _filter_by_field_tree(data, field_tree):
@@ -114,7 +161,19 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if isinstance(llm, dict) and "tools" in llm:
         llm_copy = llm.copy()
         llm_copy["tools"] = normalize_runtime_profile_llm_tools(llm_copy.get("tools"))
-        sanitized["llm"] = llm_copy
+        llm = llm_copy
+
+    if isinstance(llm, dict) and "response_flow" in llm:
+        llm_copy = llm.copy()
+        sanitized_response_flow = sanitize_runtime_profile_response_flow(llm_copy.get("response_flow"))
+        if sanitized_response_flow:
+            llm_copy["response_flow"] = sanitized_response_flow
+        else:
+            llm_copy.pop("response_flow", None)
+        llm = llm_copy
+
+    if isinstance(llm, dict):
+        sanitized["llm"] = llm
     return sanitized
 
 
