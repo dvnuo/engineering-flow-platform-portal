@@ -368,6 +368,7 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         assert 'name="llm_response_flow_active_skill_conflict_policy"' in panel.text
         assert 'name="llm_response_flow_complexity_prompt_budget_ratio"' in panel.text
         assert 'name="llm_response_flow_complexity_min_request_tokens"' in panel.text
+        assert "Use runtime local default" in panel.text
         assert "Default skill execution style" in panel.text
         assert "ASK_USER policy" in panel.text
         assert "Active skill conflict policy" in panel.text

@@ -303,6 +303,7 @@ def test_runtime_profile_panel_response_flow_controls_render(monkeypatch):
         assert 'name="llm_response_flow_active_skill_conflict_policy"' in resp.text
         assert 'name="llm_response_flow_complexity_prompt_budget_ratio"' in resp.text
         assert 'name="llm_response_flow_complexity_min_request_tokens"' in resp.text
+        assert "Use runtime local default" in resp.text
         assert "Ordinary requests should complete directly" in resp.text
         assert "not plan-first or staged-first" in resp.text
         assert "Plan policy controls only up-front planning" in resp.text

@@ -80,67 +80,8 @@
       </div>
       <div class="portal-inline-note">Authorization runs in Portal and fills the API key field only. Save to persist.</div>
       <div class="portal-inline-note">Supports * wildcard (examples: git_clone, jira_*). This controls runtime tools, not prompt rendering (system-prompt.tools.enabled is separate). Empty custom rows are ignored.</div>
-      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Response Flow</h6></div>
       {% set raw_response_flow = raw_llm.get('response_flow', {}) %}
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Plan policy</span>
-          <select name="llm_response_flow_plan_policy" class="portal-form-select">
-            <option value="" {{ 'selected' if not raw_response_flow.get('plan_policy') else '' }}>Use runtime local default</option>
-            <option value="explicit_or_complex" {{ 'selected' if raw_response_flow.get('plan_policy') == 'explicit_or_complex' else '' }}>explicit_or_complex</option>
-            <option value="always" {{ 'selected' if raw_response_flow.get('plan_policy') == 'always' else '' }}>always</option>
-            <option value="never" {{ 'selected' if raw_response_flow.get('plan_policy') == 'never' else '' }}>never</option>
-          </select>
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">Staging policy</span>
-          <select name="llm_response_flow_staging_policy" class="portal-form-select">
-            <option value="" {{ 'selected' if not raw_response_flow.get('staging_policy') else '' }}>Use runtime local default</option>
-            <option value="explicit_or_complex" {{ 'selected' if raw_response_flow.get('staging_policy') == 'explicit_or_complex' else '' }}>explicit_or_complex</option>
-            <option value="always" {{ 'selected' if raw_response_flow.get('staging_policy') == 'always' else '' }}>always</option>
-            <option value="never" {{ 'selected' if raw_response_flow.get('staging_policy') == 'never' else '' }}>never</option>
-          </select>
-        </label>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Default skill execution style</span>
-          <select name="llm_response_flow_default_skill_execution_style" class="portal-form-select">
-            <option value="" {{ 'selected' if not raw_response_flow.get('default_skill_execution_style') else '' }}>Use runtime local default</option>
-            <option value="direct" {{ 'selected' if raw_response_flow.get('default_skill_execution_style') == 'direct' else '' }}>direct</option>
-            <option value="stepwise" {{ 'selected' if raw_response_flow.get('default_skill_execution_style') == 'stepwise' else '' }}>stepwise</option>
-          </select>
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">ASK_USER policy</span>
-          <select name="llm_response_flow_ask_user_policy" class="portal-form-select">
-            <option value="" {{ 'selected' if not raw_response_flow.get('ask_user_policy') else '' }}>Use runtime local default</option>
-            <option value="blocked_only" {{ 'selected' if raw_response_flow.get('ask_user_policy') == 'blocked_only' else '' }}>blocked_only</option>
-            <option value="permissive" {{ 'selected' if raw_response_flow.get('ask_user_policy') == 'permissive' else '' }}>permissive</option>
-          </select>
-        </label>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Active skill conflict policy</span>
-          <select name="llm_response_flow_active_skill_conflict_policy" class="portal-form-select">
-            <option value="" {{ 'selected' if not raw_response_flow.get('active_skill_conflict_policy') else '' }}>Use runtime local default</option>
-            <option value="auto_switch_direct" {{ 'selected' if raw_response_flow.get('active_skill_conflict_policy') == 'auto_switch_direct' else '' }}>auto_switch_direct</option>
-            <option value="always_ask" {{ 'selected' if raw_response_flow.get('active_skill_conflict_policy') == 'always_ask' else '' }}>always_ask</option>
-          </select>
-        </label>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Complexity budget ratio</span>
-          <input type="number" step="any" min="0" max="1" name="llm_response_flow_complexity_prompt_budget_ratio" value="{{ raw_response_flow.get('complexity_prompt_budget_ratio', '') }}" placeholder="0.85" class="portal-form-input" />
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">Complexity minimum request tokens</span>
-          <input type="number" min="1" step="1" name="llm_response_flow_complexity_min_request_tokens" value="{{ raw_response_flow.get('complexity_min_request_tokens', '') }}" placeholder="24000" class="portal-form-input" />
-        </label>
-      </div>
-      <div class="portal-inline-note">Ordinary requests should complete directly (not plan-first or staged-first). Plan policy controls only up-front planning. Staging policy controls only phase-by-phase/manifest-first continuation and is independent from ask_user_policy. default_skill_execution_style, ask_user_policy, and active_skill_conflict_policy are global defaults and apply only when a skill frontmatter does not declare the corresponding field. active_skill_conflict_policy applies only to direct active skills: auto_switch_direct switches on clear new requests, while always_ask keeps the current direct skill and asks continue-vs-switch. For stepwise/required-plan/required-staging active skills, continue only when the user is clearly continuing that flow (explicit continue, same-skill rematch, or replying to a blocking skill question); clearly independent new requests should leave the old active skill. A prior staged generation flow is not session-sticky: only explicit continue/next signals should resume it, while clearly independent new requests should leave it and restart staged mode only if the new request explicitly asks for staged output or is truly complex. Blank fields use runtime local defaults and are not persisted.</div>
+      {% include 'partials/_response_flow_fields.html' %}
     </section>
 
     <section class="portal-panel-section" data-instance-group="jira" data-managed-section="jira">
