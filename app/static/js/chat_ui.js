@@ -428,6 +428,7 @@ function generateFileId() {
 }
 
 function generateClientWebchatSessionId() {
+  // Client-side fallback session id used before first send/upload so both routes share one stable id.
   const now = new Date();
   const pad2 = (value) => String(value).padStart(2, "0");
   const timestamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
@@ -436,6 +437,7 @@ function generateClientWebchatSessionId() {
 }
 
 function ensureChatSessionId(agentId = state.selectedAgentId) {
+  // Reuse the same per-agent session id once generated; never rotate it implicitly during an active chat.
   if (!agentId) return "";
   const existing = currentSessionIdForAgent(agentId);
   if (existing) {
@@ -469,6 +471,13 @@ const SUPPORTED_UPLOAD_EXTENSIONS = new Set([
 ]);
 
 const AUTO_PARSE_EXTENSIONS = new Set(["pdf", "docx", "xlsx", "csv", "txt"]);
+const AUTO_PARSE_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "text/plain",
+]);
 
 function fileExtensionFromName(name) {
   const normalized = String(name || "").trim().toLowerCase();
@@ -477,6 +486,7 @@ function fileExtensionFromName(name) {
 }
 
 function isRuntimeSupportedUpload(file) {
+  // Upload allowlist accepts either explicit MIME from browser or filename extension fallback.
   if (!file) return false;
   const mime = String(file.type || "").toLowerCase();
   const ext = fileExtensionFromName(file.name);
@@ -485,12 +495,13 @@ function isRuntimeSupportedUpload(file) {
 }
 
 function shouldAutoParseUploadedFile(pf, uploadedData) {
+  // Auto-parse is intentionally document-only (never image/*), and allows MIME-or-extension matching.
   const fromData = String(uploadedData?.content_type || "").toLowerCase();
   const fromPf = String(pf?.file?.type || "").toLowerCase();
   const mime = fromData || fromPf;
   if (mime.startsWith("image/")) return false;
   const ext = fileExtensionFromName(uploadedData?.filename || pf?.name || pf?.file?.name || "");
-  return AUTO_PARSE_EXTENSIONS.has(ext);
+  return AUTO_PARSE_MIME_TYPES.has(mime) || AUTO_PARSE_EXTENSIONS.has(ext);
 }
 
 async function parseUploadedPendingFile(pf, agentId, sessionId) {
@@ -608,17 +619,26 @@ async function addPendingFilesAndUpload(files) {
         try {
           pf.parseData = await parseUploadedPendingFile(pf, agentId, sessionId);
           pf.status = "uploaded";
+          pf.error = "";
           pf.parseError = "";
+          if (!pf.uploadedData) {
+            pf.uploadedData = data;
+          }
           renderInputPreview();
         } catch (parseError) {
           pf.status = "failed";
           pf.parseError = parseError?.message || "Parse failed";
+          pf.error = pf.parseError;
+          pf.parseData = null;
           renderInputPreview();
           showToast("File processing failed: " + pf.parseError);
           continue;
         }
       } else {
         pf.status = "uploaded";
+        pf.error = "";
+        pf.parseError = "";
+        pf.parseData = null;
         renderInputPreview();
       }
       showToast("File uploaded: " + file.name);
@@ -631,6 +651,8 @@ async function addPendingFilesAndUpload(files) {
     } catch (error) {
       pf.status = 'failed';
       pf.error = error?.message || "Upload failed";
+      pf.parseError = "";
+      pf.parseData = null;
       renderInputPreview();
       showToast('Upload failed: ' + error.message);
     }
@@ -3292,6 +3314,7 @@ function insertFileReference(fileIdOrRef) {
   const prefix = before && !/\s$/.test(before) ? " " : "";
   const suffix = after && !/^\s/.test(after) ? " " : "";
   dom.chatInput.setRangeText(`${prefix}${token}${suffix}`, start, end, "end");
+  dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
   dom.chatInput.focus();
   syncChatInputHeight();
   maybeShowSuggest();

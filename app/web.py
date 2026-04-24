@@ -41,6 +41,7 @@ from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.thinking_process_view import build_thinking_process_view
+from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 
@@ -185,15 +186,6 @@ def _parse_json_textarea(raw: str | None, *, field_name: str) -> tuple[str | Non
 
 def _parse_form_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on", "yes"}
-
-def _filter_runtime_file_upload_query_items(request: Request) -> list[tuple[str, str]]:
-    allowlisted_query = {"session_id"}
-    return [
-        (key, value)
-        for key, value in request.query_params.multi_items()
-        if key in allowlisted_query
-    ]
-
 
 def _append_error_code(parts: list[str], code, error_type) -> None:
     code_text = str(code or "").strip()
