@@ -205,3 +205,122 @@ console.log(JSON.stringify({{
     assert payload["insertCases"]["fullIdNormalized"] == "@file_12345678"
     assert payload["insertCases"]["spacingAroundToken"] == "hello @file_12345678 world"
     assert payload["insertCases"]["inputEvents"] == [1, 1, 1]
+
+
+def test_chat_ui_upload_and_first_send_reuse_same_preallocated_session_id():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    create_default_chat_state = _extract_js_function(js, "createDefaultChatState")
+    ensure_chat_state = _extract_js_function(js, "ensureChatState")
+    current_session_for_agent = _extract_js_function(js, "currentSessionIdForAgent")
+    sync_hidden_session = _extract_js_function(js, "syncHiddenSessionInputFromState")
+    update_agent_session = _extract_js_function(js, "updateAgentSession")
+    generate_session_id = _extract_js_function(js, "generateClientWebchatSessionId")
+    ensure_session_id = _extract_js_function(js, "ensureChatSessionId")
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-1",
+  chatStatesByAgent: new Map(),
+  agentSessionIds: new Map(),
+}};
+const dom = {{}};
+let hiddenValue = "";
+const setLastSessionCalls = [];
+
+globalThis.document = {{
+  getElementById(id) {{
+    if (id !== "chat-session-id") return null;
+    return {{
+      get value() {{ return hiddenValue; }},
+      set value(v) {{ hiddenValue = String(v); }},
+    }};
+  }},
+}};
+globalThis.setLastSessionId = function (agentId, sessionId) {{
+  setLastSessionCalls.push([agentId, sessionId]);
+}};
+globalThis.ensureEventSocketForSelectedAgent = function () {{}};
+globalThis.currentSessionIdForSelectedAgent = function () {{
+  return currentSessionIdForAgent(state.selectedAgentId);
+}};
+
+{create_default_chat_state}
+{ensure_chat_state}
+{current_session_for_agent}
+{sync_hidden_session}
+{update_agent_session}
+{generate_session_id}
+{ensure_session_id}
+
+const uploadPhaseSessionId = ensureChatSessionId("agent-1");
+const sendPhaseSessionId = ensureChatSessionId("agent-1");
+const stateSessionId = currentSessionIdForAgent("agent-1");
+
+console.log(JSON.stringify({{
+  uploadPhaseSessionId,
+  sendPhaseSessionId,
+  stateSessionId,
+  hiddenValue,
+  setLastSessionCalls,
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["uploadPhaseSessionId"].startswith("webchat_")
+    assert payload["sendPhaseSessionId"] == payload["uploadPhaseSessionId"]
+    assert payload["stateSessionId"] == payload["uploadPhaseSessionId"]
+    assert payload["hiddenValue"] == payload["uploadPhaseSessionId"]
+    assert payload["setLastSessionCalls"] == [["agent-1", payload["uploadPhaseSessionId"]]]
+
+
+def test_chat_ui_build_attachments_only_includes_uploaded_files():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    build_attachments = _extract_js_function(js, "buildAttachmentsFromChatState")
+
+    script = f"""
+{build_attachments}
+
+const chatState = {{
+  pendingFiles: [
+    {{ status: "uploaded", file_id: "img-1", name: "photo.png", type: "image/png", previewUrl: "blob:img-1" }},
+    {{ status: "uploaded", file_id: "doc-1", name: "report.pdf", type: "application/pdf", previewUrl: "" }},
+    {{ status: "uploading", file_id: "up-1", name: "uploading.txt", type: "text/plain", previewUrl: "" }},
+    {{ status: "parsing", file_id: "parse-1", name: "parsing.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", previewUrl: "" }},
+    {{ status: "failed", file_id: "fail-1", name: "failed.csv", type: "text/csv", previewUrl: "" }},
+    {{ status: "uploaded", file_id: "", name: "missing-id.txt", type: "text/plain", previewUrl: "" }},
+  ],
+}};
+
+globalThis.document = {{
+  getElementById(id) {{
+    if (id !== "chat-attachments") return null;
+    return {{ value: "[]" }};
+  }},
+}};
+
+const beforeSnapshot = JSON.stringify(chatState.pendingFiles);
+const attachments = buildAttachmentsFromChatState("agent-1", chatState);
+const afterSnapshot = JSON.stringify(chatState.pendingFiles);
+
+console.log(JSON.stringify({{
+  attachments,
+  beforeSnapshot,
+  afterSnapshot,
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["attachments"] == ["img-1", "doc-1"]
+    assert payload["afterSnapshot"] == payload["beforeSnapshot"]
