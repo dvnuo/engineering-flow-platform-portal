@@ -469,6 +469,13 @@ const SUPPORTED_UPLOAD_EXTENSIONS = new Set([
 ]);
 
 const AUTO_PARSE_EXTENSIONS = new Set(["pdf", "docx", "xlsx", "csv", "txt"]);
+const AUTO_PARSE_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "text/plain",
+]);
 
 function fileExtensionFromName(name) {
   const normalized = String(name || "").trim().toLowerCase();
@@ -490,7 +497,7 @@ function shouldAutoParseUploadedFile(pf, uploadedData) {
   const mime = fromData || fromPf;
   if (mime.startsWith("image/")) return false;
   const ext = fileExtensionFromName(uploadedData?.filename || pf?.name || pf?.file?.name || "");
-  return AUTO_PARSE_EXTENSIONS.has(ext);
+  return AUTO_PARSE_MIME_TYPES.has(mime) || AUTO_PARSE_EXTENSIONS.has(ext);
 }
 
 async function parseUploadedPendingFile(pf, agentId, sessionId) {

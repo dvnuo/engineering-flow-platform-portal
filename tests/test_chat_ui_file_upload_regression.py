@@ -58,6 +58,20 @@ def test_chat_ui_upload_state_machine_keeps_documents_parsing_until_parse_comple
     assert 'pf.parseData = null;' in add_fn
 
 
+def test_chat_ui_auto_parse_accepts_mime_or_extension():
+    js = _source()
+
+    assert "const AUTO_PARSE_MIME_TYPES = new Set([" in js
+    assert '"application/pdf"' in js
+    assert '"text/csv"' in js
+    assert '"text/plain"' in js
+
+    should_parse_start = js.index("function shouldAutoParseUploadedFile(")
+    should_parse_end = js.index("async function parseUploadedPendingFile(", should_parse_start)
+    should_parse_fn = js[should_parse_start:should_parse_end]
+    assert "AUTO_PARSE_MIME_TYPES.has(mime) || AUTO_PARSE_EXTENSIONS.has(ext)" in should_parse_fn
+
+
 def test_chat_ui_history_generic_file_chip_includes_optional_metadata():
     js = _source()
 
