@@ -45,6 +45,8 @@ def test_chat_ui_history_attachment_rendering_does_not_force_img_for_all_attachm
     assert "attachmentType === \"image\" && imageUrl" in js
     assert "message-attachment-file" in js
     assert "normalizedAttachments.forEach(fileId =>" not in js
+    assert 'const imageUrl = isAttachmentObject ? (attachment.url || attachment.previewUrl || "") : ""' in js
+    assert 'return `<img src="${safeUrl}" class="message-attachment-thumb"' in js
 
 
 def test_chat_ui_upload_state_machine_keeps_documents_parsing_until_parse_completes():
@@ -115,6 +117,10 @@ const parseCases = {{
   imageMime: shouldAutoParseUploadedFile(
     {{ file: {{ type: "image/png", name: "diagram" }}, name: "diagram" }},
     {{ content_type: "image/png", filename: "diagram" }}
+  ),
+  imageMimeWithMisleadingDocExt: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "image/png", name: "looks-like-doc.pdf" }}, name: "looks-like-doc.pdf" }},
+    {{ content_type: "image/png", filename: "looks-like-doc.pdf" }}
   ),
   docxExtNoMime: shouldAutoParseUploadedFile(
     {{ file: {{ type: "", name: "doc.docx" }}, name: "doc.docx" }},
@@ -201,6 +207,7 @@ console.log(JSON.stringify({{
         "mimePdfNoExt": True,
         "mimePlainNoExt": True,
         "imageMime": False,
+        "imageMimeWithMisleadingDocExt": False,
         "docxExtNoMime": True,
         "xlsxExtNoMime": True,
         "csvExtNoMime": True,
@@ -334,3 +341,19 @@ console.log(JSON.stringify({{
 
     assert payload["attachments"] == ["img-1", "doc-1"]
     assert payload["afterSnapshot"] == payload["beforeSnapshot"]
+
+
+def test_chat_ui_render_input_preview_badge_contract_contains_all_pending_states():
+    js = _source()
+    render_preview_start = js.index("function renderInputPreview() {")
+    render_preview_end = js.index("async function uploadPendingFile(", render_preview_start)
+    render_preview_fn = js[render_preview_start:render_preview_end]
+
+    assert "pf.status === 'uploading'" in render_preview_fn
+    assert "⏳" in render_preview_fn
+    assert "pf.status === 'parsing'" in render_preview_fn
+    assert "🧠" in render_preview_fn
+    assert "pf.status === 'uploaded'" in render_preview_fn
+    assert "✓" in render_preview_fn
+    assert "pf.status === 'failed'" in render_preview_fn
+    assert "✗" in render_preview_fn

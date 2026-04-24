@@ -47,3 +47,9 @@ def test_agent_files_upload_route_uses_query_filter_helper():
 
     assert "from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items" in web_source
     assert "query_items = _filter_runtime_file_upload_query_items(request)" in web_source
+
+
+def test_filter_runtime_file_upload_query_items_returns_empty_for_empty_query():
+    request = SimpleNamespace(query_params=QueryParams([]))
+
+    assert _filter_runtime_file_upload_query_items(request) == []
