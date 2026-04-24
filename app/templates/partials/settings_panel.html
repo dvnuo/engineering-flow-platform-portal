@@ -200,7 +200,7 @@
           <input type="number" min="1" step="1" name="llm_response_flow_complexity_min_request_tokens" value="{{ raw_response_flow.get('complexity_min_request_tokens', '') }}" placeholder="24000" class="portal-form-input" />
         </label>
       </div>
-      <div class="portal-inline-note">Ordinary requests should complete directly. Plan policy controls only up-front planning; staging policy controls only phase-by-phase continuation; active skill conflict policy controls whether prior active skills auto-yield or require confirmation. Blank fields use runtime local defaults and are not persisted.</div>
+      <div class="portal-inline-note">Ordinary requests should complete directly. Plan policy controls only up-front planning; staging policy controls only phase-by-phase continuation/staged output. Default skill execution style and ASK_USER policy apply only when a skill frontmatter does not declare execution_style or ask_user_policy. Active skill conflict policy applies only to direct active skills (auto-switch vs ask continue-vs-switch on clear new requests). Blank fields use runtime local defaults and are not persisted.</div>
     </section>
 
     <section class="portal-panel-section" data-instance-group="jira" data-managed-section="jira">
