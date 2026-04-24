@@ -186,6 +186,14 @@ def _parse_json_textarea(raw: str | None, *, field_name: str) -> tuple[str | Non
 def _parse_form_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on", "yes"}
 
+def _filter_runtime_file_upload_query_items(request: Request) -> list[tuple[str, str]]:
+    allowlisted_query = {"session_id"}
+    return [
+        (key, value)
+        for key, value in request.query_params.multi_items()
+        if key in allowlisted_query
+    ]
+
 
 def _append_error_code(parts: list[str], code, error_type) -> None:
     code_text = str(code or "").strip()
@@ -2006,12 +2014,14 @@ async def agent_files_upload(agent_id: str, request: Request):
         # Prepare files for upload
         files = {"file": (file_field.filename, content, file_field.content_type)}
         
+        query_items = _filter_runtime_file_upload_query_items(request)
+
         status_code, content, content_type = await _forward_runtime_multipart(
             user=user,
             agent=agent,
             method="POST",
             subpath="api/files/upload",
-            query_items=[],
+            query_items=query_items,
             files=files,
         )
 
