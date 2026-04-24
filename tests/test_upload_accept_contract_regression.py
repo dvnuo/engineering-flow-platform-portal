@@ -31,5 +31,6 @@ def test_upload_accept_contract_stays_aligned_with_portal_supported_types():
     assert accept_match, "Expected upload-input accept contract in app template"
     accept_tokens = {token.strip() for token in accept_match.group(1).split(",") if token.strip()}
 
-    assert required_mime_types.issubset(accept_tokens)
-    assert required_extensions.issubset(accept_tokens)
+    expected_accept_tokens = required_mime_types | required_extensions
+    assert accept_tokens == expected_accept_tokens
+    assert "*" not in accept_tokens

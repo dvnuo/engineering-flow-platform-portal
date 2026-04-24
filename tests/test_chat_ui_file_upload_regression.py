@@ -120,6 +120,14 @@ const parseCases = {{
     {{ file: {{ type: "", name: "doc.docx" }}, name: "doc.docx" }},
     {{ content_type: "", filename: "doc.docx" }}
   ),
+  xlsxExtNoMime: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "", name: "sheet.xlsx" }}, name: "sheet.xlsx" }},
+    {{ content_type: "", filename: "sheet.xlsx" }}
+  ),
+  csvExtNoMime: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "", name: "rows.csv" }}, name: "rows.csv" }},
+    {{ content_type: "", filename: "rows.csv" }}
+  ),
   unsupportedBoth: shouldAutoParseUploadedFile(
     {{ file: {{ type: "application/octet-stream", name: "blob.bin" }}, name: "blob.bin" }},
     {{ content_type: "application/octet-stream", filename: "blob.bin" }}
@@ -194,6 +202,8 @@ console.log(JSON.stringify({{
         "mimePlainNoExt": True,
         "imageMime": False,
         "docxExtNoMime": True,
+        "xlsxExtNoMime": True,
+        "csvExtNoMime": True,
         "unsupportedBoth": False,
     }
     assert payload["supportedUploadCases"] == {
