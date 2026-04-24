@@ -24,6 +24,24 @@ def test_filter_runtime_file_upload_query_items_keeps_only_session_id():
     ]
 
 
+def test_filter_runtime_file_upload_query_items_keeps_session_value_unchanged_with_noise():
+    request = SimpleNamespace(
+        query_params=QueryParams(
+            [
+                ("token", "secret"),
+                ("session_id", "webchat_20260424_235959_xyz98765"),
+                ("session_id", "webchat_20260424_235959_xyz98765_dup"),
+                ("limit", "20"),
+            ]
+        )
+    )
+
+    assert _filter_runtime_file_upload_query_items(request) == [
+        ("session_id", "webchat_20260424_235959_xyz98765"),
+        ("session_id", "webchat_20260424_235959_xyz98765_dup"),
+    ]
+
+
 def test_agent_files_upload_route_uses_query_filter_helper():
     web_source = Path("app/web.py").read_text(encoding="utf-8")
 

@@ -1,4 +1,11 @@
 from pathlib import Path
+import json
+import shutil
+import subprocess
+
+import pytest
+
+from _js_extract_helpers import _extract_js_function
 
 
 def _source() -> str:
@@ -79,3 +86,122 @@ def test_chat_ui_history_generic_file_chip_includes_optional_metadata():
     assert "attachment.content_type || attachment.contentType" in js
     assert "attachment.size" in js
     assert 'metaText ? `${baseText} · ${metaText}` : baseText' in js
+
+
+def test_chat_ui_upload_helpers_behavior_cases():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    upload_helpers_start = js.index("const SUPPORTED_UPLOAD_MIME_TYPES = new Set([")
+    upload_helpers_end = js.index("async function parseUploadedPendingFile(", upload_helpers_start)
+    upload_helpers_block = js[upload_helpers_start:upload_helpers_end]
+    insert_file_reference = _extract_js_function(js, "insertFileReference")
+
+    script = f"""
+{upload_helpers_block}
+{insert_file_reference}
+
+const parseCases = {{
+  mimePdfNoExt: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "application/pdf", name: "spec-without-ext" }}, name: "spec-without-ext" }},
+    {{ content_type: "application/pdf", filename: "spec-without-ext" }}
+  ),
+  mimePlainNoExt: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "text/plain", name: "notes" }}, name: "notes" }},
+    {{ content_type: "text/plain", filename: "notes" }}
+  ),
+  imageMime: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "image/png", name: "diagram" }}, name: "diagram" }},
+    {{ content_type: "image/png", filename: "diagram" }}
+  ),
+  docxExtNoMime: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "", name: "doc.docx" }}, name: "doc.docx" }},
+    {{ content_type: "", filename: "doc.docx" }}
+  ),
+  unsupportedBoth: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "application/octet-stream", name: "blob.bin" }}, name: "blob.bin" }},
+    {{ content_type: "application/octet-stream", filename: "blob.bin" }}
+  ),
+}};
+
+const supportedUploadCases = {{
+  supportedMime: isRuntimeSupportedUpload({{ type: "text/plain", name: "notes-without-ext" }}),
+  supportedExt: isRuntimeSupportedUpload({{ type: "", name: "table.csv" }}),
+  unsupported: isRuntimeSupportedUpload({{ type: "application/x-msdownload", name: "run.exe" }}),
+}};
+
+function makeInput(value, cursorStart, cursorEnd) {{
+  return {{
+    value,
+    selectionStart: cursorStart,
+    selectionEnd: cursorEnd,
+    focused: false,
+    inputEventCount: 0,
+    setRangeText(text, start, end, mode) {{
+      this.value = this.value.slice(0, start) + text + this.value.slice(end);
+      const nextPos = start + text.length;
+      this.selectionStart = nextPos;
+      this.selectionEnd = nextPos;
+    }},
+    dispatchEvent(evt) {{
+      if (evt && evt.type === "input") this.inputEventCount += 1;
+      return true;
+    }},
+    focus() {{
+      this.focused = true;
+    }},
+  }};
+}}
+
+globalThis.syncChatInputHeight = function () {{}};
+globalThis.maybeShowSuggest = function () {{}};
+globalThis.Event = function Event(type, init) {{
+  this.type = type;
+  this.bubbles = Boolean(init && init.bubbles);
+}};
+
+const inputA = makeInput("", 0, 0);
+globalThis.dom = {{ chatInput: inputA }};
+insertFileReference("@file_12345678");
+
+const inputB = makeInput("", 0, 0);
+globalThis.dom = {{ chatInput: inputB }};
+insertFileReference("1234567890abcdef");
+
+const inputC = makeInput("hello world", 5, 5);
+globalThis.dom = {{ chatInput: inputC }};
+insertFileReference("1234567890abcdef");
+
+console.log(JSON.stringify({{
+  parseCases,
+  supportedUploadCases,
+  insertCases: {{
+    keepRawToken: inputA.value,
+    fullIdNormalized: inputB.value,
+    spacingAroundToken: inputC.value,
+    inputEvents: [inputA.inputEventCount, inputB.inputEventCount, inputC.inputEventCount],
+  }},
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["parseCases"] == {
+        "mimePdfNoExt": True,
+        "mimePlainNoExt": True,
+        "imageMime": False,
+        "docxExtNoMime": True,
+        "unsupportedBoth": False,
+    }
+    assert payload["supportedUploadCases"] == {
+        "supportedMime": True,
+        "supportedExt": True,
+        "unsupported": False,
+    }
+    assert payload["insertCases"]["keepRawToken"] == "@file_12345678"
+    assert payload["insertCases"]["fullIdNormalized"] == "@file_12345678"
+    assert payload["insertCases"]["spacingAroundToken"] == "hello @file_12345678 world"
+    assert payload["insertCases"]["inputEvents"] == [1, 1, 1]
