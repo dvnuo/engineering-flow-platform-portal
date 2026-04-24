@@ -368,11 +368,29 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         assert 'name="llm_response_flow_active_skill_conflict_policy"' in panel.text
         assert 'name="llm_response_flow_complexity_prompt_budget_ratio"' in panel.text
         assert 'name="llm_response_flow_complexity_min_request_tokens"' in panel.text
+        assert "Use runtime local default" in panel.text
         assert "Default skill execution style" in panel.text
         assert "ASK_USER policy" in panel.text
         assert "Active skill conflict policy" in panel.text
+        assert "Ordinary requests should complete directly" in panel.text
+        assert "explicit request or truly complex work" in panel.text
+        assert "near/over runtime budget" in panel.text
+        assert "not plan-first or staged-first" in panel.text
+        assert "Plan policy controls only up-front planning" in panel.text
+        assert "phase-by-phase/manifest-first continuation" in panel.text
+        assert "independent from ask_user_policy" in panel.text
         assert "skill frontmatter" in panel.text
+        assert "active_skill_conflict_policy are global defaults" in panel.text
+        assert "does not declare the corresponding field" in panel.text
         assert "direct active skills" in panel.text
+        assert "auto_switch_direct switches on clear new requests" in panel.text
+        assert "always_ask keeps the current direct skill" in panel.text
+        assert "stepwise/required-plan/required-staging active skills" in panel.text
+        assert "replying to a blocking skill question" in panel.text
+        assert "independent new requests should leave the old active skill" in panel.text
+        assert "prior staged generation flow is not session-sticky" in panel.text
+        assert "explicit continue/next signals should resume it" in panel.text
+        assert "restart staged mode only if the new request explicitly asks for staged output or is truly complex" in panel.text
         assert "not persisted" in panel.text
 
         save = client.post(

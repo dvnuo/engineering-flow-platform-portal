@@ -80,6 +80,8 @@
       </div>
       <div class="portal-inline-note">Authorization runs in Portal and fills the API key field only. Save to persist.</div>
       <div class="portal-inline-note">Supports * wildcard (examples: git_clone, jira_*). This controls runtime tools, not prompt rendering (system-prompt.tools.enabled is separate). Empty custom rows are ignored.</div>
+      {% set raw_response_flow = raw_llm.get('response_flow', {}) %}
+      {% include 'partials/_response_flow_fields.html' %}
     </section>
 
     <section class="portal-panel-section" data-instance-group="jira" data-managed-section="jira">
