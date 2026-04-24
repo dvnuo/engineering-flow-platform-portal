@@ -315,6 +315,9 @@ def test_runtime_profile_panel_response_flow_controls_render(monkeypatch):
         assert "stepwise/required-plan/required-staging active skills" in resp.text
         assert "replying to a blocking skill question" in resp.text
         assert "independent new requests should leave the old active skill" in resp.text
+        assert "prior staged generation flow is not session-sticky" in resp.text
+        assert "explicit continue/next signals should resume it" in resp.text
+        assert "restart staged mode only if the new request explicitly asks for staged output or is truly complex" in resp.text
         assert "not persisted" in resp.text
     finally:
         cleanup()

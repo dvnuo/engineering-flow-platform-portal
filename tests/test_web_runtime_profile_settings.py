@@ -385,6 +385,9 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         assert "stepwise/required-plan/required-staging active skills" in panel.text
         assert "replying to a blocking skill question" in panel.text
         assert "independent new requests should leave the old active skill" in panel.text
+        assert "prior staged generation flow is not session-sticky" in panel.text
+        assert "explicit continue/next signals should resume it" in panel.text
+        assert "restart staged mode only if the new request explicitly asks for staged output or is truly complex" in panel.text
         assert "not persisted" in panel.text
 
         save = client.post(
