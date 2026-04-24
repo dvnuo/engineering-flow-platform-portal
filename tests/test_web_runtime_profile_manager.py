@@ -312,6 +312,9 @@ def test_runtime_profile_panel_response_flow_controls_render(monkeypatch):
         assert "active_skill_conflict_policy" in resp.text
         assert "auto_switch_direct switches on clear new requests" in resp.text
         assert "always_ask keeps the current direct skill" in resp.text
+        assert "stepwise/required-plan/required-staging active skills" in resp.text
+        assert "replying to a blocking skill question" in resp.text
+        assert "independent new requests should leave the old active skill" in resp.text
         assert "not persisted" in resp.text
     finally:
         cleanup()

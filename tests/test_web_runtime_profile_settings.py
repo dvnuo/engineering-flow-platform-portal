@@ -382,6 +382,9 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         assert "direct active skills" in panel.text
         assert "auto_switch_direct switches on clear new requests" in panel.text
         assert "always_ask keeps the current direct skill" in panel.text
+        assert "stepwise/required-plan/required-staging active skills" in panel.text
+        assert "replying to a blocking skill question" in panel.text
+        assert "independent new requests should leave the old active skill" in panel.text
         assert "not persisted" in panel.text
 
         save = client.post(
