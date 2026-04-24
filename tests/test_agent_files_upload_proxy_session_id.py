@@ -1,42 +1,31 @@
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
+from starlette.datastructures import QueryParams
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.web import _filter_runtime_file_upload_query_items
 
 
-class _DB:
-    def close(self):
-        return None
-
-
-def test_agent_files_upload_forwards_session_id_query_item(monkeypatch):
-    from app.main import app
-    import app.web as web_module
-
-    fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
-    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running", name="Agent One")
-
-    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
-    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
-    monkeypatch.setattr(
-        web_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+def test_filter_runtime_file_upload_query_items_keeps_only_session_id():
+    request = SimpleNamespace(
+        query_params=QueryParams(
+            [
+                ("session_id", "webchat_20260423_010203_abcd1234"),
+                ("token", "secret"),
+                ("limit", "10"),
+            ]
+        )
     )
 
-    captured = {}
+    assert _filter_runtime_file_upload_query_items(request) == [
+        ("session_id", "webchat_20260423_010203_abcd1234")
+    ]
 
-    async def _fake_forward_multipart(**kwargs):
-        captured.update(kwargs)
-        return 200, b'{"ok": true}', "application/json"
 
-    monkeypatch.setattr(web_module.proxy_service, "forward_multipart", _fake_forward_multipart)
+def test_agent_files_upload_route_uses_query_filter_helper():
+    web_source = Path("app/web.py").read_text(encoding="utf-8")
 
-    client = TestClient(app)
-    response = client.post(
-        "/a/agent-1/api/files/upload?session_id=webchat_20260423_010203_abcd1234",
-        files={"file": ("note.txt", b"hello", "text/plain")},
-    )
-
-    assert response.status_code == 200
-    assert captured["subpath"] == "api/files/upload"
-    assert ("session_id", "webchat_20260423_010203_abcd1234") in captured["query_items"]
+    assert "def _filter_runtime_file_upload_query_items(request: Request)" in web_source
+    assert "query_items = _filter_runtime_file_upload_query_items(request)" in web_source

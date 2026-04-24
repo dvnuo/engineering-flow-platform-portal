@@ -609,6 +609,7 @@ async function addPendingFilesAndUpload(files) {
           pf.parseData = await parseUploadedPendingFile(pf, agentId, sessionId);
           pf.status = "uploaded";
           pf.parseError = "";
+          renderInputPreview();
         } catch (parseError) {
           pf.status = "failed";
           pf.parseError = parseError?.message || "Parse failed";
@@ -618,8 +619,8 @@ async function addPendingFilesAndUpload(files) {
         }
       } else {
         pf.status = "uploaded";
+        renderInputPreview();
       }
-      renderInputPreview();
       showToast("File uploaded: " + file.name);
 
       // Note: Do NOT add to attachments here - will be built from pendingFiles when sending
@@ -708,7 +709,6 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const data = JSON.parse(xhr.responseText);
-          pf.status = 'uploaded';
           pf.uploadedData = data;
           // Store blob URL to file ID mapping
           const fileId = data.file_id || data.id;
@@ -2799,7 +2799,25 @@ function notifyAgentCompletion(agentId, agentName, status, summary = "") {
   showToast(text);
 }
 
+function formatAttachmentMetaText(attachment) {
+  if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) return "";
+  const contentType = String(attachment.content_type || attachment.contentType || "").trim();
+  const rawSize = attachment.size;
+  let sizeText = "";
+  if (typeof rawSize === "number" && Number.isFinite(rawSize) && rawSize >= 0) {
+    if (rawSize >= 1024) {
+      sizeText = `${Math.max(1, Math.round(rawSize / 102.4) / 10)} KB`;
+    } else {
+      sizeText = `${Math.round(rawSize)} B`;
+    }
+  }
+  return [contentType, sizeText].filter(Boolean).join(" · ");
+}
+
 function buildAttachmentsFromChatState(agentId, chatState) {
+  // Runtime directly consumes image attachments in this array. Non-image files take a different path:
+  // upload -> parse -> runtime session file_context keyed by stable session_id.
+  // Keep auto-parse + session_id flow intact for documents even if they also appear in local preview UI.
   const uploadedFileIds = chatState.pendingFiles
     .filter((pf) => pf.file_id && pf.status === "uploaded")
     .map((pf) => pf.file_id);
@@ -4252,7 +4270,9 @@ function renderChatHistory(messages, metadata = {}) {
 
           const fileChip = document.createElement("div");
           fileChip.className = "message-attachment-file";
-          fileChip.textContent = `📄 ${fileName || fileId || "attachment"}`;
+          const metaText = formatAttachmentMetaText(attachment);
+          const baseText = `📄 ${fileName || fileId || "attachment"}`;
+          fileChip.textContent = metaText ? `${baseText} · ${metaText}` : baseText;
           attachmentDiv.appendChild(fileChip);
         });
         article.appendChild(attachmentDiv);
