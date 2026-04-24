@@ -371,10 +371,17 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         assert "Default skill execution style" in panel.text
         assert "ASK_USER policy" in panel.text
         assert "Active skill conflict policy" in panel.text
+        assert "Ordinary requests should complete directly" in panel.text
+        assert "not plan-first or staged-first" in panel.text
+        assert "Plan policy controls only up-front planning" in panel.text
+        assert "phase-by-phase/manifest-first continuation" in panel.text
+        assert "independent from ask_user_policy" in panel.text
         assert "skill frontmatter" in panel.text
         assert "active_skill_conflict_policy are global defaults" in panel.text
         assert "does not declare the corresponding field" in panel.text
         assert "direct active skills" in panel.text
+        assert "auto_switch_direct switches on clear new requests" in panel.text
+        assert "always_ask keeps the current direct skill" in panel.text
         assert "not persisted" in panel.text
 
         save = client.post(

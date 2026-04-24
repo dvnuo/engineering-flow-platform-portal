@@ -303,8 +303,15 @@ def test_runtime_profile_panel_response_flow_controls_render(monkeypatch):
         assert 'name="llm_response_flow_active_skill_conflict_policy"' in resp.text
         assert 'name="llm_response_flow_complexity_prompt_budget_ratio"' in resp.text
         assert 'name="llm_response_flow_complexity_min_request_tokens"' in resp.text
+        assert "Ordinary requests should complete directly" in resp.text
+        assert "not plan-first or staged-first" in resp.text
+        assert "Plan policy controls only up-front planning" in resp.text
+        assert "phase-by-phase/manifest-first continuation" in resp.text
+        assert "independent from ask_user_policy" in resp.text
         assert "skill frontmatter" in resp.text
         assert "active_skill_conflict_policy" in resp.text
+        assert "auto_switch_direct switches on clear new requests" in resp.text
+        assert "always_ask keeps the current direct skill" in resp.text
         assert "not persisted" in resp.text
     finally:
         cleanup()
@@ -348,5 +355,32 @@ def test_runtime_profile_save_persists_response_flow_nested_dict(monkeypatch):
             "complexity_prompt_budget_ratio": 0.85,
             "complexity_min_request_tokens": 24000,
         }
+
+        clear_resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "openai",
+                "llm_response_flow_plan_policy": "",
+                "llm_response_flow_staging_policy": "",
+                "llm_response_flow_default_skill_execution_style": "",
+                "llm_response_flow_ask_user_policy": "",
+                "llm_response_flow_active_skill_conflict_policy": "",
+                "llm_response_flow_complexity_prompt_budget_ratio": "",
+                "llm_response_flow_complexity_min_request_tokens": "",
+            },
+        )
+        assert clear_resp.status_code == 200
+        db.refresh(rp)
+        cleared = json.loads(rp.config_json)
+        assert "response_flow" not in cleared["llm"]
     finally:
         cleanup()
