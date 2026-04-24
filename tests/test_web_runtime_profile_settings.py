@@ -373,6 +373,8 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         assert "ASK_USER policy" in panel.text
         assert "Active skill conflict policy" in panel.text
         assert "Ordinary requests should complete directly" in panel.text
+        assert "explicit request or truly complex work" in panel.text
+        assert "near/over runtime budget" in panel.text
         assert "not plan-first or staged-first" in panel.text
         assert "Plan policy controls only up-front planning" in panel.text
         assert "phase-by-phase/manifest-first continuation" in panel.text
