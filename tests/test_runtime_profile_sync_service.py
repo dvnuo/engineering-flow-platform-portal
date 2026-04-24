@@ -187,6 +187,8 @@ def test_build_apply_payload_from_profile_includes_response_flow_when_present():
         payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
         assert payload["config"]["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
         assert payload["config"]["llm"]["response_flow"]["staging_policy"] == "always"
+        assert payload["config"]["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
+        assert payload["config"]["llm"]["response_flow"]["ask_user_policy"] == "blocked_only"
         assert payload["config"]["llm"]["response_flow"]["active_skill_conflict_policy"] == "always_ask"
         assert payload["config"]["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
         assert payload["config"]["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
