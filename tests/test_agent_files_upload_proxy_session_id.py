@@ -24,6 +24,23 @@ def test_filter_runtime_file_upload_query_items_keeps_only_session_id():
     ]
 
 
+def test_filter_runtime_file_upload_query_items_drops_unknown_noise_keys():
+    request = SimpleNamespace(
+        query_params=QueryParams(
+            [
+                ("foo", "1"),
+                ("session_id", "webchat_20260424_111111_keepme"),
+                ("x-session", "shadow"),
+                ("bar", "2"),
+            ]
+        )
+    )
+
+    assert _filter_runtime_file_upload_query_items(request) == [
+        ("session_id", "webchat_20260424_111111_keepme")
+    ]
+
+
 def test_filter_runtime_file_upload_query_items_keeps_session_value_unchanged_with_noise():
     request = SimpleNamespace(
         query_params=QueryParams(

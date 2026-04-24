@@ -428,6 +428,7 @@ function generateFileId() {
 }
 
 function generateClientWebchatSessionId() {
+  // Client-side fallback session id used before first send/upload so both routes share one stable id.
   const now = new Date();
   const pad2 = (value) => String(value).padStart(2, "0");
   const timestamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
@@ -436,6 +437,7 @@ function generateClientWebchatSessionId() {
 }
 
 function ensureChatSessionId(agentId = state.selectedAgentId) {
+  // Reuse the same per-agent session id once generated; never rotate it implicitly during an active chat.
   if (!agentId) return "";
   const existing = currentSessionIdForAgent(agentId);
   if (existing) {
@@ -484,6 +486,7 @@ function fileExtensionFromName(name) {
 }
 
 function isRuntimeSupportedUpload(file) {
+  // Upload allowlist accepts either explicit MIME from browser or filename extension fallback.
   if (!file) return false;
   const mime = String(file.type || "").toLowerCase();
   const ext = fileExtensionFromName(file.name);
@@ -492,6 +495,7 @@ function isRuntimeSupportedUpload(file) {
 }
 
 function shouldAutoParseUploadedFile(pf, uploadedData) {
+  // Auto-parse is intentionally document-only (never image/*), and allows MIME-or-extension matching.
   const fromData = String(uploadedData?.content_type || "").toLowerCase();
   const fromPf = String(pf?.file?.type || "").toLowerCase();
   const mime = fromData || fromPf;
