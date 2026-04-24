@@ -19,6 +19,8 @@ def _extract_js_set(js: str, const_name: str) -> set[str]:
 def test_upload_accept_contract_stays_aligned_with_portal_supported_types():
     js = _chat_ui_source()
     html = _app_template_source()
+    supported_mime_types = _extract_js_set(js, "SUPPORTED_UPLOAD_MIME_TYPES")
+    supported_extensions = _extract_js_set(js, "SUPPORTED_UPLOAD_EXTENSIONS")
 
     required_mime_types = {
         "image/jpeg",
@@ -37,8 +39,10 @@ def test_upload_accept_contract_stays_aligned_with_portal_supported_types():
     assert accept_match, "Expected upload-input accept contract in app template"
     accept_tokens = {token.strip() for token in accept_match.group(1).split(",") if token.strip()}
 
+    js_supported_accept_tokens = supported_mime_types | {f".{ext}" for ext in supported_extensions}
     expected_accept_tokens = required_mime_types | required_extensions
     assert accept_tokens == expected_accept_tokens
+    assert accept_tokens.issubset(js_supported_accept_tokens)
     assert "*" not in accept_tokens
 
 
@@ -52,3 +56,4 @@ def test_upload_and_auto_parse_sets_stay_aligned_for_document_types():
     assert auto_parse_mime_types.issubset(supported_mime_types)
     assert auto_parse_extensions.issubset(supported_extensions)
     assert all(not mime.startswith("image/") for mime in auto_parse_mime_types)
+    assert all(ext not in {"jpg", "jpeg", "png", "webp", "gif"} for ext in auto_parse_extensions)
