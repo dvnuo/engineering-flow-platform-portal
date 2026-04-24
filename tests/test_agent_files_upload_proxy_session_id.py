@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from starlette.datastructures import QueryParams
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.web import _filter_runtime_file_upload_query_items
+from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 
 
 def test_filter_runtime_file_upload_query_items_keeps_only_session_id():
@@ -27,5 +27,5 @@ def test_filter_runtime_file_upload_query_items_keeps_only_session_id():
 def test_agent_files_upload_route_uses_query_filter_helper():
     web_source = Path("app/web.py").read_text(encoding="utf-8")
 
-    assert "def _filter_runtime_file_upload_query_items(request: Request)" in web_source
+    assert "from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items" in web_source
     assert "query_items = _filter_runtime_file_upload_query_items(request)" in web_source

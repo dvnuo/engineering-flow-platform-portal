@@ -608,17 +608,26 @@ async function addPendingFilesAndUpload(files) {
         try {
           pf.parseData = await parseUploadedPendingFile(pf, agentId, sessionId);
           pf.status = "uploaded";
+          pf.error = "";
           pf.parseError = "";
+          if (!pf.uploadedData) {
+            pf.uploadedData = data;
+          }
           renderInputPreview();
         } catch (parseError) {
           pf.status = "failed";
           pf.parseError = parseError?.message || "Parse failed";
+          pf.error = pf.parseError;
+          pf.parseData = null;
           renderInputPreview();
           showToast("File processing failed: " + pf.parseError);
           continue;
         }
       } else {
         pf.status = "uploaded";
+        pf.error = "";
+        pf.parseError = "";
+        pf.parseData = null;
         renderInputPreview();
       }
       showToast("File uploaded: " + file.name);
@@ -631,6 +640,8 @@ async function addPendingFilesAndUpload(files) {
     } catch (error) {
       pf.status = 'failed';
       pf.error = error?.message || "Upload failed";
+      pf.parseError = "";
+      pf.parseData = null;
       renderInputPreview();
       showToast('Upload failed: ' + error.message);
     }
@@ -3292,6 +3303,7 @@ function insertFileReference(fileIdOrRef) {
   const prefix = before && !/\s$/.test(before) ? " " : "";
   const suffix = after && !/^\s/.test(after) ? " " : "";
   dom.chatInput.setRangeText(`${prefix}${token}${suffix}`, start, end, "end");
+  dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
   dom.chatInput.focus();
   syncChatInputHeight();
   maybeShowSuggest();

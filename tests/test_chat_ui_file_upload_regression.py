@@ -29,6 +29,7 @@ def test_chat_ui_insert_file_reference_inserts_token_into_input():
     assert 'raw.startsWith("@file_")' in js
     assert '`@file_${raw.slice(0, 8)}`' in js
     assert "dom.chatInput.setRangeText" in js
+    assert 'dispatchEvent(new Event("input", { bubbles: true }))' in js
 
 
 def test_chat_ui_history_attachment_rendering_does_not_force_img_for_all_attachments():
@@ -53,6 +54,8 @@ def test_chat_ui_upload_state_machine_keeps_documents_parsing_until_parse_comple
     assert 'pf.status = "parsing";' in add_fn
     assert 'pf.status = "uploaded";' in add_fn
     assert 'pf.status = "failed";' in add_fn
+    assert 'pf.error = pf.parseError;' in add_fn
+    assert 'pf.parseData = null;' in add_fn
 
 
 def test_chat_ui_history_generic_file_chip_includes_optional_metadata():
