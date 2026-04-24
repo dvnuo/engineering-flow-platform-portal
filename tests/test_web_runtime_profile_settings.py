@@ -372,6 +372,8 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         assert "ASK_USER policy" in panel.text
         assert "Active skill conflict policy" in panel.text
         assert "skill frontmatter" in panel.text
+        assert "active_skill_conflict_policy are global defaults" in panel.text
+        assert "does not declare the corresponding field" in panel.text
         assert "direct active skills" in panel.text
         assert "not persisted" in panel.text
 
