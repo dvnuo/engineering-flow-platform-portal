@@ -959,6 +959,11 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             "llm_response_flow_ask_user_policy",
             {"blocked_only", "permissive"},
         )
+        active_skill_conflict_policy = _settings_parse_response_flow_select(
+            form,
+            "llm_response_flow_active_skill_conflict_policy",
+            {"auto_switch_direct", "always_ask"},
+        )
 
         if plan_policy is not None:
             response_flow["plan_policy"] = plan_policy
@@ -979,6 +984,11 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             response_flow["ask_user_policy"] = ask_user_policy
         else:
             response_flow.pop("ask_user_policy", None)
+
+        if active_skill_conflict_policy is not None:
+            response_flow["active_skill_conflict_policy"] = active_skill_conflict_policy
+        else:
+            response_flow.pop("active_skill_conflict_policy", None)
 
         complexity_prompt_budget_ratio, ratio_error = _settings_parse_response_flow_ratio(
             form, "llm_response_flow_complexity_prompt_budget_ratio"

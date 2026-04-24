@@ -365,8 +365,15 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         assert 'name="llm_response_flow_staging_policy"' in panel.text
         assert 'name="llm_response_flow_default_skill_execution_style"' in panel.text
         assert 'name="llm_response_flow_ask_user_policy"' in panel.text
+        assert 'name="llm_response_flow_active_skill_conflict_policy"' in panel.text
         assert 'name="llm_response_flow_complexity_prompt_budget_ratio"' in panel.text
         assert 'name="llm_response_flow_complexity_min_request_tokens"' in panel.text
+        assert "Default skill execution style" in panel.text
+        assert "ASK_USER policy" in panel.text
+        assert "Active skill conflict policy" in panel.text
+        assert "skill frontmatter" in panel.text
+        assert "direct active skills" in panel.text
+        assert "not persisted" in panel.text
 
         save = client.post(
             f"/app/agents/{agent.id}/settings/save",
@@ -377,6 +384,7 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
                 "llm_response_flow_staging_policy": "always",
                 "llm_response_flow_default_skill_execution_style": "direct",
                 "llm_response_flow_ask_user_policy": "blocked_only",
+                "llm_response_flow_active_skill_conflict_policy": "always_ask",
                 "llm_response_flow_complexity_prompt_budget_ratio": "0.85",
                 "llm_response_flow_complexity_min_request_tokens": "24000",
             },
@@ -390,6 +398,7 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
             "staging_policy": "always",
             "default_skill_execution_style": "direct",
             "ask_user_policy": "blocked_only",
+            "active_skill_conflict_policy": "always_ask",
             "complexity_prompt_budget_ratio": 0.85,
             "complexity_min_request_tokens": 24000,
         }
