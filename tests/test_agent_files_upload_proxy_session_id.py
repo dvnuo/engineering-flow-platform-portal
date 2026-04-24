@@ -62,8 +62,15 @@ def test_filter_runtime_file_upload_query_items_keeps_session_value_unchanged_wi
 def test_agent_files_upload_route_uses_query_filter_helper():
     web_source = Path("app/web.py").read_text(encoding="utf-8")
 
+    assert '@router.post("/a/{agent_id}/api/files/upload")' in web_source
     assert "from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items" in web_source
     assert "query_items = _filter_runtime_file_upload_query_items(request)" in web_source
+
+
+def test_runtime_upload_query_allowlist_contains_session_id():
+    query_source = Path("app/utils/runtime_proxy_query.py").read_text(encoding="utf-8")
+
+    assert 'allowlisted_query = {"session_id"}' in query_source
 
 
 def test_filter_runtime_file_upload_query_items_returns_empty_for_empty_query():

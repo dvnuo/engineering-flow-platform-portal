@@ -134,6 +134,10 @@ const parseCases = {{
     {{ file: {{ type: "", name: "rows.csv" }}, name: "rows.csv" }},
     {{ content_type: "", filename: "rows.csv" }}
   ),
+  txtExtNoMime: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "", name: "notes.txt" }}, name: "notes.txt" }},
+    {{ content_type: "", filename: "notes.txt" }}
+  ),
   unsupportedBoth: shouldAutoParseUploadedFile(
     {{ file: {{ type: "application/octet-stream", name: "blob.bin" }}, name: "blob.bin" }},
     {{ content_type: "application/octet-stream", filename: "blob.bin" }}
@@ -211,6 +215,7 @@ console.log(JSON.stringify({{
         "docxExtNoMime": True,
         "xlsxExtNoMime": True,
         "csvExtNoMime": True,
+        "txtExtNoMime": True,
         "unsupportedBoth": False,
     }
     assert payload["supportedUploadCases"] == {
@@ -222,6 +227,90 @@ console.log(JSON.stringify({{
     assert payload["insertCases"]["fullIdNormalized"] == "@file_12345678"
     assert payload["insertCases"]["spacingAroundToken"] == "hello @file_12345678 world"
     assert payload["insertCases"]["inputEvents"] == [1, 1, 1]
+    assert "chat-attachments" not in insert_file_reference
+
+
+def test_chat_ui_history_attachment_rendering_branches_image_vs_generic_chip_behavior():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    format_attachment_meta_text = _extract_js_function(js, "formatAttachmentMetaText")
+    render_chat_history = _extract_js_function(js, "renderChatHistory")
+
+    script = f"""
+{format_attachment_meta_text}
+{render_chat_history}
+
+class FakeElement {{
+  constructor(tagName) {{
+    this.tagName = String(tagName || "").toUpperCase();
+    this.children = [];
+    this.dataset = {{}};
+    this.className = "";
+    this.textContent = "";
+    this.innerHTML = "";
+  }}
+  appendChild(child) {{
+    this.children.push(child);
+    return child;
+  }}
+}}
+
+const messageList = new FakeElement("div");
+const dom = {{ messageList }};
+const chatState = {{ attachmentHistory: [] }};
+
+globalThis.document = {{
+  createElement(tag) {{
+    return new FakeElement(tag);
+  }},
+}};
+globalThis.getChatState = function () {{ return chatState; }};
+globalThis.clearMessageListToWelcome = function () {{}};
+globalThis.getHistoryMessageDisplayName = function () {{ return "User"; }};
+globalThis.renderMarkdown = function () {{}};
+globalThis.decorateToolMessages = function () {{}};
+globalThis.scrollToBottom = function () {{}};
+
+const userMessage = {{
+  role: "user",
+  content: "hello",
+  attachments: [
+    "legacy_file_ref",
+    {{ type: "file", filename: "spec.pdf", content_type: "application/pdf", size: 12 }},
+    {{ type: "image", url: "https://cdn.example.com/img.png", name: "img.png", file_id: "img-1" }},
+  ],
+}};
+
+renderChatHistory([userMessage], {{}});
+
+function collectByClass(root, className, acc = []) {{
+  if (!root || typeof root !== "object") return acc;
+  const classes = String(root.className || "").split(/\\s+/).filter(Boolean);
+  if (classes.includes(className)) acc.push(root);
+  for (const child of root.children || []) collectByClass(child, className, acc);
+  return acc;
+}}
+
+const imageNodes = collectByClass(messageList, "message-attachment-thumb");
+const fileNodes = collectByClass(messageList, "message-attachment-file");
+
+console.log(JSON.stringify({{
+  imageNodeCount: imageNodes.length,
+  fileNodeCount: fileNodes.length,
+  fileTexts: fileNodes.map(node => node.textContent),
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["imageNodeCount"] == 1
+    assert payload["fileNodeCount"] == 2
+    assert any(text.startswith("📄 legacy_file_ref") for text in payload["fileTexts"])
+    assert any(text.startswith("📄 spec.pdf") for text in payload["fileTexts"])
 
 
 def test_chat_ui_upload_and_first_send_reuse_same_preallocated_session_id():
