@@ -13,3 +13,7 @@ def test_chat_upload_input_allows_multiple_files():
     assert 'type="file"' in upload_input
     assert "multiple" in upload_input
     assert "accept=" in upload_input
+    assert (
+        'accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.docx,.xlsx,.csv,.txt"'
+        in upload_input
+    )

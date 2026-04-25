@@ -3,6 +3,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from _js_extract_helpers import (
+    _extract_js_function,
+    _extract_render_chat_history_dependencies,
+)
 
 
 def _repo_root() -> Path:
@@ -12,9 +18,6 @@ def _repo_root() -> Path:
 def _chat_ui_js_source() -> str:
     chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
     return chat_ui_path.read_text(encoding="utf-8")
-import pytest
-
-from _js_extract_helpers import _extract_js_function
 
 
 def test_chat_ui_includes_display_block_renderer_helpers():
@@ -1292,7 +1295,7 @@ def test_render_chat_history_rebuilds_attachment_history_for_selected_agent():
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
     get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
-    render_history = _extract_js_function(js_file, "renderChatHistory")
+    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
 
     script = f"""
 const state = {{
@@ -1327,7 +1330,7 @@ const document = {{
 {get_current_user_display_name}
 {get_selected_assistant_display_name}
 {get_history_message_display_name}
-{render_history}
+{render_history_dependencies}
 renderChatHistory([
   {{ role: "user", content: "u1", attachments: ["file-1"] }},
   {{ role: "assistant", content: "a1" }},
@@ -1348,7 +1351,7 @@ def test_render_chat_history_empty_clears_attachment_history():
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = _chat_ui_js_source()
-    render_history = _extract_js_function(js_file, "renderChatHistory")
+    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
 
     script = f"""
 const state = {{
@@ -1373,7 +1376,7 @@ const document = {{
     return {{ className: "", dataset: {{}}, textContent: "", appendChild() {{}} }};
   }},
 }};
-{render_history}
+{render_history_dependencies}
 renderChatHistory([], {{}});
 console.log(JSON.stringify({{
   attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory,
@@ -1420,7 +1423,7 @@ def test_render_chat_history_prefers_author_name_for_user_and_assistant():
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
     get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
-    render_history = _extract_js_function(js_file, "renderChatHistory")
+    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
 
     script = f"""
 const state = {{
@@ -1459,7 +1462,7 @@ const document = {{
 {get_current_user_display_name}
 {get_selected_assistant_display_name}
 {get_history_message_display_name}
-{render_history}
+{render_history_dependencies}
 renderChatHistory([
   {{ role: "user", content: "u", author_name: "Alice" }},
   {{ role: "assistant", content: "a", author_name: "Portal Agent" }},
@@ -1482,7 +1485,7 @@ def test_render_chat_history_assistant_falls_back_to_selected_agent_name():
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
     get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
-    render_history = _extract_js_function(js_file, "renderChatHistory")
+    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
 
     script = f"""
 const state = {{
@@ -1521,7 +1524,7 @@ const document = {{
 {get_current_user_display_name}
 {get_selected_assistant_display_name}
 {get_history_message_display_name}
-{render_history}
+{render_history_dependencies}
 renderChatHistory([
   {{ role: "assistant", content: "a" }},
 ], {{}});
@@ -1543,7 +1546,7 @@ def test_render_chat_history_blank_author_name_falls_back_to_current_names():
     get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
     get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
-    render_history = _extract_js_function(js_file, "renderChatHistory")
+    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
 
     script = f"""
 const state = {{
@@ -1582,7 +1585,7 @@ const document = {{
 {get_current_user_display_name}
 {get_selected_assistant_display_name}
 {get_history_message_display_name}
-{render_history}
+{render_history_dependencies}
 renderChatHistory([
   {{ role: "user", content: "u", author_name: "   " }},
   {{ role: "assistant", content: "a", author_name: "   " }},

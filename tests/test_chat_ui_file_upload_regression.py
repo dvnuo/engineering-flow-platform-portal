@@ -5,7 +5,10 @@ import subprocess
 
 import pytest
 
-from _js_extract_helpers import _extract_js_function
+from _js_extract_helpers import (
+    _extract_js_function,
+    _extract_render_chat_history_dependencies,
+)
 
 
 def _source() -> str:
@@ -134,6 +137,10 @@ const parseCases = {{
     {{ file: {{ type: "", name: "rows.csv" }}, name: "rows.csv" }},
     {{ content_type: "", filename: "rows.csv" }}
   ),
+  txtExtNoMime: shouldAutoParseUploadedFile(
+    {{ file: {{ type: "", name: "notes.txt" }}, name: "notes.txt" }},
+    {{ content_type: "", filename: "notes.txt" }}
+  ),
   unsupportedBoth: shouldAutoParseUploadedFile(
     {{ file: {{ type: "application/octet-stream", name: "blob.bin" }}, name: "blob.bin" }},
     {{ content_type: "application/octet-stream", filename: "blob.bin" }}
@@ -211,6 +218,7 @@ console.log(JSON.stringify({{
         "docxExtNoMime": True,
         "xlsxExtNoMime": True,
         "csvExtNoMime": True,
+        "txtExtNoMime": True,
         "unsupportedBoth": False,
     }
     assert payload["supportedUploadCases"] == {
@@ -222,6 +230,246 @@ console.log(JSON.stringify({{
     assert payload["insertCases"]["fullIdNormalized"] == "@file_12345678"
     assert payload["insertCases"]["spacingAroundToken"] == "hello @file_12345678 world"
     assert payload["insertCases"]["inputEvents"] == [1, 1, 1]
+    assert "chat-attachments" not in insert_file_reference
+
+
+def test_chat_ui_history_attachment_rendering_branches_image_vs_generic_chip_behavior():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    render_chat_history_dependencies = _extract_render_chat_history_dependencies(js)
+
+    script = f"""
+{render_chat_history_dependencies}
+
+class FakeElement {{
+  constructor(tagName) {{
+    this.tagName = String(tagName || "").toUpperCase();
+    this.children = [];
+    this.dataset = {{}};
+    this.className = "";
+    this.textContent = "";
+    this.innerHTML = "";
+  }}
+  appendChild(child) {{
+    this.children.push(child);
+    return child;
+  }}
+}}
+
+const messageList = new FakeElement("div");
+const dom = {{ messageList }};
+const chatState = {{ attachmentHistory: [] }};
+
+globalThis.document = {{
+  createElement(tag) {{
+    return new FakeElement(tag);
+  }},
+}};
+globalThis.getChatState = function () {{ return chatState; }};
+globalThis.clearMessageListToWelcome = function () {{}};
+globalThis.getHistoryMessageDisplayName = function () {{ return "User"; }};
+globalThis.renderMarkdown = function () {{}};
+globalThis.decorateToolMessages = function () {{}};
+globalThis.scrollToBottom = function () {{}};
+
+const userMessage = {{
+  role: "user",
+  content: "hello",
+  attachments: [
+    "legacy_file_ref",
+    {{ type: "file", filename: "spec.pdf", content_type: "application/pdf", size: 12 }},
+    {{ type: "image", url: "https://cdn.example.com/img.png", name: "img.png", file_id: "img-1" }},
+  ],
+}};
+
+renderChatHistory([userMessage], {{}});
+
+function collectByClass(root, className, acc = []) {{
+  if (!root || typeof root !== "object") return acc;
+  const classes = String(root.className || "").split(/\\s+/).filter(Boolean);
+  if (classes.includes(className)) acc.push(root);
+  for (const child of root.children || []) collectByClass(child, className, acc);
+  return acc;
+}}
+
+const imageNodes = collectByClass(messageList, "message-attachment-thumb");
+const fileNodes = collectByClass(messageList, "message-attachment-file");
+
+console.log(JSON.stringify({{
+  imageNodeCount: imageNodes.length,
+  fileNodeCount: fileNodes.length,
+  fileTexts: fileNodes.map(node => node.textContent),
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["imageNodeCount"] == 1
+    assert payload["fileNodeCount"] == 2
+    assert any(text.startswith("📄 legacy_file_ref") for text in payload["fileTexts"])
+    assert any(text.startswith("📄 spec.pdf") for text in payload["fileTexts"])
+
+
+def test_chat_ui_filter_runtime_supported_uploads_mixed_input_behavior():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    upload_helpers_start = js.index("const SUPPORTED_UPLOAD_MIME_TYPES = new Set([")
+    upload_helpers_end = js.index("function removePendingFile(", upload_helpers_start)
+    upload_helpers_block = js[upload_helpers_start:upload_helpers_end]
+
+    script = f"""
+{upload_helpers_block}
+
+const toasts = [];
+globalThis.showToast = function (message) {{
+  toasts.push(String(message));
+}};
+
+const files = [
+  {{ type: "text/plain", name: "notes-without-ext" }},
+  {{ type: "application/pdf", name: "spec-without-ext" }},
+  {{ type: "image/png", name: "diagram.png" }},
+  {{ type: "application/x-msdownload", name: "run.exe" }},
+  {{ type: "video/mp4", name: "movie.mp4" }},
+  {{ type: "application/zip", name: "archive.zip" }},
+];
+
+const accepted = filterRuntimeSupportedUploads(files);
+
+console.log(JSON.stringify({{
+  acceptedNames: accepted.map((file) => file.name),
+  toastCount: toasts.length,
+  toasts,
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["acceptedNames"] == [
+        "notes-without-ext",
+        "spec-without-ext",
+        "diagram.png",
+    ]
+    assert payload["toastCount"] == 3
+    assert all("Unsupported file type" in msg for msg in payload["toasts"])
+
+
+def test_chat_ui_upload_and_parse_helpers_use_session_query_contract():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    upload_pending_file = _extract_js_function(js, "uploadPendingFile")
+    parse_uploaded_file = _extract_js_function(js, "parseUploadedPendingFile")
+
+    script = f"""
+{upload_pending_file}
+{parse_uploaded_file}
+
+const ensureSessionCalls = [];
+let openedRequest = null;
+let sendFormData = null;
+let blobMapping = null;
+let parseFetchCall = null;
+
+globalThis.ensureChatSessionId = function (agentId) {{
+  ensureSessionCalls.push(agentId);
+  return "session with spaces/and/slash";
+}};
+globalThis.setBlobUrlMapping = function (blobUrl, fileId) {{
+  blobMapping = [blobUrl, fileId];
+}};
+
+globalThis.FormData = class FormData {{
+  constructor() {{
+    this.entries = [];
+  }}
+  append(key, value) {{
+    this.entries.push([key, value]);
+  }}
+}};
+
+globalThis.XMLHttpRequest = class XMLHttpRequest {{
+  constructor() {{
+    this.listeners = {{}};
+    this.status = 0;
+    this.responseText = "";
+  }}
+  addEventListener(eventName, cb) {{
+    this.listeners[eventName] = cb;
+  }}
+  open(method, url) {{
+    openedRequest = {{ method, url }};
+  }}
+  send(formData) {{
+    sendFormData = formData;
+    this.status = 200;
+    this.responseText = JSON.stringify({{ file_id: "uploaded-file-1" }});
+    this.listeners.load();
+  }}
+  abort() {{}}
+}};
+
+globalThis.fetch = async function (url, options) {{
+  parseFetchCall = {{ url, options }};
+  return {{
+    ok: true,
+    async json() {{
+      return {{ parsed: true }};
+    }},
+  }};
+}};
+
+const pendingFile = {{
+  file: {{ name: "spec.pdf", type: "application/pdf" }},
+  previewUrl: "blob:preview-1",
+}};
+
+const uploadData = await uploadPendingFile(pendingFile, "agent-xyz");
+const parseData = await parseUploadedPendingFile(
+  {{ file_id: "uploaded-file-1" }},
+  "agent-xyz",
+  "parse session/with spaces",
+);
+
+console.log(JSON.stringify({{
+  ensureSessionCalls,
+  openedRequest,
+  formDataEntries: sendFormData ? sendFormData.entries.map(([key]) => key) : [],
+  uploadData,
+  blobMapping,
+  parseFetchCall,
+  parseData,
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["ensureSessionCalls"] == ["agent-xyz"]
+    assert payload["openedRequest"] == {
+        "method": "POST",
+        "url": "/a/agent-xyz/api/files/upload?session_id=session%20with%20spaces%2Fand%2Fslash",
+    }
+    assert payload["formDataEntries"] == ["file"]
+    assert payload["uploadData"] == {"file_id": "uploaded-file-1"}
+    assert payload["blobMapping"] == ["blob:preview-1", "uploaded-file-1"]
+    assert payload["parseFetchCall"]["url"] == (
+        "/a/agent-xyz/api/files/parse?session_id=parse%20session%2Fwith%20spaces"
+    )
+    assert payload["parseFetchCall"]["options"]["method"] == "POST"
+    assert payload["parseFetchCall"]["options"]["headers"] == {"Content-Type": "application/json"}
+    assert payload["parseFetchCall"]["options"]["body"] == '{"file_id":"uploaded-file-1"}'
+    assert payload["parseData"] == {"parsed": True}
 
 
 def test_chat_ui_upload_and_first_send_reuse_same_preallocated_session_id():
@@ -341,6 +589,67 @@ console.log(JSON.stringify({{
 
     assert payload["attachments"] == ["img-1", "doc-1"]
     assert payload["afterSnapshot"] == payload["beforeSnapshot"]
+
+
+def test_chat_ui_submit_guard_blocks_uploading_and_parsing_but_not_failed_only_state():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    submit_chat = _extract_js_function(js, "submitChatForSelectedAgent")
+
+    script = f"""
+{submit_chat}
+
+const toasts = [];
+let fetchCallCount = 0;
+const state = {{
+  selectedAgentId: "agent-1",
+}};
+const dom = {{
+  chatInput: {{ value: "   " }},
+}};
+
+const chatStateByCase = new Map([
+  ["uploading", {{ pendingFiles: [{{ status: "uploading", file_id: "up-1" }}] }}],
+  ["parsing", {{ pendingFiles: [{{ status: "parsing", file_id: "parse-1" }}] }}],
+  ["uploaded-only", {{ pendingFiles: [{{ status: "uploaded", file_id: "doc-1" }}] }}],
+  ["failed-only", {{ pendingFiles: [{{ status: "failed", file_id: "fail-1" }}] }}],
+]);
+
+let activeCase = "uploading";
+globalThis.ensureChatState = function () {{ return chatStateByCase.get(activeCase); }};
+globalThis.guardNoActiveChatRequestForAgent = function () {{ return true; }};
+globalThis.showToast = function (message) {{ toasts.push(String(message)); }};
+globalThis.fetch = async function () {{
+  fetchCallCount += 1;
+  throw new Error("fetch should not be called in this guard-focused test");
+}};
+
+async function runCase(caseName) {{
+  activeCase = caseName;
+  await submitChatForSelectedAgent();
+}}
+
+await runCase("uploading");
+await runCase("parsing");
+await runCase("uploaded-only");
+await runCase("failed-only");
+
+console.log(JSON.stringify({{
+  toasts,
+  fetchCallCount,
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["toasts"][0] == "Waiting for 1 file(s) to upload..."
+    assert payload["toasts"][1] == "Waiting for 1 file(s) to finish processing..."
+    assert len(payload["toasts"]) == 2
+    assert payload["fetchCallCount"] == 0
 
 
 def test_chat_ui_render_input_preview_badge_contract_contains_all_pending_states():
