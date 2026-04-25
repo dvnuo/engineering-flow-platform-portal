@@ -432,6 +432,65 @@ console.log(JSON.stringify({{
     assert payload["afterSnapshot"] == payload["beforeSnapshot"]
 
 
+def test_chat_ui_submit_guard_blocks_uploading_and_parsing_but_not_failed_only_state():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    submit_chat = _extract_js_function(js, "submitChatForSelectedAgent")
+
+    script = f"""
+{submit_chat}
+
+const toasts = [];
+let fetchCallCount = 0;
+const state = {{
+  selectedAgentId: "agent-1",
+}};
+const dom = {{
+  chatInput: {{ value: "   " }},
+}};
+
+const chatStateByCase = new Map([
+  ["uploading", {{ pendingFiles: [{{ status: "uploading", file_id: "up-1" }}] }}],
+  ["parsing", {{ pendingFiles: [{{ status: "parsing", file_id: "parse-1" }}] }}],
+  ["failed-only", {{ pendingFiles: [{{ status: "failed", file_id: "fail-1" }}] }}],
+]);
+
+let activeCase = "uploading";
+globalThis.ensureChatState = function () {{ return chatStateByCase.get(activeCase); }};
+globalThis.guardNoActiveChatRequestForAgent = function () {{ return true; }};
+globalThis.showToast = function (message) {{ toasts.push(String(message)); }};
+globalThis.fetch = async function () {{
+  fetchCallCount += 1;
+  throw new Error("fetch should not be called in this guard-focused test");
+}};
+
+async function runCase(caseName) {{
+  activeCase = caseName;
+  await submitChatForSelectedAgent();
+}}
+
+await runCase("uploading");
+await runCase("parsing");
+await runCase("failed-only");
+
+console.log(JSON.stringify({{
+  toasts,
+  fetchCallCount,
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["toasts"][0] == "Waiting for 1 file(s) to upload..."
+    assert payload["toasts"][1] == "Waiting for 1 file(s) to finish processing..."
+    assert len(payload["toasts"]) == 2
+    assert payload["fetchCallCount"] == 0
+
+
 def test_chat_ui_render_input_preview_badge_contract_contains_all_pending_states():
     js = _source()
     render_preview_start = js.index("function renderInputPreview() {")
