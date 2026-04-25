@@ -105,3 +105,10 @@ def _extract_js_function(js_text: str, function_name: str) -> str:
 
     body_end = _scan_to_matching(js_text, body_start, "{", "}")
     return js_text[start:body_end + 1]
+
+
+def _extract_render_chat_history_dependencies(js_text: str) -> str:
+    """Extract renderChatHistory with direct helper dependencies for Node harness tests."""
+    format_attachment_meta_text = _extract_js_function(js_text, "formatAttachmentMetaText")
+    render_chat_history = _extract_js_function(js_text, "renderChatHistory")
+    return f"{format_attachment_meta_text}\n{render_chat_history}"

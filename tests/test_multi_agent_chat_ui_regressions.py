@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from _js_extract_helpers import _extract_js_function
+from _js_extract_helpers import (
+    _extract_js_function,
+    _extract_render_chat_history_dependencies,
+)
 
 
 def _repo_root() -> Path:
@@ -15,12 +18,6 @@ def _repo_root() -> Path:
 def _chat_ui_js_source() -> str:
     chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
     return chat_ui_path.read_text(encoding="utf-8")
-
-
-def _extract_render_chat_history_dependencies(js_source: str) -> str:
-    format_attachment_meta_text = _extract_js_function(js_source, "formatAttachmentMetaText")
-    render_history = _extract_js_function(js_source, "renderChatHistory")
-    return f"{format_attachment_meta_text}\n{render_history}"
 
 
 def test_chat_ui_includes_display_block_renderer_helpers():

@@ -5,7 +5,10 @@ import subprocess
 
 import pytest
 
-from _js_extract_helpers import _extract_js_function
+from _js_extract_helpers import (
+    _extract_js_function,
+    _extract_render_chat_history_dependencies,
+)
 
 
 def _source() -> str:
@@ -236,12 +239,10 @@ def test_chat_ui_history_attachment_rendering_branches_image_vs_generic_chip_beh
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js = _source()
-    format_attachment_meta_text = _extract_js_function(js, "formatAttachmentMetaText")
-    render_chat_history = _extract_js_function(js, "renderChatHistory")
+    render_chat_history_dependencies = _extract_render_chat_history_dependencies(js)
 
     script = f"""
-{format_attachment_meta_text}
-{render_chat_history}
+{render_chat_history_dependencies}
 
 class FakeElement {{
   constructor(tagName) {{
@@ -311,6 +312,164 @@ console.log(JSON.stringify({{
     assert payload["fileNodeCount"] == 2
     assert any(text.startswith("📄 legacy_file_ref") for text in payload["fileTexts"])
     assert any(text.startswith("📄 spec.pdf") for text in payload["fileTexts"])
+
+
+def test_chat_ui_filter_runtime_supported_uploads_mixed_input_behavior():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    upload_helpers_start = js.index("const SUPPORTED_UPLOAD_MIME_TYPES = new Set([")
+    upload_helpers_end = js.index("function removePendingFile(", upload_helpers_start)
+    upload_helpers_block = js[upload_helpers_start:upload_helpers_end]
+
+    script = f"""
+{upload_helpers_block}
+
+const toasts = [];
+globalThis.showToast = function (message) {{
+  toasts.push(String(message));
+}};
+
+const files = [
+  {{ type: "text/plain", name: "notes-without-ext" }},
+  {{ type: "application/pdf", name: "spec-without-ext" }},
+  {{ type: "image/png", name: "diagram.png" }},
+  {{ type: "application/x-msdownload", name: "run.exe" }},
+  {{ type: "video/mp4", name: "movie.mp4" }},
+  {{ type: "application/zip", name: "archive.zip" }},
+];
+
+const accepted = filterRuntimeSupportedUploads(files);
+
+console.log(JSON.stringify({{
+  acceptedNames: accepted.map((file) => file.name),
+  toastCount: toasts.length,
+  toasts,
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["acceptedNames"] == [
+        "notes-without-ext",
+        "spec-without-ext",
+        "diagram.png",
+    ]
+    assert payload["toastCount"] == 3
+    assert all("Unsupported file type" in msg for msg in payload["toasts"])
+
+
+def test_chat_ui_upload_and_parse_helpers_use_session_query_contract():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js = _source()
+    upload_pending_file = _extract_js_function(js, "uploadPendingFile")
+    parse_uploaded_file = _extract_js_function(js, "parseUploadedPendingFile")
+
+    script = f"""
+{upload_pending_file}
+{parse_uploaded_file}
+
+const ensureSessionCalls = [];
+let openedRequest = null;
+let sendFormData = null;
+let blobMapping = null;
+let parseFetchCall = null;
+
+globalThis.ensureChatSessionId = function (agentId) {{
+  ensureSessionCalls.push(agentId);
+  return "session with spaces/and/slash";
+}};
+globalThis.setBlobUrlMapping = function (blobUrl, fileId) {{
+  blobMapping = [blobUrl, fileId];
+}};
+
+globalThis.FormData = class FormData {{
+  constructor() {{
+    this.entries = [];
+  }}
+  append(key, value) {{
+    this.entries.push([key, value]);
+  }}
+}};
+
+globalThis.XMLHttpRequest = class XMLHttpRequest {{
+  constructor() {{
+    this.listeners = {{}};
+    this.status = 0;
+    this.responseText = "";
+  }}
+  addEventListener(eventName, cb) {{
+    this.listeners[eventName] = cb;
+  }}
+  open(method, url) {{
+    openedRequest = {{ method, url }};
+  }}
+  send(formData) {{
+    sendFormData = formData;
+    this.status = 200;
+    this.responseText = JSON.stringify({{ file_id: "uploaded-file-1" }});
+    this.listeners.load();
+  }}
+  abort() {{}}
+}};
+
+globalThis.fetch = async function (url, options) {{
+  parseFetchCall = {{ url, options }};
+  return {{
+    ok: true,
+    async json() {{
+      return {{ parsed: true }};
+    }},
+  }};
+}};
+
+const pendingFile = {{
+  file: {{ name: "spec.pdf", type: "application/pdf" }},
+  previewUrl: "blob:preview-1",
+}};
+
+const uploadData = await uploadPendingFile(pendingFile, "agent-xyz");
+const parseData = await parseUploadedPendingFile(
+  {{ file_id: "uploaded-file-1" }},
+  "agent-xyz",
+  "parse session/with spaces",
+);
+
+console.log(JSON.stringify({{
+  ensureSessionCalls,
+  openedRequest,
+  formDataEntries: sendFormData ? sendFormData.entries.map(([key]) => key) : [],
+  uploadData,
+  blobMapping,
+  parseFetchCall,
+  parseData,
+}}));
+"""
+
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout.strip())
+
+    assert payload["ensureSessionCalls"] == ["agent-xyz"]
+    assert payload["openedRequest"] == {
+        "method": "POST",
+        "url": "/a/agent-xyz/api/files/upload?session_id=session%20with%20spaces%2Fand%2Fslash",
+    }
+    assert payload["formDataEntries"] == ["file"]
+    assert payload["uploadData"] == {"file_id": "uploaded-file-1"}
+    assert payload["blobMapping"] == ["blob:preview-1", "uploaded-file-1"]
+    assert payload["parseFetchCall"]["url"] == (
+        "/a/agent-xyz/api/files/parse?session_id=parse%20session%2Fwith%20spaces"
+    )
+    assert payload["parseFetchCall"]["options"]["method"] == "POST"
+    assert payload["parseFetchCall"]["options"]["headers"] == {"Content-Type": "application/json"}
+    assert payload["parseFetchCall"]["options"]["body"] == '{"file_id":"uploaded-file-1"}'
+    assert payload["parseData"] == {"parsed": True}
 
 
 def test_chat_ui_upload_and_first_send_reuse_same_preallocated_session_id():
@@ -455,6 +614,7 @@ const dom = {{
 const chatStateByCase = new Map([
   ["uploading", {{ pendingFiles: [{{ status: "uploading", file_id: "up-1" }}] }}],
   ["parsing", {{ pendingFiles: [{{ status: "parsing", file_id: "parse-1" }}] }}],
+  ["uploaded-only", {{ pendingFiles: [{{ status: "uploaded", file_id: "doc-1" }}] }}],
   ["failed-only", {{ pendingFiles: [{{ status: "failed", file_id: "fail-1" }}] }}],
 ]);
 
@@ -474,6 +634,7 @@ async function runCase(caseName) {{
 
 await runCase("uploading");
 await runCase("parsing");
+await runCase("uploaded-only");
 await runCase("failed-only");
 
 console.log(JSON.stringify({{
