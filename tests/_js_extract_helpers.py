@@ -112,3 +112,20 @@ def _extract_render_chat_history_dependencies(js_text: str) -> str:
     format_attachment_meta_text = _extract_js_function(js_text, "formatAttachmentMetaText")
     render_chat_history = _extract_js_function(js_text, "renderChatHistory")
     return f"{format_attachment_meta_text}\n{render_chat_history}"
+
+
+def _extract_render_chat_history_bundle(js_text: str) -> str:
+    """Extract renderChatHistory with direct + name-resolution helper dependencies.
+
+    This keeps Node harness tests resilient when renderChatHistory is exercised together
+    with author-label behavior, while always including formatAttachmentMetaText.
+    """
+    helper_names = [
+        "getNonBlankAuthorName",
+        "getCurrentUserDisplayName",
+        "getSelectedAssistantDisplayName",
+        "getHistoryMessageDisplayName",
+        "formatAttachmentMetaText",
+        "renderChatHistory",
+    ]
+    return "\n".join(_extract_js_function(js_text, helper_name) for helper_name in helper_names)

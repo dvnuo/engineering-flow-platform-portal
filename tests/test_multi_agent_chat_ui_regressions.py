@@ -7,6 +7,7 @@ import pytest
 
 from _js_extract_helpers import (
     _extract_js_function,
+    _extract_render_chat_history_bundle,
     _extract_render_chat_history_dependencies,
 )
 
@@ -1306,7 +1307,8 @@ const state = {{
 const dom = {{
   messageList: {{
     innerHTML: "",
-    appendChild() {{}},
+    children: [],
+    appendChild(node) {{ this.children.push(node); }},
   }},
 }};
 function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
@@ -1362,7 +1364,8 @@ const state = {{
 const dom = {{
   messageList: {{
     innerHTML: "",
-    appendChild() {{}},
+    children: [],
+    appendChild(node) {{ this.children.push(node); }},
   }},
 }};
 function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
@@ -1387,6 +1390,85 @@ console.log(JSON.stringify({{
     data = json.loads(completed.stdout)
     assert data["attachmentHistory"] == []
     assert data["messageListHtml"] == "WELCOME"
+
+
+def test_render_chat_history_mixed_attachments_keeps_image_thumb_and_generic_file_chip():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    render_history_bundle = _extract_render_chat_history_bundle(js_file)
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  selectedAgentName: "Agent A",
+  currentUserName: "Portal User",
+  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+}};
+const dom = {{
+  messageList: {{
+    innerHTML: "",
+    children: [],
+    appendChild(node) {{ this.children.push(node); }},
+  }},
+}};
+function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
+function clearMessageListToWelcome() {{}}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function scrollToBottom() {{}}
+const document = {{
+  createElement(tag) {{
+    return {{
+      tag,
+      className: "",
+      dataset: {{}},
+      textContent: "",
+      children: [],
+      appendChild(child) {{ this.children.push(child); }},
+    }};
+  }},
+}};
+{render_history_bundle}
+renderChatHistory([
+  {{
+    role: "user",
+    content: "u",
+    attachments: [
+      {{ type: "image", previewUrl: "blob:image-1", file_id: "img-1", name: "diagram.png" }},
+      "file_legacy_ref",
+      {{ type: "file", filename: "spec.pdf", content_type: "application/pdf", size: 2048 }},
+    ],
+  }},
+], {{}});
+
+const row = dom.messageList.children[0];
+const article = row.children[1];
+const attachmentsContainer = article.children[1];
+const imageNodeCount = attachmentsContainer.children.filter((node) => node.className === "message-attachment-thumb").length;
+const fileNodes = attachmentsContainer.children.filter((node) => node.className === "message-attachment-file");
+const fileTexts = fileNodes.map((node) => node.textContent);
+
+console.log(JSON.stringify({{
+  imageNodeCount,
+  fileNodeCount: fileNodes.length,
+  fileTexts,
+  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory,
+}}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+    assert data["imageNodeCount"] == 1
+    assert data["fileNodeCount"] == 2
+    assert any(text.startswith("📄 file_legacy_ref") for text in data["fileTexts"])
+    assert any(text.startswith("📄 spec.pdf · application/pdf · 2 KB") for text in data["fileTexts"])
+    assert data["attachmentHistory"] == [[
+        {"type": "image", "previewUrl": "blob:image-1", "file_id": "img-1", "name": "diagram.png"},
+        "file_legacy_ref",
+        {"type": "file", "filename": "spec.pdf", "content_type": "application/pdf", "size": 2048},
+    ]]
 
 
 def test_build_user_message_article_uses_current_user_display_name():
@@ -1419,11 +1501,7 @@ def test_render_chat_history_prefers_author_name_for_user_and_assistant():
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = _chat_ui_js_source()
-    get_non_blank_author_name = _extract_js_function(js_file, "getNonBlankAuthorName")
-    get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
-    get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
-    get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
-    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
+    render_history_bundle = _extract_render_chat_history_bundle(js_file)
 
     script = f"""
 const state = {{
@@ -1458,11 +1536,7 @@ const document = {{
     }};
   }},
 }};
-{get_non_blank_author_name}
-{get_current_user_display_name}
-{get_selected_assistant_display_name}
-{get_history_message_display_name}
-{render_history_dependencies}
+{render_history_bundle}
 renderChatHistory([
   {{ role: "user", content: "u", author_name: "Alice" }},
   {{ role: "assistant", content: "a", author_name: "Portal Agent" }},
@@ -1481,11 +1555,7 @@ def test_render_chat_history_assistant_falls_back_to_selected_agent_name():
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = _chat_ui_js_source()
-    get_non_blank_author_name = _extract_js_function(js_file, "getNonBlankAuthorName")
-    get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
-    get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
-    get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
-    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
+    render_history_bundle = _extract_render_chat_history_bundle(js_file)
 
     script = f"""
 const state = {{
@@ -1520,11 +1590,7 @@ const document = {{
     }};
   }},
 }};
-{get_non_blank_author_name}
-{get_current_user_display_name}
-{get_selected_assistant_display_name}
-{get_history_message_display_name}
-{render_history_dependencies}
+{render_history_bundle}
 renderChatHistory([
   {{ role: "assistant", content: "a" }},
 ], {{}});
@@ -1542,11 +1608,7 @@ def test_render_chat_history_blank_author_name_falls_back_to_current_names():
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_file = _chat_ui_js_source()
-    get_non_blank_author_name = _extract_js_function(js_file, "getNonBlankAuthorName")
-    get_current_user_display_name = _extract_js_function(js_file, "getCurrentUserDisplayName")
-    get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
-    get_history_message_display_name = _extract_js_function(js_file, "getHistoryMessageDisplayName")
-    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
+    render_history_bundle = _extract_render_chat_history_bundle(js_file)
 
     script = f"""
 const state = {{
@@ -1581,11 +1643,7 @@ const document = {{
     }};
   }},
 }};
-{get_non_blank_author_name}
-{get_current_user_display_name}
-{get_selected_assistant_display_name}
-{get_history_message_display_name}
-{render_history_dependencies}
+{render_history_bundle}
 renderChatHistory([
   {{ role: "user", content: "u", author_name: "   " }},
   {{ role: "assistant", content: "a", author_name: "   " }},
