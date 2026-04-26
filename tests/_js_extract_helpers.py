@@ -1,5 +1,7 @@
 """Helpers for extracting JS function/helper blocks from source files in tests."""
 
+import re
+
 
 def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
     start_marker = f"// RUNTIME_EVENT_HELPER_START: {helper_name}"
@@ -129,3 +131,11 @@ def _extract_render_chat_history_bundle(js_text: str) -> str:
         "renderChatHistory",
     ]
     return "\n".join(_extract_js_function(js_text, helper_name) for helper_name in helper_names)
+
+
+def _extract_js_set_values(js_text: str, const_name: str) -> set[str]:
+    """Extract literal string values from a `const X = new Set([...]);` declaration."""
+    match = re.search(rf"const {const_name} = new Set\(\[(.*?)\]\);", js_text, flags=re.S)
+    if not match:
+        raise AssertionError(f"Missing {const_name} set in JS source")
+    return set(re.findall(r'"([^"]+)"', match.group(1)))
