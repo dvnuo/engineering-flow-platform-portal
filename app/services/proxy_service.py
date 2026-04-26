@@ -4,8 +4,13 @@ import httpx
 from typing import Optional
 import logging
 
-# Import K8s client for service lookup
-from kubernetes import client
+try:
+    from kubernetes import client as k8s_client
+    from kubernetes import config as k8s_config
+except Exception:
+    k8s_client = None
+    k8s_config = None
+
 from app.config import get_settings
 from app.redaction import sanitize_exception_message
 
@@ -97,15 +102,20 @@ class ProxyService:
         if self._core_api is None:
             settings = get_settings()
             if settings.k8s_enabled:
+                if not k8s_client or not k8s_config:
+                    logger.debug("Kubernetes dependency unavailable; skipping CoreV1Api initialization")
+                    return None
                 try:
-                    from kubernetes import config
                     if settings.k8s_incluster:
-                        config.load_incluster_config()
+                        k8s_config.load_incluster_config()
                     else:
-                        config.load_kube_config(config_file=settings.k8s_kubeconfig)
-                    self._core_api = client.CoreV1Api()
-                except Exception:
-                    pass
+                        k8s_config.load_kube_config(config_file=settings.k8s_kubeconfig)
+                    self._core_api = k8s_client.CoreV1Api()
+                except Exception as exc:
+                    logger.debug(
+                        "Unable to initialize Kubernetes CoreV1Api; continuing without k8s service lookup: %s",
+                        sanitize_exception_message(exc),
+                    )
         return self._core_api
     
     @property

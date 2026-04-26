@@ -1,8 +1,13 @@
 """Tests for proxy_service."""
 from types import SimpleNamespace
+from pathlib import Path
+import sys
 
 import asyncio
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import app.services.proxy_service as proxy_module
 from app.services.proxy_service import (
     ProxyService,
     build_portal_agent_identity_headers,
@@ -15,6 +20,15 @@ from app.services.proxy_service import (
 def test_proxy_service_init():
     service = ProxyService()
     assert service is not None
+
+
+def test_proxy_service_init_without_kubernetes_dependency(monkeypatch):
+    service = ProxyService()
+    monkeypatch.setattr(proxy_module, "k8s_client", None)
+    monkeypatch.setattr(proxy_module, "k8s_config", None)
+    monkeypatch.setattr(proxy_module, "get_settings", lambda: SimpleNamespace(k8s_enabled=True))
+
+    assert service.core_api is None
 
 
 def test_proxy_service_build_url_no_k8s():
