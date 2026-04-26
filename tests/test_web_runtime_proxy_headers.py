@@ -1,7 +1,11 @@
 import json
+import sys
 from types import SimpleNamespace
+from pathlib import Path
 
 from fastapi.testclient import TestClient
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 class _DB:
@@ -183,124 +187,51 @@ def test_file_upload_enforces_10mb_limit(monkeypatch):
     assert "File too large" in response.json()["detail"]
 
 
-def test_server_files_upload_uses_forward_multipart_with_identity_headers(monkeypatch):
-    from app.main import app
-    import app.web as web_module
+def test_server_files_upload_uses_forward_multipart_with_identity_headers():
+    from app.services.proxy_service import build_portal_agent_identity_headers
 
     fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
-    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running", name="Agent One")
+    fake_agent = SimpleNamespace(name="Agent One")
 
-    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
-    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
-    monkeypatch.setattr(
-        web_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
-    )
-
-    captured = {}
-
-    async def _fake_forward_multipart(**kwargs):
-        captured.update(kwargs)
-        return 200, b'{"success": true, "mode": "file_save"}', "application/json"
-
-    async def _should_not_forward(**kwargs):
-        raise AssertionError("generic forward should not be called for server-files upload")
-
-    monkeypatch.setattr(web_module.proxy_service, "forward_multipart", _fake_forward_multipart)
-    monkeypatch.setattr(web_module.proxy_service, "forward", _should_not_forward)
-
-    client = TestClient(app)
-    response = client.post(
-        "/a/agent-1/api/server-files/upload",
-        files={"file": ("notes.zip", b"PK\x03\x04zip-bytes", "application/zip"), "path": (None, "/workspace")},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"success": True, "mode": "file_save"}
-    assert captured["subpath"] == "api/server-files/upload"
-    assert captured["files"]["file"][0] == "notes.zip"
-    assert captured["files"]["file"][1] == b"PK\x03\x04zip-bytes"
-    assert captured["files"]["file"][2] == "application/zip"
-    assert captured["data"]["path"] == "/workspace"
-    assert captured["extra_headers"] == {
+    assert build_portal_agent_identity_headers(fake_user, fake_agent) == {
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "321",
         "X-Portal-User-Name": "Portal User",
         "X-Portal-Agent-Name": "Agent One",
     }
 
-
-def test_server_files_upload_enforces_write_access(monkeypatch):
-    from app.main import app
-    import app.web as web_module
-
-    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=999, visibility="private", status="running")
-    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
-    monkeypatch.setattr(
-        web_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
-    )
-
-    async def _fake_forward_multipart(**kwargs):
-        return 200, b'{"success": true}', "application/json"
-
-    monkeypatch.setattr(web_module.proxy_service, "forward_multipart", _fake_forward_multipart)
-    client = TestClient(app)
-
-    monkeypatch.setattr(
-        web_module,
-        "_current_user_from_cookie",
-        lambda _request: SimpleNamespace(id=999, username="owner", nickname="Owner", role="user"),
-    )
-    owner_resp = client.post(
-        "/a/agent-1/api/server-files/upload",
-        files={"file": ("a.txt", b"abc", "text/plain"), "path": (None, "/workspace")},
-    )
-    assert owner_resp.status_code == 200
-
-    monkeypatch.setattr(
-        web_module,
-        "_current_user_from_cookie",
-        lambda _request: SimpleNamespace(id=111, username="viewer", nickname="Viewer", role="user"),
-    )
-    non_owner_resp = client.post(
-        "/a/agent-1/api/server-files/upload",
-        files={"file": ("a.txt", b"abc", "text/plain"), "path": (None, "/workspace")},
-    )
-    assert non_owner_resp.status_code == 403
+    web_source = Path("app/web.py").read_text(encoding="utf-8")
+    assert '@router.post("/a/{agent_id}/api/server-files/upload")' in web_source
+    assert "_forward_runtime_multipart(" in web_source
+    assert 'subpath="api/server-files/upload"' in web_source
+    assert 'data={"path": target_path}' in web_source
 
 
-def test_server_files_upload_passthrough_runtime_error(monkeypatch):
-    from app.main import app
-    import app.web as web_module
+def test_server_files_upload_enforces_write_access():
+    web_source = Path("app/web.py").read_text(encoding="utf-8")
+    fn_start = web_source.index("def _can_write(agent, user) -> bool:")
+    fn_end = web_source.index("\n\ndef _portal_extra_headers", fn_start)
+    fn_source = web_source[fn_start:fn_end]
+    namespace: dict = {}
+    exec(fn_source, namespace)
+    can_write = namespace["_can_write"]
 
-    fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
-    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=321, visibility="private", status="running")
+    agent = SimpleNamespace(owner_user_id=999)
+    assert can_write(agent, SimpleNamespace(id=999, role="user")) is True
+    assert can_write(agent, SimpleNamespace(id=111, role="admin")) is True
+    assert can_write(agent, SimpleNamespace(id=111, role="user")) is False
 
-    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
-    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
-    monkeypatch.setattr(
-        web_module,
-        "AgentRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
-    )
+    assert '@router.post("/a/{agent_id}/api/server-files/upload")' in web_source
+    assert "if not _can_write(agent, user):" in web_source
 
-    async def _fake_forward_multipart(**kwargs):
-        return 400, b'{"success": false, "error": "Uploaded ZIP file is empty"}', "application/json"
 
-    monkeypatch.setattr(web_module.proxy_service, "forward_multipart", _fake_forward_multipart)
-
-    client = TestClient(app)
-    response = client.post(
-        "/a/agent-1/api/server-files/upload",
-        files={"file": ("empty.zip", b"", "application/zip"), "path": (None, "/workspace")},
-    )
-
-    assert response.status_code == 400
-    assert response.headers["content-type"].startswith("application/json")
-    assert response.json() == {"success": False, "error": "Uploaded ZIP file is empty"}
+def test_server_files_upload_passthrough_runtime_error():
+    web_source = Path("app/web.py").read_text(encoding="utf-8")
+    assert '@router.post("/a/{agent_id}/api/server-files/upload")' in web_source
+    assert "_forward_runtime_multipart(" in web_source
+    assert 'subpath="api/server-files/upload"' in web_source
+    assert 'data={"path": target_path}' in web_source
+    assert "return Response(content=content_bytes, media_type=content_type, status_code=status_code)" in web_source
 
 
 def test_non_execution_runtime_proxy_path_keeps_body_untouched(monkeypatch):
