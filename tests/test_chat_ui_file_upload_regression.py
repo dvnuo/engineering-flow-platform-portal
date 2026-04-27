@@ -10,6 +10,9 @@ from _js_extract_helpers import (
     _extract_render_chat_history_dependencies,
 )
 
+# Chat upload V1 contract is intentionally locked by source-level regression checks below.
+# Future changes should preserve session_id forwarding, upload/parse gating, and @file token insertion behavior.
+
 
 def _source() -> str:
     return Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
