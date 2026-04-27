@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+from _js_extract_helpers import _extract_js_set_values
+
 
 def _chat_ui_source() -> str:
     return Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
@@ -10,17 +12,11 @@ def _app_template_source() -> str:
     return Path("app/templates/app.html").read_text(encoding="utf-8")
 
 
-def _extract_js_set(js: str, const_name: str) -> set[str]:
-    match = re.search(rf"const {const_name} = new Set\(\[(.*?)\]\);", js, flags=re.S)
-    assert match, f"Missing {const_name} set in chat_ui.js"
-    return set(re.findall(r'"([^"]+)"', match.group(1)))
-
-
 def test_upload_accept_contract_stays_aligned_with_portal_supported_types():
     js = _chat_ui_source()
     html = _app_template_source()
-    supported_mime_types = _extract_js_set(js, "SUPPORTED_UPLOAD_MIME_TYPES")
-    supported_extensions = _extract_js_set(js, "SUPPORTED_UPLOAD_EXTENSIONS")
+    supported_mime_types = _extract_js_set_values(js, "SUPPORTED_UPLOAD_MIME_TYPES")
+    supported_extensions = _extract_js_set_values(js, "SUPPORTED_UPLOAD_EXTENSIONS")
 
     required_mime_types = {
         "image/jpeg",
@@ -48,10 +44,10 @@ def test_upload_accept_contract_stays_aligned_with_portal_supported_types():
 
 def test_upload_and_auto_parse_sets_stay_aligned_for_document_types():
     js = _chat_ui_source()
-    supported_mime_types = _extract_js_set(js, "SUPPORTED_UPLOAD_MIME_TYPES")
-    supported_extensions = _extract_js_set(js, "SUPPORTED_UPLOAD_EXTENSIONS")
-    auto_parse_mime_types = _extract_js_set(js, "AUTO_PARSE_MIME_TYPES")
-    auto_parse_extensions = _extract_js_set(js, "AUTO_PARSE_EXTENSIONS")
+    supported_mime_types = _extract_js_set_values(js, "SUPPORTED_UPLOAD_MIME_TYPES")
+    supported_extensions = _extract_js_set_values(js, "SUPPORTED_UPLOAD_EXTENSIONS")
+    auto_parse_mime_types = _extract_js_set_values(js, "AUTO_PARSE_MIME_TYPES")
+    auto_parse_extensions = _extract_js_set_values(js, "AUTO_PARSE_EXTENSIONS")
 
     assert auto_parse_mime_types.issubset(supported_mime_types)
     assert auto_parse_extensions.issubset(supported_extensions)
