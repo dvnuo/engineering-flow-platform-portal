@@ -128,7 +128,7 @@ def test_agent_runtime_delete():
 def test_managed_settings_initializer_hooks_present():
     js = _chat_ui_js_source()
     assert "function initializeManagedSettingsPanels()" in js
-    assert 'event.target?.id === "workspace-detail-content"' in js
+    assert 'target?.id === "workspace-detail-content"' in js
     assert "initializeManagedSettingsPanels();" in js
     assert "loadRuntimeProfilePanelContent(profileId)" in js
 
@@ -287,6 +287,15 @@ def test_update_model_options_keeps_unknown_initial_but_not_cross_provider_leak(
                 break
     assert end > brace_start, "managedProviderModels block end not found"
     managed_models_block = js_file[start:end + 2]
+    assert '{ value: "gpt-5.4-mini", label: "GPT-5.4 mini" }' in managed_models_block
+    assert 'openai' in managed_models_block
+    assert 'github_copilot' in managed_models_block
+    github_block_start = managed_models_block.index('github_copilot: [')
+    github_first_model = managed_models_block[github_block_start:github_block_start + 160]
+    assert '{ value: "gpt-5.4-mini", label: "GPT-5.4 mini" }' in github_first_model
+    openai_block_start = managed_models_block.index('openai: [')
+    openai_first_model = managed_models_block[openai_block_start:openai_block_start + 140]
+    assert '{ value: "gpt-5.4-mini", label: "GPT-5.4 mini" }' in openai_first_model
 
     script = f"""
 {managed_models_block}

@@ -12,22 +12,23 @@ from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_
 class RuntimeProfileService:
     _MANAGED_PROVIDER_MODELS = {
         "github_copilot": (
-            "gpt-4o",
-            "gpt-4.1",
-            "gpt-5-mini",
-            "gpt-5.3-codex",
-            "gpt-5.4",
             "gpt-5.4-mini",
+            "gpt-5.4",
+            "gpt-5.3-codex",
+            "gpt-5-mini",
+            "gpt-4.1",
+            "gpt-4o",
             "gemini-2.5-pro",
         ),
         "openai": (
-            "gpt-3.5-turbo",
-            "gpt-4",
-            "gpt-4o",
-            "gpt-4.1",
-            "gpt-4o-mini",
-            "gpt-5-mini",
+            "gpt-5.4-mini",
             "gpt-5",
+            "gpt-5-mini",
+            "gpt-4.1",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4",
+            "gpt-3.5-turbo",
         ),
         "anthropic": (
             "claude-sonnet-4-20250514",
@@ -68,7 +69,7 @@ class RuntimeProfileService:
         return {
             "llm": {
                 "provider": "github_copilot",
-                "model": "gpt-5-mini",
+                "model": "gpt-5.4-mini",
                 "tools": ["*"],
                 "response_flow": {
                     "plan_policy": "explicit_or_complex",

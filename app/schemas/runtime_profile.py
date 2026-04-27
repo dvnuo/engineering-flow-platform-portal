@@ -157,6 +157,30 @@ def normalize_runtime_profile_llm_tools(value) -> list[str]:
     return normalized
 
 
+
+
+def normalize_runtime_profile_temperature(value) -> float:
+    if isinstance(value, bool) or value is None:
+        raise ValueError("llm.temperature must be a number between 0 and 2")
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("llm.temperature must be a number between 0 and 2")
+        candidate = stripped
+    else:
+        candidate = value
+
+    try:
+        parsed = float(candidate)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("llm.temperature must be a number between 0 and 2") from exc
+
+    if parsed < 0 or parsed > 2:
+        raise ValueError("llm.temperature must be a number between 0 and 2")
+
+    return parsed
+
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
@@ -175,6 +199,11 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             llm_copy["response_flow"] = sanitized_response_flow
         else:
             llm_copy.pop("response_flow", None)
+        llm = llm_copy
+
+    if isinstance(llm, dict) and "temperature" in llm:
+        llm_copy = llm.copy()
+        llm_copy["temperature"] = normalize_runtime_profile_temperature(llm_copy.get("temperature"))
         llm = llm_copy
 
     if isinstance(llm, dict):
@@ -196,7 +225,12 @@ def parse_runtime_profile_config_json(raw: str | None, *, fallback_to_empty: boo
             return {}
         raise ValueError("config_json must decode to a JSON object")
 
-    return sanitize_runtime_profile_config_dict(decoded)
+    try:
+        return sanitize_runtime_profile_config_dict(decoded)
+    except ValueError:
+        if fallback_to_empty:
+            return {}
+        raise
 
 
 def dump_runtime_profile_config_json(data: dict) -> str:

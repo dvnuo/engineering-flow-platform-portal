@@ -104,6 +104,7 @@ def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
         assert 'option value="" selected>Use runtime local default</option>' in resp.text
         assert 'name="llm_tools_mode" value="inherit" checked' in resp.text
         assert 'data-current-value="" data-initial-value=""' in resp.text
+        assert 'name="llm_temperature"' in resp.text
     finally:
         cleanup()
 
@@ -267,6 +268,7 @@ def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypa
             "__touch_debug": "1",
             "llm_provider": "github_copilot",
             "llm_model": "gpt-5-mini",
+            "llm_temperature": "0.2",
             "llm_tools_mode": "all",
             "proxy_enabled": "",
             "proxy_url": "",
@@ -420,5 +422,64 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
             "complexity_prompt_budget_ratio": 0.85,
             "complexity_min_request_tokens": 24000,
         }
+    finally:
+        cleanup()
+
+
+def test_settings_save_persists_llm_temperature(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"provider": "openai"}})
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"__touch_llm": "1", "llm_provider": "openai", "llm_temperature": "0.2"},
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["temperature"] == 0.2
+    finally:
+        cleanup()
+
+
+def test_settings_save_blank_temperature_removes_override(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"provider": "openai", "temperature": 0.4}})
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"__touch_llm": "1", "llm_provider": "openai", "llm_temperature": ""},
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert "temperature" not in cfg["llm"]
+    finally:
+        cleanup()
+
+
+def test_settings_save_rejects_invalid_temperature(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"provider": "openai", "temperature": 0.4}})
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"__touch_llm": "1", "llm_provider": "openai", "llm_temperature": "2.5"},
+        )
+        assert resp.status_code == 200
+        assert "Temperature must be a number between 0 and 2." in resp.text
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["temperature"] == 0.4
+
+        resp_negative = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"__touch_llm": "1", "llm_provider": "openai", "llm_temperature": "-0.1"},
+        )
+        assert resp_negative.status_code == 200
+        assert "Temperature must be a number between 0 and 2." in resp_negative.text
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["temperature"] == 0.4
     finally:
         cleanup()

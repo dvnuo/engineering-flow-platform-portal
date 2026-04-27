@@ -904,9 +904,12 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 llm.pop("temperature", None)
             else:
                 try:
-                    llm["temperature"] = float(temperature_text)
+                    parsed_temperature = float(temperature_text)
                 except ValueError:
-                    return config_payload, "Temperature must be a number."
+                    return config_payload, "Temperature must be a number between 0 and 2."
+                if parsed_temperature < 0 or parsed_temperature > 2:
+                    return config_payload, "Temperature must be a number between 0 and 2."
+                llm["temperature"] = parsed_temperature
         
         max_tokens_text = (form.get("llm_max_tokens") or "").strip()
         if "llm_max_tokens" in form:
