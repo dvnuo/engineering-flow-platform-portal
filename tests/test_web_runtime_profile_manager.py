@@ -75,6 +75,7 @@ def test_runtime_profile_panel_owner_only(monkeypatch):
         assert 'Copilot auth proxy' not in ok.text
         assert f'data-test-base=\"/app/runtime-profiles/{rp.id}/test\"' in ok.text
         assert "data-current-value=" in ok.text
+        assert 'name="llm_temperature"' in ok.text
 
         set_user(other)
         deny = client.get(f"/app/runtime-profiles/{rp.id}/panel")
@@ -101,6 +102,7 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
                 "is_default": "on",
                 "llm_provider": "anthropic",
                 "llm_model": "claude-sonnet-4",
+                "llm_temperature": "0.2",
                 "llm_tools_mode": "all",
                 "llm_tools_count": "0",
                 "proxy_enabled": "",
@@ -120,6 +122,7 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert rp.revision == 2
         saved = json.loads(rp.config_json)
         assert saved["llm"]["provider"] == "anthropic"
+        assert saved["llm"]["temperature"] == 0.2
         assert saved["llm"]["tools"] == ["*"]
         assert "max_tokens" not in saved["llm"]
         assert "max_retries" not in saved["llm"]
@@ -148,6 +151,7 @@ def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(m
                 "description": rp.description or "",
                 "llm_provider": "github_copilot",
                 "llm_model": "gpt-5-mini",
+                "llm_temperature": "0.3",
                 "llm_tools_mode": "all",
                 "proxy_enabled": "",
                 "jira_enabled": "",
@@ -163,6 +167,39 @@ def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(m
             "llm": {"provider": "openai"},
             "debug": {"enabled": True, "log_level": "ERROR"},
         }
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_save_rejects_nan_temperature(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps({"llm": {"provider": "openai", "temperature": 0.4}})
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "openai",
+                "llm_temperature": "NaN",
+            },
+        )
+        assert resp.status_code == 200
+        assert "Temperature must be a number between 0 and 2." in resp.text
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["llm"]["temperature"] == 0.4
     finally:
         cleanup()
 

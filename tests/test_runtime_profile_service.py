@@ -7,7 +7,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
-from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
+from app.schemas.runtime_profile import (
+    dump_runtime_profile_config_json,
+    parse_runtime_profile_config_json,
+    validate_runtime_profile_config_json,
+)
 from app.services.runtime_profile_service import RuntimeProfileService
 
 def _session():
@@ -93,6 +97,7 @@ def test_repair_legacy_shared_profiles_clones_and_rebinds():
 
 def test_default_profile_config_has_safe_managed_defaults():
     cfg = RuntimeProfileService.default_profile_config()
+    assert cfg["llm"]["model"] == "gpt-5.4-mini"
     assert cfg["llm"]["max_tokens"] == 64000
     assert cfg["llm"]["temperature"] == 0.7
     assert cfg["llm"]["max_retries"] == 3
@@ -119,6 +124,68 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert cfg["confluence"]["instances"] == []
     assert "automation" not in cfg["jira"]
     assert "automation" not in cfg["confluence"]
+
+
+
+
+def test_managed_provider_models_prefer_gpt_5_4_mini():
+    github_models = RuntimeProfileService.managed_model_values_for_provider("github_copilot")
+    openai_models = RuntimeProfileService.managed_model_values_for_provider("openai")
+    assert github_models[0] == "gpt-5.4-mini"
+    assert openai_models[0] == "gpt-5.4-mini"
+    assert "gpt-5-mini" in github_models
+    assert "gpt-5-mini" in openai_models
+
+
+def test_parse_runtime_profile_config_json_accepts_numeric_temperature():
+    parsed = parse_runtime_profile_config_json('{"llm":{"temperature":0.2}}')
+    assert parsed == {"llm": {"temperature": 0.2}}
+
+
+def test_parse_runtime_profile_config_json_normalizes_string_temperature_to_float():
+    parsed = parse_runtime_profile_config_json('{"llm":{"temperature":"0.2"}}')
+    assert parsed == {"llm": {"temperature": 0.2}}
+
+
+def test_validate_runtime_profile_config_json_rejects_temperature_above_two():
+    with pytest.raises(ValueError, match="temperature.*0 and 2"):
+        validate_runtime_profile_config_json('{"llm":{"temperature":2.1}}')
+
+
+def test_validate_runtime_profile_config_json_rejects_boolean_temperature():
+    with pytest.raises(ValueError, match="temperature"):
+        validate_runtime_profile_config_json('{"llm":{"temperature":true}}')
+
+
+def test_validate_runtime_profile_config_json_rejects_nan_temperature_string():
+    with pytest.raises(ValueError, match="temperature|0 and 2"):
+        validate_runtime_profile_config_json('{"llm":{"temperature":"NaN"}}')
+
+
+def test_validate_runtime_profile_config_json_rejects_lowercase_nan_temperature_string():
+    with pytest.raises(ValueError, match="temperature|0 and 2"):
+        validate_runtime_profile_config_json('{"llm":{"temperature":"nan"}}')
+
+
+def test_validate_runtime_profile_config_json_rejects_infinity_temperature_string():
+    with pytest.raises(ValueError, match="temperature|0 and 2"):
+        validate_runtime_profile_config_json('{"llm":{"temperature":"Infinity"}}')
+
+
+def test_parse_runtime_profile_config_json_nan_temperature_returns_empty_with_fallback():
+    parsed = parse_runtime_profile_config_json('{"llm":{"temperature":"NaN"}}', fallback_to_empty=True)
+    assert parsed == {}
+
+
+def test_dump_runtime_profile_config_json_keeps_zero_temperature():
+    dumped = dump_runtime_profile_config_json({"llm": {"temperature": 0}})
+    parsed = json.loads(dumped)
+    assert parsed["llm"]["temperature"] == 0
+
+
+def test_dump_runtime_profile_config_json_rejects_nan_temperature():
+    with pytest.raises(ValueError, match="temperature|0 and 2"):
+        dump_runtime_profile_config_json({"llm": {"temperature": "NaN"}})
 
 
 def test_create_for_user_with_empty_config_stays_sparse():
