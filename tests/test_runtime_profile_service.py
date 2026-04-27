@@ -157,10 +157,37 @@ def test_validate_runtime_profile_config_json_rejects_boolean_temperature():
         validate_runtime_profile_config_json('{"llm":{"temperature":true}}')
 
 
+def test_validate_runtime_profile_config_json_rejects_nan_temperature_string():
+    with pytest.raises(ValueError, match="temperature|0 and 2"):
+        validate_runtime_profile_config_json('{"llm":{"temperature":"NaN"}}')
+
+
+def test_validate_runtime_profile_config_json_rejects_lowercase_nan_temperature_string():
+    with pytest.raises(ValueError, match="temperature|0 and 2"):
+        validate_runtime_profile_config_json('{"llm":{"temperature":"nan"}}')
+
+
+def test_validate_runtime_profile_config_json_rejects_infinity_temperature_string():
+    with pytest.raises(ValueError, match="temperature|0 and 2"):
+        validate_runtime_profile_config_json('{"llm":{"temperature":"Infinity"}}')
+
+
+def test_parse_runtime_profile_config_json_nan_temperature_returns_empty_with_fallback():
+    parsed = parse_runtime_profile_config_json('{"llm":{"temperature":"NaN"}}', fallback_to_empty=True)
+    assert parsed == {}
+
+
 def test_dump_runtime_profile_config_json_keeps_zero_temperature():
     dumped = dump_runtime_profile_config_json({"llm": {"temperature": 0}})
     parsed = json.loads(dumped)
     assert parsed["llm"]["temperature"] == 0
+
+
+def test_dump_runtime_profile_config_json_rejects_nan_temperature():
+    with pytest.raises(ValueError, match="temperature|0 and 2"):
+        dump_runtime_profile_config_json({"llm": {"temperature": "NaN"}})
+
+
 def test_create_for_user_with_empty_config_stays_sparse():
     db = _session()
     user = User(username="u1", password_hash="test", role="user", is_active=True)

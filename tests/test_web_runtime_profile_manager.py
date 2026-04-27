@@ -171,6 +171,39 @@ def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(m
         cleanup()
 
 
+def test_runtime_profile_save_rejects_nan_temperature(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps({"llm": {"provider": "openai", "temperature": 0.4}})
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "openai",
+                "llm_temperature": "NaN",
+            },
+        )
+        assert resp.status_code == 200
+        assert "Temperature must be a number between 0 and 2." in resp.text
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["llm"]["temperature"] == 0.4
+    finally:
+        cleanup()
+
+
 def test_runtime_profile_name_only_save_keeps_sparse_config_unchanged(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:

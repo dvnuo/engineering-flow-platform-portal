@@ -1,4 +1,5 @@
 import json
+import math
 from copy import deepcopy
 from datetime import datetime
 
@@ -176,7 +177,7 @@ def normalize_runtime_profile_temperature(value) -> float:
     except (TypeError, ValueError) as exc:
         raise ValueError("llm.temperature must be a number between 0 and 2") from exc
 
-    if parsed < 0 or parsed > 2:
+    if not math.isfinite(parsed) or parsed < 0 or parsed > 2:
         raise ValueError("llm.temperature must be a number between 0 and 2")
 
     return parsed

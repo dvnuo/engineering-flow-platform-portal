@@ -481,5 +481,15 @@ def test_settings_save_rejects_invalid_temperature(monkeypatch):
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
         assert cfg["llm"]["temperature"] == 0.4
+
+        resp_nan = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"__touch_llm": "1", "llm_provider": "openai", "llm_temperature": "NaN"},
+        )
+        assert resp_nan.status_code == 200
+        assert "Temperature must be a number between 0 and 2." in resp_nan.text
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["temperature"] == 0.4
     finally:
         cleanup()
