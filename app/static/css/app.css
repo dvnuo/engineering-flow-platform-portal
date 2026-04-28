@@ -256,14 +256,23 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 }
 
 .toolbar-primary-btn:disabled:hover,
+.toolbar-primary-btn[aria-disabled="true"]:hover {
+  transform: none !important;
+  background: var(--portal-cta-bg);
+  color: var(--portal-cta-text);
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .toolbar-secondary-btn:disabled:hover,
 .toolbar-icon-btn:disabled:hover,
-.toolbar-primary-btn[aria-disabled="true"]:hover,
 .toolbar-secondary-btn[aria-disabled="true"]:hover,
 .toolbar-icon-btn[aria-disabled="true"]:hover {
-  transform: none;
-  background: inherit;
+  transform: none !important;
+  background: var(--portal-surface);
+  color: var(--portal-text-secondary);
   border-color: var(--portal-border);
+  box-shadow: none;
 }
 
 .portal-home { padding: 24px; display: flex; flex-direction: column; gap: 20px; min-height: 0; }
@@ -463,14 +472,22 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 }
 
 .composer-pill-btn:disabled:hover,
-.composer-pill-btn[aria-disabled="true"]:hover,
+.composer-pill-btn[aria-disabled="true"]:hover {
+  transform: none !important;
+  background: color-mix(in srgb, var(--portal-surface-muted) 88%, transparent);
+  color: color-mix(in srgb, var(--portal-text-secondary), var(--portal-text-muted) 20%);
+  border-color: color-mix(in srgb, var(--portal-border), transparent 16%);
+  box-shadow: none !important;
+}
+
 .composer-send-btn:disabled:hover,
 .composer-send-btn[aria-disabled="true"]:hover,
 #send-chat-btn:disabled:hover,
 #send-chat-btn[aria-disabled="true"]:hover {
   transform: none !important;
-  background: inherit;
-  border-color: var(--portal-border);
+  background: var(--portal-cta-bg);
+  color: var(--portal-cta-text);
+  border-color: transparent;
   box-shadow: none !important;
 }
 

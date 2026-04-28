@@ -798,7 +798,8 @@ function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
 
 function setButtonDisabled(button, disabled, disabledTitle = "") {
   if (!button) return;
-  if (!button.dataset.defaultTitle) {
+  const hasDefaultTitle = Object.prototype.hasOwnProperty.call(button.dataset, "defaultTitle");
+  if (!hasDefaultTitle) {
     button.dataset.defaultTitle = button.getAttribute("title") || "";
   }
   button.disabled = !!disabled;
