@@ -27,6 +27,11 @@ PORTAL_MANAGED_FIELD_TREE = {
         "context_budget": True,
         "context_projection": True,
         "response_flow": True,
+        "tool_loop": {
+            "one_tool_per_turn": True,
+            "parallel_tool_calls": True,
+            "max_repeated_tool_signature": True,
+        },
     },
     "proxy": {
         "enabled": True,
@@ -107,6 +112,34 @@ def sanitize_runtime_profile_response_flow(value) -> dict:
             sanitized["complexity_min_request_tokens"] = parsed_min_tokens
     except (TypeError, ValueError):
         pass
+
+    return sanitized
+
+
+def sanitize_runtime_profile_tool_loop(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+
+    sanitized: dict = {}
+
+    if "one_tool_per_turn" in value:
+        if not isinstance(value.get("one_tool_per_turn"), bool):
+            raise ValueError("llm.tool_loop.one_tool_per_turn must be a boolean")
+        sanitized["one_tool_per_turn"] = value.get("one_tool_per_turn")
+
+    if "parallel_tool_calls" in value:
+        if not isinstance(value.get("parallel_tool_calls"), bool):
+            raise ValueError("llm.tool_loop.parallel_tool_calls must be a boolean")
+        sanitized["parallel_tool_calls"] = value.get("parallel_tool_calls")
+
+    if "max_repeated_tool_signature" in value:
+        try:
+            parsed = int(value.get("max_repeated_tool_signature"))
+        except (TypeError, ValueError):
+            raise ValueError("llm.tool_loop.max_repeated_tool_signature must be an integer") from None
+        if parsed < 1 or parsed > 10:
+            raise ValueError("llm.tool_loop.max_repeated_tool_signature must be between 1 and 10")
+        sanitized["max_repeated_tool_signature"] = parsed
 
     return sanitized
 
@@ -200,6 +233,15 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             llm_copy["response_flow"] = sanitized_response_flow
         else:
             llm_copy.pop("response_flow", None)
+        llm = llm_copy
+
+    if isinstance(llm, dict) and "tool_loop" in llm:
+        llm_copy = llm.copy()
+        sanitized_tool_loop = sanitize_runtime_profile_tool_loop(llm_copy.get("tool_loop"))
+        if sanitized_tool_loop:
+            llm_copy["tool_loop"] = sanitized_tool_loop
+        else:
+            llm_copy.pop("tool_loop", None)
         llm = llm_copy
 
     if isinstance(llm, dict) and "temperature" in llm:

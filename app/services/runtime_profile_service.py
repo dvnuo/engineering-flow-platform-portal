@@ -71,6 +71,11 @@ class RuntimeProfileService:
                 "provider": "github_copilot",
                 "model": "gpt-5.4-mini",
                 "tools": ["*"],
+                "tool_loop": {
+                    "one_tool_per_turn": True,
+                    "parallel_tool_calls": False,
+                    "max_repeated_tool_signature": 2,
+                },
                 "response_flow": {
                     "plan_policy": "explicit_or_complex",
                     "staging_policy": "explicit_or_complex",

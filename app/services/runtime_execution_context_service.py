@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
 from app.repositories.policy_profile_repo import PolicyProfileRepository
+from app.repositories.runtime_profile_repo import RuntimeProfileRepository
+from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.capability_context_service import CapabilityContextService
 
 
@@ -83,6 +85,33 @@ class RuntimeExecutionContextService:
             "derived_runtime_rules": derived_runtime_rules,
         }
 
+
+    def _build_runtime_profile_context(self, db: Session, agent: Agent | None) -> tuple[str | None, dict]:
+        runtime_profile_id = agent.runtime_profile_id if agent else None
+        if not runtime_profile_id:
+            return None, {}
+
+        profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
+        if not profile:
+            return runtime_profile_id, {}
+
+        try:
+            parsed_config = parse_runtime_profile_config_json(
+                getattr(profile, "config_json", None),
+                fallback_to_empty=True,
+            )
+        except TypeError:
+            parsed_config = parse_runtime_profile_config_json(getattr(profile, "config_json", None))
+        except ValueError:
+            return runtime_profile_id, {}
+
+        llm = parsed_config.get("llm") if isinstance(parsed_config, dict) else {}
+        tool_loop = llm.get("tool_loop") if isinstance(llm, dict) else {}
+        if not isinstance(tool_loop, dict):
+            tool_loop = {}
+
+        return runtime_profile_id, dict(tool_loop)
+
     def build_for_agent(self, db: Session, agent: Agent | None) -> dict:
         capability_profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
         capability_context = self.capability_context_service.build_runtime_capability_context(
@@ -93,12 +122,15 @@ class RuntimeExecutionContextService:
         )
 
         policy_profile_id, policy_context = self._build_policy_context(db, agent)
+        runtime_profile_id, runtime_profile_context = self._build_runtime_profile_context(db, agent)
 
         return {
             "capability_profile_id": capability_profile_id,
             "policy_profile_id": policy_profile_id,
             "capability_context": capability_context,
             "policy_context": policy_context,
+            "runtime_profile_id": runtime_profile_id,
+            "runtime_profile_context": runtime_profile_context,
         }
 
     def build_runtime_metadata(self, db: Session, agent: Agent | None, base_metadata: dict | None = None) -> dict:
@@ -109,6 +141,10 @@ class RuntimeExecutionContextService:
 
         metadata["capability_profile_id"] = context["capability_profile_id"]
         metadata["policy_profile_id"] = context["policy_profile_id"]
+        metadata["runtime_profile_id"] = context.get("runtime_profile_id")
+        runtime_profile_context = context.get("runtime_profile_context") or {}
+        if isinstance(runtime_profile_context, dict) and runtime_profile_context:
+            metadata["llm_tool_loop"] = runtime_profile_context
 
         metadata["allowed_capability_ids"] = capability_context.get("allowed_capability_ids", [])
         metadata["allowed_capability_types"] = capability_context.get("allowed_capability_types", [])
