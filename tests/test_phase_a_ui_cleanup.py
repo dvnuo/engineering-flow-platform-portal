@@ -471,3 +471,41 @@ def test_thinking_process_removed_from_assistant_messages():
     assert "scheduleThinkingPanelRefresh(" in handler_block
     history_block = js_source[js_source.find("function renderChatHistory("):js_source.find("async function loadSessionForAgent(")]
     assert "attachThinkingToLatestAssistant" not in history_block
+
+
+def _css_block(css_source: str, selector: str) -> str:
+    start = css_source.index(selector)
+    end = css_source.index("}", start) + 1
+    return css_source[start:end]
+
+
+def test_disabled_button_hover_styles_do_not_inherit_backgrounds():
+    css_source = (_repo_root() / "app/static/css/app.css").read_text(encoding="utf-8")
+
+    assert "background: inherit" not in css_source
+
+    toolbar_primary_hover = _css_block(css_source, ".toolbar-primary-btn:disabled:hover")
+    assert "background: var(--portal-cta-bg)" in toolbar_primary_hover
+    assert "color: var(--portal-cta-text)" in toolbar_primary_hover
+    assert "transform: none !important" in toolbar_primary_hover
+
+    toolbar_secondary_hover = _css_block(css_source, ".toolbar-secondary-btn:disabled:hover")
+    assert "background: var(--portal-surface)" in toolbar_secondary_hover
+    assert "color: var(--portal-text-secondary)" in toolbar_secondary_hover
+    assert "transform: none !important" in toolbar_secondary_hover
+
+    composer_pill_hover = _css_block(css_source, ".composer-pill-btn:disabled:hover")
+    assert "var(--portal-surface-muted)" in composer_pill_hover
+    assert "background: inherit" not in composer_pill_hover
+
+    composer_send_hover = _css_block(css_source, ".composer-send-btn:disabled:hover")
+    assert "background: var(--portal-cta-bg)" in composer_send_hover
+    assert "color: var(--portal-cta-text)" in composer_send_hover
+    assert "background: inherit" not in composer_send_hover
+
+
+def test_set_button_disabled_preserves_empty_default_title_snapshot():
+    js_source = _chat_ui_js_source()
+
+    assert 'Object.prototype.hasOwnProperty.call(button.dataset, "defaultTitle")' in js_source
+    assert "if (!button.dataset.defaultTitle)" not in js_source
