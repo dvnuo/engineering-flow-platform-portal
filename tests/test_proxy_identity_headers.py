@@ -270,13 +270,20 @@ def test_enrich_chat_payload_replaces_metadata_but_keeps_model_override():
         "metadata": {"client": "browser"},
         "model_override": "gpt-5",
     }
-    runtime_metadata = {"capability_profile_id": "cap-1", "policy_profile_id": "pol-1"}
+    runtime_metadata = {
+        "capability_profile_id": "cap-1",
+        "policy_profile_id": "pol-1",
+        "runtime_profile_id": "rp-1",
+        "llm_tool_loop": {"one_tool_per_turn": True},
+    }
 
     enriched = _enrich_chat_payload_with_runtime_metadata(payload, runtime_metadata, user=None)
 
     assert enriched["metadata"] == runtime_metadata
     assert enriched["model_override"] == "gpt-5"
     assert "client" not in enriched["metadata"]
+    assert enriched["metadata"]["runtime_profile_id"] == "rp-1"
+    assert enriched["metadata"]["llm_tool_loop"] == {"one_tool_per_turn": True}
 
 
 def test_normalize_and_validate_model_override_accepts_trimmed_allowed_value(monkeypatch):

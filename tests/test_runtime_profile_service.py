@@ -103,6 +103,9 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert cfg["llm"]["max_retries"] == 3
     assert cfg["llm"]["retry_delay"] == 1
     assert cfg["llm"]["tools"] == ["*"]
+    assert cfg["llm"]["tool_loop"]["one_tool_per_turn"] is True
+    assert cfg["llm"]["tool_loop"]["parallel_tool_calls"] is False
+    assert cfg["llm"]["tool_loop"]["max_repeated_tool_signature"] == 2
     assert cfg["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
     assert cfg["llm"]["response_flow"]["staging_policy"] == "explicit_or_complex"
     assert cfg["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
