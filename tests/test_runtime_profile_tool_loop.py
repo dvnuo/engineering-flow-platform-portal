@@ -41,6 +41,20 @@ def test_runtime_profile_tool_loop_invalid_values_raise(payload, match):
         sanitize_runtime_profile_config_dict({"llm": {"tool_loop": payload}})
 
 
+@pytest.mark.parametrize("bad_value", [True, False])
+def test_runtime_profile_tool_loop_rejects_bool_max_repeated_tool_signature(bad_value):
+    with pytest.raises(ValueError, match="must be an integer"):
+        sanitize_runtime_profile_config_dict(
+            {
+                "llm": {
+                    "tool_loop": {
+                        "max_repeated_tool_signature": bad_value,
+                    }
+                }
+            }
+        )
+
+
 def test_default_runtime_profile_contains_tool_loop_defaults():
     cfg = RuntimeProfileService.default_profile_config()
 
@@ -98,11 +112,41 @@ def test_runtime_metadata_includes_runtime_profile_and_tool_loop(monkeypatch):
     assert metadata["policy_context"]["policy_profile_id"] == "pol-1"
 
 
-def test_runtime_profile_context_reads_and_sanitizes_profile_config(monkeypatch):
+def test_runtime_metadata_materializes_default_tool_loop_for_sparse_profile(monkeypatch):
     service = RuntimeExecutionContextService()
+    profile = SimpleNamespace(id="rp-1", config_json='{"llm": {"provider": "github_copilot"}}')
 
-    fake_profile = SimpleNamespace(
-        config_json='{"llm": {"tool_loop": {"one_tool_per_turn": true, "parallel_tool_calls": false, "max_repeated_tool_signature": 2}}}'
+    import app.services.runtime_execution_context_service as module
+
+    monkeypatch.setattr(
+        module,
+        "RuntimeProfileRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _profile_id: profile),
+    )
+
+    runtime_profile_id, runtime_context = service._build_runtime_profile_context(
+        db=object(),
+        agent=SimpleNamespace(
+            id="agent-1",
+            runtime_profile_id="rp-1",
+            capability_profile_id=None,
+            policy_profile_id=None,
+        ),
+    )
+
+    assert runtime_profile_id == "rp-1"
+    assert runtime_context == {
+        "one_tool_per_turn": True,
+        "parallel_tool_calls": False,
+        "max_repeated_tool_signature": 2,
+    }
+
+
+def test_runtime_metadata_uses_explicit_tool_loop_override(monkeypatch):
+    service = RuntimeExecutionContextService()
+    profile = SimpleNamespace(
+        id="rp-1",
+        config_json='{"llm": {"tool_loop": {"one_tool_per_turn": false, "parallel_tool_calls": true, "max_repeated_tool_signature": 3}}}',
     )
 
     import app.services.runtime_execution_context_service as module
@@ -110,17 +154,22 @@ def test_runtime_profile_context_reads_and_sanitizes_profile_config(monkeypatch)
     monkeypatch.setattr(
         module,
         "RuntimeProfileRepository",
-        lambda _db: SimpleNamespace(get_by_id=lambda _profile_id: fake_profile),
+        lambda _db: SimpleNamespace(get_by_id=lambda _profile_id: profile),
     )
 
-    runtime_profile_id, runtime_profile_context = service._build_runtime_profile_context(
+    runtime_profile_id, runtime_context = service._build_runtime_profile_context(
         db=object(),
-        agent=SimpleNamespace(runtime_profile_id="rp-ctx"),
+        agent=SimpleNamespace(
+            id="agent-1",
+            runtime_profile_id="rp-1",
+            capability_profile_id=None,
+            policy_profile_id=None,
+        ),
     )
 
-    assert runtime_profile_id == "rp-ctx"
-    assert runtime_profile_context == {
-        "one_tool_per_turn": True,
-        "parallel_tool_calls": False,
-        "max_repeated_tool_signature": 2,
+    assert runtime_profile_id == "rp-1"
+    assert runtime_context == {
+        "one_tool_per_turn": False,
+        "parallel_tool_calls": True,
+        "max_repeated_tool_signature": 3,
     }

@@ -133,8 +133,11 @@ def sanitize_runtime_profile_tool_loop(value) -> dict:
         sanitized["parallel_tool_calls"] = value.get("parallel_tool_calls")
 
     if "max_repeated_tool_signature" in value:
+        raw_repeat = value.get("max_repeated_tool_signature")
+        if isinstance(raw_repeat, bool):
+            raise ValueError("llm.tool_loop.max_repeated_tool_signature must be an integer")
         try:
-            parsed = int(value.get("max_repeated_tool_signature"))
+            parsed = int(raw_repeat)
         except (TypeError, ValueError):
             raise ValueError("llm.tool_loop.max_repeated_tool_signature must be an integer") from None
         if parsed < 1 or parsed > 10:

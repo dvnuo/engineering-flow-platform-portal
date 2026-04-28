@@ -5,8 +5,12 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
-from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.schemas.runtime_profile import (
+    parse_runtime_profile_config_json,
+    sanitize_runtime_profile_tool_loop,
+)
 from app.services.capability_context_service import CapabilityContextService
+from app.services.runtime_profile_service import RuntimeProfileService
 
 
 class RuntimeExecutionContextService:
@@ -87,7 +91,7 @@ class RuntimeExecutionContextService:
 
 
     def _build_runtime_profile_context(self, db: Session, agent: Agent | None) -> tuple[str | None, dict]:
-        runtime_profile_id = agent.runtime_profile_id if agent else None
+        runtime_profile_id = getattr(agent, "runtime_profile_id", None) if agent else None
         if not runtime_profile_id:
             return None, {}
 
@@ -105,10 +109,14 @@ class RuntimeExecutionContextService:
         except ValueError:
             return runtime_profile_id, {}
 
-        llm = parsed_config.get("llm") if isinstance(parsed_config, dict) else {}
-        tool_loop = llm.get("tool_loop") if isinstance(llm, dict) else {}
-        if not isinstance(tool_loop, dict):
-            tool_loop = {}
+        materialized_config = RuntimeProfileService.merge_with_managed_defaults(parsed_config)
+        llm = materialized_config.get("llm") if isinstance(materialized_config, dict) else {}
+        raw_tool_loop = llm.get("tool_loop") if isinstance(llm, dict) else {}
+
+        try:
+            tool_loop = sanitize_runtime_profile_tool_loop(raw_tool_loop)
+        except ValueError:
+            return runtime_profile_id, {}
 
         return runtime_profile_id, dict(tool_loop)
 
