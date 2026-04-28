@@ -3720,11 +3720,13 @@ function renderSecondaryPaneHeader() {
   const addAgentBtn = dom.addAgentBtn;
   const addBundleBtn = dom.addBundleBtn;
   const refreshBundlesBtn = dom.refreshBundlesBtn;
+  const addTaskBtn = dom.addTaskBtn;
   const addRuntimeProfileBtn = dom.addRuntimeProfileBtn;
   const addAutomationBtn = dom.addAutomationBtn;
   if (addAgentBtn) addAgentBtn.classList.add("hidden");
   if (addBundleBtn) addBundleBtn.classList.add("hidden");
   if (refreshBundlesBtn) refreshBundlesBtn.classList.add("hidden");
+  if (addTaskBtn) addTaskBtn.classList.add("hidden");
   if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.add("hidden");
   if (addAutomationBtn) addAutomationBtn.classList.add("hidden");
 
@@ -3740,7 +3742,6 @@ function renderSecondaryPaneHeader() {
   } else if (state.activeNavSection === "tasks") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Tasks";
-  } else if (state.activeNavSection === "tasks") {
     if (addTaskBtn) addTaskBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "automations") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
@@ -3772,9 +3773,7 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "My Tasks";
       setChatStatus("Browse tasks and open task detail in the main stage");
-    } else if (state.activeNavSection === "tasks") {
-    if (addTaskBtn) addTaskBtn.classList.remove("hidden");
-  } else if (state.activeNavSection === "automations") {
+    } else if (state.activeNavSection === "automations") {
       dom.embedTitle.textContent = "Automations";
       setChatStatus("Manage automation rules");
     } else {
