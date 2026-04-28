@@ -4921,6 +4921,47 @@ async function openMyUploads() {
 }
 
 
+function normalizeManagedModelIdForCapabilities(value) {
+  let model = String(value || "").trim().toLowerCase();
+  if (!model) return "";
+  for (const sep of ["/", ":"]) {
+    if (model.includes(sep)) {
+      model = model.split(sep).pop().trim();
+    }
+  }
+  return model;
+}
+
+function managedModelSupportsTemperature(value) {
+  return normalizeManagedModelIdForCapabilities(value) === "gpt-4";
+}
+
+function updateTemperatureInputState(root) {
+  if (!root) return;
+  const modelSelect = root.querySelector("#llm_model");
+  const input = root.querySelector("[data-llm-temperature-input]");
+  const note = root.querySelector("[data-llm-temperature-note]");
+  if (!modelSelect || !input) return;
+
+  const allowTemperature = managedModelSupportsTemperature(modelSelect.value || modelSelect.dataset.currentValue || "");
+
+  input.disabled = !allowTemperature;
+  input.placeholder = allowTemperature ? "0.7" : "Only available for gpt-4";
+  input.title = allowTemperature
+    ? "Temperature is used only for exact gpt-4."
+    : "Temperature is disabled because this model omits the deprecated temperature parameter.";
+
+  if (!allowTemperature) {
+    input.value = "";
+  }
+
+  if (note) {
+    note.textContent = allowTemperature
+      ? "Temperature is only sent for exact gpt-4."
+      : "Temperature is disabled unless the selected model is exact gpt-4. Other models omit this deprecated parameter.";
+  }
+}
+
 const managedProviderModels = {
   github_copilot: [
     { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
@@ -5221,6 +5262,7 @@ function updateModelOptions(root) {
   if (copilotBtn) copilotBtn.classList.toggle("hidden", !isCopilot);
   if (authStatus && !isCopilot) authStatus.classList.add("hidden");
   if (!isCopilot) stopCopilotPolling(root);
+  if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
 
 async function runManagedSettingsTest(root, target, button) {
@@ -5407,6 +5449,7 @@ function initializeManagedSettingsRoot(root) {
   root.dataset.actionsBound = "1";
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
+    if (event.target?.id === "llm_model") updateTemperatureInputState(root);
     if (event.target?.name === "llm_tools_mode") toggleLlmToolsEditor(root);
     const section = sectionNameForElement(event.target);
     if (section) markManagedSectionTouched(root, section);

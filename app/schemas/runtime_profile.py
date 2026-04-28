@@ -160,6 +160,25 @@ def normalize_runtime_profile_llm_tools(value) -> list[str]:
 
 
 
+def normalize_runtime_profile_model_id_for_capabilities(value) -> str:
+    """Normalize a runtime-profile model reference for capability checks only.
+
+    Do not use this to rewrite the persisted model field.
+    """
+    model = str(value or "").strip().lower()
+    if not model:
+        return ""
+    for sep in ("/", ":"):
+        if sep in model:
+            model = model.rsplit(sep, 1)[-1].strip()
+    return model
+
+
+def runtime_profile_model_supports_temperature(model) -> bool:
+    """Only exact gpt-4 may persist/use temperature."""
+    return normalize_runtime_profile_model_id_for_capabilities(model) == "gpt-4"
+
+
 def normalize_runtime_profile_temperature(value) -> float:
     if isinstance(value, bool) or value is None:
         raise ValueError("llm.temperature must be a number between 0 and 2")
@@ -202,9 +221,13 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             llm_copy.pop("response_flow", None)
         llm = llm_copy
 
-    if isinstance(llm, dict) and "temperature" in llm:
+    if isinstance(llm, dict):
         llm_copy = llm.copy()
-        llm_copy["temperature"] = normalize_runtime_profile_temperature(llm_copy.get("temperature"))
+        if runtime_profile_model_supports_temperature(llm_copy.get("model")):
+            if "temperature" in llm_copy:
+                llm_copy["temperature"] = normalize_runtime_profile_temperature(llm_copy.get("temperature"))
+        else:
+            llm_copy.pop("temperature", None)
         llm = llm_copy
 
     if isinstance(llm, dict):

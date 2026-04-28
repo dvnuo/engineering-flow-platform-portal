@@ -81,7 +81,6 @@ class RuntimeProfileService:
                     "complexity_min_request_tokens": 24000,
                 },
                 "max_tokens": 64000,
-                "temperature": 0.7,
                 "max_retries": 3,
                 "retry_delay": 1,
                 "system-prompt": {

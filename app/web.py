@@ -26,6 +26,7 @@ from app.schemas.runtime_profile import (
     normalize_runtime_profile_llm_tools,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_config_dict,
+    runtime_profile_model_supports_temperature,
 )
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
 from app.services.requirement_bundle_github_service import (
@@ -602,6 +603,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "llm": llm,
         "raw_llm": raw_llm,
         "effective_llm": llm,
+        "llm_temperature_allowed": runtime_profile_model_supports_temperature(raw_llm.get("model")),
         "llm_tools_mode": llm_tools_mode,
         "llm_tools_patterns": llm_tools_patterns,
         "raw_llm_tools_mode": raw_llm_tools_mode,
@@ -899,17 +901,21 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         else:
             llm.pop("api_key", None)
 
+        temperature_allowed = runtime_profile_model_supports_temperature(llm.get("model"))
         temperature_text = (form.get("llm_temperature") or "").strip()
-        if "llm_temperature" in form:
+
+        if not temperature_allowed:
+            llm.pop("temperature", None)
+        elif "llm_temperature" in form:
             if not temperature_text:
                 llm.pop("temperature", None)
             else:
                 try:
                     parsed_temperature = float(temperature_text)
                 except ValueError:
-                    return config_payload, "Temperature must be a number between 0 and 2."
+                    return config_payload, "Temperature is only supported for gpt-4 and must be a number between 0 and 2."
                 if not math.isfinite(parsed_temperature) or parsed_temperature < 0 or parsed_temperature > 2:
-                    return config_payload, "Temperature must be a number between 0 and 2."
+                    return config_payload, "Temperature is only supported for gpt-4 and must be a number between 0 and 2."
                 llm["temperature"] = parsed_temperature
         
         max_tokens_text = (form.get("llm_max_tokens") or "").strip()
