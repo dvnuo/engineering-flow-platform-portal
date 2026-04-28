@@ -21,6 +21,21 @@ def upgrade() -> None:
 
     op.add_column("automation_rules", sa.Column("task_template_id", sa.String(length=128), nullable=True))
     op.execute("UPDATE automation_rules SET task_template_id = 'github_pr_review' WHERE task_template_id IS NULL")
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table("automation_rules") as batch_op:
+            batch_op.alter_column(
+                "task_template_id",
+                nullable=False,
+                existing_type=sa.String(length=128),
+            )
+    else:
+        op.alter_column(
+            "automation_rules",
+            "task_template_id",
+            nullable=False,
+            existing_type=sa.String(length=128),
+        )
 
 
 def downgrade() -> None:

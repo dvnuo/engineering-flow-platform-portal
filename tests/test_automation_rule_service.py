@@ -139,7 +139,7 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
         task_template_id="github_pr_review",
         scope={"owner": "Acme", "repo": "Portal"},
         trigger_config={"review_target_type": "team", "review_target": "Acme/Reviewers"},
-        task_input_defaults={"review_event": "COMMENT", "skill_name": "review-pull-request"},
+        task_input_defaults={"review_event": "APPROVE", "skill_name": "review-pull-request"},
         schedule={"interval_seconds": 60},
     )
     rule = svc.create_rule(payload, current_user_id=user.id)
@@ -196,7 +196,7 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
     assert task_payload["head_sha"] == "sha-1"
     assert task_payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
     assert task_payload["skill_name"] == "review-pull-request"
-    assert task_payload["review_event"] == "COMMENT"
+    assert task_payload["review_event"] == "APPROVE"
     assert task_payload.get("dedupe_key")
 
     second = await svc.run_rule_once(rule.id, triggered_by="test")

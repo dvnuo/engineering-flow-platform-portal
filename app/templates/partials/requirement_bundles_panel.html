@@ -9,7 +9,7 @@
     <span class="portal-status-badge is-{{ action.status_tone }}">{{ action.status_label }}</span>
   </summary>
   <form method="post" action="/app/requirement-bundles/task-shortcuts/run" hx-post="/app/requirement-bundles/task-shortcuts/run" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-detail-stack">
-    <input type="hidden" name="template_id" value="{{ bundle_view_model.template_id }}" />
+    <input type="hidden" name="bundle_template_id" value="{{ bundle_view_model.template_id }}" />
     <input type="hidden" name="task_template_id" value="{{ action.task_template_id }}" />
     <input type="hidden" name="bundle_repo" value="{{ bundle_view_model.repo }}" />
     <input type="hidden" name="bundle_path" value="{{ bundle_view_model.path }}" />

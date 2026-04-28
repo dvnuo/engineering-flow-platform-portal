@@ -125,6 +125,30 @@ def _normalize_runtime_input(raw_input: dict[str, Any] | None) -> dict[str, Any]
     return dict(raw_input)
 
 
+def _require_non_empty_ref(ref: dict[str, Any] | None, *, field_name: str) -> None:
+    if not isinstance(ref, dict):
+        raise ValueError(f"{field_name} is required for this task template")
+    repo = str(ref.get("repo") or "").strip()
+    path = str(ref.get("path") or "").strip()
+    if not repo or not path:
+        raise ValueError(f"{field_name} requires non-empty repo/path")
+
+
+def _sources_has_non_empty_value(sources: dict[str, Any]) -> bool:
+    for value in sources.values():
+        if isinstance(value, str) and value.strip():
+            return True
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    return True
+                if item is not None and not isinstance(item, str):
+                    return True
+        if value is not None and not isinstance(value, (str, list, dict)):
+            return True
+    return False
+
+
 def build_agent_task_create_payload_from_template(
     template_id: str,
     raw_input: dict[str, Any] | None,
@@ -141,13 +165,22 @@ def build_agent_task_create_payload_from_template(
     if template.requires_bundle:
         bundle_ref = normalized_input.get("bundle_ref")
         manifest_ref = normalized_input.get("manifest_ref")
-        if not isinstance(bundle_ref, dict) or not isinstance(manifest_ref, dict):
-            raise ValueError("bundle_ref and manifest_ref are required for this task template")
+        _require_non_empty_ref(bundle_ref, field_name="bundle_ref")
+        _require_non_empty_ref(manifest_ref, field_name="manifest_ref")
+        bundle_template_id = str(normalized_input.get("bundle_template_id") or "").strip()
+        if not bundle_template_id:
+            raise ValueError("bundle_template_id is required for this task template")
+        if template.compatible_bundle_templates and bundle_template_id not in template.compatible_bundle_templates:
+            raise ValueError(
+                f"bundle_template_id '{bundle_template_id}' is not compatible with template '{template.template_id}'"
+            )
 
     if template.requires_sources:
         sources = normalized_input.get("sources")
         if not isinstance(sources, dict):
             raise ValueError("sources is required for this task template")
+        if not _sources_has_non_empty_value(sources):
+            raise ValueError("sources requires at least one non-empty source")
 
     if template.default_skill_name and not normalized_input.get("skill_name"):
         normalized_input["skill_name"] = template.default_skill_name

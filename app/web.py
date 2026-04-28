@@ -28,7 +28,7 @@ from app.schemas.runtime_profile import (
     sanitize_runtime_profile_config_dict,
 )
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
-from app.services.task_template_registry import list_task_templates, get_task_template, build_agent_task_create_payload_from_template
+from app.services.task_template_registry import list_task_templates, get_task_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
@@ -1404,11 +1404,15 @@ def requirement_bundle_open(request: Request, repo: str = Query(""), path: str =
 
 def _create_bundle_task_payload(
     task_template_id: str,
+    bundle_template_id: str,
     bundle_ref: BundleRef,
     manifest_ref: BundleRef,
     sources: dict | None = None,
+    skill_name: str | None = None,
 ) -> dict:
     payload = {
+        "task_template_id": task_template_id,
+        "bundle_template_id": bundle_template_id,
         "bundle_ref": {
             "repo": bundle_ref.repo,
             "path": bundle_ref.path,
@@ -1422,7 +1426,9 @@ def _create_bundle_task_payload(
     }
     if sources is not None:
         payload["sources"] = sources
-    return build_agent_task_create_payload_from_template(task_template_id, payload, assignee_agent_id="").get("input_payload_json", payload)
+    if skill_name:
+        payload["skill_name"] = skill_name
+    return payload
 
 
 def _render_bundle_action_error_response(
@@ -1458,7 +1464,7 @@ def _render_bundle_action_error_response(
 async def _create_and_dispatch_bundle_task(
     request: Request,
     *,
-    template_id: str,
+    bundle_template_id: str,
     task_template_id: str,
     assignee_agent_id: str,
     manifest_ref: BundleRef,
@@ -1474,9 +1480,9 @@ async def _create_and_dispatch_bundle_task(
     db = SessionLocal()
     dispatch_context_token = None
     try:
-        template = require_bundle_template(template_id)
+        template = require_bundle_template(bundle_template_id)
         if task_template_id not in template.compatible_task_template_ids:
-            raise HTTPException(status_code=400, detail=f"Unsupported task_template_id '{task_template_id}' for template '{template_id}'")
+            raise HTTPException(status_code=400, detail=f"Unsupported task_template_id '{task_template_id}' for template '{bundle_template_id}'")
         task_template = get_task_template(task_template_id)
 
         assignee = AgentRepository(db).get_by_id(assignee_agent_id)
@@ -1529,9 +1535,11 @@ async def _create_and_dispatch_bundle_task(
 
         task_payload = _create_bundle_task_payload(
             task_template_id,
+            bundle_template_id,
             effective_bundle_ref,
             effective_manifest_ref,
             sources=sources,
+            skill_name=(task_template.default_skill_name if task_template else None),
         )
         source_counts = sources or {}
         logger.info(
@@ -1611,7 +1619,7 @@ async def requirement_bundle_task_shortcut_run(request: Request):
 
     form = await request.form()
     assignee_agent_id = str(form.get("action_agent_id") or "").strip()
-    template_id = str(form.get("template_id") or "").strip()
+    bundle_template_id = str(form.get("bundle_template_id") or "").strip()
     task_template_id = str(form.get("task_template_id") or "").strip()
     form_state = {
         "task_template_id": task_template_id,
@@ -1652,7 +1660,7 @@ async def requirement_bundle_task_shortcut_run(request: Request):
                 status_message="Action agent is required.",
                 form_state=form_state,
             )
-        if not template_id:
+        if not bundle_template_id:
             return _render_bundle_action_error_response(
                 request,
                 user=user,
@@ -1660,7 +1668,7 @@ async def requirement_bundle_task_shortcut_run(request: Request):
                 panel_mode=panel_mode,
                 bundle_ref=bundle_ref,
                 manifest_ref=manifest_ref,
-                status_message="template_id is required",
+                status_message="bundle_template_id is required",
                 form_state=form_state,
             )
         if not task_template_id:
@@ -1679,7 +1687,7 @@ async def requirement_bundle_task_shortcut_run(request: Request):
 
     return await _create_and_dispatch_bundle_task(
         request,
-        template_id=template_id,
+        bundle_template_id=bundle_template_id,
         task_template_id=task_template_id,
         assignee_agent_id=assignee_agent_id,
         manifest_ref=manifest_ref,
@@ -1693,7 +1701,7 @@ async def requirement_bundle_task_shortcut_run(request: Request):
 async def requirement_bundle_collect(request: Request):
     form = await request.form()
     remapped_form = {
-        "template_id": "requirement.v1",
+        "bundle_template_id": "requirement.v1",
         "task_template_id": "collect_requirements_to_bundle",
         "action_agent_id": str(form.get("collect_agent_id") or "").strip(),
         "bundle_repo": form.get("bundle_repo"),
@@ -1723,7 +1731,7 @@ async def requirement_bundle_collect(request: Request):
 async def requirement_bundle_design_test_cases(request: Request):
     form = await request.form()
     remapped_form = {
-        "template_id": "requirement.v1",
+        "bundle_template_id": "requirement.v1",
         "task_template_id": "design_test_cases_from_bundle",
         "action_agent_id": str(form.get("design_agent_id") or "").strip(),
         "bundle_repo": form.get("bundle_repo"),

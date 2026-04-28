@@ -60,3 +60,31 @@ def test_create_task_from_template_dispatch_toggle(monkeypatch):
         assert len(calls) == 1
     finally:
         app.dependency_overrides.clear()
+
+
+def test_create_bundle_task_from_template_contains_bundle_template_id(monkeypatch):
+    client, _db, agent, app = _client()
+    calls = []
+    monkeypatch.setattr("app.api.agent_tasks.task_dispatcher_service.dispatch_task_in_background", lambda task_id: calls.append(task_id))
+    try:
+        payload = {
+            "template_id": "collect_requirements_to_bundle",
+            "assignee_agent_id": agent.id,
+            "dispatch_immediately": False,
+            "input": {
+                "bundle_template_id": "requirement.v1",
+                "bundle_ref": {"repo": "octo/assets", "path": "bundles/rb", "branch": "main"},
+                "manifest_ref": {"repo": "octo/assets", "path": "bundles/rb", "branch": "main"},
+                "sources": {"jira": ["ABC-1"]},
+            },
+        }
+        resp = client.post("/api/agent-tasks/from-template", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["template_id"] == "collect_requirements_to_bundle"
+        assert body["task_type"] == "bundle_action_task"
+        assert calls == []
+        task_input = json.loads(body["input_payload_json"])
+        assert task_input["bundle_template_id"] == "requirement.v1"
+    finally:
+        app.dependency_overrides.clear()

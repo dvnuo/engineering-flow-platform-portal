@@ -88,7 +88,7 @@ def _setup_client(monkeypatch, logged_in=True):
     fake_user = SimpleNamespace(id=11, username="portal", nickname="Portal", role="user")
     fake_agent = SimpleNamespace(id="agent-1", name="Agent One", owner_user_id=11, visibility="private")
     created_tasks = []
-    state = {"template_id": "requirement.v1", "artifact_exists": {"requirements": True, "test_cases": True}}
+    state = {"bundle_template_id": "requirement.v1", "artifact_exists": {"requirements": True, "test_cases": True}}
 
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "AgentRepository", lambda db: _FakeAgentRepo(db, [fake_agent]))
@@ -163,7 +163,7 @@ def test_dispatch_actions_create_bundle_action_task(monkeypatch):
         response = client.post(
             "/app/requirement-bundles/task-shortcuts/run",
             data={
-                "template_id": template_id,
+                "bundle_template_id": template_id,
                 "task_template_id": action_id,
                 "action_agent_id": "agent-1",
                 "bundle_repo": "octo/engineering-flow-platform-assets",
@@ -226,7 +226,7 @@ def test_collect_rejects_empty_and_figma_only(monkeypatch):
     empty_resp = client.post(
         "/app/requirement-bundles/task-shortcuts/run",
         data={
-            "template_id": "requirement.v1",
+            "bundle_template_id": "requirement.v1",
             "task_template_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
@@ -240,7 +240,7 @@ def test_collect_rejects_empty_and_figma_only(monkeypatch):
     figma_resp = client.post(
         "/app/requirement-bundles/task-shortcuts/run",
         data={
-            "template_id": "requirement.v1",
+            "bundle_template_id": "requirement.v1",
             "task_template_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
@@ -275,7 +275,7 @@ def test_collect_validation_error_preserves_form_state(monkeypatch):
     response = client.post(
         "/app/requirement-bundles/task-shortcuts/run",
         data={
-            "template_id": "requirement.v1",
+            "bundle_template_id": "requirement.v1",
             "task_template_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
@@ -299,7 +299,7 @@ def test_missing_action_agent_rerenders_panel_instead_of_http_400(monkeypatch):
     response = client.post(
         "/app/requirement-bundles/task-shortcuts/run",
         data={
-            "template_id": "requirement.v1",
+            "bundle_template_id": "requirement.v1",
             "task_template_id": "collect_requirements_to_bundle",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",

@@ -5769,12 +5769,25 @@ function openCreateAutomationRuleModal() {
       <h3>Create Automation</h3>
       <form id="create-automation-inline-form" class="portal-panel-stack">
         <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="Review EFP PRs" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
-        <label class="portal-form-label"><span class="portal-form-label">Owner</span><input class="portal-form-input" name="owner" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Repo</span><input class="portal-form-input" name="repo" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
-        <label class="portal-form-label"><span class="portal-form-label">Review target</span><input class="portal-form-input" name="review_target" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
+        <section class="portal-panel-section">
+          <h4>Trigger</h4>
+          <label class="portal-form-label"><span class="portal-form-label">Trigger</span><select class="portal-form-select" name="trigger_type"><option value="github_pr_review_requested">GitHub PR review requested</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Owner</span><input class="portal-form-input" name="owner" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Repo</span><input class="portal-form-input" name="repo" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Review target</span><input class="portal-form-input" name="review_target" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
+        </section>
+        <section class="portal-panel-section">
+          <h4>Task Template</h4>
+          <label class="portal-form-label"><span class="portal-form-label">Template</span><select class="portal-form-select" name="task_template_id"><option value="github_pr_review">github_pr_review</option></select></label>
+        </section>
+        <section class="portal-panel-section">
+          <h4>Agent & Task Defaults</h4>
+          <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Review event</span><select class="portal-form-select" name="review_event"><option value="COMMENT">COMMENT</option><option value="APPROVE">APPROVE</option><option value="REQUEST_CHANGES">REQUEST_CHANGES</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Writeback mode</span><input class="portal-form-input" name="writeback_mode" /></label>
+        </section>
         <button class="portal-btn is-primary" type="submit">Create</button>
       </form>
     </div>
@@ -5788,11 +5801,15 @@ async function submitCreateAutomationRule(formEl) {
     target_agent_id: String(fd.get("target_agent_id") || ""),
     enabled: true,
     source_type: "github",
-    trigger_type: "github_pr_review_requested",
-    task_template_id: "github_pr_review",
+    trigger_type: String(fd.get("trigger_type") || "github_pr_review_requested"),
+    task_template_id: String(fd.get("task_template_id") || "github_pr_review"),
     scope: { owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || "") },
     trigger_config: { review_target_type: String(fd.get("review_target_type") || "user"), review_target: String(fd.get("review_target") || "") },
-    task_input_defaults: { review_event: "COMMENT", skill_name: "review-pull-request" },
+    task_input_defaults: {
+      review_event: String(fd.get("review_event") || "COMMENT"),
+      skill_name: "review-pull-request",
+      writeback_mode: String(fd.get("writeback_mode") || "").trim() || undefined,
+    },
     schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60) },
   };
   const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
@@ -5851,6 +5868,8 @@ async function openTaskCreatePanelInMain() {
   dom.workspaceDetailContent.dataset.workspaceState = "task-create";
   dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task create form…</div>';
   await htmx.ajax("GET", "/app/tasks/create/panel", { target: "#workspace-detail-content", swap: "innerHTML" });
+  const formEl = dom.workspaceDetailContent.querySelector("#create-task-from-template-form");
+  if (formEl) updateCreateTaskTemplateFieldVisibility(formEl);
 }
 
 async function submitCreateTaskFromTemplate(formEl) {
@@ -5862,6 +5881,7 @@ async function submitCreateTaskFromTemplate(formEl) {
     review_event: String(fd.get("review_event") || "").trim(),
     writeback_mode: String(fd.get("writeback_mode") || "").trim(),
     head_sha: String(fd.get("head_sha") || "").trim(),
+    bundle_template_id: String(fd.get("bundle_template_id") || "").trim(),
     bundle_ref: {
       repo: String(fd.get("bundle_repo") || "").trim(),
       path: String(fd.get("bundle_path") || "").trim(),
@@ -5895,6 +5915,42 @@ async function submitCreateTaskFromTemplate(formEl) {
 function splitLines(value) {
   const raw = String(value || "");
   return raw.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
+}
+
+function updateCreateTaskTemplateFieldVisibility(formEl) {
+  if (!formEl) return;
+  const templateId = String(formEl.querySelector('[name="template_id"]')?.value || "").trim();
+  const bundleFields = formEl.querySelector("[data-task-bundle-fields]");
+  const sourcesFields = formEl.querySelector("[data-task-sources-fields]");
+  const githubFields = formEl.querySelector("[data-task-github-fields]");
+  const bundleTemplateSelect = formEl.querySelector('[name="bundle_template_id"]');
+
+  const isGithub = templateId === "github_pr_review";
+  const bundleTemplateIds = new Set([
+    "collect_requirements_to_bundle",
+    "design_test_cases_from_bundle",
+    "collect_research_notes_to_bundle",
+    "generate_implementation_plan_from_bundle",
+    "generate_runbook_from_bundle",
+  ]);
+  const sourcesTemplateIds = new Set(["collect_requirements_to_bundle", "collect_research_notes_to_bundle"]);
+  const isBundle = bundleTemplateIds.has(templateId);
+  const needsSources = sourcesTemplateIds.has(templateId);
+
+  if (bundleFields) bundleFields.classList.toggle("hidden", !isBundle);
+  if (sourcesFields) sourcesFields.classList.toggle("hidden", !needsSources);
+  if (githubFields) githubFields.classList.toggle("hidden", !isGithub);
+
+  const bundleDefaults = {
+    collect_requirements_to_bundle: "requirement.v1",
+    design_test_cases_from_bundle: "requirement.v1",
+    collect_research_notes_to_bundle: "research.v1",
+    generate_implementation_plan_from_bundle: "development.v1",
+    generate_runbook_from_bundle: "operations.v1",
+  };
+  if (bundleTemplateSelect && bundleDefaults[templateId]) {
+    bundleTemplateSelect.value = bundleDefaults[templateId];
+  }
 }
 
 async function openEditDialog(agent) {
@@ -6611,6 +6667,13 @@ function bindEvents() {
       } catch (error) {
         showToast(`Create task failed: ${error.message}`);
       }
+    }
+  });
+  dom.workspaceDetailContent?.addEventListener("change", (event) => {
+    const formEl = event.target.closest("#create-task-from-template-form");
+    if (!formEl) return;
+    if (event.target.matches('[name="template_id"]')) {
+      updateCreateTaskTemplateFieldVisibility(formEl);
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
