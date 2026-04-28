@@ -1,0 +1,38 @@
+<div class="portal-panel-stack">
+  <div class="portal-panel-header">
+    <div>
+      <h2 class="portal-panel-title">Create Task</h2>
+      <p class="portal-panel-subtitle">Task = create AgentTask from Task Template.</p>
+    </div>
+  </div>
+  <form id="create-task-from-template-form" class="portal-panel-stack">
+    <label class="portal-form-label">Template</label>
+    <select name="template_id" class="portal-form-select" required>
+      {% for template in task_templates %}
+      <option value="{{ template.template_id }}">{{ template.label }} ({{ template.template_id }})</option>
+      {% endfor %}
+    </select>
+    <label class="portal-form-label">Assignee Agent</label>
+    <select name="assignee_agent_id" class="portal-form-select" required>
+      {% for agent in agents %}<option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>{% endfor %}
+    </select>
+    <label><input type="checkbox" name="dispatch_immediately" checked /> Dispatch immediately</label>
+    <label class="portal-form-label">Bundle Repo</label><input class="portal-form-input" name="bundle_repo" />
+    <label class="portal-form-label">Bundle Path</label><input class="portal-form-input" name="bundle_path" />
+    <label class="portal-form-label">Bundle Branch</label><input class="portal-form-input" name="bundle_branch" />
+    <label class="portal-form-label">Manifest Repo</label><input class="portal-form-input" name="manifest_repo" />
+    <label class="portal-form-label">Manifest Path</label><input class="portal-form-input" name="manifest_path" />
+    <label class="portal-form-label">Manifest Branch</label><input class="portal-form-input" name="manifest_branch" />
+    <label class="portal-form-label">Jira Sources</label><textarea class="portal-form-textarea" name="jira_sources" rows="2"></textarea>
+    <label class="portal-form-label">Confluence Sources</label><textarea class="portal-form-textarea" name="confluence_sources" rows="2"></textarea>
+    <label class="portal-form-label">GitHub Docs Sources</label><textarea class="portal-form-textarea" name="github_doc_sources" rows="2"></textarea>
+    <label class="portal-form-label">Figma Sources</label><textarea class="portal-form-textarea" name="figma_sources" rows="2"></textarea>
+    <label class="portal-form-label">GitHub Owner</label><input class="portal-form-input" name="owner" />
+    <label class="portal-form-label">GitHub Repo</label><input class="portal-form-input" name="repo" />
+    <label class="portal-form-label">Pull Number</label><input class="portal-form-input" name="pull_number" type="number" />
+    <label class="portal-form-label">Review Event</label><input class="portal-form-input" name="review_event" value="COMMENT" />
+    <label class="portal-form-label">Writeback Mode</label><input class="portal-form-input" name="writeback_mode" />
+    <label class="portal-form-label">Head SHA</label><input class="portal-form-input" name="head_sha" />
+    <button type="submit" class="portal-btn is-primary">Create Task</button>
+  </form>
+</div>

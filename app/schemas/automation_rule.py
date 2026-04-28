@@ -1,9 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-
-ALLOWED_REVIEW_EVENTS = {"COMMENT", "APPROVE", "REQUEST_CHANGES"}
+from pydantic import BaseModel, Field, field_validator
 
 
 class AutomationRuleCreate(BaseModel):
@@ -12,17 +10,14 @@ class AutomationRuleCreate(BaseModel):
     target_agent_id: str
     source_type: Literal["github"] = "github"
     trigger_type: Literal["github_pr_review_requested"] = "github_pr_review_requested"
-    task_type: Literal["github_review_task"] = "github_review_task"
+    task_template_id: str
+    task_type: str = "github_review_task"
+    scope: dict = Field(default_factory=dict)
+    trigger_config: dict = Field(default_factory=dict)
+    task_input_defaults: dict = Field(default_factory=dict)
+    schedule: dict = Field(default_factory=lambda: {"interval_seconds": 60})
 
-    owner: str
-    repo: str
-    review_target_type: Literal["user", "team"]
-    review_target: str
-    interval_seconds: int = Field(default=60, ge=30, le=3600)
-    skill_name: str = "review-pull-request"
-    review_event: str = "COMMENT"
-
-    @field_validator("name", "target_agent_id", "owner", "repo", "review_target", "skill_name", "review_event")
+    @field_validator("name", "target_agent_id", "task_template_id")
     @classmethod
     def _non_empty(cls, value: str) -> str:
         cleaned = (value or "").strip()
@@ -30,61 +25,16 @@ class AutomationRuleCreate(BaseModel):
             raise ValueError("must not be empty")
         return cleaned
 
-    @field_validator("review_event")
-    @classmethod
-    def _validate_create_review_event(cls, value: str) -> str:
-        cleaned = (value or "").strip().upper()
-        if cleaned not in ALLOWED_REVIEW_EVENTS:
-            raise ValueError(f"review_event must be one of: {', '.join(sorted(ALLOWED_REVIEW_EVENTS))}")
-        return cleaned
-
-    @model_validator(mode="after")
-    def _validate_review_target(self):
-        if self.review_target_type == "user" and any(ch.isspace() for ch in self.review_target):
-            raise ValueError("review_target must not contain whitespace for user target")
-        return self
-
 
 class AutomationRuleUpdate(BaseModel):
     name: Optional[str] = None
     enabled: Optional[bool] = None
     target_agent_id: Optional[str] = None
-    owner: Optional[str] = None
-    repo: Optional[str] = None
-    review_target_type: Optional[Literal["user", "team"]] = None
-    review_target: Optional[str] = None
-    interval_seconds: Optional[int] = Field(default=None, ge=30, le=3600)
-    skill_name: Optional[str] = None
-    review_event: Optional[str] = None
-
-    @field_validator("name", "target_agent_id", "owner", "repo", "review_target", "skill_name")
-    @classmethod
-    def _validate_non_empty_optional(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("must not be empty")
-        return cleaned
-
-    @field_validator("review_event")
-    @classmethod
-    def _validate_review_event(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("must not be empty")
-        normalized = cleaned.upper()
-        if normalized not in ALLOWED_REVIEW_EVENTS:
-            raise ValueError(f"review_event must be one of: {', '.join(sorted(ALLOWED_REVIEW_EVENTS))}")
-        return normalized
-
-    @model_validator(mode="after")
-    def _validate_update_review_target(self):
-        if self.review_target_type == "user" and self.review_target and any(ch.isspace() for ch in self.review_target):
-            raise ValueError("review_target must not contain whitespace for user target")
-        return self
+    task_template_id: Optional[str] = None
+    scope: Optional[dict] = None
+    trigger_config: Optional[dict] = None
+    task_input_defaults: Optional[dict] = None
+    schedule: Optional[dict] = None
 
 
 class AutomationRuleRead(BaseModel):
@@ -95,6 +45,7 @@ class AutomationRuleRead(BaseModel):
     trigger_type: str
     target_agent_id: str
     task_type: str
+    task_template_id: str
     scope_json: str
     trigger_config_json: str
     task_config_json: str

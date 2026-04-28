@@ -14,6 +14,7 @@ from app.services.capability_context_service import CapabilityContextService
 from app.services.github_pr_review_poller import GithubPrReviewPoller
 from app.services.provider_config_resolver import ProviderConfigResolverError, resolve_github_for_agent
 from app.services.task_dispatcher import TaskDispatcherService
+from app.services.task_template_registry import build_agent_task_create_payload_from_template, require_task_template
 
 
 @dataclass
@@ -49,30 +50,18 @@ class AutomationRuleService:
     @staticmethod
     def _build_from_structured(existing: dict | None, payload: dict) -> dict:
         merged = dict(existing or {})
-        if "owner" in payload and payload["owner"] is not None:
-            merged.setdefault("scope_json", {})
-            merged["scope_json"]["owner"] = payload["owner"].strip()
-        if "repo" in payload and payload["repo"] is not None:
-            merged.setdefault("scope_json", {})
-            merged["scope_json"]["repo"] = payload["repo"].strip()
-        if "review_target_type" in payload and payload["review_target_type"] is not None:
-            merged.setdefault("trigger_config_json", {})
-            merged["trigger_config_json"]["review_target_type"] = payload["review_target_type"]
-        if "review_target" in payload and payload["review_target"] is not None:
-            merged.setdefault("trigger_config_json", {})
-            merged["trigger_config_json"]["review_target"] = payload["review_target"].strip()
-        if "interval_seconds" in payload and payload["interval_seconds"] is not None:
-            merged.setdefault("schedule_json", {})
-            merged["schedule_json"]["interval_seconds"] = payload["interval_seconds"]
-        if "skill_name" in payload and payload["skill_name"] is not None:
-            merged.setdefault("task_config_json", {})
-            merged["task_config_json"]["skill_name"] = payload["skill_name"].strip()
-        if "review_event" in payload and payload["review_event"] is not None:
-            merged.setdefault("task_config_json", {})
-            merged["task_config_json"]["review_event"] = payload["review_event"].strip()
+        if "scope" in payload and isinstance(payload["scope"], dict):
+            merged["scope_json"] = dict(payload["scope"])
+        if "trigger_config" in payload and isinstance(payload["trigger_config"], dict):
+            merged["trigger_config_json"] = dict(payload["trigger_config"])
+        if "task_input_defaults" in payload and isinstance(payload["task_input_defaults"], dict):
+            merged["task_config_json"] = dict(payload["task_input_defaults"])
+        if "schedule" in payload and isinstance(payload["schedule"], dict):
+            merged["schedule_json"] = dict(payload["schedule"])
         return merged
 
-    def _validate_built_rule_config(self, *, built: dict) -> None:
+    def _validate_built_rule_config(self, *, built: dict, task_template_id: str) -> None:
+        require_task_template(task_template_id)
         scope = built.get("scope_json") or {}
         trigger = built.get("trigger_config_json") or {}
         task = built.get("task_config_json") or {}
@@ -84,14 +73,16 @@ class AutomationRuleService:
         skill_name = str(task.get("skill_name") or "review-pull-request").strip()
         review_event = str(task.get("review_event") or "COMMENT").strip().upper()
 
+        if task_template_id != "github_pr_review":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="github_pr_review_requested trigger requires github_pr_review task template")
         if not owner:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="owner must not be empty")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.owner must not be empty")
         if not repo:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="repo must not be empty")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.repo must not be empty")
         if target_type not in {"user", "team"}:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_target_type must be 'user' or 'team'")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="trigger_config.review_target_type must be 'user' or 'team'")
         if not target:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_target must not be empty")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="trigger_config.review_target must not be empty")
         if target_type == "user" and any(ch.isspace() for ch in target):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_target must not contain whitespace for user target")
         if not skill_name:
@@ -102,14 +93,26 @@ class AutomationRuleService:
     def create_rule(self, payload: AutomationRuleCreate, current_user_id: int) -> object:
         data = payload.model_dump()
         try:
+            require_task_template(payload.task_template_id)
             resolve_github_for_agent(self.db, payload.target_agent_id)
         except ProviderConfigResolverError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        self._validate_agent_can_run_github_pr_review_rule(agent_id=payload.target_agent_id, skill_name=payload.skill_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-        built = self._build_from_structured({}, data)
-        self._validate_built_rule_config(built=built)
-        interval = built.get("schedule_json", {}).get("interval_seconds", 60)
+        built = self._build_from_structured(
+            {
+                "scope_json": data.get("scope") or {},
+                "trigger_config_json": data.get("trigger_config") or {},
+                "task_config_json": data.get("task_input_defaults") or {},
+                "schedule_json": data.get("schedule") or {"interval_seconds": 60},
+            },
+            {},
+        )
+        self._validate_built_rule_config(built=built, task_template_id=payload.task_template_id)
+        skill_name = str((built.get("task_config_json") or {}).get("skill_name") or "review-pull-request").strip()
+        self._validate_agent_can_run_github_pr_review_rule(agent_id=payload.target_agent_id, skill_name=skill_name)
+        interval = int((built.get("schedule_json") or {}).get("interval_seconds") or 60)
         now = datetime.utcnow()
         create_data = {
             "name": payload.name,
@@ -117,7 +120,8 @@ class AutomationRuleService:
             "source_type": payload.source_type,
             "trigger_type": payload.trigger_type,
             "target_agent_id": payload.target_agent_id,
-            "task_type": payload.task_type,
+            "task_type": "github_review_task",
+            "task_template_id": payload.task_template_id,
             "scope_json": json.dumps(built.get("scope_json", {})),
             "trigger_config_json": json.dumps(built.get("trigger_config_json", {})),
             "task_config_json": json.dumps(built.get("task_config_json", {})),
@@ -138,19 +142,22 @@ class AutomationRuleService:
             "schedule_json": self._parse_json(rule.schedule_json),
         }
         built = self._build_from_structured(existing, data)
-        self._validate_built_rule_config(built=built)
+        task_template_id = data.get("task_template_id") or rule.task_template_id
+        self._validate_built_rule_config(built=built, task_template_id=task_template_id)
 
         update_data = {}
         for key in ["name", "enabled", "target_agent_id"]:
             if key in data:
                 update_data[key] = data[key]
-        if "target_agent_id" in update_data:
-            try:
-                resolve_github_for_agent(self.db, update_data["target_agent_id"])
-            except ProviderConfigResolverError as exc:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        update_data["task_template_id"] = task_template_id
+        update_data["task_type"] = "github_review_task"
+
         target_agent_id = update_data.get("target_agent_id") or rule.target_agent_id
-        skill_name = str(built.get("task_config_json", {}).get("skill_name") or "").strip() or "review-pull-request"
+        try:
+            resolve_github_for_agent(self.db, target_agent_id)
+        except ProviderConfigResolverError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        skill_name = str((built.get("task_config_json") or {}).get("skill_name") or "review-pull-request").strip()
         self._validate_agent_can_run_github_pr_review_rule(agent_id=target_agent_id, skill_name=skill_name)
 
         update_data["scope_json"] = json.dumps(built.get("scope_json", {}))
@@ -264,22 +271,28 @@ class AutomationRuleService:
             self.repo.update_event_status(refreshed, status="task_created", task_id=existing_task.id, error_message=None)
             return None, True
 
-        payload = {
-            "source": "automation_rule",
-            "automation_rule": "github.pr_review_requested",
-            "automation_rule_id": rule.id,
-            "rule_id": rule.id,
-            "provider": "github",
-            "owner": owner,
-            "repo": repo,
-            "pull_number": pull_number,
-            "head_sha": head_sha,
-            "review_target": {"type": review_target_type, "name": review_target},
-            "task_type": rule.task_type,
-            "skill_name": task_cfg.get("skill_name", "review-pull-request"),
-            "review_event": task_cfg.get("review_event", "COMMENT"),
-            "dedupe_key": dedupe_key,
-        }
+        template_id = getattr(rule, "task_template_id", None) or "github_pr_review"
+        payload = build_agent_task_create_payload_from_template(
+            template_id,
+            {
+                "source": "automation_rule",
+                "automation_rule": "github.pr_review_requested",
+                "automation_rule_id": rule.id,
+                "rule_id": rule.id,
+                "provider": "github",
+                "owner": owner,
+                "repo": repo,
+                "pull_number": pull_number,
+                "head_sha": head_sha,
+                "review_target": {"type": review_target_type, "name": review_target},
+                "review_target_type": review_target_type,
+                "review_event": task_cfg.get("review_event", "COMMENT"),
+                "skill_name": task_cfg.get("skill_name", "review-pull-request"),
+                "writeback_mode": task_cfg.get("writeback_mode"),
+                "dedupe_key": dedupe_key,
+            },
+            rule.target_agent_id,
+        )
         bundle_id = f"github:pr_review:{owner}/{repo}:{pull_number}"
         try:
             task = self.task_repo.create(
@@ -288,12 +301,13 @@ class AutomationRuleService:
                 owner_user_id=rule.owner_user_id,
                 created_by_user_id=rule.created_by_user_id,
                 source="automation_rule",
-                task_type=rule.task_type,
-                input_payload_json=json.dumps(payload),
+                task_type=payload["task_type"],
+                template_id=template_id,
+                input_payload_json=json.dumps(payload["input_payload_json"]),
                 shared_context_ref=None,
-                task_family="triggered_work",
-                provider="github",
-                trigger="github_pr_review_requested",
+                task_family=payload.get("task_family") or "triggered_work",
+                provider=payload.get("provider") or "github",
+                trigger=payload.get("trigger") or "github_pr_review_requested",
                 bundle_id=bundle_id,
                 version_key=head_sha,
                 dedupe_key=agent_task_dedupe_key,

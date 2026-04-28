@@ -60,7 +60,7 @@ class AutomationRuleRepository:
             batch_offset += len(rows)
         return collected
 
-    def list_enabled_for_trigger(self, *, source_type: str, trigger_type: str, task_type: str) -> list[AutomationRule]:
+    def list_enabled_for_trigger(self, *, source_type: str, trigger_type: str, task_template_id: str | None = None) -> list[AutomationRule]:
         stmt = (
             select(AutomationRule)
             .where(
@@ -68,11 +68,12 @@ class AutomationRuleRepository:
                     AutomationRule.enabled.is_(True),
                     AutomationRule.source_type == source_type,
                     AutomationRule.trigger_type == trigger_type,
-                    AutomationRule.task_type == task_type,
                 )
             )
             .order_by(AutomationRule.created_at.desc())
         )
+        if task_template_id:
+            stmt = stmt.where(AutomationRule.task_template_id == task_template_id)
         rows = list(self.db.scalars(stmt).all())
         return [row for row in rows if not self.is_deleted_rule(row)]
 

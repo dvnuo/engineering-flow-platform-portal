@@ -63,6 +63,7 @@ const dom = {
   automationRuleNavList: document.getElementById("automation-rule-nav-list"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
+  addTaskBtn: document.getElementById("add-task-btn"),
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   addAutomationBtn: document.getElementById("add-automation-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
@@ -3738,6 +3739,8 @@ function renderSecondaryPaneHeader() {
   } else if (state.activeNavSection === "tasks") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Tasks";
+  } else if (state.activeNavSection === "tasks") {
+    if (addTaskBtn) addTaskBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "automations") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Automations";
@@ -3768,7 +3771,9 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "My Tasks";
       setChatStatus("Browse tasks and open task detail in the main stage");
-    } else if (state.activeNavSection === "automations") {
+    } else if (state.activeNavSection === "tasks") {
+    if (addTaskBtn) addTaskBtn.classList.remove("hidden");
+  } else if (state.activeNavSection === "automations") {
       dom.embedTitle.textContent = "Automations";
       setChatStatus("Manage automation rules");
     } else {
@@ -5725,7 +5730,7 @@ async function openAutomationRulePanel(ruleId) {
       <div class="portal-panel-stack">
         <h3>${safe(detail.name)}</h3>
         <div class="portal-inline-state">Enabled: <strong>${detail.enabled ? "true" : "false"}</strong></div>
-        <div class="portal-inline-state">Type: <strong>GitHub PR Reviewer</strong></div>
+        <div class="portal-inline-state">Task Template: <strong>${safe(detail.task_template_id || "-")}</strong></div>
         <div class="portal-inline-state">Repository: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
         <div class="portal-inline-state">Review target: <strong>${safe(`${trigger.review_target_type || "-"} / ${trigger.review_target || "-"}`)}</strong></div>
         <div class="portal-inline-state">Target agent: <strong>${safe(`${targetAgent?.name || "-"} (${detail.target_agent_id})`)}</strong></div>
@@ -5781,17 +5786,14 @@ async function submitCreateAutomationRule(formEl) {
   const payload = {
     name: String(fd.get("name") || ""),
     target_agent_id: String(fd.get("target_agent_id") || ""),
-    owner: String(fd.get("owner") || ""),
-    repo: String(fd.get("repo") || ""),
-    review_target_type: String(fd.get("review_target_type") || "user"),
-    review_target: String(fd.get("review_target") || ""),
-    interval_seconds: Number(fd.get("interval_seconds") || 60),
     enabled: true,
     source_type: "github",
     trigger_type: "github_pr_review_requested",
-    task_type: "github_review_task",
-    skill_name: "review-pull-request",
-    review_event: "COMMENT",
+    task_template_id: "github_pr_review",
+    scope: { owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || "") },
+    trigger_config: { review_target_type: String(fd.get("review_target_type") || "user"), review_target: String(fd.get("review_target") || "") },
+    task_input_defaults: { review_event: "COMMENT", skill_name: "review-pull-request" },
+    schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60) },
   };
   const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
   await loadAutomationRules();
@@ -5838,6 +5840,61 @@ function _safeJson(raw) {
   } catch (_error) {
     return null;
   }
+}
+
+
+
+async function openTaskCreatePanelInMain() {
+  if (!dom.workspaceDetailContent) return;
+  await setActiveNavSection("tasks", { toggleIfSame: false });
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "task-create";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task create form…</div>';
+  await htmx.ajax("GET", "/app/tasks/create/panel", { target: "#workspace-detail-content", swap: "innerHTML" });
+}
+
+async function submitCreateTaskFromTemplate(formEl) {
+  const fd = new FormData(formEl);
+  const payloadInput = {
+    owner: String(fd.get("owner") || "").trim(),
+    repo: String(fd.get("repo") || "").trim(),
+    pull_number: Number(fd.get("pull_number") || 0) || undefined,
+    review_event: String(fd.get("review_event") || "").trim(),
+    writeback_mode: String(fd.get("writeback_mode") || "").trim(),
+    head_sha: String(fd.get("head_sha") || "").trim(),
+    bundle_ref: {
+      repo: String(fd.get("bundle_repo") || "").trim(),
+      path: String(fd.get("bundle_path") || "").trim(),
+      branch: String(fd.get("bundle_branch") || "").trim(),
+    },
+    manifest_ref: {
+      repo: String(fd.get("manifest_repo") || "").trim() || String(fd.get("bundle_repo") || "").trim(),
+      path: String(fd.get("manifest_path") || "").trim() || String(fd.get("bundle_path") || "").trim(),
+      branch: String(fd.get("manifest_branch") || "").trim() || String(fd.get("bundle_branch") || "").trim(),
+    },
+    sources: {
+      jira: splitLines(fd.get("jira_sources")),
+      confluence: splitLines(fd.get("confluence_sources")),
+      github_docs: splitLines(fd.get("github_doc_sources")),
+      figma: splitLines(fd.get("figma_sources")),
+    },
+  };
+  const created = await api("/api/agent-tasks/from-template", {
+    method: "POST",
+    body: JSON.stringify({
+      template_id: String(fd.get("template_id") || "").trim(),
+      assignee_agent_id: String(fd.get("assignee_agent_id") || "").trim(),
+      dispatch_immediately: fd.get("dispatch_immediately") !== null,
+      input: payloadInput,
+    }),
+  });
+  await refreshMyTasks();
+  await openTaskDetailInMain(created.id);
+}
+
+function splitLines(value) {
+  const raw = String(value || "");
+  return raw.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
 }
 
 async function openEditDialog(agent) {
@@ -6536,13 +6593,24 @@ function bindEvents() {
 
   });
   dom.workspaceDetailContent?.addEventListener("submit", async (event) => {
-    const form = event.target.closest("#create-automation-inline-form");
-    if (!form) return;
-    event.preventDefault();
-    try {
-      await submitCreateAutomationRule(form);
-    } catch (error) {
-      showToast(`Create automation failed: ${error.message}`);
+    const automationForm = event.target.closest("#create-automation-inline-form");
+    if (automationForm) {
+      event.preventDefault();
+      try {
+        await submitCreateAutomationRule(automationForm);
+      } catch (error) {
+        showToast(`Create automation failed: ${error.message}`);
+      }
+      return;
+    }
+    const taskForm = event.target.closest("#create-task-from-template-form");
+    if (taskForm) {
+      event.preventDefault();
+      try {
+        await submitCreateTaskFromTemplate(taskForm);
+      } catch (error) {
+        showToast(`Create task failed: ${error.message}`);
+      }
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
@@ -6578,6 +6646,13 @@ function bindEvents() {
   });
 
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const openCreateTaskBtn = event.target.closest("[data-open-create-task-main]");
+    if (openCreateTaskBtn) {
+      event.preventDefault();
+      await openTaskCreatePanelInMain();
+      return;
+    }
+
     const openTaskMainBtn = event.target.closest("[data-open-task-main]");
     if (openTaskMainBtn) {
       event.preventDefault();
@@ -6621,6 +6696,14 @@ function bindEvents() {
   dom.usersMenuBtn?.addEventListener("click", openUsersPanel);
 
   dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
+
+  dom.addTaskBtn?.addEventListener("click", async () => {
+    try {
+      await openTaskCreatePanelInMain();
+    } catch (error) {
+      showToast(`Open task create failed: ${error.message}`);
+    }
+  });
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
   window.addEventListener("resize", () => {
     if (!state.toolPanelPinned) return;

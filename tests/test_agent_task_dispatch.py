@@ -185,6 +185,7 @@ def test_dispatcher_derives_summary_from_github_review_summary():
         "status": "success",
         "output_payload": {
             "task_type": "github_review_task",
+            "task_template_id": "github_pr_review",
             "review_summary": "Automated PR review summary",
             "automation_rule_id": "rule-1",
             "dedupe_key": "dedupe-1",
