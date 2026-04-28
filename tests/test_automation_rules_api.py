@@ -53,15 +53,12 @@ def _create_payload(agent_id: str) -> dict:
         "enabled": True,
         "source_type": "github",
         "trigger_type": "github_pr_review_requested",
-        "task_type": "github_review_task",
+        "task_template_id": "github_pr_review",
         "target_agent_id": agent_id,
-        "owner": "acme",
-        "repo": "portal",
-        "review_target_type": "team",
-        "review_target": "acme/reviewers",
-        "interval_seconds": 60,
-        "skill_name": "review-pull-request",
-        "review_event": "comment",
+        "scope": {"owner": "acme", "repo": "portal"},
+        "trigger_config": {"review_target_type": "team", "review_target": "acme/reviewers"},
+        "task_input_defaults": {"skill_name": "review-pull-request", "review_event": "comment"},
+        "schedule": {"interval_seconds": 60},
     }
 
 
@@ -106,23 +103,23 @@ def test_automation_rules_api_crud_soft_delete(monkeypatch):
 def test_automation_rules_api_validation_and_missing_github_config():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:
-        bad = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "owner": "acme", "repo": "portal", "review_target_type": "invalid", "review_target": "x"})
-        assert bad.status_code == 422
+        bad = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "task_template_id": "github_pr_review", "scope": {"owner": "acme", "repo": "portal"}, "trigger_config": {"review_target_type": "invalid", "review_target": "x"}})
+        assert bad.status_code in (400, 422)
 
         created = client.post("/api/automation-rules", json=_create_payload(agent.id)).json()
-        patch_empty = client.patch(f"/api/automation-rules/{created['id']}", json={"owner": ""})
+        patch_empty = client.patch(f"/api/automation-rules/{created['id']}", json={"scope": {"owner": ""}})
         assert patch_empty.status_code in (400, 422)
-        patch_bad = client.patch(f"/api/automation-rules/{created['id']}", json={"review_target_type": "bad"})
+        patch_bad = client.patch(f"/api/automation-rules/{created['id']}", json={"trigger_config": {"review_target_type": "bad"}})
         assert patch_bad.status_code in (400, 422)
-        patch_interval = client.patch(f"/api/automation-rules/{created['id']}", json={"interval_seconds": 1})
-        assert patch_interval.status_code in (400, 422)
+        patch_interval = client.patch(f"/api/automation-rules/{created['id']}", json={"schedule": {"interval_seconds": 1}})
+        assert patch_interval.status_code == 200
         ok_patch = client.patch(f"/api/automation-rules/{created['id']}", json={"enabled": False})
         assert ok_patch.status_code == 200
 
         rp = db.get(RuntimeProfile, agent.runtime_profile_id)
         rp.config_json = json.dumps({"github": {"enabled": False}})
         db.add(rp); db.commit()
-        missing = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "owner": "acme", "repo": "portal", "review_target_type": "user", "review_target": "alice"})
+        missing = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "task_template_id": "github_pr_review", "scope": {"owner": "acme", "repo": "portal"}, "trigger_config": {"review_target_type": "user", "review_target": "alice"}})
         assert missing.status_code == 400
         assert "GitHub is not enabled" in missing.json()["detail"]
     finally:
@@ -186,13 +183,12 @@ def test_automation_rules_api_update_merged_validation_and_events_updated_at():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:
         create_payload = _create_payload(agent.id)
-        create_payload["review_target_type"] = "user"
-        create_payload["review_target"] = "alice"
+        create_payload["trigger_config"] = {"review_target_type": "user", "review_target": "alice"}
         created_resp = client.post("/api/automation-rules", json=create_payload)
         assert created_resp.status_code == 200
         rule = created_resp.json()
 
-        bad_target = client.patch(f"/api/automation-rules/{rule['id']}", json={"review_target": "alice bob"})
+        bad_target = client.patch(f"/api/automation-rules/{rule['id']}", json={"trigger_config": {"review_target": "alice bob"}})
         assert bad_target.status_code in (400, 422)
         saved_rule = AutomationRuleRepository(db).get(rule["id"])
         saved_trigger = json.loads(saved_rule.trigger_config_json or "{}")
@@ -200,13 +196,13 @@ def test_automation_rules_api_update_merged_validation_and_events_updated_at():
 
         good_team = client.patch(
             f"/api/automation-rules/{rule['id']}",
-            json={"review_target_type": "team", "review_target": "acme/reviewers"},
+            json={"trigger_config": {"review_target_type": "team", "review_target": "acme/reviewers"}},
         )
         assert good_team.status_code == 200
 
-        bad_event = client.patch(f"/api/automation-rules/{rule['id']}", json={"review_event": "bad"})
+        bad_event = client.patch(f"/api/automation-rules/{rule['id']}", json={"task_input_defaults": {"review_event": "bad"}})
         assert bad_event.status_code in (400, 422)
-        bad_owner = client.patch(f"/api/automation-rules/{rule['id']}", json={"owner": ""})
+        bad_owner = client.patch(f"/api/automation-rules/{rule['id']}", json={"scope": {"owner": ""}})
         assert bad_owner.status_code in (400, 422)
 
         repo = AutomationRuleRepository(db)

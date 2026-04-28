@@ -142,6 +142,7 @@ def _create_automation_rule(
             "trigger_type": "github_pr_review_requested",
             "target_agent_id": target_agent_id,
             "task_type": "github_review_task",
+            "task_template_id": "github_pr_review",
             "scope_json": json.dumps({"owner": owner, "repo": repo}),
             "trigger_config_json": json.dumps({"review_target_type": review_target_type, "review_target": review_target}),
             "task_config_json": json.dumps({"skill_name": "review-pull-request", "review_event": "COMMENT"}),

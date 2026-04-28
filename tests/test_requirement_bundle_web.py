@@ -88,7 +88,7 @@ def _setup_client(monkeypatch, logged_in=True):
     fake_user = SimpleNamespace(id=11, username="portal", nickname="Portal", role="user")
     fake_agent = SimpleNamespace(id="agent-1", name="Agent One", owner_user_id=11, visibility="private")
     created_tasks = []
-    state = {"template_id": "requirement.v1", "artifact_exists": {"requirements": True, "test_cases": True}}
+    state = {"bundle_template_id": "requirement.v1", "artifact_exists": {"requirements": True, "test_cases": True}}
 
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "AgentRepository", lambda db: _FakeAgentRepo(db, [fake_agent]))
@@ -146,25 +146,25 @@ def test_detail_panel_dynamic_actions_and_artifacts(monkeypatch):
         response = client.get("/app/requirement-bundles/open", params={"repo": "octo/engineering-flow-platform-assets", "path": "any", "branch": "main"})
         assert response.status_code == 200
         assert action_label in response.text
-        assert "/app/requirement-bundles/actions/run" in response.text
+        assert "/app/requirement-bundles/task-shortcuts/run" in response.text
 
 
 def test_dispatch_actions_create_bundle_action_task(monkeypatch):
     client, created_tasks, state, scheduled = _setup_client(monkeypatch, logged_in=True)
     matrix = [
-        ("requirement.v1", "collect_requirements", {"jira_sources": "JIRA-1"}),
-        ("requirement.v1", "design_test_cases", {}),
-        ("research.v1", "collect_research_notes", {"jira_sources": "JIRA-2"}),
-        ("development.v1", "generate_implementation_plan", {}),
-        ("operations.v1", "generate_runbook", {}),
+        ("requirement.v1", "collect_requirements_to_bundle", {"jira_sources": "JIRA-1"}),
+        ("requirement.v1", "design_test_cases_from_bundle", {}),
+        ("research.v1", "collect_research_notes_to_bundle", {"jira_sources": "JIRA-2"}),
+        ("development.v1", "generate_implementation_plan_from_bundle", {}),
+        ("operations.v1", "generate_runbook_from_bundle", {}),
     ]
     for template_id, action_id, extra in matrix:
         state["template_id"] = template_id
         response = client.post(
-            "/app/requirement-bundles/actions/run",
+            "/app/requirement-bundles/task-shortcuts/run",
             data={
-                "template_id": template_id,
-                "action_id": action_id,
+                "bundle_template_id": template_id,
+                "task_template_id": action_id,
                 "action_agent_id": "agent-1",
                 "bundle_repo": "octo/engineering-flow-platform-assets",
                 "bundle_path": "requirement-bundles/payments/checkout-flow",
@@ -181,9 +181,8 @@ def test_dispatch_actions_create_bundle_action_task(monkeypatch):
     assert all(task.task_type == "bundle_action_task" for task in created_tasks)
     assert scheduled == ["task-1", "task-2", "task-3", "task-4", "task-5"]
     payload = json.loads(created_tasks[0].input_payload_json)
-    assert payload["template_id"] == "requirement.v1"
-    assert payload["action_id"] == "collect_requirements"
-    assert "skill_name" not in payload
+    assert payload["bundle_ref"]["repo"] == "octo/engineering-flow-platform-assets"
+    assert payload["skill_name"] == "collect_requirements_to_bundle"
 
 
 def test_legacy_wrappers_still_work_and_create_bundle_action_task(monkeypatch):
@@ -225,10 +224,10 @@ def test_collect_rejects_empty_and_figma_only(monkeypatch):
     state["template_id"] = "requirement.v1"
 
     empty_resp = client.post(
-        "/app/requirement-bundles/actions/run",
+        "/app/requirement-bundles/task-shortcuts/run",
         data={
-            "template_id": "requirement.v1",
-            "action_id": "collect_requirements",
+            "bundle_template_id": "requirement.v1",
+            "task_template_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
@@ -239,10 +238,10 @@ def test_collect_rejects_empty_and_figma_only(monkeypatch):
         },
     )
     figma_resp = client.post(
-        "/app/requirement-bundles/actions/run",
+        "/app/requirement-bundles/task-shortcuts/run",
         data={
-            "template_id": "requirement.v1",
-            "action_id": "collect_requirements",
+            "bundle_template_id": "requirement.v1",
+            "task_template_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
@@ -274,10 +273,10 @@ def test_collect_validation_error_preserves_form_state(monkeypatch):
     state["template_id"] = "requirement.v1"
     figma_url = "https://www.figma.com/file/abc123"
     response = client.post(
-        "/app/requirement-bundles/actions/run",
+        "/app/requirement-bundles/task-shortcuts/run",
         data={
-            "template_id": "requirement.v1",
-            "action_id": "collect_requirements",
+            "bundle_template_id": "requirement.v1",
+            "task_template_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
@@ -298,10 +297,10 @@ def test_missing_action_agent_rerenders_panel_instead_of_http_400(monkeypatch):
     client, _tasks, state, _scheduled = _setup_client(monkeypatch, logged_in=True)
     state["template_id"] = "requirement.v1"
     response = client.post(
-        "/app/requirement-bundles/actions/run",
+        "/app/requirement-bundles/task-shortcuts/run",
         data={
-            "template_id": "requirement.v1",
-            "action_id": "collect_requirements",
+            "bundle_template_id": "requirement.v1",
+            "task_template_id": "collect_requirements_to_bundle",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
@@ -322,7 +321,7 @@ def test_design_disabled_and_message_when_requirements_missing(monkeypatch):
 
     response = client.get("/app/requirement-bundles/open", params={"repo": "octo/engineering-flow-platform-assets", "path": "any", "branch": "main"})
     assert response.status_code == 200
-    assert "requirements.yaml not found — run Collect Requirements first" in response.text
+    assert "Required artifacts missing: requirements" in response.text
     assert "disabled" in response.text
 
 
@@ -337,10 +336,10 @@ def test_completed_bundle_shows_available_actions_without_recommended_heading(mo
     )
     assert response.status_code == 200
     assert "Recommended Next Step" not in response.text
-    assert "Available Actions" in response.text
+    assert "Available Task Shortcuts" in response.text
     assert "Collect Requirements" in response.text
     assert "Design Test Cases" in response.text
-    assert response.text.count('name="action_id"') >= 2
+    assert response.text.count('name="task_template_id"') >= 2
 
 
 def test_form_state_only_expands_action_and_does_not_force_recommended_action():
@@ -351,11 +350,11 @@ def test_form_state_only_expands_action_and_does_not_force_recommended_action():
         detail,
         web_module.list_bundle_templates(),
         [],
-        form_state={"action_id": "design_test_cases", "action_agent_id": "agent-1"},
+        form_state={"task_template_id": "design_test_cases_from_bundle", "action_agent_id": "agent-1"},
     )
 
     assert vm["recommended_action"] is None
-    actions_by_id = {item["action_id"]: item for item in vm["actions"]}
-    assert actions_by_id["design_test_cases"]["expanded"] is True
-    assert actions_by_id["design_test_cases"]["is_recommended"] is False
-    assert actions_by_id["collect_requirements"]["is_recommended"] is False
+    actions_by_id = {item["task_template_id"]: item for item in vm["actions"]}
+    assert actions_by_id["design_test_cases_from_bundle"]["expanded"] is True
+    assert actions_by_id["design_test_cases_from_bundle"]["is_recommended"] is False
+    assert actions_by_id["collect_requirements_to_bundle"]["is_recommended"] is False

@@ -26,8 +26,10 @@ from app.schemas.runtime_profile import (
     normalize_runtime_profile_llm_tools,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_config_dict,
+    runtime_profile_model_supports_temperature,
 )
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
+from app.services.task_template_registry import list_task_templates, get_task_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
@@ -312,15 +314,11 @@ def _format_duration_label(started_at, finished_at) -> str:
     return f"{seconds}s"
 
 
-def _bundle_action_output_artifact_key(template_id: str, action_id: str) -> str | None:
-    mapping = {
-        ("requirement.v1", "collect_requirements"): "requirements",
-        ("requirement.v1", "design_test_cases"): "test_cases",
-        ("research.v1", "collect_research_notes"): "research_notes",
-        ("development.v1", "generate_implementation_plan"): "implementation_plan",
-        ("operations.v1", "generate_runbook"): "runbook",
-    }
-    return mapping.get((template_id, action_id))
+def _bundle_action_output_artifact_key(task_template_id: str) -> str | None:
+    template = get_task_template(task_template_id)
+    if not template or not template.output_artifacts:
+        return None
+    return template.output_artifacts[0]
 
 
 def _humanize_artifact_label(value: str | None) -> str:
@@ -365,27 +363,31 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates, agents, *, 
     template = next((item for item in bundle_templates if item.template_id == template_id), None)
     actions = []
     if template:
-        for action in template.actions:
-            missing_required = [key for key in action.required_artifacts if not artifact_exists_map.get(key)]
-            is_blocked = bool(missing_required)
-            output_artifact = _bundle_action_output_artifact_key(template_id, action.action_id)
+        for task_template_id in template.compatible_task_template_ids:
+            task_template = get_task_template(task_template_id)
+            if not task_template:
+                continue
+            output_artifact = _bundle_action_output_artifact_key(task_template_id)
             is_complete = bool(output_artifact and artifact_exists_map.get(output_artifact))
+            missing_required = []
+            is_blocked = False
+            if task_template_id == "design_test_cases_from_bundle" and not artifact_exists_map.get("requirements"):
+                missing_required = ["requirements"]
+                is_blocked = True
             actions.append(
                 {
-                    "action_id": action.action_id,
-                    "label": action.label,
-                    "description": action.description,
-                    "requires_sources": bool(action.requires_sources),
-                    "required_artifacts": list(action.required_artifacts),
+                    "task_template_id": task_template_id,
+                    "label": task_template.label,
+                    "description": task_template.description,
+                    "requires_sources": bool(task_template.requires_sources),
+                    "required_artifacts": missing_required,
                     "missing_required": missing_required,
                     "is_blocked": is_blocked,
                     "is_complete": is_complete,
                     "is_recommended": False,
                     "status_label": "Completed" if is_complete else ("Blocked" if is_blocked else "Ready"),
                     "status_tone": "success" if is_complete else ("error" if is_blocked else "info"),
-                    "status_reason": (action.missing_artifact_message or f"Required artifacts missing: {', '.join(missing_required)}")
-                    if is_blocked
-                    else "",
+                    "status_reason": f"Required artifacts missing: {', '.join(missing_required)}" if is_blocked else "",
                     "expanded": False,
                     "selected_agent_id": form_state.get("action_agent_id") or "",
                     "jira_sources": form_state.get("jira_sources") or "",
@@ -398,13 +400,13 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates, agents, *, 
     recommended_action_id = None
     for action in actions:
         if not action["is_complete"] and not action["is_blocked"]:
-            recommended_action_id = action["action_id"]
+            recommended_action_id = action["task_template_id"]
             break
-    expanded_action_id = form_state.get("action_id") or ""
+    expanded_action_id = form_state.get("task_template_id") or ""
 
     for action in actions:
-        action["is_recommended"] = action["action_id"] == recommended_action_id
-        action["expanded"] = action["is_recommended"] or action["action_id"] == expanded_action_id
+        action["is_recommended"] = action["task_template_id"] == recommended_action_id
+        action["expanded"] = action["is_recommended"] or action["task_template_id"] == expanded_action_id
 
     recommended_action = next((item for item in actions if item["is_recommended"]), None)
     other_actions = [item for item in actions if not item["is_recommended"]]
@@ -439,24 +441,23 @@ def _build_task_detail_view_model(task) -> dict:
     bundle_ref = input_obj.get("bundle_ref") if isinstance(input_obj.get("bundle_ref"), dict) else {}
     manifest_ref = input_obj.get("manifest_ref") if isinstance(input_obj.get("manifest_ref"), dict) else {}
     sources = input_obj.get("sources") if isinstance(input_obj.get("sources"), dict) else {}
-    template_id = input_obj.get("template_id") if isinstance(input_obj.get("template_id"), str) else ""
-    action_id = input_obj.get("action_id") if isinstance(input_obj.get("action_id"), str) else ""
+    template_id = getattr(task, "template_id", None) or (input_obj.get("template_id") if isinstance(input_obj.get("template_id"), str) else "")
+    legacy_action_id = input_obj.get("action_id") if isinstance(input_obj.get("action_id"), str) else ""
 
     action_label = ""
     template_label = template_id or "-"
-    template = None
-    if getattr(task, "task_type", "") == "bundle_action_task" and template_id:
-        try:
-            template = require_bundle_template(template_id)
-        except ValueError:
-            template = None
-        if template is not None:
-            template_label = template.display_name or template_id
-            action = next((item for item in template.actions if item.action_id == action_id), None)
-            if action is not None:
-                action_label = action.label
-    if not action_label and action_id:
-        action_label = action_id.replace("_", " ").title()
+    if template_id:
+        task_template = get_task_template(template_id)
+        if task_template is not None:
+            action_label = task_template.label
+        else:
+            try:
+                bundle_template = require_bundle_template(template_id)
+                template_label = bundle_template.display_name or template_id
+            except ValueError:
+                pass
+    if not action_label and legacy_action_id:
+        action_label = legacy_action_id.replace("_", " ").title()
 
     bundle_path = str(bundle_ref.get("path") or manifest_ref.get("path") or "").strip()
     status_label = getattr(task, "status", None) or "unknown"
@@ -478,7 +479,7 @@ def _build_task_detail_view_model(task) -> dict:
         ("Provider", getattr(task, "provider", None) or "-"),
         ("Trigger", getattr(task, "trigger", None) or "-"),
         ("Template", template_label),
-        ("Action", action_label or (action_id or "-")),
+        ("Task Template", action_label or "-"),
         ("Bundle Path", bundle_path or "-"),
         ("Repo", bundle_ref.get("repo") or "-"),
         ("Branch", bundle_ref.get("branch") or "-"),
@@ -602,6 +603,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "llm": llm,
         "raw_llm": raw_llm,
         "effective_llm": llm,
+        "llm_temperature_allowed": runtime_profile_model_supports_temperature(raw_llm.get("model")),
         "llm_tools_mode": llm_tools_mode,
         "llm_tools_patterns": llm_tools_patterns,
         "raw_llm_tools_mode": raw_llm_tools_mode,
@@ -899,17 +901,21 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         else:
             llm.pop("api_key", None)
 
+        temperature_allowed = runtime_profile_model_supports_temperature(llm.get("model"))
         temperature_text = (form.get("llm_temperature") or "").strip()
-        if "llm_temperature" in form:
+
+        if not temperature_allowed:
+            llm.pop("temperature", None)
+        elif "llm_temperature" in form:
             if not temperature_text:
                 llm.pop("temperature", None)
             else:
                 try:
                     parsed_temperature = float(temperature_text)
                 except ValueError:
-                    return config_payload, "Temperature must be a number between 0 and 2."
+                    return config_payload, "Temperature is only supported for gpt-4 and must be a number between 0 and 2."
                 if not math.isfinite(parsed_temperature) or parsed_temperature < 0 or parsed_temperature > 2:
-                    return config_payload, "Temperature must be a number between 0 and 2."
+                    return config_payload, "Temperature is only supported for gpt-4 and must be a number between 0 and 2."
                 llm["temperature"] = parsed_temperature
         
         max_tokens_text = (form.get("llm_max_tokens") or "").strip()
@@ -1272,6 +1278,27 @@ def my_tasks_panel(request: Request):
         db.close()
 
 
+
+
+@router.get("/app/tasks/create/panel")
+def task_create_panel(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        return templates.TemplateResponse(
+            "partials/task_create_panel.html",
+            {
+                "request": request,
+                "task_templates": list_task_templates(),
+                "agents": _list_writable_agents(db, user),
+            },
+        )
+    finally:
+        db.close()
+
 @router.get("/app/tasks/{task_id}/panel")
 def task_detail_panel(request: Request, task_id: str):
     user = _current_user_from_cookie(request)
@@ -1382,17 +1409,16 @@ def requirement_bundle_open(request: Request, repo: str = Query(""), path: str =
 
 
 def _create_bundle_task_payload(
-    task_type: str,
-    template_id: str,
-    action_id: str,
+    task_template_id: str,
+    bundle_template_id: str,
     bundle_ref: BundleRef,
     manifest_ref: BundleRef,
     sources: dict | None = None,
+    skill_name: str | None = None,
 ) -> dict:
-    _ = task_type
     payload = {
-        "template_id": template_id,
-        "action_id": action_id,
+        "task_template_id": task_template_id,
+        "bundle_template_id": bundle_template_id,
         "bundle_ref": {
             "repo": bundle_ref.repo,
             "path": bundle_ref.path,
@@ -1406,6 +1432,8 @@ def _create_bundle_task_payload(
     }
     if sources is not None:
         payload["sources"] = sources
+    if skill_name:
+        payload["skill_name"] = skill_name
     return payload
 
 
@@ -1442,9 +1470,8 @@ def _render_bundle_action_error_response(
 async def _create_and_dispatch_bundle_task(
     request: Request,
     *,
-    task_type: str,
-    template_id: str,
-    action_id: str,
+    bundle_template_id: str,
+    task_template_id: str,
     assignee_agent_id: str,
     manifest_ref: BundleRef,
     bundle_ref: BundleRef,
@@ -1459,10 +1486,10 @@ async def _create_and_dispatch_bundle_task(
     db = SessionLocal()
     dispatch_context_token = None
     try:
-        template = require_bundle_template(template_id)
-        action_def = next((action for action in template.actions if action.action_id == action_id), None)
-        if action_def is None:
-            raise HTTPException(status_code=400, detail=f"Unsupported action_id '{action_id}' for template '{template_id}'")
+        template = require_bundle_template(bundle_template_id)
+        if task_template_id not in template.compatible_task_template_ids:
+            raise HTTPException(status_code=400, detail=f"Unsupported task_template_id '{task_template_id}' for template '{bundle_template_id}'")
+        task_template = get_task_template(task_template_id)
 
         assignee = AgentRepository(db).get_by_id(assignee_agent_id)
         if not assignee:
@@ -1475,7 +1502,7 @@ async def _create_and_dispatch_bundle_task(
         effective_bundle_ref = bundle_detail.bundle_ref
         effective_manifest_ref = bundle_detail.manifest_ref
 
-        if action_def.requires_sources:
+        if task_template and task_template.requires_sources:
             normalized_sources = sources or {"jira": [], "confluence": [], "github_docs": [], "figma": []}
             if not _has_supported_collect_sources(normalized_sources):
                 status_message = (
@@ -1498,9 +1525,9 @@ async def _create_and_dispatch_bundle_task(
             sources = None
 
         artifact_exists = {item.artifact_key: item.exists for item in (bundle_detail.artifacts or [])}
-        missing_required = [key for key in action_def.required_artifacts if not artifact_exists.get(key)]
+        missing_required = ["requirements"] if task_template_id == "design_test_cases_from_bundle" and not artifact_exists.get("requirements") else []
         if missing_required:
-            hint = action_def.missing_artifact_message or f"Required artifacts missing: {', '.join(missing_required)}"
+            hint = f"Required artifacts missing: {', '.join(missing_required)}"
             return _render_requirement_bundles_view(
                 request,
                 user,
@@ -1513,19 +1540,17 @@ async def _create_and_dispatch_bundle_task(
             )
 
         task_payload = _create_bundle_task_payload(
-            task_type,
-            template_id,
-            action_id,
+            task_template_id,
+            bundle_template_id,
             effective_bundle_ref,
             effective_manifest_ref,
             sources=sources,
+            skill_name=(task_template.default_skill_name if task_template else None),
         )
         source_counts = sources or {}
         logger.info(
-            "action=create_dispatch_bundle_task task_type=%s template_id=%s action_id=%s selected_agent_id=%s bundle_ref=%s/%s@%s manifest_ref=%s/%s@%s jira_count=%s confluence_count=%s github_docs_count=%s figma_count=%s trace_id=%s",
-            task_type,
-            template_id,
-            action_id,
+            "action=create_dispatch_bundle_task task_template_id=%s selected_agent_id=%s bundle_ref=%s/%s@%s manifest_ref=%s/%s@%s jira_count=%s confluence_count=%s github_docs_count=%s figma_count=%s trace_id=%s",
+            task_template_id,
             assignee_agent_id,
             effective_bundle_ref.repo,
             effective_bundle_ref.path,
@@ -1544,17 +1569,19 @@ async def _create_and_dispatch_bundle_task(
             owner_user_id=assignee.owner_user_id,
             created_by_user_id=user.id,
             source="portal",
-            task_type=task_type,
+            task_type=task_template.task_type if task_template else "bundle_action_task",
+            template_id=task_template_id,
+            task_family=task_template.task_family if task_template else "bundle",
+            provider=task_template.provider if task_template else None,
+            trigger=task_template.default_trigger if task_template else None,
             input_payload_json=json.dumps(task_payload),
             status="queued",
         )
         dispatch_context_token = bind_log_context(portal_task_id=task.id, agent_id=assignee_agent_id)
         logger.info(
-            "Created bundle action task task_id=%s task_type=%s template_id=%s action_id=%s selected_agent_id=%s",
+            "Created bundle shortcut task task_id=%s task_template_id=%s selected_agent_id=%s",
             task.id,
-            task_type,
-            template_id,
-            action_id,
+            task_template_id,
             assignee_agent_id,
         )
         logger.debug("Requirement bundle background dispatch scheduled task_id=%s", task.id)
@@ -1590,17 +1617,18 @@ async def _create_and_dispatch_bundle_task(
 
 
 @router.post("/app/requirement-bundles/actions/run")
-async def requirement_bundle_action_run(request: Request):
+@router.post("/app/requirement-bundles/task-shortcuts/run")
+async def requirement_bundle_task_shortcut_run(request: Request):
     user = _current_user_from_cookie(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
     form = await request.form()
     assignee_agent_id = str(form.get("action_agent_id") or "").strip()
-    template_id = str(form.get("template_id") or "").strip()
-    action_id = str(form.get("action_id") or "").strip()
+    bundle_template_id = str(form.get("bundle_template_id") or "").strip()
+    task_template_id = str(form.get("task_template_id") or "").strip()
     form_state = {
-        "action_id": action_id,
+        "task_template_id": task_template_id,
         "action_agent_id": assignee_agent_id,
         "jira_sources": str(form.get("jira_sources") or ""),
         "confluence_sources": str(form.get("confluence_sources") or ""),
@@ -1638,7 +1666,7 @@ async def requirement_bundle_action_run(request: Request):
                 status_message="Action agent is required.",
                 form_state=form_state,
             )
-        if not template_id:
+        if not bundle_template_id:
             return _render_bundle_action_error_response(
                 request,
                 user=user,
@@ -1646,10 +1674,10 @@ async def requirement_bundle_action_run(request: Request):
                 panel_mode=panel_mode,
                 bundle_ref=bundle_ref,
                 manifest_ref=manifest_ref,
-                status_message="template_id is required",
+                status_message="bundle_template_id is required",
                 form_state=form_state,
             )
-        if not action_id:
+        if not task_template_id:
             return _render_bundle_action_error_response(
                 request,
                 user=user,
@@ -1657,7 +1685,7 @@ async def requirement_bundle_action_run(request: Request):
                 panel_mode=panel_mode,
                 bundle_ref=bundle_ref,
                 manifest_ref=manifest_ref,
-                status_message="action_id is required",
+                status_message="task_template_id is required",
                 form_state=form_state,
             )
     finally:
@@ -1665,9 +1693,8 @@ async def requirement_bundle_action_run(request: Request):
 
     return await _create_and_dispatch_bundle_task(
         request,
-        task_type="bundle_action_task",
-        template_id=template_id,
-        action_id=action_id,
+        bundle_template_id=bundle_template_id,
+        task_template_id=task_template_id,
         assignee_agent_id=assignee_agent_id,
         manifest_ref=manifest_ref,
         bundle_ref=bundle_ref,
@@ -1680,8 +1707,8 @@ async def requirement_bundle_action_run(request: Request):
 async def requirement_bundle_collect(request: Request):
     form = await request.form()
     remapped_form = {
-        "template_id": "requirement.v1",
-        "action_id": "collect_requirements",
+        "bundle_template_id": "requirement.v1",
+        "task_template_id": "collect_requirements_to_bundle",
         "action_agent_id": str(form.get("collect_agent_id") or "").strip(),
         "bundle_repo": form.get("bundle_repo"),
         "bundle_path": form.get("bundle_path"),
@@ -1703,15 +1730,15 @@ async def requirement_bundle_collect(request: Request):
             return self._payload.get(key)
 
     request._form = _LegacyForm(remapped_form)
-    return await requirement_bundle_action_run(request)
+    return await requirement_bundle_task_shortcut_run(request)
 
 
 @router.post("/app/requirement-bundles/design-test-cases")
 async def requirement_bundle_design_test_cases(request: Request):
     form = await request.form()
     remapped_form = {
-        "template_id": "requirement.v1",
-        "action_id": "design_test_cases",
+        "bundle_template_id": "requirement.v1",
+        "task_template_id": "design_test_cases_from_bundle",
         "action_agent_id": str(form.get("design_agent_id") or "").strip(),
         "bundle_repo": form.get("bundle_repo"),
         "bundle_path": form.get("bundle_path"),
@@ -1729,7 +1756,7 @@ async def requirement_bundle_design_test_cases(request: Request):
             return self._payload.get(key)
 
     request._form = _LegacyForm(remapped_form)
-    return await requirement_bundle_action_run(request)
+    return await requirement_bundle_task_shortcut_run(request)
 
 
 @router.get("/app/users/panel")

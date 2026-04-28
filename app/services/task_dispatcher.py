@@ -682,6 +682,9 @@ class TaskDispatcherService:
                 metadata = {
                     "portal_task_id": task.id,
                     "portal_task_source": task.source,
+                    "portal_task_template_id": task.template_id,
+                    "portal_task_type": task.task_type,
+                    "portal_task_family": task.task_family,
                     "shared_context_ref": task.shared_context_ref,
                     "current_task_id": task.id,
                     "source_type": task.source or "portal",

@@ -63,6 +63,7 @@ const dom = {
   automationRuleNavList: document.getElementById("automation-rule-nav-list"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
+  addTaskBtn: document.getElementById("add-task-btn"),
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   addAutomationBtn: document.getElementById("add-automation-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
@@ -3738,6 +3739,8 @@ function renderSecondaryPaneHeader() {
   } else if (state.activeNavSection === "tasks") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Tasks";
+  } else if (state.activeNavSection === "tasks") {
+    if (addTaskBtn) addTaskBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "automations") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Automations";
@@ -3768,7 +3771,9 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "My Tasks";
       setChatStatus("Browse tasks and open task detail in the main stage");
-    } else if (state.activeNavSection === "automations") {
+    } else if (state.activeNavSection === "tasks") {
+    if (addTaskBtn) addTaskBtn.classList.remove("hidden");
+  } else if (state.activeNavSection === "automations") {
       dom.embedTitle.textContent = "Automations";
       setChatStatus("Manage automation rules");
     } else {
@@ -4921,6 +4926,47 @@ async function openMyUploads() {
 }
 
 
+function normalizeManagedModelIdForCapabilities(value) {
+  let model = String(value || "").trim().toLowerCase();
+  if (!model) return "";
+  for (const sep of ["/", ":"]) {
+    if (model.includes(sep)) {
+      model = model.split(sep).pop().trim();
+    }
+  }
+  return model;
+}
+
+function managedModelSupportsTemperature(value) {
+  return normalizeManagedModelIdForCapabilities(value) === "gpt-4";
+}
+
+function updateTemperatureInputState(root) {
+  if (!root) return;
+  const modelSelect = root.querySelector("#llm_model");
+  const input = root.querySelector("[data-llm-temperature-input]");
+  const note = root.querySelector("[data-llm-temperature-note]");
+  if (!modelSelect || !input) return;
+
+  const allowTemperature = managedModelSupportsTemperature(modelSelect.value || modelSelect.dataset.currentValue || "");
+
+  input.disabled = !allowTemperature;
+  input.placeholder = allowTemperature ? "0.7" : "Only available for gpt-4";
+  input.title = allowTemperature
+    ? "Temperature is used only for exact gpt-4."
+    : "Temperature is disabled because this model omits the deprecated temperature parameter.";
+
+  if (!allowTemperature) {
+    input.value = "";
+  }
+
+  if (note) {
+    note.textContent = allowTemperature
+      ? "Temperature is only sent for exact gpt-4."
+      : "Temperature is disabled unless the selected model is exact gpt-4. Other models omit this deprecated parameter.";
+  }
+}
+
 const managedProviderModels = {
   github_copilot: [
     { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
@@ -5221,6 +5267,7 @@ function updateModelOptions(root) {
   if (copilotBtn) copilotBtn.classList.toggle("hidden", !isCopilot);
   if (authStatus && !isCopilot) authStatus.classList.add("hidden");
   if (!isCopilot) stopCopilotPolling(root);
+  if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
 
 async function runManagedSettingsTest(root, target, button) {
@@ -5407,6 +5454,7 @@ function initializeManagedSettingsRoot(root) {
   root.dataset.actionsBound = "1";
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
+    if (event.target?.id === "llm_model") updateTemperatureInputState(root);
     if (event.target?.name === "llm_tools_mode") toggleLlmToolsEditor(root);
     const section = sectionNameForElement(event.target);
     if (section) markManagedSectionTouched(root, section);
@@ -5725,7 +5773,7 @@ async function openAutomationRulePanel(ruleId) {
       <div class="portal-panel-stack">
         <h3>${safe(detail.name)}</h3>
         <div class="portal-inline-state">Enabled: <strong>${detail.enabled ? "true" : "false"}</strong></div>
-        <div class="portal-inline-state">Type: <strong>GitHub PR Reviewer</strong></div>
+        <div class="portal-inline-state">Task Template: <strong>${safe(detail.task_template_id || "-")}</strong></div>
         <div class="portal-inline-state">Repository: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
         <div class="portal-inline-state">Review target: <strong>${safe(`${trigger.review_target_type || "-"} / ${trigger.review_target || "-"}`)}</strong></div>
         <div class="portal-inline-state">Target agent: <strong>${safe(`${targetAgent?.name || "-"} (${detail.target_agent_id})`)}</strong></div>
@@ -5764,12 +5812,25 @@ function openCreateAutomationRuleModal() {
       <h3>Create Automation</h3>
       <form id="create-automation-inline-form" class="portal-panel-stack">
         <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="Review EFP PRs" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
-        <label class="portal-form-label"><span class="portal-form-label">Owner</span><input class="portal-form-input" name="owner" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Repo</span><input class="portal-form-input" name="repo" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
-        <label class="portal-form-label"><span class="portal-form-label">Review target</span><input class="portal-form-input" name="review_target" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
+        <section class="portal-panel-section">
+          <h4>Trigger</h4>
+          <label class="portal-form-label"><span class="portal-form-label">Trigger</span><select class="portal-form-select" name="trigger_type"><option value="github_pr_review_requested">GitHub PR review requested</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Owner</span><input class="portal-form-input" name="owner" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Repo</span><input class="portal-form-input" name="repo" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Review target</span><input class="portal-form-input" name="review_target" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
+        </section>
+        <section class="portal-panel-section">
+          <h4>Task Template</h4>
+          <label class="portal-form-label"><span class="portal-form-label">Template</span><select class="portal-form-select" name="task_template_id"><option value="github_pr_review">github_pr_review</option></select></label>
+        </section>
+        <section class="portal-panel-section">
+          <h4>Agent & Task Defaults</h4>
+          <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Review event</span><select class="portal-form-select" name="review_event"><option value="COMMENT">COMMENT</option><option value="APPROVE">APPROVE</option><option value="REQUEST_CHANGES">REQUEST_CHANGES</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Writeback mode</span><input class="portal-form-input" name="writeback_mode" /></label>
+        </section>
         <button class="portal-btn is-primary" type="submit">Create</button>
       </form>
     </div>
@@ -5781,17 +5842,18 @@ async function submitCreateAutomationRule(formEl) {
   const payload = {
     name: String(fd.get("name") || ""),
     target_agent_id: String(fd.get("target_agent_id") || ""),
-    owner: String(fd.get("owner") || ""),
-    repo: String(fd.get("repo") || ""),
-    review_target_type: String(fd.get("review_target_type") || "user"),
-    review_target: String(fd.get("review_target") || ""),
-    interval_seconds: Number(fd.get("interval_seconds") || 60),
     enabled: true,
     source_type: "github",
-    trigger_type: "github_pr_review_requested",
-    task_type: "github_review_task",
-    skill_name: "review-pull-request",
-    review_event: "COMMENT",
+    trigger_type: String(fd.get("trigger_type") || "github_pr_review_requested"),
+    task_template_id: String(fd.get("task_template_id") || "github_pr_review"),
+    scope: { owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || "") },
+    trigger_config: { review_target_type: String(fd.get("review_target_type") || "user"), review_target: String(fd.get("review_target") || "") },
+    task_input_defaults: {
+      review_event: String(fd.get("review_event") || "COMMENT"),
+      skill_name: "review-pull-request",
+      writeback_mode: String(fd.get("writeback_mode") || "").trim() || undefined,
+    },
+    schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60) },
   };
   const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
   await loadAutomationRules();
@@ -5837,6 +5899,100 @@ function _safeJson(raw) {
     return JSON.parse(raw);
   } catch (_error) {
     return null;
+  }
+}
+
+
+
+async function openTaskCreatePanelInMain() {
+  if (!dom.workspaceDetailContent) return;
+  await setActiveNavSection("tasks", { toggleIfSame: false });
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "task-create";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task create form…</div>';
+  await htmx.ajax("GET", "/app/tasks/create/panel", { target: "#workspace-detail-content", swap: "innerHTML" });
+  const formEl = dom.workspaceDetailContent.querySelector("#create-task-from-template-form");
+  if (formEl) updateCreateTaskTemplateFieldVisibility(formEl);
+}
+
+async function submitCreateTaskFromTemplate(formEl) {
+  const fd = new FormData(formEl);
+  const payloadInput = {
+    owner: String(fd.get("owner") || "").trim(),
+    repo: String(fd.get("repo") || "").trim(),
+    pull_number: Number(fd.get("pull_number") || 0) || undefined,
+    review_event: String(fd.get("review_event") || "").trim(),
+    writeback_mode: String(fd.get("writeback_mode") || "").trim(),
+    head_sha: String(fd.get("head_sha") || "").trim(),
+    bundle_template_id: String(fd.get("bundle_template_id") || "").trim(),
+    bundle_ref: {
+      repo: String(fd.get("bundle_repo") || "").trim(),
+      path: String(fd.get("bundle_path") || "").trim(),
+      branch: String(fd.get("bundle_branch") || "").trim(),
+    },
+    manifest_ref: {
+      repo: String(fd.get("manifest_repo") || "").trim() || String(fd.get("bundle_repo") || "").trim(),
+      path: String(fd.get("manifest_path") || "").trim() || String(fd.get("bundle_path") || "").trim(),
+      branch: String(fd.get("manifest_branch") || "").trim() || String(fd.get("bundle_branch") || "").trim(),
+    },
+    sources: {
+      jira: splitLines(fd.get("jira_sources")),
+      confluence: splitLines(fd.get("confluence_sources")),
+      github_docs: splitLines(fd.get("github_doc_sources")),
+      figma: splitLines(fd.get("figma_sources")),
+    },
+  };
+  const created = await api("/api/agent-tasks/from-template", {
+    method: "POST",
+    body: JSON.stringify({
+      template_id: String(fd.get("template_id") || "").trim(),
+      assignee_agent_id: String(fd.get("assignee_agent_id") || "").trim(),
+      dispatch_immediately: fd.get("dispatch_immediately") !== null,
+      input: payloadInput,
+    }),
+  });
+  await refreshMyTasks();
+  await openTaskDetailInMain(created.id);
+}
+
+function splitLines(value) {
+  const raw = String(value || "");
+  return raw.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
+}
+
+function updateCreateTaskTemplateFieldVisibility(formEl) {
+  if (!formEl) return;
+  const templateId = String(formEl.querySelector('[name="template_id"]')?.value || "").trim();
+  const bundleFields = formEl.querySelector("[data-task-bundle-fields]");
+  const sourcesFields = formEl.querySelector("[data-task-sources-fields]");
+  const githubFields = formEl.querySelector("[data-task-github-fields]");
+  const bundleTemplateSelect = formEl.querySelector('[name="bundle_template_id"]');
+
+  const isGithub = templateId === "github_pr_review";
+  const bundleTemplateIds = new Set([
+    "collect_requirements_to_bundle",
+    "design_test_cases_from_bundle",
+    "collect_research_notes_to_bundle",
+    "generate_implementation_plan_from_bundle",
+    "generate_runbook_from_bundle",
+  ]);
+  const sourcesTemplateIds = new Set(["collect_requirements_to_bundle", "collect_research_notes_to_bundle"]);
+  const isBundle = bundleTemplateIds.has(templateId);
+  const needsSources = sourcesTemplateIds.has(templateId);
+
+  if (bundleFields) bundleFields.classList.toggle("hidden", !isBundle);
+  if (sourcesFields) sourcesFields.classList.toggle("hidden", !needsSources);
+  if (githubFields) githubFields.classList.toggle("hidden", !isGithub);
+
+  const bundleDefaults = {
+    collect_requirements_to_bundle: "requirement.v1",
+    design_test_cases_from_bundle: "requirement.v1",
+    collect_research_notes_to_bundle: "research.v1",
+    generate_implementation_plan_from_bundle: "development.v1",
+    generate_runbook_from_bundle: "operations.v1",
+  };
+  if (bundleTemplateSelect && bundleDefaults[templateId]) {
+    bundleTemplateSelect.value = bundleDefaults[templateId];
   }
 }
 
@@ -6536,13 +6692,31 @@ function bindEvents() {
 
   });
   dom.workspaceDetailContent?.addEventListener("submit", async (event) => {
-    const form = event.target.closest("#create-automation-inline-form");
-    if (!form) return;
-    event.preventDefault();
-    try {
-      await submitCreateAutomationRule(form);
-    } catch (error) {
-      showToast(`Create automation failed: ${error.message}`);
+    const automationForm = event.target.closest("#create-automation-inline-form");
+    if (automationForm) {
+      event.preventDefault();
+      try {
+        await submitCreateAutomationRule(automationForm);
+      } catch (error) {
+        showToast(`Create automation failed: ${error.message}`);
+      }
+      return;
+    }
+    const taskForm = event.target.closest("#create-task-from-template-form");
+    if (taskForm) {
+      event.preventDefault();
+      try {
+        await submitCreateTaskFromTemplate(taskForm);
+      } catch (error) {
+        showToast(`Create task failed: ${error.message}`);
+      }
+    }
+  });
+  dom.workspaceDetailContent?.addEventListener("change", (event) => {
+    const formEl = event.target.closest("#create-task-from-template-form");
+    if (!formEl) return;
+    if (event.target.matches('[name="template_id"]')) {
+      updateCreateTaskTemplateFieldVisibility(formEl);
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
@@ -6578,6 +6752,13 @@ function bindEvents() {
   });
 
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const openCreateTaskBtn = event.target.closest("[data-open-create-task-main]");
+    if (openCreateTaskBtn) {
+      event.preventDefault();
+      await openTaskCreatePanelInMain();
+      return;
+    }
+
     const openTaskMainBtn = event.target.closest("[data-open-task-main]");
     if (openTaskMainBtn) {
       event.preventDefault();
@@ -6621,6 +6802,14 @@ function bindEvents() {
   dom.usersMenuBtn?.addEventListener("click", openUsersPanel);
 
   dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
+
+  dom.addTaskBtn?.addEventListener("click", async () => {
+    try {
+      await openTaskCreatePanelInMain();
+    } catch (error) {
+      showToast(`Open task create failed: ${error.message}`);
+    }
+  });
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
   window.addEventListener("resize", () => {
     if (!state.toolPanelPinned) return;
