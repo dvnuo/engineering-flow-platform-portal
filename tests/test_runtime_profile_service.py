@@ -99,7 +99,7 @@ def test_default_profile_config_has_safe_managed_defaults():
     cfg = RuntimeProfileService.default_profile_config()
     assert cfg["llm"]["model"] == "gpt-5.4-mini"
     assert cfg["llm"]["max_tokens"] == 64000
-    assert cfg["llm"]["temperature"] == 0.7
+    assert "temperature" not in cfg["llm"]
     assert cfg["llm"]["max_retries"] == 3
     assert cfg["llm"]["retry_delay"] == 1
     assert cfg["llm"]["tools"] == ["*"]
@@ -137,55 +137,71 @@ def test_managed_provider_models_prefer_gpt_5_4_mini():
     assert "gpt-5-mini" in openai_models
 
 
-def test_parse_runtime_profile_config_json_accepts_numeric_temperature():
+def test_parse_runtime_profile_config_json_keeps_temperature_for_exact_gpt4():
+    parsed = parse_runtime_profile_config_json('{"llm":{"model":"gpt-4","temperature":0.2}}')
+    assert parsed == {"llm": {"model": "gpt-4", "temperature": 0.2}}
+
+
+def test_parse_runtime_profile_config_json_strips_temperature_without_gpt4_model():
     parsed = parse_runtime_profile_config_json('{"llm":{"temperature":0.2}}')
-    assert parsed == {"llm": {"temperature": 0.2}}
+    assert parsed == {"llm": {}}
 
 
-def test_parse_runtime_profile_config_json_normalizes_string_temperature_to_float():
-    parsed = parse_runtime_profile_config_json('{"llm":{"temperature":"0.2"}}')
-    assert parsed == {"llm": {"temperature": 0.2}}
+def test_parse_runtime_profile_config_json_strips_temperature_for_gpt4o():
+    parsed = parse_runtime_profile_config_json('{"llm":{"model":"gpt-4o","temperature":0.2}}')
+    assert parsed == {"llm": {"model": "gpt-4o"}}
+
+
+def test_parse_runtime_profile_config_json_normalizes_string_temperature_for_exact_gpt4():
+    parsed = parse_runtime_profile_config_json('{"llm":{"model":"gpt-4","temperature":"0.2"}}')
+    assert parsed == {"llm": {"model": "gpt-4", "temperature": 0.2}}
 
 
 def test_validate_runtime_profile_config_json_rejects_temperature_above_two():
     with pytest.raises(ValueError, match="temperature.*0 and 2"):
-        validate_runtime_profile_config_json('{"llm":{"temperature":2.1}}')
+        validate_runtime_profile_config_json('{"llm":{"model":"gpt-4","temperature":2.1}}')
 
 
 def test_validate_runtime_profile_config_json_rejects_boolean_temperature():
     with pytest.raises(ValueError, match="temperature"):
-        validate_runtime_profile_config_json('{"llm":{"temperature":true}}')
+        validate_runtime_profile_config_json('{"llm":{"model":"gpt-4","temperature":true}}')
 
 
 def test_validate_runtime_profile_config_json_rejects_nan_temperature_string():
     with pytest.raises(ValueError, match="temperature|0 and 2"):
-        validate_runtime_profile_config_json('{"llm":{"temperature":"NaN"}}')
+        validate_runtime_profile_config_json('{"llm":{"model":"gpt-4","temperature":"NaN"}}')
 
 
 def test_validate_runtime_profile_config_json_rejects_lowercase_nan_temperature_string():
     with pytest.raises(ValueError, match="temperature|0 and 2"):
-        validate_runtime_profile_config_json('{"llm":{"temperature":"nan"}}')
+        validate_runtime_profile_config_json('{"llm":{"model":"gpt-4","temperature":"nan"}}')
 
 
 def test_validate_runtime_profile_config_json_rejects_infinity_temperature_string():
     with pytest.raises(ValueError, match="temperature|0 and 2"):
-        validate_runtime_profile_config_json('{"llm":{"temperature":"Infinity"}}')
+        validate_runtime_profile_config_json('{"llm":{"model":"gpt-4","temperature":"Infinity"}}')
 
 
 def test_parse_runtime_profile_config_json_nan_temperature_returns_empty_with_fallback():
-    parsed = parse_runtime_profile_config_json('{"llm":{"temperature":"NaN"}}', fallback_to_empty=True)
+    parsed = parse_runtime_profile_config_json('{"llm":{"model":"gpt-4","temperature":"NaN"}}', fallback_to_empty=True)
     assert parsed == {}
 
 
-def test_dump_runtime_profile_config_json_keeps_zero_temperature():
-    dumped = dump_runtime_profile_config_json({"llm": {"temperature": 0}})
+def test_dump_runtime_profile_config_json_keeps_zero_temperature_for_exact_gpt4():
+    dumped = dump_runtime_profile_config_json({"llm": {"model": "gpt-4", "temperature": 0}})
     parsed = json.loads(dumped)
     assert parsed["llm"]["temperature"] == 0
 
 
+def test_dump_runtime_profile_config_json_strips_zero_temperature_for_non_gpt4():
+    dumped = dump_runtime_profile_config_json({"llm": {"model": "gpt-4.1", "temperature": 0}})
+    parsed = json.loads(dumped)
+    assert parsed["llm"] == {"model": "gpt-4.1"}
+
+
 def test_dump_runtime_profile_config_json_rejects_nan_temperature():
     with pytest.raises(ValueError, match="temperature|0 and 2"):
-        dump_runtime_profile_config_json({"llm": {"temperature": "NaN"}})
+        dump_runtime_profile_config_json({"llm": {"model": "gpt-4", "temperature": "NaN"}})
 
 
 def test_create_for_user_with_empty_config_stays_sparse():

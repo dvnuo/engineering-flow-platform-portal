@@ -77,3 +77,52 @@ def test_confluence_uses_basic_for_username_token(monkeypatch):
     )
     assert ok is True
     assert seen["headers"]["Authorization"].startswith("Basic ")
+
+
+import pytest
+
+
+def test_llm_smoke_openai_gpt4_includes_temperature(monkeypatch):
+    svc = RuntimeProfileTestService()
+    captured = {}
+
+    async def fake_provider_request(provider, model, endpoint, headers, payload):
+        captured["payload"] = payload
+        return True, "ok"
+
+    monkeypatch.setattr(svc, "_provider_request", fake_provider_request)
+
+    ok, _ = asyncio.run(svc._test_llm({"llm": {"provider": "openai", "model": "gpt-4", "api_key": "k"}}))
+    assert ok is True
+    assert captured["payload"]["temperature"] == 0
+
+
+@pytest.mark.parametrize("model", ["gpt-4.1", "gpt-4o", "gpt-5.4-mini"])
+def test_llm_smoke_openai_non_exact_gpt4_omits_temperature(monkeypatch, model):
+    svc = RuntimeProfileTestService()
+    captured = {}
+
+    async def fake_provider_request(provider, model_arg, endpoint, headers, payload):
+        captured["payload"] = payload
+        return True, "ok"
+
+    monkeypatch.setattr(svc, "_provider_request", fake_provider_request)
+
+    ok, _ = asyncio.run(svc._test_llm({"llm": {"provider": "openai", "model": model, "api_key": "k"}}))
+    assert ok is True
+    assert "temperature" not in captured["payload"]
+
+
+def test_llm_smoke_anthropic_omits_temperature(monkeypatch):
+    svc = RuntimeProfileTestService()
+    captured = {}
+
+    async def fake_provider_request(provider, model, endpoint, headers, payload):
+        captured["payload"] = payload
+        return True, "ok"
+
+    monkeypatch.setattr(svc, "_provider_request", fake_provider_request)
+
+    ok, _ = asyncio.run(svc._test_llm({"llm": {"provider": "anthropic", "model": "claude-sonnet-4-20250514", "api_key": "k"}}))
+    assert ok is True
+    assert "temperature" not in captured["payload"]

@@ -122,7 +122,7 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert rp.revision == 2
         saved = json.loads(rp.config_json)
         assert saved["llm"]["provider"] == "anthropic"
-        assert saved["llm"]["temperature"] == 0.2
+        assert "temperature" not in saved["llm"]
         assert saved["llm"]["tools"] == ["*"]
         assert "max_tokens" not in saved["llm"]
         assert "max_retries" not in saved["llm"]
@@ -174,7 +174,7 @@ def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(m
 def test_runtime_profile_save_rejects_nan_temperature(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
-        rp.config_json = json.dumps({"llm": {"provider": "openai", "temperature": 0.4}})
+        rp.config_json = json.dumps({"llm": {"provider": "openai", "model": "gpt-4", "temperature": 0.4}})
         db.add(rp)
         db.commit()
         db.refresh(rp)
@@ -192,11 +192,12 @@ def test_runtime_profile_save_rejects_nan_temperature(monkeypatch):
                 "name": rp.name,
                 "description": rp.description or "",
                 "llm_provider": "openai",
+                "llm_model": "gpt-4",
                 "llm_temperature": "NaN",
             },
         )
         assert resp.status_code == 200
-        assert "Temperature must be a number between 0 and 2." in resp.text
+        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." in resp.text
         db.refresh(rp)
         saved = json.loads(rp.config_json)
         assert saved["llm"]["temperature"] == 0.4
@@ -428,5 +429,68 @@ def test_runtime_profile_save_persists_response_flow_nested_dict(monkeypatch):
         db.refresh(rp)
         cleared = json.loads(rp.config_json)
         assert "response_flow" not in cleared["llm"]
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_save_persists_temperature_only_for_exact_gpt4(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "openai",
+                "llm_model": "gpt-4",
+                "llm_temperature": "0.2",
+                "llm_tools_mode": "inherit",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["llm"]["model"] == "gpt-4"
+        assert saved["llm"]["temperature"] == 0.2
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_save_clears_temperature_when_model_not_gpt4_even_if_input_disabled(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps({"llm": {"provider": "openai", "model": "gpt-4", "temperature": 0.4}})
+        db.add(rp)
+        db.commit()
+
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "openai",
+                "llm_model": "gpt-5.4-mini",
+                "llm_tools_mode": "inherit",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["llm"]["model"] == "gpt-5.4-mini"
+        assert "temperature" not in saved["llm"]
     finally:
         cleanup()

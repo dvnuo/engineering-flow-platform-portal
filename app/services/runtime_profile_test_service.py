@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.schemas.runtime_profile import runtime_profile_model_supports_temperature
+
 
 class RuntimeProfileTestService:
     async def run_test(self, target: str, config: dict) -> tuple[bool, str]:
@@ -134,11 +136,13 @@ class RuntimeProfileTestService:
                 "model": model,
                 "messages": [{"role": "user", "content": "ping"}],
             }
-            if not model.startswith("gpt-5"):
-                payload["temperature"] = 0
-                payload["max_tokens"] = 1
-            else:
+            if model.startswith("gpt-5"):
                 payload["max_completion_tokens"] = 1
+            else:
+                payload["max_tokens"] = 1
+
+            if runtime_profile_model_supports_temperature(model):
+                payload["temperature"] = 0
             return await self._provider_request(provider, model, f"{api_base}/chat/completions", headers, payload)
 
         if provider == "anthropic":
@@ -152,7 +156,6 @@ class RuntimeProfileTestService:
                 "model": model,
                 "messages": [{"role": "user", "content": "ping"}],
                 "max_tokens": 1,
-                "temperature": 0,
             }
             return await self._provider_request(provider, model, f"{api_base}/messages", headers, payload)
 
