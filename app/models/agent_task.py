@@ -17,6 +17,7 @@ class AgentTask(Base):
     assignee_agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     task_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    template_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     input_payload_json: Mapped[Optional[str]] = mapped_column(Text)
     shared_context_ref: Mapped[Optional[str]] = mapped_column(String(255))
     task_family: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

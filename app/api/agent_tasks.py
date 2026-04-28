@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+import json
 import logging
 
 from app.db import get_db
@@ -7,9 +8,10 @@ from app.deps import get_current_user
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.schemas.agent_task import AgentTaskCreateRequest, AgentTaskResponse
+from app.schemas.agent_task import AgentTaskCreateRequest, AgentTaskResponse, CreateTaskFromTemplateRequest, TaskTemplateRead
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 from app.services.task_dispatcher import TaskDispatcherService
+from app.services.task_template_registry import build_agent_task_create_payload_from_template, list_task_templates, require_task_template
 
 router = APIRouter(tags=["agent-tasks"])
 task_dispatcher_service = TaskDispatcherService()
@@ -34,6 +36,57 @@ def _is_task_visible_to_user(task, user, visible_group_ids: list[str]) -> bool:
     return bool(task.group_id and task.group_id in visible_group_ids)
 
 
+
+
+@router.get("/api/task-templates", response_model=list[TaskTemplateRead])
+def list_templates(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    _ = user
+    _ = db
+    return [TaskTemplateRead(**template.__dict__) for template in list_task_templates()]
+
+
+@router.post("/api/agent-tasks/from-template", response_model=AgentTaskResponse)
+def create_agent_task_from_template(payload: CreateTaskFromTemplateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    assignee_agent = AgentRepository(db).get_by_id(payload.assignee_agent_id)
+    if not assignee_agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee agent not found")
+    if not _can_write(assignee_agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    try:
+        require_task_template(payload.template_id)
+        task_payload = build_agent_task_create_payload_from_template(
+            payload.template_id,
+            payload.input,
+            payload.assignee_agent_id,
+            current_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    if payload.parent_agent_id is not None:
+        parent_agent = AgentRepository(db).get_by_id(payload.parent_agent_id)
+        if not parent_agent:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent agent not found")
+
+    task = AgentTaskRepository(db).create(
+        group_id=payload.group_id,
+        parent_agent_id=payload.parent_agent_id,
+        assignee_agent_id=payload.assignee_agent_id,
+        owner_user_id=assignee_agent.owner_user_id,
+        created_by_user_id=user.id,
+        source=task_payload["source"],
+        task_type=task_payload["task_type"],
+        template_id=task_payload["template_id"],
+        input_payload_json=json.dumps(task_payload["input_payload_json"]),
+        task_family=task_payload.get("task_family"),
+        provider=task_payload.get("provider"),
+        trigger=task_payload.get("trigger"),
+        status="queued",
+    )
+    if payload.dispatch_immediately:
+        task_dispatcher_service.dispatch_task_in_background(task.id)
+    return AgentTaskResponse.model_validate(task)
 @router.post("/api/agent-tasks", response_model=AgentTaskResponse)
 def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     group_service = AgentGroupService(db)

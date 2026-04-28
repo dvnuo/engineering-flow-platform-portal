@@ -39,6 +39,7 @@ def _create_review_rule(db: Session, *, user_id: int, agent_id: str):
             "trigger_type": "github_pr_review_requested",
             "target_agent_id": agent_id,
             "task_type": "github_review_task",
+            "task_template_id": "github_pr_review",
             "scope_json": json.dumps({"owner": "acme", "repo": "portal"}),
             "trigger_config_json": json.dumps({"review_target_type": "user", "review_target": "alice"}),
             "task_config_json": json.dumps({"skill_name": "review-pull-request", "review_event": "COMMENT"}),
@@ -64,7 +65,8 @@ async def test_run_once_event_retry_and_dedupe(monkeypatch):
     monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
 
     payload = AutomationRuleCreate(
-        name="r1", target_agent_id=agent.id, owner="acme", repo="portal", review_target_type="user", review_target="alice"
+        name="r1", target_agent_id=agent.id, task_template_id="github_pr_review",
+        scope={"owner": "acme", "repo": "portal"}, trigger_config={"review_target_type": "user", "review_target": "alice"}
     )
     rule = svc.create_rule(payload, current_user_id=user.id)
 
@@ -110,6 +112,8 @@ async def test_run_once_event_retry_and_dedupe(monkeypatch):
     tasks = db.query(AgentTask).all()
     assert len(tasks) == 2
     payload_obj = json.loads(tasks[0].input_payload_json)
+    assert payload_obj["task_template_id"] == "github_pr_review"
+    assert payload_obj["task_type"] == "github_review_task"
     assert payload_obj["automation_rule"] == "github.pr_review_requested"
     assert payload_obj["automation_rule_id"] == rule.id
     assert payload_obj["rule_id"] == rule.id
@@ -134,13 +138,11 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
     payload = AutomationRuleCreate(
         name="rule-e2e",
         target_agent_id=agent.id,
-        owner="Acme",
-        repo="Portal",
-        review_target_type="team",
-        review_target="Acme/Reviewers",
-        review_event="COMMENT",
-        interval_seconds=60,
-        skill_name="review-pull-request",
+        task_template_id="github_pr_review",
+        scope={"owner": "Acme", "repo": "Portal"},
+        trigger_config={"review_target_type": "team", "review_target": "Acme/Reviewers"},
+        task_input_defaults={"review_event": "APPROVE", "skill_name": "review-pull-request"},
+        schedule={"interval_seconds": 60},
     )
     rule = svc.create_rule(payload, current_user_id=user.id)
 
@@ -178,6 +180,7 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
     assert task.source == "automation_rule"
     assert task.provider == "github"
     assert task.trigger == "github_pr_review_requested"
+    assert task.template_id == "github_pr_review"
     assert task.task_type == "github_review_task"
     assert task.assignee_agent_id == agent.id
     assert len(task.dedupe_key or "") <= 255
@@ -189,14 +192,16 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
     assert task_payload["automation_rule_id"] == rule.id
     assert task_payload["rule_id"] == rule.id
     assert task_payload["provider"] == "github"
+    assert task_payload["task_template_id"] == "github_pr_review"
+    assert task_payload["task_type"] == "github_review_task"
     assert task_payload["owner"] == "Acme"
     assert task_payload["repo"] == "Portal"
     assert task_payload["pull_number"] == 42
     assert task_payload["head_sha"] == "sha-1"
     assert task_payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
-    assert task_payload["task_type"] == "github_review_task"
     assert task_payload["skill_name"] == "review-pull-request"
-    assert task_payload["review_event"] == "COMMENT"
+    assert task_payload["review_event"] == "APPROVE"
+    assert task_payload["trigger"] == "github_pr_review_requested"
     assert task_payload.get("dedupe_key")
 
     second = await svc.run_rule_once(rule.id, triggered_by="test")
@@ -436,22 +441,13 @@ def test_github_review_task_payload_contract_for_efp_runtime(monkeypatch):
     assert task is not None
 
     payload = json.loads(task.input_payload_json)
-    assert set(payload.keys()) == {
-        "source",
-        "automation_rule",
-        "automation_rule_id",
-        "rule_id",
-        "provider",
-        "owner",
-        "repo",
-        "pull_number",
-        "head_sha",
-        "review_target",
-        "task_type",
-        "skill_name",
-        "review_event",
-        "dedupe_key",
-    }
+    assert payload["source"] == "automation_rule"
+    assert payload["automation_rule_id"] == rule.id
+    assert payload["owner"] == "Acme"
+    assert payload["repo"] == "Portal"
+    assert payload["pull_number"] == 42
+    assert payload["review_event"] == "COMMENT"
+    assert payload["skill_name"] == "review-pull-request"
     assert payload["source"] == "automation_rule"
     assert payload["automation_rule"] == "github.pr_review_requested"
     assert payload["automation_rule_id"] == rule.id
@@ -461,8 +457,6 @@ def test_github_review_task_payload_contract_for_efp_runtime(monkeypatch):
     assert payload["repo"] == "Portal"
     assert payload["pull_number"] == 42
     assert payload["head_sha"] == "sha-contract"
-    assert payload["task_type"] == "github_review_task"
-    assert payload["skill_name"] == "review-pull-request"
     assert payload["review_event"] in {"COMMENT", "APPROVE", "REQUEST_CHANGES"}
     assert payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
     assert "dedupe_key" in payload

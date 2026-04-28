@@ -23,6 +23,7 @@ class AutomationRule(Base):
     trigger_type: Mapped[str] = mapped_column(String(128), nullable=False)
     target_agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False)
     task_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    task_template_id: Mapped[str] = mapped_column(String(128), nullable=False)
     scope_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     trigger_config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     task_config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")

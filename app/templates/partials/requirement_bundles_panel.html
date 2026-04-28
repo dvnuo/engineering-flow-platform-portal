@@ -8,16 +8,16 @@
     </div>
     <span class="portal-status-badge is-{{ action.status_tone }}">{{ action.status_label }}</span>
   </summary>
-  <form method="post" action="/app/requirement-bundles/actions/run" hx-post="/app/requirement-bundles/actions/run" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-detail-stack">
-    <input type="hidden" name="template_id" value="{{ bundle_view_model.template_id }}" />
-    <input type="hidden" name="action_id" value="{{ action.action_id }}" />
+  <form method="post" action="/app/requirement-bundles/task-shortcuts/run" hx-post="/app/requirement-bundles/task-shortcuts/run" hx-target="{{ content_target }}" hx-swap="innerHTML" hx-push-url="false" class="portal-detail-stack">
+    <input type="hidden" name="bundle_template_id" value="{{ bundle_view_model.template_id }}" />
+    <input type="hidden" name="task_template_id" value="{{ action.task_template_id }}" />
     <input type="hidden" name="bundle_repo" value="{{ bundle_view_model.repo }}" />
     <input type="hidden" name="bundle_path" value="{{ bundle_view_model.path }}" />
     <input type="hidden" name="bundle_branch" value="{{ bundle_view_model.branch }}" />
     <input type="hidden" name="manifest_repo" value="{{ bundle_detail.manifest_ref.repo }}" />
     <input type="hidden" name="manifest_path" value="{{ bundle_detail.manifest_ref.path }}" />
     <input type="hidden" name="manifest_branch" value="{{ bundle_detail.manifest_ref.branch }}" />
-    <label class="portal-form-label">Action Agent</label>
+    <label class="portal-form-label">Task Agent</label>
     <select name="action_agent_id" required class="portal-form-select">
       <option value="">-- Select action agent --</option>
       {% for agent in agents %}<option value="{{ agent.id }}" {% if action.selected_agent_id == agent.id %}selected{% endif %}>{{ agent.name }} ({{ agent.id }})</option>{% endfor %}
@@ -99,19 +99,19 @@
   </section>
 
   <section class="portal-panel-section">
-    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Actions</div>
+    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Task Shortcuts</div>
     {% if bundle_view_model.recommended_action %}
       <h3 class="portal-detail-label">Recommended Next Step</h3>
       {{ render_bundle_action_card(bundle_view_model.recommended_action, bundle_view_model, bundle_detail, agents, content_target) }}
 
       {% if bundle_view_model.other_actions %}
-      <h3 class="portal-detail-label">Other Actions</h3>
+      <h3 class="portal-detail-label">Other Task Shortcuts</h3>
       {% for action in bundle_view_model.other_actions %}
       {{ render_bundle_action_card(action, bundle_view_model, bundle_detail, agents, content_target) }}
       {% endfor %}
       {% endif %}
     {% else %}
-      <h3 class="portal-detail-label">Available Actions</h3>
+      <h3 class="portal-detail-label">Available Task Shortcuts</h3>
       {% for action in bundle_view_model.actions %}
       {{ render_bundle_action_card(action, bundle_view_model, bundle_detail, agents, content_target) }}
       {% endfor %}
