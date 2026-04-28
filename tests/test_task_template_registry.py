@@ -51,6 +51,8 @@ def test_collect_requirements_bundle_template_compatibility():
         "agent-1",
     )
     assert payload["task_type"] == "bundle_action_task"
+    assert payload["input_payload_json"]["task_template_id"] == "collect_requirements_to_bundle"
+    assert payload["input_payload_json"]["task_type"] == "bundle_action_task"
 
     with pytest.raises(ValueError, match="not compatible"):
         build_agent_task_create_payload_from_template(
@@ -72,3 +74,15 @@ def test_github_review_required_inputs():
             {"owner": "acme", "repo": "portal"},
             "agent-1",
         )
+
+
+def test_github_review_payload_contains_runtime_template_fields():
+    payload = build_agent_task_create_payload_from_template(
+        "github_pr_review",
+        {"owner": "acme", "repo": "portal", "pull_number": 42},
+        "agent-1",
+    )
+    runtime_payload = payload["input_payload_json"]
+    assert runtime_payload["task_template_id"] == "github_pr_review"
+    assert runtime_payload["task_type"] == "github_review_task"
+    assert runtime_payload["trigger"] == "github_pr_review_requested"

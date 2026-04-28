@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+import json
 import logging
 
 from app.db import get_db
@@ -76,8 +77,8 @@ def create_agent_task_from_template(payload: CreateTaskFromTemplateRequest, user
         created_by_user_id=user.id,
         source=task_payload["source"],
         task_type=task_payload["task_type"],
-        template_id=payload.template_id,
-        input_payload_json=__import__("json").dumps(task_payload["input_payload_json"]),
+        template_id=task_payload["template_id"],
+        input_payload_json=json.dumps(task_payload["input_payload_json"]),
         task_family=task_payload.get("task_family"),
         provider=task_payload.get("provider"),
         trigger=task_payload.get("trigger"),

@@ -182,10 +182,15 @@ def build_agent_task_create_payload_from_template(
         if not _sources_has_non_empty_value(sources):
             raise ValueError("sources requires at least one non-empty source")
 
+    normalized_input["task_template_id"] = template.template_id
+    normalized_input["task_type"] = template.task_type
+    if template.provider:
+        normalized_input["provider"] = template.provider
+    if template.default_trigger:
+        normalized_input["trigger"] = template.default_trigger
+
     if template.default_skill_name and not normalized_input.get("skill_name"):
         normalized_input["skill_name"] = template.default_skill_name
-    if template.default_trigger and not normalized_input.get("trigger"):
-        normalized_input["trigger"] = template.default_trigger
     if template.template_id == "github_pr_review" and not normalized_input.get("review_event"):
         normalized_input["review_event"] = "COMMENT"
 

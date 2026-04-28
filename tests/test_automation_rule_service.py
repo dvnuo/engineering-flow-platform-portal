@@ -112,6 +112,8 @@ async def test_run_once_event_retry_and_dedupe(monkeypatch):
     tasks = db.query(AgentTask).all()
     assert len(tasks) == 2
     payload_obj = json.loads(tasks[0].input_payload_json)
+    assert payload_obj["task_template_id"] == "github_pr_review"
+    assert payload_obj["task_type"] == "github_review_task"
     assert payload_obj["automation_rule"] == "github.pr_review_requested"
     assert payload_obj["automation_rule_id"] == rule.id
     assert payload_obj["rule_id"] == rule.id
@@ -190,6 +192,8 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
     assert task_payload["automation_rule_id"] == rule.id
     assert task_payload["rule_id"] == rule.id
     assert task_payload["provider"] == "github"
+    assert task_payload["task_template_id"] == "github_pr_review"
+    assert task_payload["task_type"] == "github_review_task"
     assert task_payload["owner"] == "Acme"
     assert task_payload["repo"] == "Portal"
     assert task_payload["pull_number"] == 42
@@ -197,6 +201,7 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
     assert task_payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
     assert task_payload["skill_name"] == "review-pull-request"
     assert task_payload["review_event"] == "APPROVE"
+    assert task_payload["trigger"] == "github_pr_review_requested"
     assert task_payload.get("dedupe_key")
 
     second = await svc.run_rule_once(rule.id, triggered_by="test")
