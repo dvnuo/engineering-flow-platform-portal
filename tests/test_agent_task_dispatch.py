@@ -515,3 +515,55 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
     assert metadata["portal_automation_rule"] == "jira.mentions"
     assert metadata["portal_automation_rule_id"] == "rule-1"
     assert metadata["portal_task_trigger"] == "mention"
+
+
+def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db_session):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        owner_user_id=1,
+        source="automation_rule",
+        task_type="github_review_task",
+        trigger="github_pr_review_requested",
+        input_payload_json=json.dumps(
+            {
+                "owner": "octo",
+                "repo": "portal",
+                "pull_number": 99,
+                "head_sha": "sha-99",
+                "execution_mode": "chat_tool_loop",
+            }
+        ),
+        shared_context_ref="github:pr_review:octo/portal:99",
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "ok"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
+
+    async def fake_post(_url, body):
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+
+    runtime_body = captured["body"]
+    assert runtime_body["task_type"] == "github_review_task"
+    assert runtime_body["input_payload"]["execution_mode"] == "chat_tool_loop"
+    assert runtime_body["metadata"]["portal_execution_mode"] == "chat_tool_loop"

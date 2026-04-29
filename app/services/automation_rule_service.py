@@ -288,6 +288,7 @@ class AutomationRuleService:
                 "review_target_type": review_target_type,
                 "review_event": task_cfg.get("review_event", "COMMENT"),
                 "skill_name": task_cfg.get("skill_name", "review-pull-request"),
+                "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"),
                 "writeback_mode": task_cfg.get("writeback_mode"),
                 "dedupe_key": dedupe_key,
             },

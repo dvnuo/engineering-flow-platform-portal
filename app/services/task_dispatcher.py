@@ -718,6 +718,9 @@ class TaskDispatcherService:
                 head_sha = input_payload.get("head_sha")
                 if head_sha:
                     metadata["portal_head_sha"] = head_sha
+                execution_mode = input_payload.get("execution_mode")
+                if execution_mode:
+                    metadata["portal_execution_mode"] = str(execution_mode)
                 dedupe_hint = task.shared_context_ref
                 if dedupe_hint:
                     metadata["portal_dedupe_hint"] = dedupe_hint

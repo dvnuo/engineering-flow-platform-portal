@@ -246,6 +246,7 @@ def test_github_pr_review_requested_ingress_matches_automation_rule_without_runt
         assert payload["pull_number"] == 3
         assert payload["head_sha"] == "sha1"
         assert payload["review_target"] == {"type": "user", "name": "alice"}
+        assert payload["execution_mode"] == "chat_tool_loop"
         assert body["created_task_id"] in state["dispatches"]
     finally:
         cleanup()

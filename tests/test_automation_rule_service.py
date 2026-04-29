@@ -200,6 +200,7 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
     assert task_payload["head_sha"] == "sha-1"
     assert task_payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
     assert task_payload["skill_name"] == "review-pull-request"
+    assert task_payload["execution_mode"] == "chat_tool_loop"
     assert task_payload["review_event"] == "APPROVE"
     assert task_payload["trigger"] == "github_pr_review_requested"
     assert task_payload.get("dedupe_key")
@@ -448,6 +449,8 @@ def test_github_review_task_payload_contract_for_efp_runtime(monkeypatch):
     assert payload["pull_number"] == 42
     assert payload["review_event"] == "COMMENT"
     assert payload["skill_name"] == "review-pull-request"
+    assert payload["execution_mode"] == "chat_tool_loop"
+    assert payload["task_type"] == "github_review_task"
     assert payload["source"] == "automation_rule"
     assert payload["automation_rule"] == "github.pr_review_requested"
     assert payload["automation_rule_id"] == rule.id
