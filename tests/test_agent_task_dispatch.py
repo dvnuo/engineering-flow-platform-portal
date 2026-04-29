@@ -2,6 +2,7 @@ import pytest
 import json
 
 import asyncio
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -386,6 +387,7 @@ def test_dispatch_task_inherits_parent_span_in_same_thread(db_session, monkeypat
             return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
 
     async def fake_post(_url, body):
+        captured["url"] = _url
         captured["body"] = body
         return SubmitResp()
 
@@ -501,6 +503,7 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
             return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
 
     async def fake_post(_url, body):
+        captured["url"] = _url
         captured["body"] = body
         return SubmitResp()
 
@@ -556,6 +559,7 @@ def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db
             return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
 
     async def fake_post(_url, body):
+        captured["url"] = _url
         captured["body"] = body
         return SubmitResp()
 
@@ -564,6 +568,26 @@ def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db
     assert result.task_status == "done"
 
     runtime_body = captured["body"]
+    assert captured["url"].endswith("/api/tasks/execute")
+    assert "/api/chat" not in captured["url"]
+    assert "/api/chat/stream" not in captured["url"]
     assert runtime_body["task_type"] == "github_review_task"
     assert runtime_body["input_payload"]["execution_mode"] == "chat_tool_loop"
     assert runtime_body["metadata"]["portal_execution_mode"] == "chat_tool_loop"
+
+
+def test_github_review_automation_dispatch_does_not_use_chat_endpoint():
+    source = Path("app/services/task_dispatcher.py").read_text()
+    assert '"/api/tasks/execute"' in source
+    automation_sources = "\n".join(
+        Path(path).read_text()
+        for path in [
+            "app/services/automation_rule_service.py",
+            "app/services/external_event_router.py",
+            "app/services/task_dispatcher.py",
+        ]
+    )
+
+    assert "github_review_task" in automation_sources
+    assert "/api/chat" not in automation_sources
+    assert "/api/chat/stream" not in automation_sources
