@@ -86,3 +86,14 @@ def test_github_review_payload_contains_runtime_template_fields():
     assert runtime_payload["task_template_id"] == "github_pr_review"
     assert runtime_payload["task_type"] == "github_review_task"
     assert runtime_payload["trigger"] == "github_pr_review_requested"
+
+
+def test_github_review_template_defaults_and_optional_inputs():
+    template = require_task_template("github_pr_review")
+    assert template.task_type == "github_review_task"
+    assert template.default_skill_name == "review-pull-request"
+    assert "writeback_mode" in template.optional_inputs
+    assert "review_event" in template.optional_inputs
+    assert "head_sha" in template.optional_inputs
+    assert "review_target" in template.optional_inputs
+    assert "skill_execution_mode" in template.optional_inputs

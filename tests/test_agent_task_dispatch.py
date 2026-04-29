@@ -369,6 +369,58 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
     assert task.status == "stale"
 
 
+def test_dispatch_posts_expected_runtime_execute_contract(db_session, monkeypatch):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        owner_user_id=1,
+        source="automation_rule",
+        task_type="github_review_task",
+        input_payload_json=json.dumps({"owner": "octo", "repo": "portal", "pull_number": 12, "review_event": "COMMENT"}),
+        shared_context_ref="ctx-ref-1",
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "ok"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
+
+    async def fake_post(url, body):
+        captured["url"] = url
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.task_status == "done"
+    assert captured["url"] == "http://runtime/api/tasks/execute"
+    assert captured["body"]["task_id"] == task.id
+    assert captured["body"]["task_type"] == "github_review_task"
+    assert captured["body"]["input_payload"]["pull_number"] == 12
+    assert captured["body"]["source"] == "automation_rule"
+    assert captured["body"]["shared_context_ref"] == "ctx-ref-1"
+    assert isinstance(captured["body"]["metadata"], dict)
+    assert "session_id" not in captured["body"]
+    assert "prompt" not in captured["body"]["input_payload"]
+    assert "diff" not in captured["body"]["input_payload"]
+    assert "files" not in captured["body"]["input_payload"]
+    assert "max_tokens" not in captured["body"]["input_payload"]
+    assert "system_prompt" not in captured["body"]["input_payload"]
+
+
 def test_dispatch_task_inherits_parent_span_in_same_thread(db_session, monkeypatch):
     db, agent = db_session
     task = _create_task(db, agent.id)

@@ -117,6 +117,7 @@ async def test_run_once_event_retry_and_dedupe(monkeypatch):
     assert payload_obj["automation_rule"] == "github.pr_review_requested"
     assert payload_obj["automation_rule_id"] == rule.id
     assert payload_obj["rule_id"] == rule.id
+    assert payload_obj["skill_execution_mode"] == "chat_tool_loop"
 
 
 @pytest.mark.anyio
@@ -200,6 +201,7 @@ async def test_github_pr_reviewer_rule_end_to_end_mocked(monkeypatch):
     assert task_payload["head_sha"] == "sha-1"
     assert task_payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
     assert task_payload["skill_name"] == "review-pull-request"
+    assert task_payload["skill_execution_mode"] == "chat_tool_loop"
     assert task_payload["review_event"] == "APPROVE"
     assert task_payload["trigger"] == "github_pr_review_requested"
     assert task_payload.get("dedupe_key")
@@ -448,6 +450,7 @@ def test_github_review_task_payload_contract_for_efp_runtime(monkeypatch):
     assert payload["pull_number"] == 42
     assert payload["review_event"] == "COMMENT"
     assert payload["skill_name"] == "review-pull-request"
+    assert payload["skill_execution_mode"] == "chat_tool_loop"
     assert payload["source"] == "automation_rule"
     assert payload["automation_rule"] == "github.pr_review_requested"
     assert payload["automation_rule_id"] == rule.id
@@ -460,6 +463,11 @@ def test_github_review_task_payload_contract_for_efp_runtime(monkeypatch):
     assert payload["review_event"] in {"COMMENT", "APPROVE", "REQUEST_CHANGES"}
     assert payload["review_target"] == {"type": "team", "name": "Acme/Reviewers"}
     assert "dedupe_key" in payload
+    assert "prompt" not in payload
+    assert "diff" not in payload
+    assert "files" not in payload
+    assert "max_tokens" not in payload
+    assert "system_prompt" not in payload
     assert len(task.dedupe_key or "") <= 255
 
 

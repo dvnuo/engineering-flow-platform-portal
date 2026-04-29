@@ -111,7 +111,8 @@ class AutomationRuleService:
         )
         self._validate_built_rule_config(built=built, task_template_id=payload.task_template_id)
         skill_name = str((built.get("task_config_json") or {}).get("skill_name") or "review-pull-request").strip()
-        self._validate_agent_can_run_github_pr_review_rule(agent_id=payload.target_agent_id, skill_name=skill_name)
+        writeback_mode = str((built.get("task_config_json") or {}).get("writeback_mode") or "").strip() or None
+        self._validate_agent_can_run_github_pr_review_rule(agent_id=payload.target_agent_id, skill_name=skill_name, writeback_mode=writeback_mode)
         interval = int((built.get("schedule_json") or {}).get("interval_seconds") or 60)
         now = datetime.utcnow()
         create_data = {
@@ -158,7 +159,8 @@ class AutomationRuleService:
         except ProviderConfigResolverError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         skill_name = str((built.get("task_config_json") or {}).get("skill_name") or "review-pull-request").strip()
-        self._validate_agent_can_run_github_pr_review_rule(agent_id=target_agent_id, skill_name=skill_name)
+        writeback_mode = str((built.get("task_config_json") or {}).get("writeback_mode") or "").strip() or None
+        self._validate_agent_can_run_github_pr_review_rule(agent_id=target_agent_id, skill_name=skill_name, writeback_mode=writeback_mode)
 
         update_data["scope_json"] = json.dumps(built.get("scope_json", {}))
         update_data["trigger_config_json"] = json.dumps(built.get("trigger_config_json", {}))
@@ -199,7 +201,7 @@ class AutomationRuleService:
             return full_dedupe_key
         return "automation:" + hashlib.sha256(full_dedupe_key.encode()).hexdigest()
 
-    def _validate_agent_can_run_github_pr_review_rule(self, *, agent_id: str, skill_name: str) -> None:
+    def _validate_agent_can_run_github_pr_review_rule(self, *, agent_id: str, skill_name: str, writeback_mode: str | None = None) -> None:
         agent = AgentRepository(self.db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target agent not found")
@@ -227,7 +229,13 @@ class AutomationRuleService:
 
         allowed_actions = {str(item).strip().lower() for item in context.get("allowed_actions", []) if str(item).strip()}
         allowed_adapter_actions = {str(item).strip().lower() for item in context.get("allowed_adapter_actions", []) if str(item).strip()}
-        if (allowed_actions or allowed_adapter_actions) and not ({"review_pull_request", "adapter:github:review_pull_request"} & (allowed_actions | allowed_adapter_actions)):
+        effective_writeback_mode = str(writeback_mode or "").strip().lower()
+        required_actions = (
+            {"add_comment", "adapter:github:add_comment"}
+            if effective_writeback_mode == "issue_comment"
+            else {"review_pull_request", "adapter:github:review_pull_request"}
+        )
+        if (allowed_actions or allowed_adapter_actions) and not (required_actions & (allowed_actions | allowed_adapter_actions)):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub PR review automation")
 
     def create_github_review_task_for_discovered_item(self, *, rule, item: dict, task_cfg: dict) -> tuple[object | None, bool]:
@@ -288,6 +296,7 @@ class AutomationRuleService:
                 "review_target_type": review_target_type,
                 "review_event": task_cfg.get("review_event", "COMMENT"),
                 "skill_name": task_cfg.get("skill_name", "review-pull-request"),
+                "skill_execution_mode": task_cfg.get("skill_execution_mode") or "chat_tool_loop",
                 "writeback_mode": task_cfg.get("writeback_mode"),
                 "dedupe_key": dedupe_key,
             },
@@ -345,6 +354,7 @@ class AutomationRuleService:
         schedule = self._parse_json(rule.schedule_json)
         interval_seconds = int(schedule.get("interval_seconds") or 60)
         skill_name = str(task_cfg.get("skill_name") or "").strip() or "review-pull-request"
+        writeback_mode = str(task_cfg.get("writeback_mode") or "").strip() or None
 
         found_count = 0
         created_task_count = 0
@@ -353,7 +363,7 @@ class AutomationRuleService:
         run_error_count = 0
 
         try:
-            self._validate_agent_can_run_github_pr_review_rule(agent_id=rule.target_agent_id, skill_name=skill_name)
+            self._validate_agent_can_run_github_pr_review_rule(agent_id=rule.target_agent_id, skill_name=skill_name, writeback_mode=writeback_mode)
             provider_cfg = resolve_github_for_agent(self.db, rule.target_agent_id)
             items = await self.poller.poll_review_requests(
                 provider_config=provider_cfg,
