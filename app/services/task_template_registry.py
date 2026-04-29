@@ -91,7 +91,15 @@ TASK_TEMPLATES: tuple[TaskTemplateDefinition, ...] = (
         default_trigger="github_pr_review_requested",
         default_skill_name="review-pull-request",
         required_inputs=("owner", "repo", "pull_number"),
-        optional_inputs=("review_event", "head_sha", "review_target", "review_target_type", "writeback_mode", "skill_name"),
+        optional_inputs=(
+            "review_event",
+            "head_sha",
+            "review_target",
+            "review_target_type",
+            "writeback_mode",
+            "skill_name",
+            "execution_mode",
+        ),
     ),
 )
 
@@ -193,6 +201,8 @@ def build_agent_task_create_payload_from_template(
         normalized_input["skill_name"] = template.default_skill_name
     if template.template_id == "github_pr_review" and not normalized_input.get("review_event"):
         normalized_input["review_event"] = "COMMENT"
+    if template.template_id == "github_pr_review" and not normalized_input.get("execution_mode"):
+        normalized_input["execution_mode"] = "chat_tool_loop"
 
     payload = {
         "template_id": template.template_id,

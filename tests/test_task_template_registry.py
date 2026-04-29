@@ -86,3 +86,4 @@ def test_github_review_payload_contains_runtime_template_fields():
     assert runtime_payload["task_template_id"] == "github_pr_review"
     assert runtime_payload["task_type"] == "github_review_task"
     assert runtime_payload["trigger"] == "github_pr_review_requested"
+    assert runtime_payload["execution_mode"] == "chat_tool_loop"
