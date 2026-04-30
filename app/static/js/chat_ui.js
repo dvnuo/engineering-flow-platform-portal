@@ -5762,6 +5762,7 @@ async function openAutomationRulePanel(ruleId) {
     const scope = _safeJson(detail.scope_json) || {};
     const trigger = _safeJson(detail.trigger_config_json) || {};
     const schedule = _safeJson(detail.schedule_json) || {};
+    const taskConfig = _safeJson(detail.task_config_json) || {};
     const targetAgent = (state.mineAgents || []).find((item) => item.id === detail.target_agent_id);
     const runsRows = (runs || []).map((run) => `
       <tr><td>${safe(run.status || "-")}</td><td>${safe(String(run.found_count ?? 0))}</td><td>${safe(String(run.created_task_count ?? 0))}</td><td>${safe(String(run.skipped_count ?? 0))}</td><td>${safe(run.error_message || "-")}</td><td>${safe(run.started_at || "-")}</td><td>${safe(run.finished_at || "-")}</td></tr>
@@ -5775,7 +5776,11 @@ async function openAutomationRulePanel(ruleId) {
         <div class="portal-inline-state">Enabled: <strong>${detail.enabled ? "true" : "false"}</strong></div>
         <div class="portal-inline-state">Task Template: <strong>${safe(detail.task_template_id || "-")}</strong></div>
         <div class="portal-inline-state">Repository: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
-        <div class="portal-inline-state">Review target: <strong>${safe(`${trigger.review_target_type || "-"} / ${trigger.review_target || "-"}`)}</strong></div>
+        ${detail.task_template_id === "github_comment_mention"
+          ? `<div class="portal-inline-state">Mention target: <strong>${safe(trigger.mention_target || "-")}</strong></div>
+             <div class="portal-inline-state">Surfaces: <strong>${safe((scope.surfaces || []).join(", ") || "-")}</strong></div>
+             <div class="portal-inline-state">Reply mode: <strong>${safe(taskConfig.reply_mode || "same_surface")}</strong></div>`
+          : `<div class="portal-inline-state">Review target: <strong>${safe(`${trigger.review_target_type || "-"} / ${trigger.review_target || "-"}`)}</strong></div>`}
         <div class="portal-inline-state">Target agent: <strong>${safe(`${targetAgent?.name || "-"} (${detail.target_agent_id})`)}</strong></div>
         <div class="portal-inline-state">Interval seconds: <strong>${safe(String(schedule.interval_seconds || 60))}</strong></div>
         <div class="portal-inline-state">Last run at: <strong>${safe(detail.last_run_at || "-")}</strong></div>
@@ -5814,38 +5819,78 @@ function openCreateAutomationRuleModal() {
         <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="Review EFP PRs" required /></label>
         <section class="portal-panel-section">
           <h4>Trigger</h4>
-          <label class="portal-form-label"><span class="portal-form-label">Trigger</span><select class="portal-form-select" name="trigger_type"><option value="github_pr_review_requested">GitHub PR review requested</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Trigger</span><select class="portal-form-select" name="trigger_type"><option value="github_pr_review_requested">GitHub PR review requested</option><option value="github_comment_mention">GitHub comment mention</option></select></label>
           <label class="portal-form-label"><span class="portal-form-label">Owner</span><input class="portal-form-input" name="owner" required /></label>
           <label class="portal-form-label"><span class="portal-form-label">Repo</span><input class="portal-form-input" name="repo" required /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Review target</span><input class="portal-form-input" name="review_target" required /></label>
+          <div data-pr-only="1">
+            <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
+            <label class="portal-form-label"><span class="portal-form-label">Review target</span><input class="portal-form-input" name="review_target" /></label>
+          </div>
+          <div data-mention-only="1" style="display:none">
+            <label class="portal-form-label"><span class="portal-form-label">Mention target</span><input class="portal-form-input" name="mention_target" /></label>
+            <label><input type="checkbox" name="surfaces" value="issue_comment" checked /> issue_comment</label>
+            <label><input type="checkbox" name="surfaces" value="pull_request_review_comment" checked /> pull_request_review_comment</label>
+          </div>
           <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
         </section>
         <section class="portal-panel-section">
           <h4>Task Template</h4>
-          <label class="portal-form-label"><span class="portal-form-label">Template</span><select class="portal-form-select" name="task_template_id"><option value="github_pr_review">github_pr_review</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Template</span><select class="portal-form-select" name="task_template_id"><option value="github_pr_review">github_pr_review</option><option value="github_comment_mention">github_comment_mention</option></select></label>
         </section>
         <section class="portal-panel-section">
           <h4>Agent & Task Defaults</h4>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Review event</span><select class="portal-form-select" name="review_event"><option value="COMMENT">COMMENT</option><option value="APPROVE">APPROVE</option><option value="REQUEST_CHANGES">REQUEST_CHANGES</option></select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Writeback mode</span><input class="portal-form-input" name="writeback_mode" /></label>
+          <div data-pr-only="1">
+            <label class="portal-form-label"><span class="portal-form-label">Review event</span><select class="portal-form-select" name="review_event"><option value="COMMENT">COMMENT</option><option value="APPROVE">APPROVE</option><option value="REQUEST_CHANGES">REQUEST_CHANGES</option></select></label>
+            <label class="portal-form-label"><span class="portal-form-label">Writeback mode</span><input class="portal-form-input" name="writeback_mode" /></label>
+          </div>
+          <div data-mention-only="1" style="display:none">
+            <label class="portal-form-label"><span class="portal-form-label">Reply mode</span><select class="portal-form-select" name="reply_mode"><option value="same_surface">same_surface</option><option value="timeline">timeline</option></select></label>
+          </div>
         </section>
         <button class="portal-btn is-primary" type="submit">Create</button>
       </form>
     </div>
   `;
+  const form = document.getElementById("create-automation-inline-form");
+  const triggerSel = form?.querySelector('select[name="trigger_type"]');
+  const tplSel = form?.querySelector('select[name="task_template_id"]');
+  const toggle = () => {
+    const isMention = (tplSel?.value || "") === "github_comment_mention";
+    form?.querySelectorAll("[data-pr-only='1']").forEach((el) => { el.style.display = isMention ? "none" : ""; });
+    form?.querySelectorAll("[data-mention-only='1']").forEach((el) => { el.style.display = isMention ? "" : "none"; });
+    if (triggerSel) triggerSel.value = isMention ? "github_comment_mention" : "github_pr_review_requested";
+  };
+  triggerSel?.addEventListener("change", () => { if (tplSel) tplSel.value = triggerSel.value === "github_comment_mention" ? "github_comment_mention" : "github_pr_review"; toggle(); });
+  tplSel?.addEventListener("change", toggle);
+  toggle();
 }
 
 async function submitCreateAutomationRule(formEl) {
   const fd = new FormData(formEl);
+  const taskTemplateId = String(fd.get("task_template_id") || "github_pr_review");
+  if (taskTemplateId === "github_comment_mention") {
+    const selectedSurfaces = fd.getAll("surfaces").map((s) => String(s));
+    const payload = {
+      name: String(fd.get("name") || ""), target_agent_id: String(fd.get("target_agent_id") || ""), enabled: true, source_type: "github",
+      trigger_type: "github_comment_mention", task_template_id: "github_comment_mention",
+      scope: { mode: "repo", owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || ""), surfaces: selectedSurfaces.length ? selectedSurfaces : ["issue_comment", "pull_request_review_comment"] },
+      trigger_config: { mention_target_type: "user", mention_target: String(fd.get("mention_target") || ""), ignore_self_comments: true, ignore_bot_comments: true, ignore_efp_auto_reply_marker: true, strip_code_blocks_before_matching: true },
+      task_input_defaults: { skill_name: "handle-triggered-event", execution_mode: "chat_tool_loop", reply_mode: String(fd.get("reply_mode") || "same_surface") },
+      schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60), initial_lookback_seconds: 0, overlap_seconds: 120, max_pages_per_surface: 10 },
+    };
+    const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
+    await loadAutomationRules();
+    await openAutomationRulePanel(created.id);
+    return;
+  }
   const payload = {
     name: String(fd.get("name") || ""),
     target_agent_id: String(fd.get("target_agent_id") || ""),
     enabled: true,
     source_type: "github",
     trigger_type: String(fd.get("trigger_type") || "github_pr_review_requested"),
-    task_template_id: String(fd.get("task_template_id") || "github_pr_review"),
+    task_template_id: taskTemplateId,
     scope: { owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || "") },
     trigger_config: { review_target_type: String(fd.get("review_target_type") || "user"), review_target: String(fd.get("review_target") || "") },
     task_input_defaults: {

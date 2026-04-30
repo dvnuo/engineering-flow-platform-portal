@@ -44,6 +44,15 @@ def extract_github_mentions(body: str, strip_code_blocks: bool = True) -> list[s
     return list(dict.fromkeys(found))
 
 
+def _parse_num_from_url(raw: str | None, patterns: list[str]) -> int | None:
+    text = str(raw or "")
+    for p in patterns:
+        m = re.search(p, text)
+        if m:
+            return int(m.group(1))
+    return None
+
+
 class GithubCommentMentionPoller:
     async def poll_mentions(self, *, provider_config: GithubProviderConfig, owner: str, repo: str, mention_target: str, since_by_surface: dict, surfaces: list[str], overlap_seconds: int = 120, max_pages_per_surface: int = 10, initial_since: datetime | None = None, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True) -> tuple[list[dict], dict]:
         base_url = provider_config.base_url.rstrip("/")
@@ -65,6 +74,11 @@ class GithubCommentMentionPoller:
                         raise ValueError(f"GitHub API error surface={surface} status={resp.status_code}")
                     batch = resp.json() or []
                     for c in batch:
+                        upd = _parse_dt(c.get("updated_at")) or now
+                        cid = int(c.get("id") or 0)
+                        if upd > max_seen_dt or (upd == max_seen_dt and cid > max_seen_id):
+                            max_seen_dt = upd
+                            max_seen_id = cid
                         body = c.get("body") or ""
                         mentioned = extract_github_mentions(body, strip_code_blocks_before_matching)
                         target = mention_target.lower()
@@ -79,10 +93,6 @@ class GithubCommentMentionPoller:
                             continue
                         item = self._normalize(surface, c, owner, repo, target, mentioned)
                         items.append(item)
-                        upd = _parse_dt(c.get("updated_at")) or now
-                        if upd >= max_seen_dt:
-                            max_seen_dt = upd
-                            max_seen_id = max(max_seen_id, int(c.get("id") or 0))
                     if len(batch) < 100:
                         break
                 poll_cursors[surface] = {"last_seen_updated_at": _iso_z(max_seen_dt if max_seen_dt else now), "last_seen_comment_id": max_seen_id}
@@ -90,7 +100,7 @@ class GithubCommentMentionPoller:
 
     def _normalize(self, surface: str, c: dict, owner: str, repo: str, mention_target: str, mentioned: list[str]) -> dict:
         if surface == "issue_comment":
-            issue_number = int(str(c.get("issue_url") or "0").rstrip("/").split("/")[-1])
+            issue_number = _parse_num_from_url(c.get("issue_url"), [r"/issues/(\d+)$"]) or _parse_num_from_url(c.get("html_url"), [r"/issues/(\d+)", r"/pull/(\d+)"]) or 0
             html_url = c.get("html_url") or ""
             is_pr = "/pull/" in html_url
             return {
@@ -102,7 +112,7 @@ class GithubCommentMentionPoller:
                 "mentioned_account": mention_target, "mentioned_logins": mentioned, "source_payload": c,
             }
         pull_url = c.get("pull_request_url") or ""
-        pull_number = int(str(pull_url).rstrip("/").split("/")[-1]) if pull_url else int(re.search(r"/pull/(\d+)", c.get("html_url") or "").group(1))
+        pull_number = _parse_num_from_url(pull_url, [r"/pulls/(\d+)$"]) or _parse_num_from_url(c.get("html_url"), [r"/pull/(\d+)"]) or 0
         return {
             "source_kind": "github.mention", "source_event": "poll.pull_request_review_comment", "comment_kind": "pull_request_review_comment",
             "context_type": "pull_request_review_thread", "owner": owner, "repo": repo, "pull_number": pull_number, "issue_number": pull_number,

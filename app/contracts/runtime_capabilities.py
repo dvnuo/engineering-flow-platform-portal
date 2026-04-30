@@ -7,6 +7,7 @@ DEFAULT_RUNTIME_ADAPTER_ACTIONS_BY_SYSTEM: dict[str, dict[str, str]] = {
     "github": {
         "review_pull_request": "adapter:github:review_pull_request",
         "add_comment": "adapter:github:add_comment",
+        "reply_review_comment": "adapter:github:reply_review_comment",
     },
     "jira": {
         "read_issue": "adapter:jira:read_issue",
