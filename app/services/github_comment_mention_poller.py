@@ -3,16 +3,17 @@ from __future__ import annotations
 import re
 from fnmatch import fnmatchcase
 from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
 from app.services.provider_config_resolver import GithubProviderConfig
 
 MENTION_RE = re.compile(r"(?<![A-Za-z0-9_.-])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9_-])")
-SURFACE_ENDPOINTS = {
-    "issue_comment": "issues/comments",
-    "pull_request_review_comment": "pulls/comments",
-    "commit_comment": "comments",
+SURFACE_CONFIG = {
+    "issue_comment": {"endpoint": "issues/comments", "supports_since": True, "supports_updated_sort": True},
+    "pull_request_review_comment": {"endpoint": "pulls/comments", "supports_since": True, "supports_updated_sort": True},
+    "commit_comment": {"endpoint": "comments", "supports_since": False, "supports_updated_sort": False, "ordered_by": "ascending_id"},
 }
 
 
@@ -59,8 +60,27 @@ def _parse_num_from_url(raw: str | None, patterns: list[str]) -> int | None:
     return None
 
 
+def _parse_last_page_from_link_header(link_header: str | None) -> int | None:
+    if not link_header:
+        return None
+    for part in str(link_header).split(","):
+        if 'rel="last"' not in part:
+            continue
+        seg = part.split(";")[0].strip()
+        if seg.startswith("<") and seg.endswith(">"):
+            seg = seg[1:-1]
+        query = parse_qs(urlparse(seg).query)
+        val = query.get("page", [None])[0]
+        if val is not None:
+            try:
+                return int(val)
+            except ValueError:
+                return None
+    return None
+
+
 class GithubCommentMentionPoller:
-    async def poll_mentions(self, *, provider_config: GithubProviderConfig, owner: str, repo: str, mention_target: str, since_by_surface: dict, surfaces: list[str], overlap_seconds: int = 120, max_pages_per_surface: int = 10, initial_since: datetime | None = None, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True) -> tuple[list[dict], dict]:
+    async def poll_mentions(self, *, provider_config: GithubProviderConfig, owner: str, repo: str, mention_target: str, since_by_surface: dict, surfaces: list[str], overlap_seconds: int = 120, max_pages_per_surface: int = 10, initial_since: datetime | None = None, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True, commit_comment_initial_tail_pages: int = 2) -> tuple[list[dict], dict]:
         base_url = provider_config.base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {provider_config.api_token}", "Accept": "application/vnd.github+json"}
         poll_started_at = datetime.utcnow()
@@ -68,28 +88,54 @@ class GithubCommentMentionPoller:
         poll_cursors = {}
         async with httpx.AsyncClient(timeout=20) as client:
             for surface in surfaces:
-                endpoint = SURFACE_ENDPOINTS.get(surface)
-                if not endpoint:
+                cfg = SURFACE_CONFIG.get(surface)
+                if not cfg:
                     raise ValueError(f"Unsupported GitHub comment mention surface: {surface}")
+                endpoint = cfg["endpoint"]
                 last_dt = _parse_dt((since_by_surface.get(surface) or {}).get("last_seen_updated_at"))
                 query_since = (last_dt - timedelta(seconds=overlap_seconds)) if last_dt else (initial_since or poll_started_at)
                 max_seen_dt = query_since
                 max_seen_id = int((since_by_surface.get(surface) or {}).get("last_seen_comment_id") or 0)
                 hit_page_limit = False
-                for page in range(1, max_pages_per_surface + 1):
-                    params = {"since": _iso_z(query_since), "per_page": 100, "page": page}
-                    if surface in {"issue_comment", "pull_request_review_comment"}:
+                start_page = 1
+                if surface == "commit_comment":
+                    cursor = since_by_surface.get(surface) or {}
+                    if cursor.get("next_scan_page") or cursor.get("last_seen_page"):
+                        start_page = max(1, int(cursor.get("next_scan_page") or cursor.get("last_seen_page") or 1))
+                page_where_max_seen = start_page
+                last_page_seen = int((since_by_surface.get(surface) or {}).get("last_seen_total_pages") or 0)
+                for idx in range(max_pages_per_surface):
+                    page = start_page + idx
+                    params = {"per_page": 100, "page": page}
+                    if cfg.get("supports_since"):
+                        params["since"] = _iso_z(query_since)
+                    if cfg.get("supports_updated_sort"):
                         params.update({"sort": "updated", "direction": "asc"})
                     resp = await client.get(f"{base_url}/repos/{owner}/{repo}/{endpoint}", params=params, headers=headers)
                     if resp.status_code >= 400:
                         raise ValueError(f"GitHub API error surface={surface} status={resp.status_code}")
                     batch = resp.json() or []
+                    last_from_header = _parse_last_page_from_link_header((getattr(resp, "headers", {}) or {}).get("Link"))
+                    if last_from_header:
+                        last_page_seen = last_from_header
+                    if surface == "commit_comment" and idx == 0 and not (since_by_surface.get(surface) or {}).get("last_seen_comment_id") and last_page_seen:
+                        start_page = max(1, last_page_seen - max(1, commit_comment_initial_tail_pages) + 1)
+                        page = start_page
+                        params = {"per_page": 100, "page": page}
+                        resp = await client.get(f"{base_url}/repos/{owner}/{repo}/{endpoint}", params=params, headers=headers)
+                        batch = resp.json() or []
                     for c in batch:
                         upd = _parse_dt(c.get("updated_at")) or poll_started_at
                         cid = int(c.get("id") or 0)
                         if upd > max_seen_dt or (upd == max_seen_dt and cid > max_seen_id):
                             max_seen_dt = upd
                             max_seen_id = cid
+                            page_where_max_seen = page
+                        if surface == "commit_comment":
+                            last_seen_id = int((since_by_surface.get(surface) or {}).get("last_seen_comment_id") or 0)
+                            is_new_enough = ((last_seen_id > 0) and (cid > last_seen_id)) or ((last_seen_id == 0) and (upd >= query_since))
+                            if not is_new_enough:
+                                continue
                         body = c.get("body") or ""
                         mentioned = extract_github_mentions(body, strip_code_blocks_before_matching)
                         target = mention_target.lower()
@@ -111,6 +157,9 @@ class GithubCommentMentionPoller:
                         hit_page_limit = True
                 cursor_dt = max_seen_dt if hit_page_limit else max(max_seen_dt, poll_started_at)
                 poll_cursors[surface] = {"last_seen_updated_at": _iso_z(cursor_dt), "last_seen_comment_id": max_seen_id}
+                if surface == "commit_comment":
+                    next_scan_page = (start_page + max_pages_per_surface) if hit_page_limit else max(1, page_where_max_seen - 1)
+                    poll_cursors[surface].update({"last_seen_page": page_where_max_seen, "next_scan_page": next_scan_page, "last_seen_total_pages": last_page_seen})
         return items, {"poll_cursors": poll_cursors}
 
     async def list_org_repositories(self, *, provider_config: GithubProviderConfig, org: str, repo_selector: dict | None = None, max_pages: int = 10) -> list[dict]:
@@ -124,7 +173,7 @@ class GithubCommentMentionPoller:
         output: list[dict] = []
         async with httpx.AsyncClient(timeout=20) as client:
             for page in range(1, max_pages + 1):
-                resp = await client.get(f"{base_url}/orgs/{org}/repos", params={"per_page": 100, "page": page, "type": "all"}, headers=headers)
+                resp = await client.get(f"{base_url}/orgs/{org}/repos", params={"per_page": 100, "page": page, "type": "all", "sort": "full_name", "direction": "asc"}, headers=headers)
                 if resp.status_code >= 400:
                     raise ValueError(f"GitHub API error org={org} status={resp.status_code}")
                 batch = resp.json() or []
@@ -143,7 +192,7 @@ class GithubCommentMentionPoller:
                     output.append({"owner": org, "repo": name, "full_name": repo.get("full_name") or f"{org}/{name}", "archived": repo.get("archived"), "fork": repo.get("fork")})
                 if len(batch) < 100:
                     break
-        return output
+        return sorted(output, key=lambda x: str(x.get("full_name") or ""))
 
     def _normalize(self, surface: str, c: dict, owner: str, repo: str, mention_target: str, mentioned: list[str]) -> dict:
         if surface == "issue_comment":

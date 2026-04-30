@@ -359,3 +359,25 @@ def test_api_create_discussion_comment_returns_400():
         assert resp.status_code == 400
     finally:
         cleanup()
+
+def test_api_create_commit_comment_with_tail_pages_succeeds():
+    client, db, agent, cleanup = _build_client_with_overrides()
+    try:
+        cp_ok = CapabilityProfile(name="cap-commit-tail", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment","reply_review_comment","add_commit_comment"]')
+        db.add(cp_ok); db.commit(); db.refresh(cp_ok)
+        agent.capability_profile_id = cp_ok.id; db.add(agent); db.commit()
+        payload = {"name": "mention", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}, "schedule": {"interval_seconds": 60, "commit_comment_initial_tail_pages": 3}}
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 200
+    finally:
+        cleanup()
+
+
+def test_api_create_org_mode_with_max_repos_per_run_succeeds():
+    client, _db, agent, cleanup = _build_client_with_overrides()
+    try:
+        payload = {"name": "org-limit", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"mode": "org", "owner": "acme", "repo_selector": {"include": ["*"]}}, "trigger_config": {"mention_target": "efp-agent"}, "schedule": {"interval_seconds": 60, "max_repos_per_run": 10}}
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 200
+    finally:
+        cleanup()

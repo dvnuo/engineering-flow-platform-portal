@@ -773,3 +773,29 @@ async def test_run_once_org_scope_polls_multiple_repos_and_stores_per_repo_curso
     state = json.loads(refreshed.state_json)
     assert "acme/portal" in state.get("poll_cursors_by_repo", {})
     assert "acme/api" in state.get("poll_cursors_by_repo", {})
+
+def test_create_github_comment_mention_rule_accepts_commit_comment_initial_tail_pages():
+    db = _session(); user, agent = _create_runtime_and_agent(db, "u-tail-ok"); svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name="tail", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, trigger_config={"mention_target": "efp-agent"}, schedule={"interval_seconds": 60, "commit_comment_initial_tail_pages": 3}), current_user_id=user.id)
+    assert rule.id
+
+
+def test_create_github_comment_mention_rule_rejects_bad_commit_tail_pages():
+    db = _session(); user, agent = _create_runtime_and_agent(db, "u-tail-bad"); svc = AutomationRuleService(db)
+    with pytest.raises(Exception):
+        svc.create_rule(AutomationRuleCreate(name="tail0", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"}, schedule={"interval_seconds": 60, "commit_comment_initial_tail_pages": 0}), current_user_id=user.id)
+    with pytest.raises(Exception):
+        svc.create_rule(AutomationRuleCreate(name="tail50", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"}, schedule={"interval_seconds": 60, "commit_comment_initial_tail_pages": 50}), current_user_id=user.id)
+
+
+@pytest.mark.anyio
+async def test_run_once_github_comment_mention_passes_commit_tail_pages_to_poller(monkeypatch):
+    db = _session(); user, agent = _create_runtime_and_agent(db, "u-tail-pass"); svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name="tail-pass", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"}, schedule={"interval_seconds": 60, "commit_comment_initial_tail_pages": 3}), current_user_id=user.id)
+    seen = {}
+    async def _poll_mentions(**kwargs):
+        seen.update(kwargs)
+        return ([], {"poll_cursors": {}})
+    monkeypatch.setattr(svc.comment_mention_poller, "poll_mentions", _poll_mentions)
+    await svc.run_rule_once(rule.id)
+    assert seen.get("commit_comment_initial_tail_pages") == 3

@@ -121,7 +121,7 @@ async def test_poll_mentions_page_limit_does_not_jump_cursor_to_poll_time(monkey
 async def test_poll_mentions_commit_comment(monkeypatch):
     responses = [_Resp(200, [{"id": 99, "commit_id": "abc123", "body": "@efp-agent ping", "user": {"login": "alice", "type": "User"}, "html_url": "u", "url": "a", "updated_at": "2026-01-01T00:00:00Z"}])]
     monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
-    items, _ = await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["commit_comment"])
+    items, _ = await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["commit_comment"], initial_since=__import__("datetime").datetime(2025,12,31,0,0,0))
     assert items[0]["comment_kind"] == "commit_comment"
     assert items[0]["commit_id"] == "abc123"
     assert items[0]["context_type"] == "commit"
@@ -144,4 +144,65 @@ async def test_list_org_repositories_filters_archived_forks_and_patterns(monkeyp
     ])]
     monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
     repos = await GithubCommentMentionPoller().list_org_repositories(provider_config=_provider(), org="acme", repo_selector={"include": ["api-*", "portal"], "exclude": ["archived-*"], "include_forks": False, "include_archived": False})
-    assert [r["repo"] for r in repos] == ["portal", "api-core"]
+    assert [r["repo"] for r in repos] == ["api-core", "portal"]
+
+@pytest.mark.anyio
+async def test_poll_mentions_commit_comment_does_not_send_since_param(monkeypatch):
+    seen = {}
+    class C(_Client):
+        async def get(self, *_args, **kwargs):
+            seen.update(kwargs.get("params") or {})
+            return _Resp(200, [])
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["commit_comment"])
+    assert "since" not in seen and "sort" not in seen and "direction" not in seen
+
+
+@pytest.mark.anyio
+async def test_poll_mentions_commit_comment_filters_old_history_on_initial_run(monkeypatch):
+    responses = [_Resp(200, [
+        {"id": 1, "commit_id": "a", "body": "@efp-agent", "user": {"login": "u", "type": "User"}, "updated_at": "2025-12-01T00:00:00Z"},
+        {"id": 2, "commit_id": "b", "body": "@efp-agent", "user": {"login": "u", "type": "User"}, "updated_at": "2026-01-01T00:00:01Z"},
+    ])]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
+    items, _ = await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["commit_comment"], initial_since=__import__("datetime").datetime(2026,1,1,0,0,0))
+    assert [i["comment_id"] for i in items] == [2]
+
+
+@pytest.mark.anyio
+async def test_poll_mentions_commit_comment_uses_id_cursor(monkeypatch):
+    responses = [_Resp(200, [
+        {"id": 50, "commit_id": "a", "body": "@efp-agent", "user": {"login": "u", "type": "User"}, "updated_at": "2026-01-01T00:00:00Z"},
+        {"id": 101, "commit_id": "b", "body": "@efp-agent", "user": {"login": "u", "type": "User"}, "updated_at": "2026-01-01T00:00:00Z"},
+    ])]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
+    items, _ = await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={"commit_comment": {"last_seen_comment_id": 100, "last_seen_updated_at": "2026-01-01T00:00:00Z"}}, surfaces=["commit_comment"])
+    assert [i["comment_id"] for i in items] == [101]
+
+
+@pytest.mark.anyio
+async def test_poll_mentions_commit_comment_updates_next_scan_page_when_page_limit_hit(monkeypatch):
+    batch = [{"id": i, "commit_id": f"c{i}", "body": "nope", "user": {"login": "u", "type": "User"}, "updated_at": "2026-01-01T00:00:00Z"} for i in range(1,101)]
+    responses = [_Resp(200, batch)]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
+    _, state = await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["commit_comment"], max_pages_per_surface=1)
+    assert state["poll_cursors"]["commit_comment"]["next_scan_page"] == 2
+
+
+def test_parse_last_page_from_link_header():
+    from app.services.github_comment_mention_poller import _parse_last_page_from_link_header
+    header = '<https://api.github.com/repositories/1/comments?page=5>; rel="last"'
+    assert _parse_last_page_from_link_header(header) == 5
+
+
+@pytest.mark.anyio
+async def test_list_org_repositories_uses_stable_sort_params(monkeypatch):
+    seen = {}
+    class C(_Client):
+        async def get(self, *_args, **kwargs):
+            seen.update(kwargs.get("params") or {})
+            return _Resp(200, [])
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    await GithubCommentMentionPoller().list_org_repositories(provider_config=_provider(), org="acme")
+    assert seen.get("sort") == "full_name"
+    assert seen.get("direction") == "asc"

@@ -172,6 +172,7 @@ class AutomationRuleService:
         self._int_config(schedule.get("max_pages_per_surface"), 10, field_name="schedule.max_pages_per_surface", min_value=1, max_value=50)
         self._int_config(schedule.get("initial_lookback_seconds"), 0, field_name="schedule.initial_lookback_seconds", min_value=0)
         self._int_config(schedule.get("max_repos_per_run"), 20, field_name="schedule.max_repos_per_run", min_value=1, max_value=200)
+        self._int_config(schedule.get("commit_comment_initial_tail_pages"), 2, field_name="schedule.commit_comment_initial_tail_pages", min_value=1, max_value=20)
 
     def _validate_built_rule_config(self, *, built: dict, task_template_id: str) -> None:
         require_task_template(task_template_id)
@@ -614,6 +615,7 @@ class AutomationRuleService:
         max_pages_per_surface = int(schedule.get("max_pages_per_surface") or 10)
         initial_lookback_seconds = int(schedule.get("initial_lookback_seconds") or 0)
         max_repos_per_run = int(schedule.get("max_repos_per_run") or 20)
+        commit_comment_initial_tail_pages = int(schedule.get("commit_comment_initial_tail_pages") or 2)
         surfaces = scope.get("surfaces") or ["issue_comment", "pull_request_review_comment"]
         mention_target = str(trigger_cfg.get("mention_target") or "").strip()
         skill_name = str(task_cfg.get("skill_name") or "handle-triggered-event").strip()
@@ -641,7 +643,7 @@ class AutomationRuleService:
                 for target in selected:
                     key = f"{target['owner']}/{target['repo']}"
                     repo_cursors = next_cursor_map.get(key) if isinstance(next_cursor_map.get(key), dict) else {}
-                    repo_items, next_patch = await self.comment_mention_poller.poll_mentions(provider_config=provider_cfg, owner=target["owner"], repo=target["repo"], mention_target=mention_target, since_by_surface=repo_cursors, surfaces=surfaces, overlap_seconds=overlap_seconds, max_pages_per_surface=max_pages_per_surface, initial_since=initial_since, ignore_self_comments=bool(trigger_cfg.get("ignore_self_comments", True)), ignore_bot_comments=bool(trigger_cfg.get("ignore_bot_comments", True)), ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)))
+                    repo_items, next_patch = await self.comment_mention_poller.poll_mentions(provider_config=provider_cfg, owner=target["owner"], repo=target["repo"], mention_target=mention_target, since_by_surface=repo_cursors, surfaces=surfaces, overlap_seconds=overlap_seconds, max_pages_per_surface=max_pages_per_surface, initial_since=initial_since, ignore_self_comments=bool(trigger_cfg.get("ignore_self_comments", True)), ignore_bot_comments=bool(trigger_cfg.get("ignore_bot_comments", True)), ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)), commit_comment_initial_tail_pages=commit_comment_initial_tail_pages)
                     next_cursor_map[key] = next_patch.get("poll_cursors", repo_cursors)
                     items.extend(repo_items)
                 next_state_patch = {"poll_cursors_by_repo": next_cursor_map, "org_repo_cursor": (repo_cursor + len(selected)) % max(1, len(repos))}
@@ -651,7 +653,7 @@ class AutomationRuleService:
                     provider_config=provider_cfg, owner=str(scope.get("owner") or "").strip(), repo=str(scope.get("repo") or "").strip(), mention_target=mention_target,
                     since_by_surface=poll_cursors, surfaces=surfaces, overlap_seconds=overlap_seconds, max_pages_per_surface=max_pages_per_surface, initial_since=initial_since,
                     ignore_self_comments=bool(trigger_cfg.get("ignore_self_comments", True)), ignore_bot_comments=bool(trigger_cfg.get("ignore_bot_comments", True)),
-                    ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)),
+                    ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)), commit_comment_initial_tail_pages=commit_comment_initial_tail_pages,
                 )
             found_count = len(items)
             for item in items:
