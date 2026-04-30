@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 import shutil
 import subprocess
+import re
 
 import pytest
 
@@ -77,7 +78,11 @@ def test_retry_and_edit_do_not_restore_history_attachments_hidden_input():
 def test_attachment_only_send_contract_and_textarea_not_required():
     js = _source()
     app_html = Path("app/templates/app.html").read_text(encoding="utf-8")
-    textarea_block = app_html[app_html.index('<textarea id="chat-input"'):app_html.index('</textarea>', app_html.index('<textarea id="chat-input"'))]
+    assert 'id="quick-uploads-btn"' not in app_html
+    assert 'id="upload-input"' in app_html
+    assert 'id="composer-attach-btn"' in app_html
+    assert 'id="send-chat-btn"' in app_html
+    textarea_block = re.search(r'<textarea[^>]*id="chat-input"[\s\S]*?</textarea>', app_html).group(0)
     assert "required" not in textarea_block
     start = js.index("async function submitChatForSelectedAgent()")
     end = js.index("function handleAgentChatSuccess", start)
@@ -86,4 +91,3 @@ def test_attachment_only_send_contract_and_textarea_not_required():
     assert "message: requestMessage" in submit_block
     assert "[attachment]" in submit_block
     assert "attachments: attachmentsAtSend" in submit_block
-

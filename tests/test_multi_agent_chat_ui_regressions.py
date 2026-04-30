@@ -21,6 +21,16 @@ def _chat_ui_js_source() -> str:
     return chat_ui_path.read_text(encoding="utf-8")
 
 
+def _run_node_script(node_bin: str, script: str):
+    return subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=15,
+    )
+
+
 def test_chat_ui_includes_display_block_renderer_helpers():
     js_source = _chat_ui_js_source()
     assert "function parseDisplayBlocks(" in js_source
@@ -128,7 +138,7 @@ console.log(JSON.stringify({{
   hidden: dom.chatModelWrap.classList.contains("hidden"),
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["selectedA"] == "gpt-5"
     assert data["selectedB"] == "claude-haiku-4-20250514"
@@ -198,7 +208,7 @@ console.log(JSON.stringify({{
   hidden: dom.chatModelWrap.classList.contains("hidden"),
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["selected"] == "gpt-unknown-custom"
     assert ["gpt-unknown-custom", "gpt-unknown-custom (Current)"] in data["options"]
@@ -298,7 +308,7 @@ const console = {{ warn() {{}}, log: globalThis.console.log }};
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["selectedAgentId"] == "agent-B"
     assert data["domValue"] == "claude-sonnet-4-20250514"
@@ -363,7 +373,7 @@ aState.activeRequest = {{ clientRequestId: "req-a" }};
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["unread"] == 1
     assert data["needsReload"] is True
@@ -437,7 +447,7 @@ chatState.inflightThinking = {{ events: [{{type: "execution.started", request_id
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["notifyCalls"] == 1
     assert data["editCalls"] == 1
@@ -463,7 +473,7 @@ const cases = {{
 }};
 console.log(JSON.stringify(cases));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data == {
         "empty": False,
@@ -492,7 +502,7 @@ const cases = {{
 }};
 console.log(JSON.stringify(cases));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data == {
         "empty": False,
@@ -542,7 +552,7 @@ const result = extractLatestContextStateFromEvents([
 
 console.log(JSON.stringify(result));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["summary"] == "Real final summary"
     assert data["next_step"] == "Keep this"
@@ -586,7 +596,7 @@ updateThinkingContextFromEvent(thinking, {{
 
 console.log(JSON.stringify(thinking));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["contextState"]["summary"] == "Existing live summary"
     assert data["contextState"]["next_step"] == "Existing next step"
@@ -671,7 +681,7 @@ chatState.inflightThinking = {{
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["summary"] == "Live summary"
     assert data["contextSource"] == "final_response"
@@ -770,7 +780,7 @@ chatState.inflightThinking = {{ events: [], contextState: null, contextBudget: {
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["summary"] == "Final event summary"
     assert data["nextStep"] == "Keep final context"
@@ -886,7 +896,7 @@ chatState.inflightThinking = {{
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["rendered"]["summary"] == "Final payload summary"
     assert data["rendered"]["nextStep"] == "Final next step"
@@ -972,7 +982,7 @@ console.log(JSON.stringify({{
   budgetUsage: chatState.lastThinkingSnapshot.contextBudget.usage_percent,
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["inflightIsNull"] is True
     assert data["eventCount"] == 1
@@ -1078,7 +1088,7 @@ global.fetch = async () => ({{
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["changedFirst"] is False
     assert data["before"] == data["afterFirst"]
@@ -1138,7 +1148,7 @@ chatState.activeRequest = {{ clientRequestId: "req-a" }};
   console.log(JSON.stringify({{ reloadCalls }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["reloadCalls"] == [["agent-A", "s-a2", True]]
 
@@ -1204,7 +1214,7 @@ console.log(JSON.stringify({{
   toastCalls
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["attachmentsValue"] == ""
     assert data["pendingFiles"] == []
@@ -1278,7 +1288,7 @@ console.log(JSON.stringify({{
   renderCalls
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["draftText"] == "msg"
     assert data["pendingFiles"] == []
@@ -1346,7 +1356,7 @@ console.log(JSON.stringify({{
   attachmentChipCount: dom.messageList.children[0].children[1].children[1].children.length
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert "attachmentHistory" not in data["chatStateKeys"]
     assert data["attachmentChipCount"] == 1
@@ -1391,7 +1401,7 @@ console.log(JSON.stringify({{
   messageListHtml: dom.messageList.innerHTML
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert "attachmentHistory" not in data["chatStateKeys"]
     assert data["messageListHtml"] == "WELCOME"
@@ -1465,7 +1475,7 @@ console.log(JSON.stringify({{
   attachmentDivDatasetAttachments: attachmentsContainer.dataset.attachments || null,
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["imageNodeCount"] == 1
     assert data["fileNodeCount"] == 2
@@ -1495,7 +1505,7 @@ function escapeHtmlAttr(value) {{ return String(value || ""); }}
 const html = buildUserMessageArticle("hello", []);
 console.log(JSON.stringify({{ html }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert 'message-author">Alice<' in data["html"]
 
@@ -1513,7 +1523,7 @@ const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
   currentUserName: "Portal User",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const appendedRows = [];
 const dom = {{
@@ -1549,7 +1559,7 @@ renderChatHistory([
 const authorLabels = appendedRows.map((row) => row.children[0].children[0].textContent);
 console.log(JSON.stringify({{ authorLabels }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["authorLabels"] == ["Alice", "Portal Agent"]
 
@@ -1567,7 +1577,7 @@ const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
   currentUserName: "Portal User",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const appendedRows = [];
 const dom = {{
@@ -1602,7 +1612,7 @@ renderChatHistory([
 const authorLabel = appendedRows[0].children[0].children[0].textContent;
 console.log(JSON.stringify({{ authorLabel }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["authorLabel"] == "Agent A"
 
@@ -1620,7 +1630,7 @@ const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Portal Agent",
   currentUserName: "Alice",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const appendedRows = [];
 const dom = {{
@@ -1656,7 +1666,7 @@ renderChatHistory([
 const authorLabels = appendedRows.map((row) => row.children[0].children[0].textContent);
 console.log(JSON.stringify({{ authorLabels }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["authorLabels"] == ["Alice", "Portal Agent"]
 
@@ -1725,7 +1735,7 @@ chatState.activeRequest = {{ clientRequestId: "req-a" }};
   console.log(JSON.stringify({{ capturedAuthorName }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["capturedAuthorName"] == "Portal Agent"
 
@@ -1766,7 +1776,7 @@ globalThis.WebSocket = FakeWebSocket;
 ensureEventSocketForSelectedAgent();
 console.log(JSON.stringify({{ createdUrl }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert "session_id=s-1" in data["createdUrl"]
     assert "request_id=req-live-1" in data["createdUrl"]
@@ -1871,12 +1881,7 @@ console.log(JSON.stringify({{
 }}));
 """
 
-    completed = subprocess.run(
-        [node_bin, "-e", script],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
 
     assert "closed:old" in data["events"]
@@ -1940,7 +1945,7 @@ state.selectedAgentId = "agent-B";
 restoreComposerForAgent("agent-B");
 console.log(JSON.stringify({{ disabled: dom.sendChatBtn.disabled }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["disabled"] is False
 
@@ -2004,7 +2009,7 @@ chatState.sessionId = "s-a";
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["updatedSession"] == 0
     assert data["setChatSubmittingFalse"] == 0
@@ -2037,7 +2042,7 @@ const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.failed" }
 const byState = deriveSessionRecoveryNotice({{ latest_event_state: "error" }});
 console.log(JSON.stringify({{ byType, byState }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["byType"]["level"] == "error"
     assert "failed" in data["byType"]["message"].lower()
@@ -2060,7 +2065,7 @@ const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.started" 
 const byState = deriveSessionRecoveryNotice({{ latest_event_state: "running" }});
 console.log(JSON.stringify({{ byType, byState }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["byType"]["level"] == "warning"
     assert ("interrupted" in data["byType"]["message"].lower()) or ("still be running" in data["byType"]["message"].lower())
@@ -2180,7 +2185,7 @@ console.log(JSON.stringify({{
   busy: hasActiveChatRequestForAgent("agent-A"),
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["sessionId"] == ""
     assert data["hasAgentSession"] is False
@@ -2245,7 +2250,7 @@ console.log(JSON.stringify({{
   domSession: dom.chatSessionId.value,
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["sessionId"] == "session-new"
     assert data["mappedSession"] == "session-new"
