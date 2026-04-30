@@ -488,6 +488,8 @@ class AgentGroupService:
             image=template_agent.image,
             repo_url=normalized_template_repo_url,
             branch=template_agent.branch,
+            skill_repo_url=normalize_git_repo_url(getattr(template_agent, "skill_repo_url", None)),
+            skill_branch=getattr(template_agent, "skill_branch", None),
             cpu=template_agent.cpu,
             memory=template_agent.memory,
             agent_type="task",

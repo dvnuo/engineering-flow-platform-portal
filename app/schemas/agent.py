@@ -11,8 +11,10 @@ ALLOWED_AGENT_TYPES = {"workspace", "specialist", "task"}
 class AgentCreateRequest(BaseModel):
     name: str
     image: Optional[str] = None
-    repo_url: Optional[str] = None  # GitHub repo URL
-    branch: Optional[str] = None  # Git branch
+    repo_url: Optional[str] = None  # deprecated, ignored
+    branch: Optional[str] = None  # deprecated, ignored
+    skill_repo_url: Optional[str] = None
+    skill_branch: Optional[str] = None
     disk_size_gi: int = 20
     mount_path: str = "/root/.efp"
     cpu: Optional[str] = None
@@ -31,7 +33,7 @@ class AgentCreateRequest(BaseModel):
             raise ValueError("agent_type must be one of: workspace, specialist, task")
         return normalized
 
-    @field_validator("repo_url")
+    @field_validator("repo_url", "skill_repo_url")
     @classmethod
     def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
         return normalize_git_repo_url(value)
@@ -40,8 +42,10 @@ class AgentCreateRequest(BaseModel):
 class AgentUpdateRequest(BaseModel):
     name: Optional[str] = None
     image: Optional[str] = None
-    repo_url: Optional[str] = None
-    branch: Optional[str] = None
+    repo_url: Optional[str] = None  # deprecated, ignored
+    branch: Optional[str] = None  # deprecated, ignored
+    skill_repo_url: Optional[str] = None
+    skill_branch: Optional[str] = None
     disk_size_gi: Optional[int] = None
     cpu: Optional[str] = None
     memory: Optional[str] = None
@@ -61,7 +65,7 @@ class AgentUpdateRequest(BaseModel):
             raise ValueError("agent_type must be one of: workspace, specialist, task")
         return normalized
 
-    @field_validator("repo_url")
+    @field_validator("repo_url", "skill_repo_url")
     @classmethod
     def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
         return normalize_git_repo_url(value)
@@ -95,6 +99,8 @@ class AgentResponse(BaseModel):
     image: str
     repo_url: Optional[str] = None
     branch: Optional[str] = None
+    skill_repo_url: Optional[str] = None
+    skill_branch: Optional[str] = None
     owner_user_id: int
     cpu: Optional[str] = None
     memory: Optional[str] = None
@@ -108,7 +114,7 @@ class AgentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("repo_url", mode="before")
+    @field_validator("repo_url", "skill_repo_url", mode="before")
     @classmethod
     def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
         return normalize_git_repo_url(value)

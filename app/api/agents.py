@@ -37,8 +37,12 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "image_repo": settings.default_agent_image_repo,
         "image_tag": settings.default_agent_image_tag,
         "git_image": settings.default_agent_git_image,
-        "default_repo_url": settings.default_agent_repo_url,
-        "default_branch": settings.default_agent_branch,
+        "default_runtime_repo_url": _runtime_repo_url_from_settings(),
+        "default_runtime_branch": _runtime_branch_from_settings(),
+        "default_skill_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),
+        "default_skill_branch": settings.default_skill_branch,
+        "default_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),
+        "default_branch": settings.default_skill_branch,
         "disk_size_gi": settings.default_agent_disk_size_gi,
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,
@@ -124,15 +128,23 @@ def _default_agent_image() -> str:
     return f"{settings.default_agent_image_repo}:{settings.default_agent_image_tag}"
 
 
-def _resolve_create_repo_url(payload: AgentCreateRequest) -> str | None:
-    if "repo_url" in payload.model_fields_set:
-        return payload.repo_url
-    return normalize_git_repo_url(settings.default_agent_repo_url)
+def _runtime_repo_url_from_settings() -> str | None:
+    return normalize_git_repo_url(settings.default_agent_runtime_repo_url or settings.default_agent_repo_url)
 
 
-def _resolve_create_branch(payload: AgentCreateRequest) -> str:
-    branch = (payload.branch or "").strip()
-    return branch or settings.default_agent_branch
+def _runtime_branch_from_settings() -> str:
+    return (settings.default_agent_runtime_branch or settings.default_agent_branch or "master").strip() or "master"
+
+
+def _resolve_create_skill_repo_url(payload: AgentCreateRequest) -> str | None:
+    if "skill_repo_url" in payload.model_fields_set:
+        return payload.skill_repo_url
+    return normalize_git_repo_url(settings.default_skill_repo_url)
+
+
+def _resolve_create_skill_branch(payload: AgentCreateRequest) -> str:
+    branch = (payload.skill_branch or "").strip()
+    return branch or settings.default_skill_branch or "master"
 
 
 def _resolve_create_image(payload: AgentCreateRequest) -> str:
@@ -162,8 +174,10 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         runtime_profile_id = RuntimeProfileService(db).ensure_user_has_default_profile(user).id
 
     effective_image = _resolve_create_image(payload)
-    effective_repo_url = _resolve_create_repo_url(payload)
-    effective_branch = _resolve_create_branch(payload)
+    effective_runtime_repo_url = _runtime_repo_url_from_settings()
+    effective_runtime_branch = _runtime_branch_from_settings()
+    effective_skill_repo_url = _resolve_create_skill_repo_url(payload)
+    effective_skill_branch = _resolve_create_skill_branch(payload)
 
     repo = AgentRepository(db)
     agent = repo.create(
@@ -173,8 +187,10 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         visibility="private",
         status="creating",
         image=effective_image,
-        repo_url=effective_repo_url,
-        branch=effective_branch,
+        repo_url=effective_runtime_repo_url,
+        branch=effective_runtime_branch,
+        skill_repo_url=effective_skill_repo_url,
+        skill_branch=effective_skill_branch,
         cpu=payload.cpu,
         memory=payload.memory,
         agent_type=payload.agent_type,
@@ -203,7 +219,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         target_type="agent",
         target_id=agent.id,
         user_id=user.id,
-        details={"name": agent.name, "image": effective_image, "status": agent.status},
+        details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch},
     )
     return AgentResponse.model_validate(agent)
 
@@ -213,6 +229,8 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     repo, agent = _load_writable_agent(agent_id, user, db)
 
     changes = payload.model_dump(exclude_unset=True)
+    changes.pop("repo_url", None)
+    changes.pop("branch", None)
 
     if "capability_profile_id" in changes and changes["capability_profile_id"] is not None:
         _validate_profile_references(db, changes["capability_profile_id"], None, None)
@@ -248,8 +266,8 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
                 payload_data = runtime_profile_sync_service.build_apply_payload_from_profile(profile)
         await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
 
-    # Update K8s runtime if repo_url or branch changed
-    if "repo_url" in changes or "branch" in changes:
+    # Update K8s runtime if skill repo settings changed
+    if "skill_repo_url" in changes or "skill_branch" in changes:
         runtime = k8s_service.update_agent_runtime(agent)
         if runtime.status == "failed":
             agent.last_error = runtime.message

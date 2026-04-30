@@ -2438,15 +2438,15 @@ function renderAgentMeta(agent) {
 
   // Build repo/branch section if present
   let repoSection = '';
-  if (agent.repo_url) {
-    const branch = agent.branch || state.agentDefaults?.default_branch || "";
+  if (agent.skill_repo_url) {
+    const branch = agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
     const branchLine = branch
       ? `<div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(branch)}</span></div>`
       : "";
     repoSection = `
       <div class="portal-detail-section">
         <div class="portal-detail-label">Repository</div>
-        <code class="portal-detail-code">${safe(agent.repo_url)}</code>
+        <code class="portal-detail-code">${safe(agent.skill_repo_url)}</code>
         ${branchLine}
         <div id="agent-git-commit" class="portal-detail-subtle">Loading commit...</div>
       </div>
@@ -2496,7 +2496,7 @@ function renderAgentMeta(agent) {
   renderSystemPromptSection(agent);
 
   // Fetch git info if repo is configured
-  if (agent.repo_url) {
+  if (agent.skill_repo_url) {
     fetchGitInfo(agent.id);
   }
 }
@@ -4130,7 +4130,7 @@ async function openRequirementBundleInMain(bundleRef = null) {
   try {
     let path = "/app/requirement-bundles/panel";
     if (bundleRef) {
-      const params = new URLSearchParams({ repo: bundleRef.repo, path: bundleRef.path, branch: bundleRef.branch });
+      const params = new URLSearchParams({ repo: bundleRef.repo, path: bundleRef.path, skill_branch: bundleRef.branch });
       path = `/app/requirement-bundles/open?${params.toString()}`;
       state.selectedBundleKey = bundleKeyFromRef(bundleRef);
       renderRequirementBundleList();
@@ -5630,15 +5630,15 @@ async function loadAgentDefaults(force = false) {
 
 function applyCreateAgentDefaults(form, defaults) {
   if (!form?.elements) return;
-  const repoInput = form.elements["repo_url"];
+  const repoInput = form.elements["skill_repo_url"];
   if (repoInput) {
-    const repoDefault = defaults?.default_repo_url || "";
+    const repoDefault = defaults?.default_skill_repo_url || "";
     repoInput.value = repoDefault;
     repoInput.defaultValue = repoDefault;
   }
-  const branchInput = form.elements["branch"];
+  const branchInput = form.elements["skill_branch"];
   if (branchInput) {
-    const branchDefault = defaults?.default_branch || "";
+    const branchDefault = defaults?.default_skill_branch || "";
     branchInput.value = branchDefault;
     branchInput.defaultValue = branchDefault;
     branchInput.placeholder = branchDefault ? `Configured default branch (${branchDefault})` : "Configured default branch";
@@ -5973,12 +5973,12 @@ async function submitCreateTaskFromTemplate(formEl) {
     bundle_ref: {
       repo: String(fd.get("bundle_repo") || "").trim(),
       path: String(fd.get("bundle_path") || "").trim(),
-      branch: String(fd.get("bundle_branch") || "").trim(),
+      skill_branch: String(fd.get("bundle_branch") || "").trim(),
     },
     manifest_ref: {
       repo: String(fd.get("manifest_repo") || "").trim() || String(fd.get("bundle_repo") || "").trim(),
       path: String(fd.get("manifest_path") || "").trim() || String(fd.get("bundle_path") || "").trim(),
-      branch: String(fd.get("manifest_branch") || "").trim() || String(fd.get("bundle_branch") || "").trim(),
+      skill_branch: String(fd.get("manifest_branch") || "").trim() || String(fd.get("bundle_branch") || "").trim(),
     },
     sources: {
       jira: splitLines(fd.get("jira_sources")),
@@ -6052,13 +6052,13 @@ async function openEditDialog(agent) {
     if (form.elements["name"]) {
       form.elements["name"].value = agent.name || "";
     }
-    if (form.elements["repo_url"]) {
-      form.elements["repo_url"].value = agent.repo_url || "";
+    if (form.elements["skill_repo_url"]) {
+      form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     }
-    if (form.elements["branch"]) {
-      form.elements["branch"].value = agent.branch || "";
-      form.elements["branch"].placeholder = state.agentDefaults?.default_branch
-        ? `Configured default branch (${state.agentDefaults.default_branch})`
+    if (form.elements["skill_branch"]) {
+      form.elements["skill_branch"].value = agent.skill_branch || "";
+      form.elements["skill_branch"].placeholder = state.agentDefaults?.default_skill_branch
+        ? `Configured default branch (${state.agentDefaults.default_skill_branch})`
         : "Configured default branch";
     }
     if (form.elements["runtime_profile_id"]) {
@@ -6425,8 +6425,8 @@ function bindEvents() {
     const id = formData.get("id");
 
     const updates = { name: formData.get("name")?.trim() };
-    const repoUrl = formData.get("repo_url")?.trim();
-    const branch = formData.get("branch")?.trim();
+    const repoUrl = formData.get("skill_repo_url")?.trim();
+    const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
 
     // Always include repo_url and branch (empty string to clear)
@@ -6962,8 +6962,8 @@ function bindEvents() {
     if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: document.getElementById("close-create-modal") })) return;
     const formData = new FormData(form);
     const name = formData.get("name");
-    const repoUrl = (formData.get("repo_url") || "").toString().trim();
-    const branch = (formData.get("branch") || "").toString().trim();
+    const repoUrl = (formData.get("skill_repo_url") || "").toString().trim();
+    const branch = (formData.get("skill_branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
 
     const msgEl = document.getElementById("create-msg");
@@ -6979,8 +6979,8 @@ function bindEvents() {
       const data = {
         name: name,
         image: defaults.image_repo + ":" + (defaults.image_tag || "latest"),
-        repo_url: repoUrl || null,
-        branch: branch || null,
+        skill_repo_url: repoUrl || null,
+        skill_branch: branch || null,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,
@@ -7026,7 +7026,7 @@ function bindEvents() {
       title: String(formData.get("title") || ""),
       domain: String(formData.get("domain") || ""),
       slug: String(formData.get("slug") || "").trim() || null,
-      base_branch: String(formData.get("base_branch") || ""),
+      base_skill_branch: String(formData.get("base_branch") || ""),
     };
 
     try {
