@@ -9,7 +9,7 @@ from app.services.task_template_registry import (
 
 def test_registry_templates_and_require_unknown():
     templates = list_task_templates()
-    assert len(templates) == 6
+    assert "github_comment_mention" in {t.template_id for t in templates}
     with pytest.raises(ValueError):
         require_task_template("unknown")
 
@@ -87,3 +87,18 @@ def test_github_review_payload_contains_runtime_template_fields():
     assert runtime_payload["task_type"] == "github_review_task"
     assert runtime_payload["trigger"] == "github_pr_review_requested"
     assert runtime_payload["execution_mode"] == "chat_tool_loop"
+
+
+def test_github_comment_mention_payload_contains_runtime_template_fields():
+    payload = build_agent_task_create_payload_from_template(
+        "github_comment_mention",
+        {"owner": "acme", "repo": "portal", "comment_id": 1, "comment_kind": "issue_comment", "body": "@efp-agent hi", "mentioned_account": "efp-agent"},
+        "agent-1",
+    )
+    runtime_payload = payload["input_payload_json"]
+    assert payload["task_type"] == "triggered_event_task"
+    assert payload["trigger"] == "github_comment_mention"
+    assert runtime_payload["source_kind"] == "github.mention"
+    assert runtime_payload["skill_name"] == "handle-triggered-event"
+    assert runtime_payload["execution_mode"] == "chat_tool_loop"
+    assert runtime_payload["reply_mode"] == "same_surface"

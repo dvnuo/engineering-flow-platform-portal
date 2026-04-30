@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -8,10 +8,10 @@ class AutomationRuleCreate(BaseModel):
     name: str
     enabled: bool = True
     target_agent_id: str
-    source_type: Literal["github"] = "github"
-    trigger_type: Literal["github_pr_review_requested"] = "github_pr_review_requested"
+    source_type: str = "github"
+    trigger_type: str = "github_pr_review_requested"
     task_template_id: str
-    task_type: str = "github_review_task"
+    task_type: str | None = None
     scope: dict = Field(default_factory=dict)
     trigger_config: dict = Field(default_factory=dict)
     task_input_defaults: dict = Field(default_factory=dict)
