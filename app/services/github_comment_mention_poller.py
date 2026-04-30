@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from fnmatch import fnmatchcase
 from datetime import datetime, timedelta
 
 import httpx
@@ -8,6 +9,11 @@ import httpx
 from app.services.provider_config_resolver import GithubProviderConfig
 
 MENTION_RE = re.compile(r"(?<![A-Za-z0-9_.-])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9_-])")
+SURFACE_ENDPOINTS = {
+    "issue_comment": "issues/comments",
+    "pull_request_review_comment": "pulls/comments",
+    "commit_comment": "comments",
+}
 
 
 def _parse_dt(raw: str | None) -> datetime | None:
@@ -62,14 +68,18 @@ class GithubCommentMentionPoller:
         poll_cursors = {}
         async with httpx.AsyncClient(timeout=20) as client:
             for surface in surfaces:
-                endpoint = "issues/comments" if surface == "issue_comment" else "pulls/comments"
+                endpoint = SURFACE_ENDPOINTS.get(surface)
+                if not endpoint:
+                    raise ValueError(f"Unsupported GitHub comment mention surface: {surface}")
                 last_dt = _parse_dt((since_by_surface.get(surface) or {}).get("last_seen_updated_at"))
                 query_since = (last_dt - timedelta(seconds=overlap_seconds)) if last_dt else (initial_since or poll_started_at)
                 max_seen_dt = query_since
                 max_seen_id = int((since_by_surface.get(surface) or {}).get("last_seen_comment_id") or 0)
                 hit_page_limit = False
                 for page in range(1, max_pages_per_surface + 1):
-                    params = {"sort": "updated", "direction": "asc", "since": _iso_z(query_since), "per_page": 100, "page": page}
+                    params = {"since": _iso_z(query_since), "per_page": 100, "page": page}
+                    if surface in {"issue_comment", "pull_request_review_comment"}:
+                        params.update({"sort": "updated", "direction": "asc"})
                     resp = await client.get(f"{base_url}/repos/{owner}/{repo}/{endpoint}", params=params, headers=headers)
                     if resp.status_code >= 400:
                         raise ValueError(f"GitHub API error surface={surface} status={resp.status_code}")
@@ -103,6 +113,38 @@ class GithubCommentMentionPoller:
                 poll_cursors[surface] = {"last_seen_updated_at": _iso_z(cursor_dt), "last_seen_comment_id": max_seen_id}
         return items, {"poll_cursors": poll_cursors}
 
+    async def list_org_repositories(self, *, provider_config: GithubProviderConfig, org: str, repo_selector: dict | None = None, max_pages: int = 10) -> list[dict]:
+        base_url = provider_config.base_url.rstrip("/")
+        headers = {"Authorization": f"Bearer {provider_config.api_token}", "Accept": "application/vnd.github+json"}
+        selector = repo_selector if isinstance(repo_selector, dict) else {}
+        include_patterns = [str(x) for x in (selector.get("include") or []) if str(x).strip()]
+        exclude_patterns = [str(x) for x in (selector.get("exclude") or []) if str(x).strip()]
+        include_archived = bool(selector.get("include_archived", False))
+        include_forks = bool(selector.get("include_forks", False))
+        output: list[dict] = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            for page in range(1, max_pages + 1):
+                resp = await client.get(f"{base_url}/orgs/{org}/repos", params={"per_page": 100, "page": page, "type": "all"}, headers=headers)
+                if resp.status_code >= 400:
+                    raise ValueError(f"GitHub API error org={org} status={resp.status_code}")
+                batch = resp.json() or []
+                for repo in batch:
+                    name = str(repo.get("name") or "").strip()
+                    if not name:
+                        continue
+                    if repo.get("archived") and not include_archived:
+                        continue
+                    if repo.get("fork") and not include_forks:
+                        continue
+                    if include_patterns and not any(fnmatchcase(name, p) for p in include_patterns):
+                        continue
+                    if exclude_patterns and any(fnmatchcase(name, p) for p in exclude_patterns):
+                        continue
+                    output.append({"owner": org, "repo": name, "full_name": repo.get("full_name") or f"{org}/{name}", "archived": repo.get("archived"), "fork": repo.get("fork")})
+                if len(batch) < 100:
+                    break
+        return output
+
     def _normalize(self, surface: str, c: dict, owner: str, repo: str, mention_target: str, mentioned: list[str]) -> dict:
         if surface == "issue_comment":
             issue_number = _parse_num_from_url(c.get("issue_url"), [r"/issues/(\d+)$"]) or _parse_num_from_url(c.get("html_url"), [r"/issues/(\d+)", r"/pull/(\d+)"]) or 0
@@ -114,6 +156,15 @@ class GithubCommentMentionPoller:
                 "pull_number": issue_number if is_pr else None, "comment_id": c.get("id"), "node_id": c.get("node_id"), "body": c.get("body"),
                 "author": (c.get("user") or {}).get("login"), "author_type": (c.get("user") or {}).get("type"), "author_association": c.get("author_association"),
                 "html_url": html_url, "api_url": c.get("url"), "created_at": c.get("created_at"), "updated_at": c.get("updated_at"),
+                "mentioned_account": mention_target, "mentioned_logins": mentioned, "source_payload": c,
+            }
+        if surface == "commit_comment":
+            return {
+                "source_kind": "github.mention", "source_event": "poll.commit_comment", "comment_kind": "commit_comment",
+                "context_type": "commit", "owner": owner, "repo": repo, "commit_id": c.get("commit_id"), "commit_sha": c.get("commit_id"),
+                "comment_id": c.get("id"), "node_id": c.get("node_id"), "body": c.get("body"), "author": (c.get("user") or {}).get("login"),
+                "author_type": (c.get("user") or {}).get("type"), "html_url": c.get("html_url"), "api_url": c.get("url"), "path": c.get("path"),
+                "line": c.get("line"), "position": c.get("position"), "created_at": c.get("created_at"), "updated_at": c.get("updated_at"),
                 "mentioned_account": mention_target, "mentioned_logins": mentioned, "source_payload": c,
             }
         pull_url = c.get("pull_request_url") or ""

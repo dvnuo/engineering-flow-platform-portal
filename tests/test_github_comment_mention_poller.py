@@ -115,3 +115,33 @@ async def test_poll_mentions_page_limit_does_not_jump_cursor_to_poll_time(monkey
     monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
     _, state = await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={"issue_comment": {"last_seen_updated_at": "2025-12-31T00:00:00Z", "last_seen_comment_id": 0}}, surfaces=["issue_comment"], max_pages_per_surface=1, overlap_seconds=0)
     assert state["poll_cursors"]["issue_comment"]["last_seen_updated_at"] == "2026-01-01T00:00:59Z"
+
+
+@pytest.mark.anyio
+async def test_poll_mentions_commit_comment(monkeypatch):
+    responses = [_Resp(200, [{"id": 99, "commit_id": "abc123", "body": "@efp-agent ping", "user": {"login": "alice", "type": "User"}, "html_url": "u", "url": "a", "updated_at": "2026-01-01T00:00:00Z"}])]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
+    items, _ = await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["commit_comment"])
+    assert items[0]["comment_kind"] == "commit_comment"
+    assert items[0]["commit_id"] == "abc123"
+    assert items[0]["context_type"] == "commit"
+
+
+@pytest.mark.anyio
+async def test_poll_mentions_unknown_surface_raises(monkeypatch):
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([]))
+    with pytest.raises(ValueError, match="Unsupported GitHub comment mention surface"):
+        await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["discussion_comment"])
+
+
+@pytest.mark.anyio
+async def test_list_org_repositories_filters_archived_forks_and_patterns(monkeypatch):
+    responses = [_Resp(200, [
+        {"name": "portal", "full_name": "acme/portal", "archived": False, "fork": False},
+        {"name": "api-core", "full_name": "acme/api-core", "archived": False, "fork": False},
+        {"name": "archived-repo", "full_name": "acme/archived-repo", "archived": True, "fork": False},
+        {"name": "forked-repo", "full_name": "acme/forked-repo", "archived": False, "fork": True},
+    ])]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
+    repos = await GithubCommentMentionPoller().list_org_repositories(provider_config=_provider(), org="acme", repo_selector={"include": ["api-*", "portal"], "exclude": ["archived-*"], "include_forks": False, "include_archived": False})
+    assert [r["repo"] for r in repos] == ["portal", "api-core"]

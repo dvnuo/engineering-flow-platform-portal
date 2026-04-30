@@ -700,3 +700,76 @@ async def test_github_comment_mention_task_creation_failure_marks_event_failed(m
     await svc.run_rule_once(rule.id)
     event = AutomationRuleRepository(db).list_events(rule.id, 10)[0]
     assert event.status == "failed"
+
+
+def test_create_github_comment_mention_rule_allows_commit_comment_when_capability_allows():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-commit-ok")
+    cp = CapabilityProfile(name="commit-ok", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment","reply_review_comment","add_commit_comment"]')
+    db.add(cp); db.commit(); db.refresh(cp)
+    agent.capability_profile_id = cp.id
+    db.add(agent); db.commit()
+    svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name="mc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+    assert rule.id
+
+
+def test_create_github_comment_mention_rule_blocks_commit_comment_without_commit_adapter():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-commit-no")
+    cp = CapabilityProfile(name="commit-no", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment","reply_review_comment"]')
+    db.add(cp); db.commit(); db.refresh(cp)
+    agent.capability_profile_id = cp.id
+    db.add(agent); db.commit()
+    svc = AutomationRuleService(db)
+    with pytest.raises(Exception):
+        svc.create_rule(AutomationRuleCreate(name="mc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+
+
+@pytest.mark.anyio
+async def test_run_once_github_comment_mention_commit_comment_creates_triggered_event_task(monkeypatch):
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-run-commit")
+    svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name="mcc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+    async def _poll_mentions(**_kwargs):
+        return ([{"owner": "acme", "repo": "portal", "comment_kind": "commit_comment", "context_type": "commit", "comment_id": 3, "commit_id": "abc", "commit_sha": "abc", "body": "@efp-agent", "mentioned_account": "efp-agent", "source_event": "poll.commit_comment", "source_payload": {}}], {"poll_cursors": {"commit_comment": {"last_seen_updated_at": "2026-01-01T00:00:00Z", "last_seen_comment_id": 3}}})
+    monkeypatch.setattr(svc.comment_mention_poller, "poll_mentions", _poll_mentions)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+    result = await svc.run_rule_once(rule.id)
+    assert result.created_task_count == 1
+    payload_obj = json.loads(db.query(AgentTask).one().input_payload_json)
+    assert payload_obj["comment_kind"] == "commit_comment"
+    assert payload_obj["commit_id"] == "abc"
+
+
+def test_create_org_scope_rule_validates_repo_selector():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-org-scope")
+    svc = AutomationRuleService(db)
+    ok = svc.create_rule(AutomationRuleCreate(name="org", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode": "org", "owner": "acme", "repo_selector": {"include": ["api-*"], "exclude": ["old-*"], "include_forks": False, "include_archived": False}}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+    assert ok.id
+    with pytest.raises(Exception):
+        svc.create_rule(AutomationRuleCreate(name="org-bad", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode": "org", "owner": "acme", "repo_selector": {"include": "api-*"}}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+
+
+@pytest.mark.anyio
+async def test_run_once_org_scope_polls_multiple_repos_and_stores_per_repo_cursors(monkeypatch):
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-org-run")
+    svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name="org-run", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode": "org", "owner": "acme", "repo_selector": {"include": ["*"]}}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+    async def _list_org_repositories(**_kwargs):
+        return [{"owner": "acme", "repo": "portal", "full_name": "acme/portal"}, {"owner": "acme", "repo": "api", "full_name": "acme/api"}]
+    monkeypatch.setattr(svc.comment_mention_poller, "list_org_repositories", _list_org_repositories)
+    async def _poll_mentions(**kwargs):
+        r = kwargs["repo"]
+        return ([{"owner": "acme", "repo": r, "comment_kind": "issue_comment", "context_type": "issue", "issue_number": 1, "comment_id": 1 if r=="portal" else 2, "body": "@efp-agent", "mentioned_account": "efp-agent", "source_event": "poll.issue_comment", "source_payload": {}}], {"poll_cursors": {"issue_comment": {"last_seen_updated_at": "2026-01-01T00:00:00Z", "last_seen_comment_id": 2}}})
+    monkeypatch.setattr(svc.comment_mention_poller, "poll_mentions", _poll_mentions)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+    result = await svc.run_rule_once(rule.id)
+    assert result.created_task_count == 2
+    refreshed = AutomationRuleRepository(db).get(rule.id)
+    state = json.loads(refreshed.state_json)
+    assert "acme/portal" in state.get("poll_cursors_by_repo", {})
+    assert "acme/api" in state.get("poll_cursors_by_repo", {})
