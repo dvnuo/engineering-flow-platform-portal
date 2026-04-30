@@ -48,3 +48,6 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "skill_branch: branch || null" in js
     assert "/api/skill-git-info" in js
     assert "Skills Repository" in js
+    assert "Using configured default" in js
+    assert "leave empty to use configured default" in html
+    assert "leave empty to clear" not in html

@@ -2436,18 +2436,23 @@ function renderAgentMeta(agent) {
   const mem = agent.memory || 'N/A';
   const disk = agent.disk_size_gi;
 
+  const effectiveSkillRepoUrl = agent.effective_skill_repo_url || agent.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
+  const effectiveSkillBranch = agent.effective_skill_branch || agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
+  const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
+
   // Build repo/branch section if present
   let repoSection = '';
-  if (agent.skill_repo_url) {
-    const branch = agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
-    const branchLine = branch
-      ? `<div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(branch)}</span></div>`
+  if (effectiveSkillRepoUrl) {
+    const branchLine = effectiveSkillBranch
+      ? `<div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(effectiveSkillBranch)}</span></div>`
       : "";
+    const defaultIndicator = isDefaultSkillRepo ? `<div class="portal-detail-subtle">Using configured default</div>` : "";
     repoSection = `
       <div class="portal-detail-section">
         <div class="portal-detail-label">Skills Repository</div>
-        <code class="portal-detail-code">${safe(agent.skill_repo_url)}</code>
+        <code class="portal-detail-code">${safe(effectiveSkillRepoUrl)}</code>
         ${branchLine}
+        ${defaultIndicator}
         <div id="agent-skill-git-commit" class="portal-detail-subtle">Loading skill commit...</div>
       </div>
     `;
@@ -2496,7 +2501,7 @@ function renderAgentMeta(agent) {
   renderSystemPromptSection(agent);
 
   // Fetch git info if repo is configured
-  if (agent.skill_repo_url) {
+  if (effectiveSkillRepoUrl) {
     fetchSkillGitInfo(agent.id);
   }
 }

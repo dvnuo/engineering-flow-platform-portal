@@ -568,3 +568,32 @@ def test_patch_legacy_repo_branch_is_ignored_and_does_not_trigger_k8s(monkeypatc
         assert calls["n"] == 0
     finally:
         cleanup()
+
+def test_agent_response_includes_effective_skill_defaults(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+        monkeypatch.setattr(agents_api.settings, "default_skill_repo_url", "https://github.com/acme/default-skills.git")
+        monkeypatch.setattr(agents_api.settings, "default_skill_branch", "skills-main")
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+
+        created = client.post("/api/agents", json={"name": "legacy-like", "skill_repo_url": None, "skill_branch": None})
+        assert created.status_code == 200
+        agent_id = created.json()["id"]
+
+        # emulate old record with null skill fields
+        agent = db.get(Agent, agent_id)
+        agent.skill_repo_url = None
+        agent.skill_branch = None
+        db.add(agent)
+        db.commit()
+
+        response = client.get(f"/api/agents/{agent_id}")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["skill_repo_url"] is None
+        assert body["skill_branch"] is None
+        assert body["effective_skill_repo_url"] == "https://github.com/acme/default-skills.git"
+        assert body["effective_skill_branch"] == "skills-main"
+    finally:
+        cleanup()

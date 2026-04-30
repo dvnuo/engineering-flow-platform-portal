@@ -12,7 +12,7 @@ def _chat_ui_js_source() -> str:
 
 def test_chat_ui_uses_canonical_runtime_proxy_paths():
     js = _chat_ui_js_source()
-    assert "/a/${agentId}/api/git-info" in js
+    assert "/a/${agentId}/api/skill-git-info" in js
     assert "/a/${agentId}/api/usage" in js
     assert "/api/agents/${agentId}/git-info" not in js
     assert "/api/agents/${agentId}/usage" not in js

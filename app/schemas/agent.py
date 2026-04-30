@@ -101,6 +101,8 @@ class AgentResponse(BaseModel):
     branch: Optional[str] = None
     skill_repo_url: Optional[str] = None
     skill_branch: Optional[str] = None
+    effective_skill_repo_url: Optional[str] = None
+    effective_skill_branch: Optional[str] = None
     owner_user_id: int
     cpu: Optional[str] = None
     memory: Optional[str] = None
