@@ -2445,10 +2445,10 @@ function renderAgentMeta(agent) {
       : "";
     repoSection = `
       <div class="portal-detail-section">
-        <div class="portal-detail-label">Repository</div>
+        <div class="portal-detail-label">Skills Repository</div>
         <code class="portal-detail-code">${safe(agent.skill_repo_url)}</code>
         ${branchLine}
-        <div id="agent-git-commit" class="portal-detail-subtle">Loading commit...</div>
+        <div id="agent-skill-git-commit" class="portal-detail-subtle">Loading skill commit...</div>
       </div>
     `;
   }
@@ -2497,22 +2497,22 @@ function renderAgentMeta(agent) {
 
   // Fetch git info if repo is configured
   if (agent.skill_repo_url) {
-    fetchGitInfo(agent.id);
+    fetchSkillGitInfo(agent.id);
   }
 }
 
-async function fetchGitInfo(agentId) {
-  const commitEl = document.getElementById("agent-git-commit");
+async function fetchSkillGitInfo(agentId) {
+  const commitEl = document.getElementById("agent-skill-git-commit");
   if (!commitEl) return;
 
   // Check if still viewing same agent (prevent stale response overwriting wrong agent)
   if (state.selectedAgentId !== agentId) return;
 
   try {
-    const data = await api(`/a/${agentId}/api/git-info`);
+    const data = await api(`/a/${agentId}/api/skill-git-info`);
     if (data.commit_id) {
       const shortCommit = data.commit_id.substring(0, 7);
-      commitEl.textContent = 'Commit: ';
+      commitEl.textContent = 'Skill commit: ';
 
       // Validate URL to prevent XSS
       let safeUrl = null;
@@ -2543,17 +2543,17 @@ async function fetchGitInfo(agentId) {
       }
     } else if (data.status === 'running') {
       commitEl.className = "portal-detail-subtle";
-      commitEl.textContent = "Commit: Not available";
+      commitEl.textContent = "Skill commit: unavailable";
     } else if (data.status === 'error') {
-      commitEl.className = "portal-inline-error";
-      commitEl.textContent = "Git info unavailable";
+      commitEl.className = "portal-detail-subtle";
+      commitEl.textContent = "Skill commit: unavailable";
     } else {
       commitEl.className = "portal-detail-subtle";
-      commitEl.textContent = "Assistant not running";
+      commitEl.textContent = "Skill commit: unavailable";
     }
   } catch (e) {
-    commitEl.className = "portal-inline-error";
-    commitEl.textContent = "Failed to load commit";
+    commitEl.className = "portal-detail-subtle";
+    commitEl.textContent = "Skill commit: unavailable";
   }
 }
 
@@ -6429,9 +6429,9 @@ function bindEvents() {
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
 
-    // Always include repo_url and branch (empty string to clear)
-    if (repoUrl !== undefined) updates.repo_url = repoUrl || null;
-    if (branch !== undefined) updates.branch = branch || null;
+    // Always include skill_repo_url and skill_branch (empty string to clear)
+    if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
+    if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
 
     const msgEl = document.getElementById("edit-msg");

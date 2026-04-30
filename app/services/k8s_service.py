@@ -432,7 +432,7 @@ class K8sService:
             "chmod 700 \"${ASKPASS_SCRIPT}\" && export GIT_ASKPASS=\"${ASKPASS_SCRIPT}\" && export GIT_TERMINAL_PROMPT=0; "
             "fi && "
             "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
-            f"rm -rf \"{target_dir}\"/* && cp -rf /tmp/git-clone-work/. \"{target_dir}/\" && "
+            f"find \"{target_dir}\" -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} + && cp -a /tmp/git-clone-work/. \"{target_dir}/\" && "
             "rm -f /tmp/git-askpass.sh"
         )
 

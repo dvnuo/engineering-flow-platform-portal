@@ -45,11 +45,11 @@ class Settings(BaseSettings):
     default_agent_repo_url: str = "https://github.com/dvnuo/engineering-flow-platform"
     default_agent_branch: str = "master"
     default_agent_runtime_repo_url: str = Field(
-        default="https://github.com/dvnuo/engineering-flow-platform",
+        default="",
         validation_alias="DEFAULT_AGENT_RUNTIME_REPO_URL",
     )
     default_agent_runtime_branch: str = Field(
-        default="master",
+        default="",
         validation_alias="DEFAULT_AGENT_RUNTIME_BRANCH",
     )
     default_skill_repo_url: str = Field(

@@ -42,6 +42,8 @@ def test_agent_response_schema():
     assert "agent_type" in fields
     assert "capability_profile_id" in fields
     assert "policy_profile_id" in fields
+    assert "skill_repo_url" in fields
+    assert "skill_branch" in fields
 
 
 def test_agent_response_normalizes_legacy_repo_url():
@@ -67,6 +69,33 @@ def test_agent_response_normalizes_legacy_repo_url():
     )
     response = AgentResponse.model_validate(obj)
     assert response.repo_url == "https://github.com/Acme/Portal.git"
+
+
+def test_agent_response_normalizes_skill_repo_url():
+    obj = SimpleNamespace(
+        id="agent-1",
+        name="Agent One",
+        status="running",
+        visibility="private",
+        image="example/image:latest",
+        repo_url="https://github.com/Acme/Portal.git",
+        branch="main",
+        skill_repo_url="git@github.com:Acme/Skills.git",
+        skill_branch="feature/skills",
+        owner_user_id=1,
+        cpu="250m",
+        memory="512Mi",
+        agent_type="workspace",
+        capability_profile_id=None,
+        policy_profile_id=None,
+        disk_size_gi=20,
+        description=None,
+        last_error=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    response = AgentResponse.model_validate(obj)
+    assert response.skill_repo_url == "https://github.com/Acme/Skills.git"
 
 
 def test_agent_status_values():
@@ -164,29 +193,42 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         cleanup()
 
 
-def test_create_agent_allows_explicit_null_repo_url_while_still_defaulting_branch(monkeypatch):
+def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
         import app.api.agents as agents_api
 
-        monkeypatch.setattr(agents_api.settings, "default_agent_image_repo", "ghcr.io/acme/portal-agent")
-        monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "v2.4.1")
-        monkeypatch.setattr(agents_api.settings, "default_agent_repo_url", "https://github.com/acme/default-repo")
-        monkeypatch.setattr(agents_api.settings, "default_agent_branch", "release/default")
-        monkeypatch.setattr(
-            "app.api.agents.k8s_service.create_agent_runtime",
-            lambda _agent: SimpleNamespace(status="running", message=None),
-        )
-
-        response = client.post(
-            "/api/agents",
-            json={"name": "no-repo-agent", "repo_url": None, "branch": "   "},
-        )
+        monkeypatch.setattr(agents_api.settings, "default_skill_repo_url", "https://github.com/acme/skills-default.git")
+        monkeypatch.setattr(agents_api.settings, "default_skill_branch", "skills-main")
+        response = client.get("/api/agents/defaults")
         assert response.status_code == 200
         body = response.json()
-        assert body["repo_url"] is None
-        assert body["branch"] == "release/default"
-        assert body["image"] == "ghcr.io/acme/portal-agent:v2.4.1"
+        assert "default_runtime_repo_url" in body
+        assert "default_runtime_branch" in body
+        assert "default_skill_repo_url" in body
+        assert "default_skill_branch" in body
+        assert body["default_repo_url"] == body["default_skill_repo_url"]
+        assert body["default_branch"] == body["default_skill_branch"]
+    finally:
+        cleanup()
+
+
+def test_create_agent_uses_config_runtime_and_payload_skill_repo(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+        monkeypatch.setattr(agents_api.settings, "default_agent_runtime_repo_url", "https://github.com/acme/runtime.git")
+        monkeypatch.setattr(agents_api.settings, "default_agent_runtime_branch", "runtime-branch")
+        monkeypatch.setattr(agents_api.settings, "default_skill_repo_url", "https://github.com/acme/default-skills.git")
+        monkeypatch.setattr(agents_api.settings, "default_skill_branch", "skills-main")
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        response = client.post("/api/agents", json={"name": "agent", "repo_url": "https://github.com/user/should-be-ignored.git", "branch": "ignored-branch", "skill_repo_url": "git@github.com:Acme/Skills.git", "skill_branch": "feature/skills"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["repo_url"] == "https://github.com/acme/runtime.git"
+        assert body["branch"] == "runtime-branch"
+        assert body["skill_repo_url"] == "https://github.com/Acme/Skills.git"
+        assert body["skill_branch"] == "feature/skills"
     finally:
         cleanup()
 
@@ -485,5 +527,44 @@ def test_update_running_agent_runtime_profile_push_failure_still_returns_200(mon
         patch_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
         assert patch_resp.status_code == 200
         assert pushed
+    finally:
+        cleanup()
+
+def test_patch_skill_repo_triggers_k8s_update(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        calls = {"n": 0}
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        def _upd(_agent):
+            calls["n"] += 1
+            return SimpleNamespace(status="running", message=None)
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", _upd)
+        create = client.post("/api/agents", json={"name": "agent"}).json()
+        resp = client.patch(f"/api/agents/{create['id']}", json={"skill_repo_url": "git@github.com:Acme/Skills.git", "skill_branch": "next"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["skill_repo_url"] == "https://github.com/Acme/Skills.git"
+        assert body["skill_branch"] == "next"
+        assert calls["n"] == 1
+    finally:
+        cleanup()
+
+
+def test_patch_legacy_repo_branch_is_ignored_and_does_not_trigger_k8s(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        calls = {"n": 0}
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", lambda _agent: calls.__setitem__("n", calls["n"] + 1) or SimpleNamespace(status="running", message=None))
+        create = client.post("/api/agents", json={"name": "agent"}).json()
+        before = client.get(f"/api/agents/{create['id']}").json()
+        resp = client.patch(f"/api/agents/{create['id']}", json={"repo_url": "https://github.com/user/no.git", "branch": "bad"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["repo_url"] == before["repo_url"]
+        assert body["branch"] == before["branch"]
+        assert body.get("skill_repo_url") == before.get("skill_repo_url")
+        assert body.get("skill_branch") == before.get("skill_branch")
+        assert calls["n"] == 0
     finally:
         cleanup()

@@ -576,6 +576,10 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         import app.api.agents as agents_api
         import app.services.agent_group_service as group_service_module
         from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
+        runtime_repo = "https://github.com/config/runtime.git"
+        runtime_branch = "runtime-default"
+        group_service_module.get_settings().default_agent_runtime_repo_url = runtime_repo
+        group_service_module.get_settings().default_agent_runtime_branch = runtime_branch
 
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
@@ -596,6 +600,8 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
             image="example/image:latest",
             repo_url="git@github.com:Acme/Portal.git",
             branch="main",
+            skill_repo_url="https://github.com/Acme/Skills.git",
+            skill_branch="skills-main",
             cpu="500m",
             memory="1Gi",
             disk_size_gi=20,
@@ -682,10 +688,16 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert created["policy_profile_id"] == policy_profile.id
         agent_detail = client.get(f"/api/agents/{created['id']}")
         assert agent_detail.status_code == 200
-        assert agent_detail.json()["repo_url"] == "https://github.com/Acme/Portal.git"
+        assert agent_detail.json()["repo_url"] == runtime_repo
+        assert agent_detail.json()["branch"] == runtime_branch
+        assert agent_detail.json()["skill_repo_url"] == specialist_template.skill_repo_url
+        assert agent_detail.json()["skill_branch"] == specialist_template.skill_branch
         persisted_agent = db.get(Agent, created["id"])
         assert persisted_agent is not None
-        assert persisted_agent.repo_url == "https://github.com/Acme/Portal.git"
+        assert persisted_agent.repo_url == runtime_repo
+        assert persisted_agent.branch == runtime_branch
+        assert persisted_agent.skill_repo_url == specialist_template.skill_repo_url
+        assert persisted_agent.skill_branch == specialist_template.skill_branch
         assert persisted_agent.template_agent_id == specialist_template.id
         assert persisted_agent.task_scope_label == "runtime-scope"
         assert persisted_agent.task_cleanup_policy == "delete_on_done"
