@@ -30,6 +30,21 @@ class RunOnceResult:
 
 
 class AutomationRuleService:
+    def _validate_source_and_trigger_for_template(self, *, source_type: str | None, trigger_type: str | None, template) -> str:
+        normalized_source = str(source_type or "github").strip().lower()
+        if normalized_source != "github":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_type must be github for this task template")
+        expected_trigger = template.default_trigger
+        normalized_trigger = str(trigger_type or "").strip()
+        if not normalized_trigger:
+            return expected_trigger
+        if normalized_trigger != expected_trigger:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"trigger_type must be {expected_trigger} for task_template_id={template.template_id}",
+            )
+        return normalized_trigger
+
     @staticmethod
     def _int_config(value, default, *, field_name: str, min_value: int | None = None, max_value: int | None = None) -> int:
         try:
@@ -102,9 +117,6 @@ class AutomationRuleService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_event must be one of: APPROVE, COMMENT, REQUEST_CHANGES")
 
     def _validate_github_comment_mention_rule_config(self, built: dict) -> None:
-        source_type = str(built.get("source_type") or "github").strip().lower()
-        if source_type != "github":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_type must be github")
         scope = built.get("scope_json") or {}
         trigger = built.get("trigger_config_json") or {}
         task = built.get("task_config_json") or {}
@@ -159,6 +171,11 @@ class AutomationRuleService:
     def create_rule(self, payload: AutomationRuleCreate, current_user_id: int) -> object:
         data = payload.model_dump()
         template = require_task_template(payload.task_template_id)
+        trigger_type = self._validate_source_and_trigger_for_template(
+            source_type=payload.source_type,
+            trigger_type=payload.trigger_type,
+            template=template,
+        )
         try:
             resolve_github_for_agent(self.db, payload.target_agent_id)
         except ProviderConfigResolverError as exc:
@@ -190,8 +207,8 @@ class AutomationRuleService:
         create_data = {
             "name": payload.name,
             "enabled": payload.enabled,
-            "source_type": payload.source_type,
-            "trigger_type": payload.trigger_type or template.default_trigger,
+            "source_type": "github",
+            "trigger_type": trigger_type,
             "target_agent_id": payload.target_agent_id,
             "task_type": template.task_type,
             "task_template_id": payload.task_template_id,
@@ -219,6 +236,11 @@ class AutomationRuleService:
         built = self._build_from_structured(existing, data)
         task_template_id = data.get("task_template_id") or rule.task_template_id
         template = require_task_template(task_template_id)
+        self._validate_source_and_trigger_for_template(
+            source_type=rule.source_type,
+            trigger_type=rule.trigger_type,
+            template=template,
+        )
         self._validate_built_rule_config(built=built, task_template_id=task_template_id)
 
         update_data = {}

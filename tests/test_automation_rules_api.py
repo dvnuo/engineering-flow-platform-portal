@@ -274,3 +274,40 @@ def test_api_create_github_comment_mention_bad_schedule_returns_400():
         assert "schedule.interval_seconds must be an integer" in resp.json()["detail"]
     finally:
         cleanup()
+
+
+def test_api_create_github_comment_mention_wrong_source_type_returns_400():
+    client, _db, agent, cleanup = _build_client_with_overrides()
+    try:
+        payload = {
+            "name": "mention rule",
+            "target_agent_id": agent.id,
+            "source_type": "jira",
+            "task_template_id": "github_comment_mention",
+            "scope": {"owner": "acme", "repo": "portal"},
+            "trigger_config": {"mention_target": "efp-agent"},
+        }
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 400
+        assert "source_type must be github" in resp.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_api_create_github_comment_mention_wrong_trigger_type_returns_400():
+    client, _db, agent, cleanup = _build_client_with_overrides()
+    try:
+        payload = {
+            "name": "mention rule",
+            "target_agent_id": agent.id,
+            "source_type": "github",
+            "trigger_type": "github_pr_review_requested",
+            "task_template_id": "github_comment_mention",
+            "scope": {"owner": "acme", "repo": "portal"},
+            "trigger_config": {"mention_target": "efp-agent"},
+        }
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 400
+        assert "trigger_type must be github_comment_mention" in resp.json()["detail"]
+    finally:
+        cleanup()

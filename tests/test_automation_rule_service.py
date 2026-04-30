@@ -546,6 +546,64 @@ def test_create_github_pr_review_without_trigger_type_still_sets_pr_default():
     assert rule.trigger_type == "github_pr_review_requested"
 
 
+def test_create_github_comment_mention_rejects_wrong_source_type():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-bad-source")
+    svc = AutomationRuleService(db)
+    with pytest.raises(Exception) as exc:
+        svc.create_rule(
+            AutomationRuleCreate(
+                name="bad-source",
+                target_agent_id=agent.id,
+                source_type="jira",
+                task_template_id="github_comment_mention",
+                scope={"owner": "acme", "repo": "portal"},
+                trigger_config={"mention_target": "efp-agent"},
+            ),
+            current_user_id=user.id,
+        )
+    assert "source_type must be github" in str(exc.value)
+
+
+def test_create_github_comment_mention_rejects_wrong_trigger_type():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-bad-trigger-mention")
+    svc = AutomationRuleService(db)
+    with pytest.raises(Exception) as exc:
+        svc.create_rule(
+            AutomationRuleCreate(
+                name="bad-trigger",
+                target_agent_id=agent.id,
+                source_type="github",
+                trigger_type="github_pr_review_requested",
+                task_template_id="github_comment_mention",
+                scope={"owner": "acme", "repo": "portal"},
+                trigger_config={"mention_target": "efp-agent"},
+            ),
+            current_user_id=user.id,
+        )
+    assert "trigger_type must be github_comment_mention" in str(exc.value)
+
+
+def test_create_github_pr_review_rejects_wrong_trigger_type():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-bad-trigger-pr")
+    svc = AutomationRuleService(db)
+    with pytest.raises(Exception) as exc:
+        svc.create_rule(
+            AutomationRuleCreate(
+                name="bad-pr-trigger",
+                target_agent_id=agent.id,
+                trigger_type="github_comment_mention",
+                task_template_id="github_pr_review",
+                scope={"owner": "acme", "repo": "portal"},
+                trigger_config={"review_target_type": "user", "review_target": "alice"},
+            ),
+            current_user_id=user.id,
+        )
+    assert "trigger_type must be github_pr_review_requested" in str(exc.value)
+
+
 @pytest.mark.anyio
 async def test_run_once_github_comment_mention_creates_triggered_event_task(monkeypatch):
     db = _session()
