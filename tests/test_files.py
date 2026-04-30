@@ -40,11 +40,12 @@ def test_agent_file_download_route_contract_exists():
     assert 'query_items = [("paths", p) for p in file_paths]' in source
 
 
-def test_files_panel_route_contract_uses_runtime_files_list_subpath():
+def test_files_panel_route_contract_removed():
     source = _web_source()
 
-    assert '@router.get("/app/agents/{agent_id}/files/panel")' in source
-    assert 'subpath="api/files/list"' in source
+    assert '@router.get("/app/agents/{agent_id}/files/panel")' not in source
+
+
 
 
 def test_proxy_route_contract_covers_runtime_file_subpaths():
