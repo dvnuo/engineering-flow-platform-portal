@@ -101,6 +101,22 @@ TASK_TEMPLATES: tuple[TaskTemplateDefinition, ...] = (
             "execution_mode",
         ),
     ),
+    TaskTemplateDefinition(
+        template_id="github_comment_mention",
+        label="GitHub Comment Mention",
+        description="Poll GitHub comments and respond when the configured GitHub account is mentioned.",
+        task_type="triggered_event_task",
+        task_family="triggered_work",
+        provider="github",
+        default_trigger="github_comment_mention",
+        default_skill_name="handle-triggered-event",
+        required_inputs=("owner", "repo", "comment_id", "comment_kind", "body", "mentioned_account"),
+        optional_inputs=(
+            "issue_number", "pull_number", "review_comment_id", "in_reply_to_id", "context_type", "source_kind", "source_event",
+            "author", "author_association", "html_url", "path", "line", "side", "diff_hunk", "mentioned_logins",
+            "reply_mode", "session_id", "automation_rule_id", "rule_id", "dedupe_key", "skill_name", "execution_mode",
+        ),
+    ),
 )
 
 
@@ -203,6 +219,12 @@ def build_agent_task_create_payload_from_template(
         normalized_input["review_event"] = "COMMENT"
     if template.template_id == "github_pr_review" and not normalized_input.get("execution_mode"):
         normalized_input["execution_mode"] = "chat_tool_loop"
+    if template.template_id == "github_comment_mention" and not normalized_input.get("source_kind"):
+        normalized_input["source_kind"] = "github.mention"
+    if template.template_id == "github_comment_mention" and not normalized_input.get("execution_mode"):
+        normalized_input["execution_mode"] = "chat_tool_loop"
+    if template.template_id == "github_comment_mention" and not normalized_input.get("reply_mode"):
+        normalized_input["reply_mode"] = "same_surface"
 
     payload = {
         "template_id": template.template_id,
