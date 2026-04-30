@@ -1143,7 +1143,7 @@ chatState.activeRequest = {{ clientRequestId: "req-a" }};
     assert data["reloadCalls"] == [["agent-A", "s-a2", True]]
 
 
-def test_failure_restores_hidden_attachments_and_hidden_tab_notifies():
+def test_failure_clears_hidden_attachments_and_hidden_tab_notifies():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1171,6 +1171,7 @@ const document = {{
   getElementById(id) {{ return id === "chat-attachments" ? attachmentNode : null; }},
 }};
 let notifyCalls = 0;
+let toastCalls = 0;
 function removeTemporaryAssistantRows() {{}}
 function removeLatestOptimisticUserRow() {{}}
 function renderInputPreview() {{}}
@@ -1182,29 +1183,35 @@ function renderIcons() {{}}
 function markAgentUnread() {{}}
 function renderAgentList() {{}}
 function notifyAgentCompletion() {{ notifyCalls += 1; }}
+function showToast() {{ toastCalls += 1; }}
 {create_state}
 {ensure_state}
 {set_submitting}
 {handle_failure}
 const chatState = ensureChatState("agent-A");
+chatState.pendingFiles = [{{ id: "pf-1" }}];
 chatState.activeRequest = {{ clientRequestId: "req-a" }};
 handleAgentChatFailure("agent-A", {{
   clientRequestId: "req-a",
-  attachments: ["file-1", "file-2"],
-  backupFiles: [],
   backupMessage: "msg"
 }}, new Error("boom"));
 console.log(JSON.stringify({{
   attachmentsValue: attachmentNode.value,
-  draftAttachmentsValue: ensureChatState("agent-A").draftAttachmentsValue,
-  notifyCalls
+  pendingFiles: ensureChatState("agent-A").pendingFiles,
+  draftText: ensureChatState("agent-A").draftText,
+  inputValue: dom.chatInput.value,
+  notifyCalls,
+  toastCalls
 }}));
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
-    assert data["attachmentsValue"] == '["file-1","file-2"]'
-    assert data["draftAttachmentsValue"] == '["file-1","file-2"]'
+    assert data["attachmentsValue"] == ""
+    assert data["pendingFiles"] == []
+    assert data["draftText"] == ""
+    assert data["inputValue"] == "msg"
     assert data["notifyCalls"] == 1
+    assert data["toastCalls"] >= 1
 
 
 def test_background_failure_restores_original_agent_draft_state_only():
@@ -1257,36 +1264,31 @@ function notifyAgentCompletion() {{}}
 {handle_failure}
 const chatStateA = ensureChatState("agent-A");
 chatStateA.activeRequest = {{ clientRequestId: "req-a" }};
-chatStateA.attachmentHistory = [["old-1"], ["new-failed"]];
-chatStateA.didAppendAttachmentHistoryForPendingSend = true;
+chatStateA.pendingFiles = [{{ id: "pf-1" }}];
 handleAgentChatFailure("agent-A", {{
   clientRequestId: "req-a",
-  backupMessage: "fix this",
-  backupFiles: [{{id: "pf-1"}}],
-  attachments: ["file-1", "file-2"],
+  backupMessage: "msg"
 }}, new Error("failed"));
 console.log(JSON.stringify({{
   draftText: ensureChatState("agent-A").draftText,
-  draftAttachmentsValue: ensureChatState("agent-A").draftAttachmentsValue,
-  pendingFilesLen: ensureChatState("agent-A").pendingFiles.length,
-  attachmentHistory: ensureChatState("agent-A").attachmentHistory,
+  pendingFiles: ensureChatState("agent-A").pendingFiles,
   backgroundStatus: ensureChatState("agent-A").backgroundStatus,
+  unreadCount: ensureChatState("agent-A").unreadCount,
   needsReload: ensureChatState("agent-A").needsReload,
   renderCalls
 }}));
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
-    assert data["draftText"] == "fix this"
-    assert data["draftAttachmentsValue"] == '["file-1","file-2"]'
-    assert data["pendingFilesLen"] == 1
-    assert data["attachmentHistory"] == [["old-1"]]
+    assert data["draftText"] == "msg"
+    assert data["pendingFiles"] == []
     assert data["backgroundStatus"] == "error"
+    assert data["unreadCount"] >= 1
     assert data["needsReload"] is False
     assert data["renderCalls"] == 1
 
 
-def test_render_chat_history_rebuilds_attachment_history_for_selected_agent():
+def test_render_chat_history_does_not_rebuild_reusable_attachment_state():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1302,7 +1304,7 @@ def test_render_chat_history_rebuilds_attachment_history_for_selected_agent():
 const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [["dirty-old"]] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const dom = {{
   messageList: {{
@@ -1324,7 +1326,8 @@ const document = {{
       className: "",
       dataset: {{}},
       textContent: "",
-      appendChild() {{}},
+      children: [],
+      appendChild(child) {{ this.children.push(child); }},
     }};
   }},
 }};
@@ -1339,15 +1342,17 @@ renderChatHistory([
   {{ role: "user", content: "u2", attachments: [] }},
 ], {{}});
 console.log(JSON.stringify({{
-  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory
+  chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
+  attachmentChipCount: dom.messageList.children[0].children[1].children[1].children.length
 }}));
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
-    assert data["attachmentHistory"] == [["file-1"], []]
+    assert "attachmentHistory" not in data["chatStateKeys"]
+    assert data["attachmentChipCount"] == 1
 
 
-def test_render_chat_history_empty_clears_attachment_history():
+def test_render_chat_history_empty_leaves_no_reusable_attachment_state():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1359,7 +1364,7 @@ def test_render_chat_history_empty_clears_attachment_history():
 const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [["dirty-old"]] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const dom = {{
   messageList: {{
@@ -1382,13 +1387,13 @@ const document = {{
 {render_history_dependencies}
 renderChatHistory([], {{}});
 console.log(JSON.stringify({{
-  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory,
+  chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
   messageListHtml: dom.messageList.innerHTML
 }}));
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
-    assert data["attachmentHistory"] == []
+    assert "attachmentHistory" not in data["chatStateKeys"]
     assert data["messageListHtml"] == "WELCOME"
 
 
@@ -1405,7 +1410,7 @@ const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
   currentUserName: "Portal User",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const dom = {{
   messageList: {{
@@ -1455,7 +1460,9 @@ console.log(JSON.stringify({{
   imageNodeCount,
   fileNodeCount: fileNodes.length,
   fileTexts,
-  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory,
+  chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
+  articleDatasetAttachments: article.dataset.attachments || null,
+  attachmentDivDatasetAttachments: attachmentsContainer.dataset.attachments || null,
 }}));
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
@@ -1464,11 +1471,9 @@ console.log(JSON.stringify({{
     assert data["fileNodeCount"] == 2
     assert any(text.startswith("📄 file_legacy_ref") for text in data["fileTexts"])
     assert any(text.startswith("📄 spec.pdf · application/pdf · 2 KB") for text in data["fileTexts"])
-    assert data["attachmentHistory"] == [[
-        {"type": "image", "previewUrl": "blob:image-1", "file_id": "img-1", "name": "diagram.png"},
-        "file_legacy_ref",
-        {"type": "file", "filename": "spec.pdf", "content_type": "application/pdf", "size": 2048},
-    ]]
+    assert "attachmentHistory" not in data["chatStateKeys"]
+    assert data["articleDatasetAttachments"] in ("", None)
+    assert data["attachmentDivDatasetAttachments"] in ("", None)
 
 
 def test_build_user_message_article_uses_current_user_display_name():
