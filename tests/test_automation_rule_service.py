@@ -515,3 +515,130 @@ async def test_run_once_blocked_by_capability_profile(monkeypatch):
 
     runs = AutomationRuleRepository(db).list_runs(rule.id, 5)
     assert runs[0].status == "failed"
+
+
+def _create_runtime_and_agent(db: Session, username: str = "u-mention"):
+    user = User(username=username, password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name=f"rp-{username}", config_json=json.dumps({"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "secret"}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    return user, agent
+
+
+def test_create_github_comment_mention_rule_without_trigger_type_sets_default():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-mention-default")
+    svc = AutomationRuleService(db)
+    payload = AutomationRuleCreate(name="m1", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"})
+    rule = svc.create_rule(payload, current_user_id=user.id)
+    assert rule.trigger_type == "github_comment_mention"
+    assert rule.task_type == "triggered_event_task"
+
+
+def test_create_github_pr_review_without_trigger_type_still_sets_pr_default():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-pr-default")
+    svc = AutomationRuleService(db)
+    payload = AutomationRuleCreate(name="p1", target_agent_id=agent.id, task_template_id="github_pr_review", scope={"owner": "acme", "repo": "portal"}, trigger_config={"review_target_type": "user", "review_target": "alice"})
+    rule = svc.create_rule(payload, current_user_id=user.id)
+    assert rule.trigger_type == "github_pr_review_requested"
+
+
+@pytest.mark.anyio
+async def test_run_once_github_comment_mention_creates_triggered_event_task(monkeypatch):
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-run-once")
+    svc = AutomationRuleService(db)
+    payload = AutomationRuleCreate(name="m2", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"})
+    rule = svc.create_rule(payload, current_user_id=user.id)
+
+    async def _poll_mentions(**_kwargs):
+        return ([{"owner": "acme", "repo": "portal", "comment_kind": "issue_comment", "context_type": "issue", "issue_number": 11, "comment_id": 1, "body": "@efp-agent hi", "mentioned_account": "efp-agent", "mentioned_logins": ["efp-agent"], "source_event": "poll.issue_comment", "source_payload": {}}], {"poll_cursors": {"issue_comment": {"last_seen_updated_at": "2026-01-01T00:00:00Z", "last_seen_comment_id": 1}}})
+
+    monkeypatch.setattr(svc.comment_mention_poller, "poll_mentions", _poll_mentions)
+    dispatched = []
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda task_id: dispatched.append(task_id))
+
+    result = await svc.run_rule_once(rule.id)
+    assert result.found_count == 1
+    assert result.created_task_count == 1
+    task = db.query(AgentTask).one()
+    payload_obj = json.loads(task.input_payload_json)
+    assert task.task_type == "triggered_event_task"
+    assert task.template_id == "github_comment_mention"
+    assert task.provider == "github"
+    assert task.trigger == "github_comment_mention"
+    assert payload_obj["source_kind"] == "github.mention"
+    assert payload_obj["automation_rule"] == "github.comment_mention"
+    assert payload_obj["skill_name"] == "handle-triggered-event"
+    assert payload_obj["reply_mode"] == "same_surface"
+    assert payload_obj["session_id"].startswith("github:mention:")
+    assert dispatched == [task.id]
+    event = AutomationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "task_created"
+
+
+@pytest.mark.anyio
+async def test_run_once_github_comment_mention_dedupes_same_comment(monkeypatch):
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-dedupe")
+    svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name="m3", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+
+    async def _poll_mentions(**_kwargs):
+        item = {"owner": "acme", "repo": "portal", "comment_kind": "issue_comment", "context_type": "issue", "issue_number": 1, "comment_id": 1, "body": "@efp-agent", "mentioned_account": "efp-agent", "mentioned_logins": ["efp-agent"], "source_event": "poll.issue_comment", "source_payload": {}}
+        return ([item], {"poll_cursors": {"issue_comment": {"last_seen_updated_at": "2026-01-01T00:00:00Z", "last_seen_comment_id": 1}}})
+
+    monkeypatch.setattr(svc.comment_mention_poller, "poll_mentions", _poll_mentions)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+    first = await svc.run_rule_once(rule.id)
+    second = await svc.run_rule_once(rule.id)
+    assert first.created_task_count == 1
+    assert second.created_task_count == 0
+    assert second.skipped_count == 1
+    assert db.query(AgentTask).count() == 1
+
+
+def test_github_comment_mention_capability_gate_blocks_missing_add_comment():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-cap-add")
+    cp = CapabilityProfile(name="no-add", allowed_external_systems_json='["github"]', allowed_actions_json='["read_only"]')
+    db.add(cp); db.commit(); db.refresh(cp)
+    agent.capability_profile_id = cp.id
+    db.add(agent); db.commit()
+    svc = AutomationRuleService(db)
+    with pytest.raises(Exception) as exc:
+        svc.create_rule(AutomationRuleCreate(name="m4", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+    assert "does not allow" in str(exc.value)
+
+
+def test_github_comment_mention_capability_gate_blocks_missing_reply_review_comment_for_same_surface():
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-cap-reply")
+    cp = CapabilityProfile(name="no-reply", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment"]')
+    db.add(cp); db.commit(); db.refresh(cp)
+    agent.capability_profile_id = cp.id
+    db.add(agent); db.commit()
+    svc = AutomationRuleService(db)
+    with pytest.raises(Exception) as exc:
+        svc.create_rule(AutomationRuleCreate(name="m5", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["pull_request_review_comment"]}, trigger_config={"mention_target": "efp-agent"}, task_input_defaults={"reply_mode": "same_surface"}), current_user_id=user.id)
+    assert "does not allow" in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_github_comment_mention_task_creation_failure_marks_event_failed(monkeypatch):
+    db = _session()
+    user, agent = _create_runtime_and_agent(db, "u-fail-event")
+    svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name="m6", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+
+    async def _poll_mentions(**_kwargs):
+        return ([{"owner": "acme", "repo": "portal", "comment_kind": "issue_comment", "context_type": "issue", "issue_number": 1, "comment_id": 9, "mentioned_account": "efp-agent", "source_event": "poll.issue_comment", "source_payload": {}}], {"poll_cursors": {"issue_comment": {"last_seen_updated_at": "2026-01-01T00:00:00Z", "last_seen_comment_id": 9}}})
+
+    monkeypatch.setattr(svc.comment_mention_poller, "poll_mentions", _poll_mentions)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+    await svc.run_rule_once(rule.id)
+    event = AutomationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "failed"

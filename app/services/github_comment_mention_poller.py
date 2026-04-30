@@ -57,16 +57,17 @@ class GithubCommentMentionPoller:
     async def poll_mentions(self, *, provider_config: GithubProviderConfig, owner: str, repo: str, mention_target: str, since_by_surface: dict, surfaces: list[str], overlap_seconds: int = 120, max_pages_per_surface: int = 10, initial_since: datetime | None = None, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True) -> tuple[list[dict], dict]:
         base_url = provider_config.base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {provider_config.api_token}", "Accept": "application/vnd.github+json"}
-        now = datetime.utcnow()
+        poll_started_at = datetime.utcnow()
         items = []
         poll_cursors = {}
         async with httpx.AsyncClient(timeout=20) as client:
             for surface in surfaces:
                 endpoint = "issues/comments" if surface == "issue_comment" else "pulls/comments"
                 last_dt = _parse_dt((since_by_surface.get(surface) or {}).get("last_seen_updated_at"))
-                query_since = (last_dt - timedelta(seconds=overlap_seconds)) if last_dt else (initial_since or now)
+                query_since = (last_dt - timedelta(seconds=overlap_seconds)) if last_dt else (initial_since or poll_started_at)
                 max_seen_dt = query_since
                 max_seen_id = int((since_by_surface.get(surface) or {}).get("last_seen_comment_id") or 0)
+                hit_page_limit = False
                 for page in range(1, max_pages_per_surface + 1):
                     params = {"sort": "updated", "direction": "asc", "since": _iso_z(query_since), "per_page": 100, "page": page}
                     resp = await client.get(f"{base_url}/repos/{owner}/{repo}/{endpoint}", params=params, headers=headers)
@@ -74,7 +75,7 @@ class GithubCommentMentionPoller:
                         raise ValueError(f"GitHub API error surface={surface} status={resp.status_code}")
                     batch = resp.json() or []
                     for c in batch:
-                        upd = _parse_dt(c.get("updated_at")) or now
+                        upd = _parse_dt(c.get("updated_at")) or poll_started_at
                         cid = int(c.get("id") or 0)
                         if upd > max_seen_dt or (upd == max_seen_dt and cid > max_seen_id):
                             max_seen_dt = upd
@@ -87,7 +88,8 @@ class GithubCommentMentionPoller:
                         author = ((c.get("user") or {}).get("login") or "").lower()
                         if ignore_self_comments and author == target:
                             continue
-                        if ignore_bot_comments and str((c.get("user") or {}).get("type") or "") == "Bot":
+                        user_type = str((c.get("user") or {}).get("type") or "").strip().lower()
+                        if ignore_bot_comments and user_type == "bot":
                             continue
                         if ignore_efp_auto_reply_marker and is_efp_auto_reply(body):
                             continue
@@ -95,7 +97,10 @@ class GithubCommentMentionPoller:
                         items.append(item)
                     if len(batch) < 100:
                         break
-                poll_cursors[surface] = {"last_seen_updated_at": _iso_z(max_seen_dt if max_seen_dt else now), "last_seen_comment_id": max_seen_id}
+                    if page == max_pages_per_surface and len(batch) >= 100:
+                        hit_page_limit = True
+                cursor_dt = max_seen_dt if hit_page_limit else max(max_seen_dt, poll_started_at)
+                poll_cursors[surface] = {"last_seen_updated_at": _iso_z(cursor_dt), "last_seen_comment_id": max_seen_id}
         return items, {"poll_cursors": poll_cursors}
 
     def _normalize(self, surface: str, c: dict, owner: str, repo: str, mention_target: str, mentioned: list[str]) -> dict:

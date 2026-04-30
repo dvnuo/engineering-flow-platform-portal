@@ -221,3 +221,56 @@ def test_automation_rules_api_update_merged_validation_and_events_updated_at():
         assert "updated_at" in events[0]
     finally:
         cleanup()
+
+
+def test_api_create_github_comment_mention_rule_success_without_trigger_type():
+    client, _db, agent, cleanup = _build_client_with_overrides()
+    try:
+        payload = {
+            "name": "mention rule",
+            "target_agent_id": agent.id,
+            "task_template_id": "github_comment_mention",
+            "scope": {"owner": "acme", "repo": "portal"},
+            "trigger_config": {"mention_target": "efp-agent"},
+        }
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["trigger_type"] == "github_comment_mention"
+        assert body["task_type"] == "triggered_event_task"
+    finally:
+        cleanup()
+
+
+def test_api_create_github_comment_mention_bad_surface_returns_400():
+    client, _db, agent, cleanup = _build_client_with_overrides()
+    try:
+        payload = {
+            "name": "mention rule",
+            "target_agent_id": agent.id,
+            "task_template_id": "github_comment_mention",
+            "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]},
+            "trigger_config": {"mention_target": "efp-agent"},
+        }
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 400
+    finally:
+        cleanup()
+
+
+def test_api_create_github_comment_mention_bad_schedule_returns_400():
+    client, _db, agent, cleanup = _build_client_with_overrides()
+    try:
+        payload = {
+            "name": "mention rule",
+            "target_agent_id": agent.id,
+            "task_template_id": "github_comment_mention",
+            "scope": {"owner": "acme", "repo": "portal"},
+            "trigger_config": {"mention_target": "efp-agent"},
+            "schedule": {"interval_seconds": "abc"},
+        }
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 400
+        assert "schedule.interval_seconds must be an integer" in resp.json()["detail"]
+    finally:
+        cleanup()

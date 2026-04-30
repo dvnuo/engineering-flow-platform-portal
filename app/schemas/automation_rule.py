@@ -9,7 +9,7 @@ class AutomationRuleCreate(BaseModel):
     enabled: bool = True
     target_agent_id: str
     source_type: str = "github"
-    trigger_type: str = "github_pr_review_requested"
+    trigger_type: str | None = None
     task_template_id: str
     task_type: str | None = None
     scope: dict = Field(default_factory=dict)

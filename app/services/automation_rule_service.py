@@ -30,6 +30,18 @@ class RunOnceResult:
 
 
 class AutomationRuleService:
+    @staticmethod
+    def _int_config(value, default, *, field_name: str, min_value: int | None = None, max_value: int | None = None) -> int:
+        try:
+            parsed = int(value if value is not None else default)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} must be an integer") from exc
+        if min_value is not None and parsed < min_value:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} must be >= {min_value}")
+        if max_value is not None and parsed > max_value:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} must be <= {max_value}")
+        return parsed
+
     def __init__(self, db: Session):
         self.db = db
         self.repo = AutomationRuleRepository(db)
@@ -90,6 +102,9 @@ class AutomationRuleService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="review_event must be one of: APPROVE, COMMENT, REQUEST_CHANGES")
 
     def _validate_github_comment_mention_rule_config(self, built: dict) -> None:
+        source_type = str(built.get("source_type") or "github").strip().lower()
+        if source_type != "github":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_type must be github")
         scope = built.get("scope_json") or {}
         trigger = built.get("trigger_config_json") or {}
         task = built.get("task_config_json") or {}
@@ -103,9 +118,15 @@ class AutomationRuleService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.owner must not be empty")
         if not repo:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.repo must not be empty")
-        surfaces = scope.get("surfaces") or ["issue_comment", "pull_request_review_comment"]
+        surfaces = scope.get("surfaces")
+        if surfaces is None:
+            surfaces = ["issue_comment", "pull_request_review_comment"]
+        elif not isinstance(surfaces, list):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.surfaces must be a list")
         allowed_surfaces = {"issue_comment", "pull_request_review_comment"}
         for s in surfaces:
+            if not isinstance(s, str) or not s.strip():
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.surfaces must contain non-empty strings")
             if s not in allowed_surfaces:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"scope.surfaces contains unsupported surface: {s}")
         mention_target = str(trigger.get("mention_target") or "").strip()
@@ -122,18 +143,10 @@ class AutomationRuleService:
         reply_mode = str(task.get("reply_mode") or "same_surface").strip()
         if reply_mode not in {"same_surface", "timeline"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_input_defaults.reply_mode must be one of: same_surface, timeline")
-        interval_seconds = int(schedule.get("interval_seconds") or 60)
-        if interval_seconds < 30:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="schedule.interval_seconds must be >= 30")
-        overlap_seconds = int(schedule.get("overlap_seconds") or 120)
-        if overlap_seconds < 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="schedule.overlap_seconds must be >= 0")
-        max_pages = int(schedule.get("max_pages_per_surface") or 10)
-        if max_pages < 1 or max_pages > 50:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="schedule.max_pages_per_surface must be between 1 and 50")
-        initial_lookback = int(schedule.get("initial_lookback_seconds") or 0)
-        if initial_lookback < 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="schedule.initial_lookback_seconds must be >= 0")
+        self._int_config(schedule.get("interval_seconds"), 60, field_name="schedule.interval_seconds", min_value=30)
+        self._int_config(schedule.get("overlap_seconds"), 120, field_name="schedule.overlap_seconds", min_value=0)
+        self._int_config(schedule.get("max_pages_per_surface"), 10, field_name="schedule.max_pages_per_surface", min_value=1, max_value=50)
+        self._int_config(schedule.get("initial_lookback_seconds"), 0, field_name="schedule.initial_lookback_seconds", min_value=0)
 
     def _validate_built_rule_config(self, *, built: dict, task_template_id: str) -> None:
         require_task_template(task_template_id)
@@ -195,6 +208,8 @@ class AutomationRuleService:
 
     def update_rule(self, rule, payload: AutomationRuleUpdate, current_user_id: int) -> object:
         data = payload.model_dump(exclude_unset=True)
+        if "task_template_id" in data and data["task_template_id"] != rule.task_template_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Updating task_template_id is not supported")
         existing = {
             "scope_json": self._parse_json(rule.scope_json),
             "trigger_config_json": self._parse_json(rule.trigger_config_json),
@@ -628,8 +643,8 @@ class AutomationRuleService:
             session_id = f"github:mention:{owner}/{repo}:pull_request:{pull_number}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:pull_request:{pull_number}"
         else:
             issue_number = item.get("issue_number"); session_id = f"github:mention:{owner}/{repo}:issue:{issue_number}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:issue:{issue_number}"
-        payload = build_agent_task_create_payload_from_template("github_comment_mention", {"source": "automation_rule", "automation_rule": "github.comment_mention", "automation_rule_id": rule.id, "rule_id": rule.id, "provider": "github", "source_kind": "github.mention", "source_event": item.get("source_event"), "owner": owner, "repo": repo, "issue_number": item.get("issue_number"), "pull_number": item.get("pull_number"), "comment_id": item.get("comment_id"), "review_comment_id": item.get("review_comment_id"), "in_reply_to_id": item.get("in_reply_to_id"), "comment_kind": item.get("comment_kind"), "context_type": item.get("context_type"), "author": item.get("author"), "author_association": item.get("author_association"), "html_url": item.get("html_url"), "body": item.get("body"), "mentioned_account": item.get("mentioned_account"), "mentioned_logins": item.get("mentioned_logins"), "path": item.get("path"), "line": item.get("line"), "side": item.get("side"), "diff_hunk": item.get("diff_hunk"), "skill_name": task_cfg.get("skill_name", "handle-triggered-event"), "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"), "reply_mode": task_cfg.get("reply_mode", "same_surface"), "session_id": session_id, "dedupe_key": dedupe_key}, rule.target_agent_id)
         try:
+            payload = build_agent_task_create_payload_from_template("github_comment_mention", {"source": "automation_rule", "automation_rule": "github.comment_mention", "automation_rule_id": rule.id, "rule_id": rule.id, "provider": "github", "source_kind": "github.mention", "source_event": item.get("source_event"), "owner": owner, "repo": repo, "issue_number": item.get("issue_number"), "pull_number": item.get("pull_number"), "comment_id": item.get("comment_id"), "review_comment_id": item.get("review_comment_id"), "in_reply_to_id": item.get("in_reply_to_id"), "comment_kind": item.get("comment_kind"), "context_type": item.get("context_type"), "author": item.get("author"), "author_association": item.get("author_association"), "html_url": item.get("html_url"), "body": item.get("body"), "mentioned_account": item.get("mentioned_account"), "mentioned_logins": item.get("mentioned_logins"), "path": item.get("path"), "line": item.get("line"), "side": item.get("side"), "diff_hunk": item.get("diff_hunk"), "skill_name": task_cfg.get("skill_name", "handle-triggered-event"), "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"), "reply_mode": task_cfg.get("reply_mode", "same_surface"), "session_id": session_id, "dedupe_key": dedupe_key}, rule.target_agent_id)
             task = self.task_repo.create(parent_agent_id=None, assignee_agent_id=rule.target_agent_id, owner_user_id=rule.owner_user_id, created_by_user_id=rule.created_by_user_id, source="automation_rule", task_type=payload["task_type"], template_id="github_comment_mention", input_payload_json=json.dumps(payload["input_payload_json"]), shared_context_ref=None, task_family=payload.get("task_family") or "triggered_work", provider=payload.get("provider") or "github", trigger=payload.get("trigger") or "github_comment_mention", bundle_id=bundle_id, version_key=str(comment_id), dedupe_key=agent_task_dedupe_key, status="queued", result_payload_json=None, retry_count=0)
         except Exception as exc:
             self.repo.update_event_status(self.repo.get_event(event.id) or event, status="failed", task_id=None, error_message=str(exc)[:500]); raise
