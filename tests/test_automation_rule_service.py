@@ -799,3 +799,35 @@ async def test_run_once_github_comment_mention_passes_commit_tail_pages_to_polle
     monkeypatch.setattr(svc.comment_mention_poller, "poll_mentions", _poll_mentions)
     await svc.run_rule_once(rule.id)
     assert seen.get("commit_comment_initial_tail_pages") == 3
+
+def test_create_github_comment_mention_rule_allows_discussion_comment_when_capability_allows():
+    db = _session(); user, agent = _create_runtime_and_agent(db, "u-disc-ok"); svc = AutomationRuleService(db)
+    cp = CapabilityProfile(name="disc-ok", allowed_external_systems_json='["github"]', allowed_actions_json='["add_discussion_comment"]')
+    db.add(cp); db.commit(); db.refresh(cp); agent.capability_profile_id = cp.id; db.add(agent); db.commit()
+    rule = svc.create_rule(AutomationRuleCreate(name="d", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+    assert rule.id
+
+
+def test_create_github_comment_mention_rule_blocks_discussion_comment_without_adapter():
+    db = _session(); user, agent = _create_runtime_and_agent(db, "u-disc-no"); svc = AutomationRuleService(db)
+    cp = CapabilityProfile(name="disc-no", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment"]')
+    db.add(cp); db.commit(); db.refresh(cp); agent.capability_profile_id = cp.id; db.add(agent); db.commit()
+    with pytest.raises(Exception):
+        svc.create_rule(AutomationRuleCreate(name="d", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+
+
+@pytest.mark.anyio
+async def test_run_once_github_comment_mention_discussion_comment_creates_triggered_event_task(monkeypatch):
+    db = _session(); user, agent = _create_runtime_and_agent(db, "u-disc-run"); svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name="d", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+    async def _poll_mentions(**_kwargs):
+        return ([{"owner": "acme", "repo": "portal", "comment_kind": "discussion_comment", "context_type": "discussion", "discussion_id": "D1", "discussion_number": 1, "discussion_comment_id": "DC1", "comment_id": "DC1", "body": "@efp-agent", "mentioned_account": "efp-agent", "source_event": "poll.discussion_comment", "source_payload": {}}], {"poll_cursors": {"discussion_comment": {"last_seen_updated_at": "2026-01-01T00:00:00Z", "last_seen_comment_id": "DC1"}}})
+    monkeypatch.setattr(svc.comment_mention_poller, "poll_mentions", _poll_mentions)
+    monkeypatch.setattr(svc.dispatcher, "dispatch_task_in_background", lambda _task_id: None)
+    await svc.run_rule_once(rule.id)
+    payload = json.loads(db.query(AgentTask).one().input_payload_json)
+    assert payload["comment_kind"] == "discussion_comment"
+    assert payload["discussion_id"] == "D1"
+    assert payload["discussion_comment_id"] == "DC1"
+    assert payload["source_event"] == "poll.discussion_comment"
+    assert payload["source_kind"] == "github.mention"

@@ -147,7 +147,7 @@ class AutomationRuleService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.surfaces must be a list")
         if isinstance(surfaces, list) and not surfaces:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.surfaces must contain at least one surface")
-        allowed_surfaces = {"issue_comment", "pull_request_review_comment", "commit_comment"}
+        allowed_surfaces = {"issue_comment", "pull_request_review_comment", "commit_comment", "discussion_comment"}
         for s in surfaces:
             if not isinstance(s, str) or not s.strip():
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.surfaces must contain non-empty strings")
@@ -173,6 +173,9 @@ class AutomationRuleService:
         self._int_config(schedule.get("initial_lookback_seconds"), 0, field_name="schedule.initial_lookback_seconds", min_value=0)
         self._int_config(schedule.get("max_repos_per_run"), 20, field_name="schedule.max_repos_per_run", min_value=1, max_value=200)
         self._int_config(schedule.get("commit_comment_initial_tail_pages"), 2, field_name="schedule.commit_comment_initial_tail_pages", min_value=1, max_value=20)
+        self._int_config(schedule.get("max_discussion_pages_per_run"), 5, field_name="schedule.max_discussion_pages_per_run", min_value=1, max_value=20)
+        self._int_config(schedule.get("discussion_comments_tail_count"), 100, field_name="schedule.discussion_comments_tail_count", min_value=1, max_value=100)
+        self._int_config(schedule.get("discussion_replies_tail_count"), 50, field_name="schedule.discussion_replies_tail_count", min_value=0, max_value=100)
 
     def _validate_built_rule_config(self, *, built: dict, task_template_id: str) -> None:
         require_task_template(task_template_id)
@@ -377,6 +380,8 @@ class AutomationRuleService:
                 if not (required & combined):
                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
             if "commit_comment" in surface_set and not ({"add_commit_comment", "adapter:github:add_commit_comment"} & combined):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
+            if "discussion_comment" in surface_set and not ({"add_discussion_comment", "adapter:github:add_discussion_comment"} & combined):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
 
     def create_github_review_task_for_discovered_item(self, *, rule, item: dict, task_cfg: dict) -> tuple[object | None, bool]:
@@ -714,10 +719,15 @@ class AutomationRuleService:
         elif comment_kind == "commit_comment":
             commit_id = item.get("commit_id")
             session_id = f"github:mention:{owner}/{repo}:commit:{commit_id}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:commit:{commit_id}"
+        elif comment_kind == "discussion_comment":
+            discussion_id = item.get("discussion_id")
+            discussion_number = item.get("discussion_number")
+            discussion_comment_id = item.get("discussion_comment_id") or item.get("comment_id")
+            session_id = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}:{discussion_comment_id}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}"
         else:
             issue_number = item.get("issue_number"); session_id = f"github:mention:{owner}/{repo}:issue:{issue_number}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:issue:{issue_number}"
         try:
-            payload = build_agent_task_create_payload_from_template("github_comment_mention", {"source": "automation_rule", "automation_rule": "github.comment_mention", "automation_rule_id": rule.id, "rule_id": rule.id, "provider": "github", "source_kind": "github.mention", "source_event": item.get("source_event"), "owner": owner, "repo": repo, "issue_number": item.get("issue_number"), "pull_number": item.get("pull_number"), "comment_id": item.get("comment_id"), "review_comment_id": item.get("review_comment_id"), "in_reply_to_id": item.get("in_reply_to_id"), "comment_kind": item.get("comment_kind"), "context_type": item.get("context_type"), "author": item.get("author"), "author_association": item.get("author_association"), "html_url": item.get("html_url"), "body": item.get("body"), "mentioned_account": item.get("mentioned_account"), "mentioned_logins": item.get("mentioned_logins"), "path": item.get("path"), "line": item.get("line"), "side": item.get("side"), "position": item.get("position"), "commit_id": item.get("commit_id"), "commit_sha": item.get("commit_sha"), "diff_hunk": item.get("diff_hunk"), "skill_name": task_cfg.get("skill_name", "handle-triggered-event"), "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"), "reply_mode": task_cfg.get("reply_mode", "same_surface"), "session_id": session_id, "dedupe_key": dedupe_key}, rule.target_agent_id)
+            payload = build_agent_task_create_payload_from_template("github_comment_mention", {"source": "automation_rule", "automation_rule": "github.comment_mention", "automation_rule_id": rule.id, "rule_id": rule.id, "provider": "github", "source_kind": "github.mention", "source_event": item.get("source_event"), "owner": owner, "repo": repo, "issue_number": item.get("issue_number"), "pull_number": item.get("pull_number"), "comment_id": item.get("comment_id"), "review_comment_id": item.get("review_comment_id"), "in_reply_to_id": item.get("in_reply_to_id"), "comment_kind": item.get("comment_kind"), "context_type": item.get("context_type"), "author": item.get("author"), "author_association": item.get("author_association"), "html_url": item.get("html_url"), "body": item.get("body"), "mentioned_account": item.get("mentioned_account"), "mentioned_logins": item.get("mentioned_logins"), "path": item.get("path"), "line": item.get("line"), "side": item.get("side"), "position": item.get("position"), "commit_id": item.get("commit_id"), "commit_sha": item.get("commit_sha"), "discussion_number": item.get("discussion_number"), "discussion_id": item.get("discussion_id"), "discussion_comment_id": item.get("discussion_comment_id"), "reply_to_id": item.get("reply_to_id"), "diff_hunk": item.get("diff_hunk"), "skill_name": task_cfg.get("skill_name", "handle-triggered-event"), "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"), "reply_mode": task_cfg.get("reply_mode", "same_surface"), "session_id": session_id, "dedupe_key": dedupe_key}, rule.target_agent_id)
             task = self.task_repo.create(parent_agent_id=None, assignee_agent_id=rule.target_agent_id, owner_user_id=rule.owner_user_id, created_by_user_id=rule.created_by_user_id, source="automation_rule", task_type=payload["task_type"], template_id="github_comment_mention", input_payload_json=json.dumps(payload["input_payload_json"]), shared_context_ref=None, task_family=payload.get("task_family") or "triggered_work", provider=payload.get("provider") or "github", trigger=payload.get("trigger") or "github_comment_mention", bundle_id=bundle_id, version_key=str(comment_id), dedupe_key=agent_task_dedupe_key, status="queued", result_payload_json=None, retry_count=0)
         except Exception as exc:
             self.repo.update_event_status(self.repo.get_event(event.id) or event, status="failed", task_id=None, error_message=str(exc)[:500]); raise

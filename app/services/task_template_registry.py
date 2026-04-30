@@ -113,7 +113,7 @@ TASK_TEMPLATES: tuple[TaskTemplateDefinition, ...] = (
         required_inputs=("owner", "repo", "comment_id", "comment_kind", "body", "mentioned_account"),
         optional_inputs=(
             "issue_number", "pull_number", "review_comment_id", "in_reply_to_id", "context_type", "source_kind", "source_event",
-            "author", "author_association", "html_url", "path", "line", "side", "diff_hunk", "position", "commit_id", "commit_sha", "mentioned_logins",
+            "author", "author_association", "html_url", "path", "line", "side", "diff_hunk", "position", "commit_id", "commit_sha", "discussion_number", "discussion_id", "discussion_comment_id", "reply_to_id", "mentioned_logins",
             "reply_mode", "session_id", "automation_rule_id", "rule_id", "dedupe_key", "skill_name", "execution_mode",
         ),
     ),

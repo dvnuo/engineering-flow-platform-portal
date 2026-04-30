@@ -5832,6 +5832,7 @@ function openCreateAutomationRuleModal() {
             <label><input type="checkbox" name="surfaces" value="issue_comment" checked /> issue_comment</label>
             <label><input type="checkbox" name="surfaces" value="pull_request_review_comment" checked /> pull_request_review_comment</label>
             <label><input type="checkbox" name="surfaces" value="commit_comment" /> commit_comment</label>
+            <label><input type="checkbox" name="surfaces" value="discussion_comment" /> discussion_comment</label>
             <div data-org-only="1" style="display:none">
               <label class="portal-form-label"><span class="portal-form-label">Repo include</span><input class="portal-form-input" name="repo_include" placeholder="api-*,portal" /></label>
               <label class="portal-form-label"><span class="portal-form-label">Repo exclude</span><input class="portal-form-input" name="repo_exclude" placeholder="archived-*" /></label>
