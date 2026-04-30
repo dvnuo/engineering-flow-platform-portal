@@ -228,11 +228,6 @@ function setBlobUrlMapping(blobUrl, fileId) {
   blobUrlToFileId[blobUrl] = fileId;
 }
 
-function addToAttachmentHistory(attachments) {
-  const chatState = getChatState();
-  if (!chatState) return;
-  chatState.attachmentHistory.push(attachments);
-}
 
 function getLastSessionKey(agentId) {
   return `portal-last-session-${agentId}`;
@@ -304,13 +299,10 @@ function createDefaultChatState() {
     sessionId: "",
     isSubmitting: false,
     pendingFiles: [],
-    attachmentHistory: [],
     inflightThinking: null,
     lastThinkingSnapshot: null,
     pendingThinkingEvents: null,
-    didAppendAttachmentHistoryForPendingSend: false,
     draftText: "",
-    draftAttachmentsValue: "",
     activeRequest: null,
     needsReload: false,
     unreadCount: 0,
@@ -2323,7 +2315,6 @@ function persistComposerForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.draftText = dom.chatInput?.value || "";
-  chatState.draftAttachmentsValue = document.getElementById("chat-attachments")?.value || "";
 }
 
 function restoreComposerForAgent(agentId) {
@@ -2331,7 +2322,7 @@ function restoreComposerForAgent(agentId) {
   if (!chatState) return;
   if (dom.chatInput) dom.chatInput.value = chatState.draftText || "";
   const attachmentsInput = document.getElementById("chat-attachments");
-  if (attachmentsInput) attachmentsInput.value = chatState.draftAttachmentsValue || "";
+  if (attachmentsInput) attachmentsInput.value = "";
   syncChatInputHeight();
   renderInputPreview();
   renderComposerModelSelectorForAgent(agentId);
@@ -2859,33 +2850,34 @@ async function submitChatForSelectedAgent() {
     showToast(`Waiting for ${parsingFiles.length} file(s) to finish processing...`);
     return;
   }
-  const messageAtSend = dom.chatInput?.value?.trim() || "";
-  if (!messageAtSend) return;
+  const rawMessageAtSend = dom.chatInput?.value || "";
+  const messageAtSend = rawMessageAtSend.trim();
   const attachmentsAtSend = buildAttachmentsFromChatState(agentIdAtSend, chatState);
+  if (!messageAtSend && attachmentsAtSend.length === 0) return;
+  const requestMessage = messageAtSend || "[attachment]";
+  const displayMessage = messageAtSend || "📎 Attachment";
   const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
   const clientRequestId = `portal-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const requestCtx = {
     agentId: agentIdAtSend,
     sessionIdAtSend,
-    message: messageAtSend,
+    message: requestMessage,
     attachments: attachmentsAtSend,
     clientRequestId,
     startedAt: Date.now(),
     backupMessage: messageAtSend,
-    backupFiles: [...chatState.pendingFiles],
   };
 
   maybeRequestNotificationPermission();
   const modelOverride = (chatState.modelOverride || dom.chatModelSelect?.value || "").trim();
   const defaultModel = (chatState.profileDefaultModel || "").trim();
   const requestBody = {
-    message: messageAtSend,
+    message: requestMessage,
     session_id: sessionIdAtSend || undefined,
     attachments: attachmentsAtSend,
     client_request_id: clientRequestId,
     ...(modelOverride && modelOverride !== defaultModel ? { model_override: modelOverride } : {}),
   };
-  chatState.didAppendAttachmentHistoryForPendingSend = false;
   removeWelcomeMessageIfPresent();
   removeTemporaryAssistantRows();
   hideSuggest();
@@ -2896,7 +2888,7 @@ async function submitChatForSelectedAgent() {
       previewUrl: pf.previewUrl,
       url: pf.uploadedData?.url,
     }));
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(messageAtSend, displayAttachments));
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(displayMessage, displayAttachments));
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
     chatState.inflightThinking = {
       id: clientRequestId,
@@ -2915,8 +2907,6 @@ async function submitChatForSelectedAgent() {
     }
     scrollToBottom();
   }
-  chatState.attachmentHistory.push(attachmentsAtSend);
-  chatState.didAppendAttachmentHistoryForPendingSend = true;
   chatState.pendingFiles = [];
   renderInputPreview();
   if (dom.chatInput) dom.chatInput.value = "";
@@ -3033,7 +3023,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
   chatState.activeRequest = null;
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
-  chatState.didAppendAttachmentHistoryForPendingSend = false;
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
@@ -3119,13 +3108,7 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
   const restoredMessage = requestCtx.backupMessage || "";
-  const restoredFiles = Array.isArray(requestCtx.backupFiles) ? requestCtx.backupFiles : [];
-  const shouldRollbackAttachmentHistory =
-    !!chatState.didAppendAttachmentHistoryForPendingSend &&
-    Array.isArray(chatState.attachmentHistory) &&
-    chatState.attachmentHistory.length > 0;
   chatState.activeRequest = null;
-  chatState.didAppendAttachmentHistoryForPendingSend = false;
   const errorMsg = error?.message || "Send failed";
   if (chatState.inflightThinking) {
     const failedEvent = {
@@ -3144,12 +3127,8 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
-    if (shouldRollbackAttachmentHistory) {
-      chatState.attachmentHistory.pop();
-    }
     chatState.draftText = restoredMessage;
-    chatState.pendingFiles = restoredFiles;
-    chatState.draftAttachmentsValue = "";
+    chatState.pendingFiles = [];
     chatState.inflightThinking = null;
     chatState.pendingThinkingEvents = null;
     chatState.backgroundStatus = "error";
@@ -3162,12 +3141,10 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   removeTemporaryAssistantRows();
   removeLatestOptimisticUserRow();
-  if (shouldRollbackAttachmentHistory) {
-    chatState.attachmentHistory.pop();
-  }
-  chatState.pendingFiles = restoredFiles;
+  chatState.pendingFiles = [];
   if (dom.chatInput) dom.chatInput.value = restoredMessage;
-  chatState.draftAttachmentsValue = "";
+  const attachmentsInput = document.getElementById("chat-attachments");
+  if (attachmentsInput) attachmentsInput.value = "";
   showToast("Send failed. Please re-attach files before retrying.");
   renderInputPreview();
   syncChatInputHeight();
@@ -4123,13 +4100,11 @@ function renderChatHistory(messages, metadata = {}) {
   const selectedChatState = getChatState();
 
   if (!messages.length) {
-    if (selectedChatState) selectedChatState.attachmentHistory = [];
     clearMessageListToWelcome();
     return;
   }
 
   dom.messageList.innerHTML = "";
-  if (selectedChatState) selectedChatState.attachmentHistory = [];
   messages.forEach((message) => {
     if (message.role !== "user" && message.role !== "assistant") return;
     const isUser = message.role === "user";
@@ -4169,13 +4144,10 @@ function renderChatHistory(messages, metadata = {}) {
       article.appendChild(content);
 
       const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
-      if (selectedChatState) selectedChatState.attachmentHistory.push([...normalizedAttachments]);
       if (normalizedAttachments.length > 0) {
         const attachmentDiv = document.createElement("div");
         attachmentDiv.className = "message-attachments";
-        attachmentDiv.dataset.attachments = JSON.stringify(normalizedAttachments);
-        article.dataset.attachments = JSON.stringify(normalizedAttachments);
-        normalizedAttachments.forEach((attachment) => {
+            normalizedAttachments.forEach((attachment) => {
           const isAttachmentObject = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
           const attachmentType = isAttachmentObject ? String(attachment.type || "").toLowerCase() : "";
           const imageUrl = isAttachmentObject ? (attachment.url || attachment.previewUrl || "") : "";
@@ -6063,19 +6035,15 @@ function truncateDomFromUserArticle(userArticle) {
   const selectedChatState = getChatState();
   if (!dom.messageList || !userArticle) {
     clearMessageListToWelcome();
-    if (selectedChatState) selectedChatState.attachmentHistory = [];
     return;
   }
 
   const rows = Array.from(dom.messageList.querySelectorAll(".message-row"));
   const targetRow = userArticle.closest(".message-row");
   const targetRowIndex = rows.indexOf(targetRow);
-  const userArticlesBeforeDelete = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
-  const targetUserIndex = userArticlesBeforeDelete.indexOf(userArticle);
 
   if (!targetRow || targetRowIndex < 0) {
     clearMessageListToWelcome();
-    if (selectedChatState) selectedChatState.attachmentHistory = [];
     return;
   }
 
@@ -6083,10 +6051,6 @@ function truncateDomFromUserArticle(userArticle) {
     rows[i].remove();
   }
 
-  if (Array.isArray(selectedChatState?.attachmentHistory)) {
-    const safeTargetUserIndex = targetUserIndex >= 0 ? targetUserIndex : selectedChatState.attachmentHistory.length;
-    selectedChatState.attachmentHistory = selectedChatState.attachmentHistory.slice(0, safeTargetUserIndex);
-  }
 }
 
 async function retryAssistantMessage(row) {
@@ -6175,8 +6139,7 @@ function addUserEditButtonsToMessages() {
     editBtn.setAttribute("aria-label", "Edit message");
     editBtn.onclick = () => {
       const content = getUserArticleContent(article);
-      const attachments = getUserArticleAttachments(article);
-      openEditMessageModal(messageId, content, attachments);
+      openEditMessageModal(messageId, content);
     };
 
     container.appendChild(editBtn);
@@ -6358,8 +6321,7 @@ function bindEvents() {
         } else {
           clearMessageListToWelcome();
           const selectedChatState = getChatState();
-          if (selectedChatState) selectedChatState.attachmentHistory = [];
-        }
+              }
         
         // Now send the edited message to LLM for processing
         setChatStatus("Sending edited message to AI...");

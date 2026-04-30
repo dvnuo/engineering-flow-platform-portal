@@ -32,6 +32,11 @@ def test_removed_sources_and_mentions_contracts():
     assert "cachedMentionFilesByAgent" not in js
     assert 'agentApi("/api/files/list")' not in js
     assert "@file_${" not in js
+    assert "attachmentHistory" not in js
+    assert "didAppendAttachmentHistoryForPendingSend" not in js
+    assert "draftAttachmentsValue" not in js
+    assert "backupFiles" not in js
+    assert "getUserArticleAttachments" not in js
     panel_block = js[js.index("const ALLOWED_UTILITY_PANEL_KEYS"):js.index("function normalizeUtilityPanelKey")]
     assert '"uploads"' not in panel_block
 
@@ -67,3 +72,18 @@ def test_retry_and_edit_do_not_restore_history_attachments_hidden_input():
     js = _source()
     assert "edit-attachments" not in js
     assert "attachmentsInput.value = JSON.stringify(attachments)" not in js
+
+
+def test_attachment_only_send_contract_and_textarea_not_required():
+    js = _source()
+    app_html = Path("app/templates/app.html").read_text(encoding="utf-8")
+    textarea_block = app_html[app_html.index('<textarea id="chat-input"'):app_html.index('</textarea>', app_html.index('<textarea id="chat-input"'))]
+    assert "required" not in textarea_block
+    start = js.index("async function submitChatForSelectedAgent()")
+    end = js.index("function handleAgentChatSuccess", start)
+    submit_block = js[start:end]
+    assert "attachmentsAtSend.length === 0" in submit_block
+    assert "message: requestMessage" in submit_block
+    assert "[attachment]" in submit_block
+    assert "attachments: attachmentsAtSend" in submit_block
+
