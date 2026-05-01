@@ -122,15 +122,15 @@ class AutomationRuleService:
         task = built.get("task_config_json") or {}
         schedule = built.get("schedule_json") or {}
         mode = str(scope.get("mode") or "repo").strip()
-        if mode not in {"repo", "org"}:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.mode must be one of: repo, org")
+        if mode not in {"repo", "org", "account_notifications"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.mode must be one of: repo, org, account_notifications")
         owner = str(scope.get("owner") or "").strip()
-        if not owner:
+        if mode in {"repo", "org"} and not owner:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.owner must not be empty")
         repo = str(scope.get("repo") or "").strip()
         if mode == "repo" and not repo:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.repo must not be empty")
-        if mode == "org":
+        if mode in {"org", "account_notifications"}:
             selector = scope.get("repo_selector") or {}
             if not isinstance(selector, dict):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.repo_selector must be an object")
@@ -153,6 +153,10 @@ class AutomationRuleService:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.surfaces must contain non-empty strings")
             if s not in allowed_surfaces:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"scope.surfaces contains unsupported surface: {s}")
+        if mode == "account_notifications":
+            reasons = scope.get("notification_reasons", ["mention", "team_mention"])
+            if not isinstance(reasons, list) or any(not isinstance(r, str) or not r.strip() for r in reasons):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scope.notification_reasons must be a list of non-empty strings")
         mention_target = str(trigger.get("mention_target") or "").strip()
         if not mention_target:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="trigger_config.mention_target must not be empty")
@@ -172,6 +176,7 @@ class AutomationRuleService:
         self._int_config(schedule.get("max_pages_per_surface"), 10, field_name="schedule.max_pages_per_surface", min_value=1, max_value=50)
         self._int_config(schedule.get("initial_lookback_seconds"), 0, field_name="schedule.initial_lookback_seconds", min_value=0)
         self._int_config(schedule.get("max_repos_per_run"), 20, field_name="schedule.max_repos_per_run", min_value=1, max_value=200)
+        self._int_config(schedule.get("max_notification_pages_per_run"), 5, field_name="schedule.max_notification_pages_per_run", min_value=1, max_value=20)
         self._int_config(schedule.get("commit_comment_initial_tail_pages"), 2, field_name="schedule.commit_comment_initial_tail_pages", min_value=1, max_value=20)
         self._int_config(schedule.get("max_discussion_pages_per_run"), 5, field_name="schedule.max_discussion_pages_per_run", min_value=1, max_value=20)
         self._int_config(schedule.get("discussion_comments_tail_count"), 100, field_name="schedule.discussion_comments_tail_count", min_value=1, max_value=100)
@@ -643,10 +648,13 @@ class AutomationRuleService:
                 repo_cursor = int(state.get("org_repo_cursor") or 0)
                 if len(repos) > max_repos_per_run:
                     repo_limit_reached = True
-                selected = repos[repo_cursor:repo_cursor + max_repos_per_run]
-                if len(selected) < max_repos_per_run and repos:
-                    selected += repos[: max_repos_per_run - len(selected)]
-                selected = selected[:max_repos_per_run]
+                repo_count = len(repos)
+                limit = min(max_repos_per_run, repo_count)
+                selected = []
+                for i in range(limit):
+                    selected.append(repos[(repo_cursor + i) % repo_count])
+                next_org_repo_cursor = (repo_cursor + limit) % repo_count if repo_count else 0
+                repo_limit_reached = repo_count > max_repos_per_run
                 next_cursor_map = dict(state.get("poll_cursors_by_repo") or {})
                 for target in selected:
                     key = f"{target['owner']}/{target['repo']}"
@@ -654,7 +662,47 @@ class AutomationRuleService:
                     repo_items, next_patch = await self.comment_mention_poller.poll_mentions(provider_config=provider_cfg, owner=target["owner"], repo=target["repo"], mention_target=mention_target, since_by_surface=repo_cursors, surfaces=surfaces, overlap_seconds=overlap_seconds, max_pages_per_surface=max_pages_per_surface, initial_since=initial_since, ignore_self_comments=bool(trigger_cfg.get("ignore_self_comments", True)), ignore_bot_comments=bool(trigger_cfg.get("ignore_bot_comments", True)), ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)), commit_comment_initial_tail_pages=commit_comment_initial_tail_pages, max_discussion_pages_per_run=max_discussion_pages_per_run, discussion_comments_tail_count=discussion_comments_tail_count, discussion_replies_tail_count=discussion_replies_tail_count)
                     next_cursor_map[key] = next_patch.get("poll_cursors", repo_cursors)
                     items.extend(repo_items)
-                next_state_patch = {"poll_cursors_by_repo": next_cursor_map, "org_repo_cursor": (repo_cursor + len(selected)) % max(1, len(repos))}
+                next_state_patch = {"poll_cursors_by_repo": next_cursor_map, "org_repo_cursor": next_org_repo_cursor}
+            elif mode == "account_notifications":
+                account_state = state.get("account_notifications") if isinstance(state.get("account_notifications"), dict) else {}
+                notif_since_raw = account_state.get("last_seen_notification_updated_at")
+                notif_since = None
+                if notif_since_raw:
+                    parsed = datetime.fromisoformat(str(notif_since_raw).replace("Z", "+00:00")).replace(tzinfo=None)
+                    notif_since = parsed - timedelta(seconds=overlap_seconds)
+                notifications, notif_patch = await self.comment_mention_poller.list_account_notifications(provider_config=provider_cfg, since=notif_since, reasons=scope.get("notification_reasons") or ["mention", "team_mention"], max_pages=int(schedule.get("max_notification_pages_per_run") or 5))
+                selector = scope.get("repo_selector") or {}
+                include = selector.get("include") or []
+                exclude = selector.get("exclude") or []
+                def allowed_repo(name: str) -> bool:
+                    from fnmatch import fnmatchcase
+                    short = name.split("/",1)[1] if "/" in name else name
+                    if include and not any(fnmatchcase(short, p) for p in include):
+                        return False
+                    if exclude and any(fnmatchcase(short, p) for p in exclude):
+                        return False
+                    return True
+                candidates=[]; seen=set(); meta_by_repo={}
+                for n in notifications:
+                    full=str(n.get("repository_full_name") or "").strip()
+                    if not full or "/" not in full or not allowed_repo(full) or full in seen:
+                        continue
+                    seen.add(full); candidates.append(full); meta_by_repo[full]=n
+                next_cursor_map = dict(state.get("poll_cursors_by_repo") or {})
+                for full in candidates:
+                    o,r = full.split("/",1)
+                    repo_cursors = next_cursor_map.get(full) if isinstance(next_cursor_map.get(full), dict) else {}
+                    repo_items, next_patch = await self.comment_mention_poller.poll_mentions(provider_config=provider_cfg, owner=o, repo=r, mention_target=mention_target, since_by_surface=repo_cursors, surfaces=surfaces, overlap_seconds=overlap_seconds, max_pages_per_surface=max_pages_per_surface, initial_since=initial_since, ignore_self_comments=bool(trigger_cfg.get("ignore_self_comments", True)), ignore_bot_comments=bool(trigger_cfg.get("ignore_bot_comments", True)), ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)), commit_comment_initial_tail_pages=commit_comment_initial_tail_pages, max_discussion_pages_per_run=max_discussion_pages_per_run, discussion_comments_tail_count=discussion_comments_tail_count, discussion_replies_tail_count=discussion_replies_tail_count)
+                    next_cursor_map[full] = next_patch.get("poll_cursors", repo_cursors)
+                    meta = meta_by_repo.get(full) or {}
+                    for it in repo_items:
+                        it["notification_id"] = meta.get("notification_id")
+                        it["notification_reason"] = meta.get("reason")
+                        it["notification_subject_type"] = meta.get("subject_type")
+                        it["notification_url"] = meta.get("subject_url") or meta.get("latest_comment_url")
+                        it["notification_updated_at"] = meta.get("updated_at")
+                    items.extend(repo_items)
+                next_state_patch = {"poll_cursors_by_repo": next_cursor_map, "account_notifications": notif_patch}
             else:
                 poll_cursors = state.get("poll_cursors") if isinstance(state.get("poll_cursors"), dict) else {}
                 items, next_state_patch = await self.comment_mention_poller.poll_mentions(
@@ -680,6 +728,9 @@ class AutomationRuleService:
             if mode == "org":
                 new_state["poll_cursors_by_repo"] = next_state_patch.get("poll_cursors_by_repo", state.get("poll_cursors_by_repo") or {})
                 new_state["org_repo_cursor"] = next_state_patch.get("org_repo_cursor", state.get("org_repo_cursor") or 0)
+            elif mode == "account_notifications":
+                new_state["poll_cursors_by_repo"] = next_state_patch.get("poll_cursors_by_repo", state.get("poll_cursors_by_repo") or {})
+                new_state["account_notifications"] = next_state_patch.get("account_notifications", state.get("account_notifications") or {})
             else:
                 poll_cursors = state.get("poll_cursors") if isinstance(state.get("poll_cursors"), dict) else {}
                 new_state["poll_cursors"] = next_state_patch.get("poll_cursors", poll_cursors)
@@ -730,7 +781,7 @@ class AutomationRuleService:
         else:
             issue_number = item.get("issue_number"); session_id = f"github:mention:{owner}/{repo}:issue:{issue_number}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:issue:{issue_number}"
         try:
-            payload = build_agent_task_create_payload_from_template("github_comment_mention", {"source": "automation_rule", "automation_rule": "github.comment_mention", "automation_rule_id": rule.id, "rule_id": rule.id, "provider": "github", "source_kind": "github.mention", "source_event": item.get("source_event"), "owner": owner, "repo": repo, "issue_number": item.get("issue_number"), "pull_number": item.get("pull_number"), "comment_id": item.get("comment_id"), "review_comment_id": item.get("review_comment_id"), "in_reply_to_id": item.get("in_reply_to_id"), "comment_kind": item.get("comment_kind"), "context_type": item.get("context_type"), "author": item.get("author"), "author_association": item.get("author_association"), "html_url": item.get("html_url"), "body": item.get("body"), "mentioned_account": item.get("mentioned_account"), "mentioned_logins": item.get("mentioned_logins"), "path": item.get("path"), "line": item.get("line"), "side": item.get("side"), "position": item.get("position"), "commit_id": item.get("commit_id"), "commit_sha": item.get("commit_sha"), "discussion_number": item.get("discussion_number"), "discussion_id": item.get("discussion_id"), "discussion_comment_id": item.get("discussion_comment_id"), "reply_to_id": item.get("reply_to_id"), "diff_hunk": item.get("diff_hunk"), "skill_name": task_cfg.get("skill_name", "handle-triggered-event"), "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"), "reply_mode": task_cfg.get("reply_mode", "same_surface"), "session_id": session_id, "dedupe_key": dedupe_key}, rule.target_agent_id)
+            payload = build_agent_task_create_payload_from_template("github_comment_mention", {"source": "automation_rule", "automation_rule": "github.comment_mention", "automation_rule_id": rule.id, "rule_id": rule.id, "provider": "github", "source_kind": "github.mention", "source_event": item.get("source_event"), "owner": owner, "repo": repo, "issue_number": item.get("issue_number"), "pull_number": item.get("pull_number"), "comment_id": item.get("comment_id"), "review_comment_id": item.get("review_comment_id"), "in_reply_to_id": item.get("in_reply_to_id"), "comment_kind": item.get("comment_kind"), "context_type": item.get("context_type"), "author": item.get("author"), "author_association": item.get("author_association"), "html_url": item.get("html_url"), "body": item.get("body"), "mentioned_account": item.get("mentioned_account"), "mentioned_logins": item.get("mentioned_logins"), "path": item.get("path"), "line": item.get("line"), "side": item.get("side"), "position": item.get("position"), "commit_id": item.get("commit_id"), "commit_sha": item.get("commit_sha"), "discussion_number": item.get("discussion_number"), "discussion_id": item.get("discussion_id"), "discussion_comment_id": item.get("discussion_comment_id"), "reply_to_id": item.get("reply_to_id"), "diff_hunk": item.get("diff_hunk"), "notification_id": item.get("notification_id"), "notification_reason": item.get("notification_reason"), "notification_subject_type": item.get("notification_subject_type"), "notification_url": item.get("notification_url"), "notification_updated_at": item.get("notification_updated_at"), "skill_name": task_cfg.get("skill_name", "handle-triggered-event"), "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"), "reply_mode": task_cfg.get("reply_mode", "same_surface"), "session_id": session_id, "dedupe_key": dedupe_key}, rule.target_agent_id)
             task = self.task_repo.create(parent_agent_id=None, assignee_agent_id=rule.target_agent_id, owner_user_id=rule.owner_user_id, created_by_user_id=rule.created_by_user_id, source="automation_rule", task_type=payload["task_type"], template_id="github_comment_mention", input_payload_json=json.dumps(payload["input_payload_json"]), shared_context_ref=None, task_family=payload.get("task_family") or "triggered_work", provider=payload.get("provider") or "github", trigger=payload.get("trigger") or "github_comment_mention", bundle_id=bundle_id, version_key=str(comment_id), dedupe_key=agent_task_dedupe_key, status="queued", result_payload_json=None, retry_count=0)
         except Exception as exc:
             self.repo.update_event_status(self.repo.get_event(event.id) or event, status="failed", task_id=None, error_message=str(exc)[:500]); raise

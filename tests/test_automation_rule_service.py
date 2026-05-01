@@ -831,3 +831,23 @@ async def test_run_once_github_comment_mention_discussion_comment_creates_trigge
     assert payload["discussion_comment_id"] == "DC1"
     assert payload["source_event"] == "poll.discussion_comment"
     assert payload["source_kind"] == "github.mention"
+
+@pytest.mark.anyio
+async def test_run_once_org_scope_does_not_duplicate_repos_when_repo_count_less_than_max(monkeypatch):
+    db = _session()
+    user = User(username="u-org-nodup", password_hash="x", role="admin", is_active=True)
+    db.add(user); db.commit(); db.refresh(user)
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp", config_json=json.dumps({"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "secret"}, "allowed_actions": ["adapter:github:add_comment", "adapter:github:reply_review_comment"]}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent = _mk_agent(user.id, rp.id)
+    db.add(agent); db.commit(); db.refresh(agent)
+    svc = AutomationRuleService(db)
+    rule = svc.create_rule(AutomationRuleCreate(name='org', target_agent_id=agent.id, task_template_id='github_comment_mention', scope={'mode':'org','owner':'acme','repo_selector':{'include':['*']}}, trigger_config={'mention_target':'efp-agent'}), current_user_id=user.id)
+    async def list_org_repositories(**_): return [{'owner':'acme','repo':'a','full_name':'acme/a'},{'owner':'acme','repo':'b','full_name':'acme/b'}]
+    called=[]
+    async def poll_mentions(**kwargs): called.append(kwargs['repo']); return [], {'poll_cursors':{}}
+    monkeypatch.setattr(svc.comment_mention_poller, 'list_org_repositories', list_org_repositories)
+    monkeypatch.setattr(svc.comment_mention_poller, 'poll_mentions', poll_mentions)
+    await svc.run_rule_once(rule.id)
+    assert len(called)==2
+    assert set(called)=={'a','b'}

@@ -238,3 +238,16 @@ async def test_poll_mentions_discussion_comment_reply_graphql(monkeypatch):
     monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
     items, _ = await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["discussion_comment"], initial_since=__import__("datetime").datetime(2025,1,1))
     assert items[0]["reply_to_id"] == "DC_TOP"
+
+@pytest.mark.anyio
+async def test_poll_mentions_commit_comment_initial_tail_respects_max_pages(monkeypatch):
+    calls=[]
+    class C(_Client):
+        async def get(self, url, **kwargs):
+            calls.append((kwargs.get('params') or {}).get('page'))
+            if len(calls)==1:
+                r=_Resp(200, []); r.headers={"Link": '<x?page=10>; rel="last"'}; return r
+            return _Resp(200, [])
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner='acme', repo='r', mention_target='efp-agent', since_by_surface={}, surfaces=['commit_comment'], max_pages_per_surface=1, commit_comment_initial_tail_pages=2)
+    assert calls == [1, 10]

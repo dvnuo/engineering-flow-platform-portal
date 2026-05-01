@@ -151,7 +151,8 @@ class GithubCommentMentionPoller:
                     if last_from_header:
                         last_page_seen = last_from_header
                     if surface == "commit_comment" and idx == 0 and not (since_by_surface.get(surface) or {}).get("last_seen_comment_id") and last_page_seen:
-                        start_page = max(1, last_page_seen - max(1, commit_comment_initial_tail_pages) + 1)
+                        effective_tail_pages = min(max(1, commit_comment_initial_tail_pages), max(1, max_pages_per_surface))
+                        start_page = max(1, last_page_seen - effective_tail_pages + 1)
                         page = start_page
                         params = {"per_page": 100, "page": page}
                         resp = await client.get(f"{base_url}/repos/{owner}/{repo}/{endpoint}", params=params, headers=headers)
@@ -252,6 +253,46 @@ class GithubCommentMentionPoller:
                 break
         cursor_dt = max_dt if hit_page_limit else max(max_dt, datetime.utcnow())
         return items, {"last_seen_updated_at": _iso_z(cursor_dt), "last_seen_comment_id": max_id, "discussion_after_cursor": after, "hit_page_limit": hit_page_limit}
+
+
+
+    async def list_account_notifications(self, *, provider_config: GithubProviderConfig, since: datetime | None = None, reasons: list[str] | None = None, max_pages: int = 5) -> tuple[list[dict], dict]:
+        base_url = provider_config.base_url.rstrip("/")
+        headers = {"Authorization": f"Bearer {provider_config.api_token}", "Accept": "application/vnd.github+json"}
+        poll_started_at = datetime.utcnow()
+        allowed_reasons = {str(x).strip() for x in (reasons or ["mention", "team_mention"]) if str(x).strip()}
+        notifications: list[dict] = []
+        max_updated = since or poll_started_at
+        max_id = ""
+        async with httpx.AsyncClient(timeout=20) as client:
+            for page in range(1, max(1, max_pages) + 1):
+                params = {"all": "true", "participating": "true", "per_page": 100, "page": page}
+                if since:
+                    params["since"] = _iso_z(since)
+                resp = await client.get(f"{base_url}/notifications", params=params, headers=headers)
+                if resp.status_code in {403, 404}:
+                    raise ValueError("GitHub account notifications polling requires a user/PAT-compatible token")
+                if resp.status_code >= 400:
+                    raise ValueError(f"GitHub notifications API error status={resp.status_code}")
+                batch = resp.json() or []
+                for n in batch:
+                    reason = str(n.get("reason") or "").strip()
+                    full_name = str(((n.get("repository") or {}).get("full_name") or "")).strip()
+                    if allowed_reasons and reason not in allowed_reasons:
+                        continue
+                    if not full_name:
+                        continue
+                    updated_at = _parse_dt(n.get("updated_at")) or poll_started_at
+                    if updated_at > max_updated:
+                        max_updated = updated_at
+                    nid = str(n.get("id") or "")
+                    if nid and nid > max_id:
+                        max_id = nid
+                    subject = n.get("subject") or {}
+                    notifications.append({"notification_id": n.get("id"), "reason": reason, "updated_at": n.get("updated_at"), "repository_full_name": full_name, "subject_type": subject.get("type"), "subject_url": subject.get("url"), "latest_comment_url": subject.get("latest_comment_url"), "source_payload": n})
+                if len(batch) < 100:
+                    break
+        return notifications, {"last_seen_notification_updated_at": _iso_z(max(max_updated, poll_started_at)), "last_seen_notification_id": max_id}
 
     async def list_org_repositories(self, *, provider_config: GithubProviderConfig, org: str, repo_selector: dict | None = None, max_pages: int = 10) -> list[dict]:
         base_url = provider_config.base_url.rstrip("/")
