@@ -22,6 +22,7 @@ from app.schemas.agent_group import (
     AgentGroupTaskSummaryResponse,
 )
 from app.schemas.agent import AgentResponse
+from app.utils.agent_responses import build_agent_response
 from app.schemas.agent_task import AgentTaskResponse
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 
@@ -176,7 +177,7 @@ def create_group_task_agent(
         agent = service.create_group_task_agent(group_id, payload, user=user)
     except AgentGroupServiceError as error:
         _raise_http_service_error(error)
-    return AgentResponse.model_validate(agent)
+    return build_agent_response(agent)
 
 
 @router.delete("/api/agent-groups/{group_id}/task-agents/{agent_id}")

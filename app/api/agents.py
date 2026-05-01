@@ -23,6 +23,7 @@ from app.services.k8s_service import K8sService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.utils.git_urls import normalize_git_repo_url
+from app.utils.agent_responses import build_agent_response
 from app.utils.naming import runtime_names
 from app.utils.state_machine import can_transition, is_valid_status
 
@@ -147,21 +148,6 @@ def _resolve_create_skill_branch(payload: AgentCreateRequest) -> str:
     return branch or settings.default_skill_branch or "master"
 
 
-def _effective_skill_repo_url(agent) -> str | None:
-    return normalize_git_repo_url(getattr(agent, "skill_repo_url", None)) or normalize_git_repo_url(settings.default_skill_repo_url)
-
-
-def _effective_skill_branch(agent) -> str:
-    return (getattr(agent, "skill_branch", None) or settings.default_skill_branch or "master").strip() or "master"
-
-
-def _agent_response(agent) -> AgentResponse:
-    response = AgentResponse.model_validate(agent)
-    response.effective_skill_repo_url = _effective_skill_repo_url(agent)
-    response.effective_skill_branch = _effective_skill_branch(agent)
-    return response
-
-
 def _resolve_create_image(payload: AgentCreateRequest) -> str:
     image = (payload.image or "").strip()
     return image or _default_agent_image()
@@ -170,14 +156,14 @@ def _resolve_create_image(payload: AgentCreateRequest) -> str:
 @router.get("/mine", response_model=list[AgentResponse])
 def list_mine(user=Depends(get_current_user), db: Session = Depends(get_db)):
     agents = AgentRepository(db).list_by_owner(user.id)
-    return [_agent_response(r) for r in agents]
+    return [build_agent_response(r) for r in agents]
 
 
 @router.get("/public", response_model=list[AgentResponse])
 def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
     agents = AgentRepository(db).list_public()
-    return [_agent_response(r) for r in agents]
+    return [build_agent_response(r) for r in agents]
 
 
 @router.post("", response_model=AgentResponse)
@@ -236,7 +222,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         user_id=user.id,
         details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch},
     )
-    return _agent_response(agent)
+    return build_agent_response(agent)
 
 
 @router.patch("/{agent_id}", response_model=AgentResponse)
@@ -295,7 +281,7 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         user_id=user.id,
         details=changes,
     )
-    return _agent_response(agent)
+    return build_agent_response(agent)
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
@@ -305,7 +291,7 @@ def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depen
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if not _can_read(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    return _agent_response(agent)
+    return build_agent_response(agent)
 
 
 @router.get("/{agent_id}/chat-model-profile", response_model=AgentChatModelProfileResponse)
@@ -351,7 +337,7 @@ def start_agent(agent_id: str, user=Depends(get_current_user), db: Session = Dep
     agent.last_error = runtime.message
     repo.save(agent)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
-    return _agent_response(agent)
+    return build_agent_response(agent)
 
 
 @router.post("/{agent_id}/stop", response_model=AgentResponse)
@@ -366,7 +352,7 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
     agent.last_error = runtime.message
     repo.save(agent)
     AuditRepository(db).create("stop_agent", "agent", agent.id, user.id)
-    return _agent_response(agent)
+    return build_agent_response(agent)
 
 
 @router.post("/{agent_id}/restart", response_model=AgentResponse)
@@ -396,7 +382,7 @@ def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = D
     agent.last_error = runtime.message
     repo.save(agent)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
-    return _agent_response(agent)
+    return build_agent_response(agent)
 
 
 @router.post("/{agent_id}/share", response_model=AgentResponse)
@@ -405,7 +391,7 @@ def share_agent(agent_id: str, user=Depends(get_current_user), db: Session = Dep
     agent.visibility = "public"
     repo.save(agent)
     AuditRepository(db).create("share_agent", "agent", agent.id, user.id)
-    return _agent_response(agent)
+    return build_agent_response(agent)
 
 
 @router.post("/{agent_id}/unshare", response_model=AgentResponse)
@@ -414,7 +400,7 @@ def unshare_agent(agent_id: str, user=Depends(get_current_user), db: Session = D
     agent.visibility = "private"
     repo.save(agent)
     AuditRepository(db).create("unshare_agent", "agent", agent.id, user.id)
-    return _agent_response(agent)
+    return build_agent_response(agent)
 
 
 @router.delete("/{agent_id}", response_model=AgentDeleteResponse)

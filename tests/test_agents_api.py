@@ -178,6 +178,8 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "v2.4.1")
         monkeypatch.setattr(agents_api.settings, "default_agent_repo_url", "git@github.com:Acme/Portal.git")
         monkeypatch.setattr(agents_api.settings, "default_agent_branch", "release/default")
+        monkeypatch.setattr(agents_api.settings, "default_agent_runtime_repo_url", "")
+        monkeypatch.setattr(agents_api.settings, "default_agent_runtime_branch", "")
         monkeypatch.setattr(
             "app.api.agents.k8s_service.create_agent_runtime",
             lambda _agent: SimpleNamespace(status="running", message=None),

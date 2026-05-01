@@ -6434,7 +6434,7 @@ function bindEvents() {
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
 
-    // Always include skill_repo_url and skill_branch (empty string to clear)
+    // Always include skill_repo_url and skill_branch; empty values mean "use configured default".
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;

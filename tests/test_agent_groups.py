@@ -383,12 +383,17 @@ def test_explicit_specialist_pool_rejects_leader_and_workspace():
         cleanup()
 
 
-def test_manage_specialist_pool_and_task_agent_lifecycle():
+def test_manage_specialist_pool_and_task_agent_lifecycle(monkeypatch):
     client, leader_agent, _member_agent, _user_member, _outsider, _set_user, cleanup = _build_client_with_overrides()
     try:
         from app.main import app
         import app.api.agent_groups as groups_api
         import app.api.agents as agents_api
+        from app.config import get_settings
+
+        settings = get_settings()
+        monkeypatch.setattr(settings, "default_agent_runtime_repo_url", "https://github.com/acme/runtime.git")
+        monkeypatch.setattr(settings, "default_agent_runtime_branch", "runtime-main")
 
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
@@ -409,6 +414,8 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
             image="example/image:latest",
             repo_url="https://example.com/repo-template.git",
             branch="main",
+            skill_repo_url="git@github.com:Acme/TemplateSkills.git",
+            skill_branch="feature/template-skills",
             cpu="500m",
             memory="1Gi",
             disk_size_gi=20,
@@ -455,6 +462,17 @@ def test_manage_specialist_pool_and_task_agent_lifecycle():
         created = create_task_agent.json()
         assert created["agent_type"] == "task"
         assert created["runtime_profile_id"] == runtime_profile.id
+        assert created["repo_url"] == "https://github.com/acme/runtime.git"
+        assert created["branch"] == "runtime-main"
+        assert created["skill_repo_url"] == "https://github.com/Acme/TemplateSkills.git"
+        assert created["skill_branch"] == "feature/template-skills"
+        assert created["effective_skill_repo_url"] == "https://github.com/Acme/TemplateSkills.git"
+        assert created["effective_skill_branch"] == "feature/template-skills"
+        task_agent = db.get(Agent, created["id"])
+        assert task_agent.skill_repo_url == "https://github.com/Acme/TemplateSkills.git"
+        assert task_agent.skill_branch == "feature/template-skills"
+        assert task_agent.repo_url == "https://github.com/acme/runtime.git"
+        assert task_agent.branch == "runtime-main"
         create_audit = db.query(AuditLog).filter(AuditLog.action == "create_group_task_agent", AuditLog.target_id == created["id"]).first()
         assert create_audit is not None
         assert json.loads(create_audit.details_json)["group_id"] == group["id"]
