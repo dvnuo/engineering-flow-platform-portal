@@ -976,3 +976,38 @@ async def test_run_once_account_notifications_applies_archived_fork_filters_from
     monkeypatch.setattr(svc.comment_mention_poller,'poll_mentions',p)
     await svc.run_rule_once(rule.id)
     assert called==[]
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_uses_scan_since_and_start_page_when_completed_cursor_empty(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-acc-c-empty"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"]}, trigger_config={"mention_target":"efp-agent"}), current_user_id=user.id)
+    rule.state_json=json.dumps({"account_notifications":{"next_notification_page":2,"scan_since":None,"last_seen_notification_updated_at":None}}); db.add(rule); db.commit()
+    seen={}
+    async def l(**kw): seen.update(kw); return [], {"last_seen_notification_updated_at":None,"hit_page_limit":True,"next_notification_page":3,"scan_since":None}
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l)
+    await svc.run_rule_once(rule.id)
+    assert seen.get("start_page")==2 and seen.get("since") is None and seen.get("scan_since") is None
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_persists_notif_patch_with_null_completed_cursor(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-acc-null"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"]}, trigger_config={"mention_target":"efp-agent"}), current_user_id=user.id)
+    async def l(**_): return [], {"last_seen_notification_updated_at":None,"hit_page_limit":True,"next_notification_page":2,"scan_since":None}
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l)
+    await svc.run_rule_once(rule.id)
+    st=json.loads(svc.repo.get(rule.id).state_json)
+    assert st["account_notifications"]["last_seen_notification_updated_at"] is None
+    assert st["account_notifications"]["next_notification_page"]==2
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_queue_survives_after_notification_scan_completed(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-acc-survive"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"]}, trigger_config={"mention_target":"efp-agent"}, schedule={"interval_seconds":60,"max_repos_per_run":1}), current_user_id=user.id)
+    rule.state_json=json.dumps({"account_candidate_queue":[{"full_name":"acme/a"},{"full_name":"acme/b"},{"full_name":"acme/c"}]}); db.add(rule); db.commit()
+    async def l(**_): return [], {"last_seen_notification_updated_at":"2026-01-01T00:00:00Z","hit_page_limit":False,"next_notification_page":None,"scan_since":None}
+    async def p(**_): return [], {"poll_cursors":{}}
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l)
+    monkeypatch.setattr(svc.comment_mention_poller,'poll_mentions',p)
+    await svc.run_rule_once(rule.id)
+    st=json.loads(svc.repo.get(rule.id).state_json)
+    assert len(st.get("account_candidate_queue") or [])==2

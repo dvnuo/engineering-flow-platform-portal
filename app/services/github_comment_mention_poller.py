@@ -10,6 +10,7 @@ import httpx
 from app.services.provider_config_resolver import GithubProviderConfig
 
 MENTION_RE = re.compile(r"(?<![A-Za-z0-9_.-])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9_-])")
+NOTIFICATIONS_PER_PAGE = 50
 SURFACE_CONFIG = {
     "issue_comment": {"endpoint": "issues/comments", "supports_since": True, "supports_updated_sort": True},
     "pull_request_review_comment": {"endpoint": "pulls/comments", "supports_since": True, "supports_updated_sort": True},
@@ -189,7 +190,7 @@ class GithubCommentMentionPoller:
                             continue
                         item = self._normalize(surface, c, owner, repo, target, mentioned)
                         items.append(item)
-                    if len(batch) < 100:
+                    if len(batch) < NOTIFICATIONS_PER_PAGE:
                         break
                     is_last_allowed_page = idx == max_pages_per_surface - 1
                     has_more_by_batch_size = len(batch) >= 100
@@ -274,12 +275,12 @@ class GithubCommentMentionPoller:
         async with httpx.AsyncClient(timeout=20) as client:
             for page in range(first_page, first_page + max(1, max_pages)):
                 last_page_scanned = page
-                params = {"all": "true", "participating": "true", "per_page": 100, "page": page}
+                params = {"all": "true", "participating": "true", "per_page": NOTIFICATIONS_PER_PAGE, "page": page}
                 if effective_since:
                     params["since"] = _iso_z(effective_since)
                 resp = await client.get(f"{base_url}/notifications", params=params, headers=headers)
                 if resp.status_code in {403, 404}:
-                    raise ValueError("GitHub account notifications polling requires a user/PAT-compatible token")
+                    raise ValueError("GitHub account notifications polling requires a classic PAT with notifications or repo scope")
                 if resp.status_code >= 400:
                     raise ValueError(f"GitHub notifications API error status={resp.status_code}")
                 batch = resp.json() or []
@@ -303,21 +304,23 @@ class GithubCommentMentionPoller:
                         max_returned_notification_id = nid
                     subject = n.get("subject") or {}
                     notifications.append({"notification_id": n.get("id"), "reason": reason, "updated_at": n.get("updated_at"), "repository_full_name": full_name, "subject_type": subject.get("type"), "subject_url": subject.get("url"), "latest_comment_url": subject.get("latest_comment_url"), "source_payload": n})
-                if len(batch) < 100:
+                if len(batch) < NOTIFICATIONS_PER_PAGE:
                     break
                 if page == (first_page + max(1, max_pages) - 1):
                     hit_page_limit = True
                     next_notification_page = page + 1
         if hit_page_limit:
-            stable_cursor_dt = since or max_seen_updated_at or poll_started_at
+            stable_cursor_dt = since
+            stable_cursor_id = ""
             next_scan_since = effective_since
         else:
             stable_cursor_dt = max(max_seen_updated_at or poll_started_at, poll_started_at)
+            stable_cursor_id = max_seen_notification_id
             next_scan_since = None
             next_notification_page = None
         return notifications, {
-            "last_seen_notification_updated_at": _iso_z(stable_cursor_dt),
-            "last_seen_notification_id": max_seen_notification_id,
+            "last_seen_notification_updated_at": _iso_z(stable_cursor_dt) if stable_cursor_dt else None,
+            "last_seen_notification_id": stable_cursor_id,
             "max_returned_notification_updated_at": _iso_z(max_returned_updated_at) if max_returned_updated_at else None,
             "max_returned_notification_id": max_returned_notification_id,
             "hit_page_limit": hit_page_limit,
@@ -354,7 +357,7 @@ class GithubCommentMentionPoller:
                     if exclude_patterns and any(fnmatchcase(name, p) for p in exclude_patterns):
                         continue
                     output.append({"owner": org, "repo": name, "full_name": repo.get("full_name") or f"{org}/{name}", "archived": repo.get("archived"), "fork": repo.get("fork")})
-                if len(batch) < 100:
+                if len(batch) < NOTIFICATIONS_PER_PAGE:
                     break
         return sorted(output, key=lambda x: str(x.get("full_name") or ""))
 
