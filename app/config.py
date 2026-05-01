@@ -44,6 +44,22 @@ class Settings(BaseSettings):
     default_agent_git_image: str = "alpine/git:latest"
     default_agent_repo_url: str = "https://github.com/dvnuo/engineering-flow-platform"
     default_agent_branch: str = "master"
+    default_agent_runtime_repo_url: str = Field(
+        default="",
+        validation_alias="DEFAULT_AGENT_RUNTIME_REPO_URL",
+    )
+    default_agent_runtime_branch: str = Field(
+        default="",
+        validation_alias="DEFAULT_AGENT_RUNTIME_BRANCH",
+    )
+    default_skill_repo_url: str = Field(
+        default="https://github.com/dvnuo/engineering-flow-platform-skills",
+        validation_alias="DEFAULT_SKILL_REPO_URL",
+    )
+    default_skill_branch: str = Field(
+        default="master",
+        validation_alias="DEFAULT_SKILL_BRANCH",
+    )
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"

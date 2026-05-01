@@ -67,41 +67,47 @@ class K8sService:
             logger.exception("Failed to update agent runtime")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
+
+    def _runtime_repo_url(self) -> str | None:
+        return normalize_git_repo_url(self.settings.default_agent_runtime_repo_url or self.settings.default_agent_repo_url)
+
+    def _runtime_branch(self) -> str:
+        return (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
+
+    def _skill_repo_url(self, agent) -> str | None:
+        return normalize_git_repo_url(getattr(agent, "skill_repo_url", None)) or normalize_git_repo_url(self.settings.default_skill_repo_url)
+
+    def _skill_branch(self, agent) -> str:
+        return (getattr(agent, "skill_branch", None) or self.settings.default_skill_branch or "master").strip() or "master"
+
+    def _build_code_and_skill_init_containers_and_mounts(self, agent):
+        from kubernetes import client
+        init_containers = []
+        volume_mounts = []
+        git_image = getattr(agent, "git_image", None) or self.settings.default_agent_git_image or "alpine/git:latest"
+        prefix = self.settings.agents_volume_sub_path_prefix
+        runtime_repo_url = self._runtime_repo_url()
+        runtime_branch = self._runtime_branch()
+        skill_repo_url = self._skill_repo_url(agent)
+        skill_branch = self._skill_branch(agent)
+        if runtime_repo_url:
+            runtime_sub_path = f"{prefix}/{agent.id}/runtime-code"
+            init_containers.append(client.V1Container(name="runtime-git-clone", image=git_image, command=["sh", "-c"], args=[self._git_clone_shell_command("/runtime-code")], env=self._build_git_clone_env(runtime_repo_url, runtime_branch), volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/runtime-code", sub_path=runtime_sub_path)]))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{runtime_sub_path}/.git"))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{runtime_sub_path}/src"))
+        if skill_repo_url:
+            skills_sub_path = f"{prefix}/{agent.id}/skills-code"
+            init_containers.append(client.V1Container(name="skills-git-clone", image=git_image, command=["sh", "-c"], args=[self._git_clone_shell_command("/skills-code")], env=self._build_git_clone_env(skill_repo_url, skill_branch), volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/skills-code", sub_path=skills_sub_path)]))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=skills_sub_path))
+        volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=f"{prefix}/{agent.id}/data"))
+        return init_containers, volume_mounts
+
     def _patch_deployment(self, agent) -> None:
         """Patch existing deployment with new config."""
         from kubernetes import client
         labels = self._agent_common_labels(agent)
         annotations = self._agent_patch_annotations(agent)
-        normalized_repo_url = normalize_git_repo_url(agent.repo_url)
-
-        # Build the init container spec
-        init_containers = []
-        code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
-        
-        if normalized_repo_url:
-            env = self._build_git_clone_env(agent, normalized_repo_url)
-            init_containers.append(
-                client.V1Container(
-                    name="git-clone",
-                    image=getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest",
-                    command=["sh", "-c"],
-                    args=[
-                        self._git_clone_shell_command()
-                    ],
-                    env=env,
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
-                )
-            )
-        
-        # Build volume mounts
-        volume_mounts = []
-        if normalized_repo_url:
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{code_sub_path}/src"))
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{code_sub_path}/.git"))
-        volume_mounts.append(
-            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/data")
-        )
+        init_containers, volume_mounts = self._build_code_and_skill_init_containers_and_mounts(agent)
         
         # Patch the deployment
         patch = {
@@ -234,9 +240,9 @@ class K8sService:
             return "unknown"
         return normalized
 
-    def _repo_metadata(self, agent) -> dict[str, str]:
-        repo_url = normalize_git_repo_url(agent.repo_url) or ""
-        branch = agent.branch or getattr(self.settings, "default_agent_branch", "master")
+    def _repo_metadata(self, repo_url, branch) -> dict[str, str]:
+        repo_url = normalize_git_repo_url(repo_url) or ""
+        branch = branch or "master"
 
         if not repo_url:
             return {
@@ -268,32 +274,34 @@ class K8sService:
         }
 
     def _agent_common_labels(self, agent) -> dict[str, str]:
-        repo_meta = self._repo_metadata(agent)
+        runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
+        skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
         return {
-            "app": "agent",
-            "agent-id": agent.id,
-            "owner-id": str(agent.owner_user_id),
-            "managed-by": "portal",
-            "git-repo": repo_meta["repo_slug"],
-            "git-repo-hash": repo_meta["repo_hash"],
-            "git-branch": repo_meta["branch"],
+            "app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id), "managed-by": "portal",
+            "runtime-git-repo": runtime_meta["repo_slug"], "runtime-git-repo-hash": runtime_meta["repo_hash"], "runtime-git-branch": runtime_meta["branch"],
+            "skill-git-repo": skill_meta["repo_slug"], "skill-git-repo-hash": skill_meta["repo_hash"], "skill-git-branch": skill_meta["branch"],
         }
 
     def _agent_metadata_annotations(self, agent) -> dict[str, str]:
-        repo_meta = self._repo_metadata(agent)
+        runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
+        skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
         annotations = {}
-        if repo_meta["raw_repo_url"]:
-            annotations["efp/git-repo-url"] = repo_meta["raw_repo_url"]
-        if repo_meta["raw_branch"]:
-            annotations["efp/git-branch"] = repo_meta["raw_branch"]
+        if runtime_meta["raw_repo_url"]:
+            annotations["efp/runtime-git-repo-url"] = runtime_meta["raw_repo_url"]
+        if runtime_meta["raw_branch"]:
+            annotations["efp/runtime-git-branch"] = runtime_meta["raw_branch"]
+        if skill_meta["raw_repo_url"]:
+            annotations["efp/skill-git-repo-url"] = skill_meta["raw_repo_url"]
+            annotations["efp/git-repo-url"] = skill_meta["raw_repo_url"]
+        if skill_meta["raw_branch"]:
+            annotations["efp/skill-git-branch"] = skill_meta["raw_branch"]
+            annotations["efp/git-branch"] = skill_meta["raw_branch"]
         return annotations
 
     def _agent_patch_annotations(self, agent) -> dict[str, Optional[str]]:
-        repo_meta = self._repo_metadata(agent)
-        return {
-            "efp/git-repo-url": repo_meta["raw_repo_url"] or None,
-            "efp/git-branch": repo_meta["raw_branch"] or None,
-        }
+        runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
+        skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
+        return {"efp/runtime-git-repo-url": runtime_meta["raw_repo_url"] or None, "efp/runtime-git-branch": runtime_meta["raw_branch"] or None, "efp/skill-git-repo-url": skill_meta["raw_repo_url"] or None, "efp/skill-git-branch": skill_meta["raw_branch"] or None, "efp/git-repo-url": skill_meta["raw_repo_url"] or None, "efp/git-branch": skill_meta["raw_branch"] or None}
 
     def _ensure_pvc(self, agent) -> None:
         # Using shared PVC for all agents; each agent uses its own subPath.
@@ -323,38 +331,7 @@ class K8sService:
         labels = self._agent_common_labels(agent)
         annotations = self._agent_metadata_annotations(agent)
         
-        # Build init container if repo_url is provided
-        init_containers = []
-        volume_mounts = []
-        
-        normalized_repo_url = normalize_git_repo_url(agent.repo_url)
-        if normalized_repo_url:
-            git_image = getattr(agent, 'git_image', None) or self.settings.default_agent_git_image or "alpine/git:latest"
-            code_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/code"
-            env = self._build_git_clone_env(agent, normalized_repo_url)
-            
-            init_containers.append(
-                client.V1Container(
-                    name="git-clone",
-                    image=git_image,
-                    command=["sh", "-c"],
-                    args=[
-                        self._git_clone_shell_command()
-                    ],
-                    env=env,
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/app", sub_path=code_sub_path)],
-                )
-            )
-            # Mount code to /app in main container
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{code_sub_path}/.git"))
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{code_sub_path}/src"))
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=f"{code_sub_path}/skills"))
-        
-        # Always add the data mount
-        data_sub_path = f"{self.settings.agents_volume_sub_path_prefix}/{agent.id}/data"
-        volume_mounts.append(
-            client.V1VolumeMount(name="agent-data", mount_path=agent.mount_path, sub_path=data_sub_path)
-        )
+        init_containers, volume_mounts = self._build_code_and_skill_init_containers_and_mounts(agent)
         
         body = client.V1Deployment(
             metadata=client.V1ObjectMeta(
@@ -395,16 +372,15 @@ class K8sService:
             if not self._is_already_exists(exc):
                 raise
 
-    def _build_git_clone_env(self, agent, repo_url: Optional[str] = None):
+    def _build_git_clone_env(self, repo_url: Optional[str], branch: str):
         from kubernetes import client
 
-        default_branch = getattr(self.settings, "default_agent_branch", "master")
-        normalized_repo_url = repo_url if repo_url is not None else normalize_git_repo_url(agent.repo_url)
+        normalized_repo_url = normalize_git_repo_url(repo_url)
         if not normalized_repo_url:
             return []
         env = [
             client.V1EnvVar(name="GIT_REPO_URL", value=normalized_repo_url),
-            client.V1EnvVar(name="GIT_BRANCH", value=agent.branch or default_branch),
+            client.V1EnvVar(name="GIT_BRANCH", value=branch or "master"),
         ]
         if not self.settings.k8s_git_token_key:
             return env
@@ -445,25 +421,18 @@ class K8sService:
             env.append(client.V1EnvVar(name="PORTAL_AGENT_ID", value=str(agent.id)))
         return env
 
-    def _git_clone_shell_command(self) -> str:
+    def _git_clone_shell_command(self, target_dir: str) -> str:
         return (
-            "mkdir -p /app && "
-            "mkdir -p /tmp/app && cd /tmp/app && "
+            f"mkdir -p \"{target_dir}\" && "
+            "rm -rf /tmp/git-clone-work && mkdir -p /tmp/git-clone-work && cd /tmp/git-clone-work && "
             "REPO_URL=\"${GIT_REPO_URL}\" && "
             "if [ -n \"${GIT_TOKEN}\" ]; then "
             "ASKPASS_SCRIPT=/tmp/git-askpass.sh && "
-            "printf '%s\n' "
-            "'#!/bin/sh' "
-            "'case \"$1\" in' "
-            "'  *Username*|*username*) echo \"x-access-token\" ;;' "
-            "'  *) echo \"${GIT_TOKEN}\" ;;' "
-            "'esac' > \"${ASKPASS_SCRIPT}\" && "
-            "chmod 700 \"${ASKPASS_SCRIPT}\" && "
-            "export GIT_ASKPASS=\"${ASKPASS_SCRIPT}\" && "
-            "export GIT_TERMINAL_PROMPT=0; "
+            "printf '%s\n' '#!/bin/sh' 'case \"$1\" in' '  *Username*|*username*) echo \"x-access-token\" ;;' '  *) echo \"${GIT_TOKEN}\" ;;' 'esac' > \"${ASKPASS_SCRIPT}\" && "
+            "chmod 700 \"${ASKPASS_SCRIPT}\" && export GIT_ASKPASS=\"${ASKPASS_SCRIPT}\" && export GIT_TERMINAL_PROMPT=0; "
             "fi && "
             "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
-            "cp -rf /tmp/app/. /app/ && "
+            f"find \"{target_dir}\" -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} + && cp -a /tmp/git-clone-work/. \"{target_dir}/\" && "
             "rm -f /tmp/git-askpass.sh"
         )
 

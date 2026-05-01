@@ -478,7 +478,8 @@ class AgentGroupService:
         if getattr(payload, "visibility", None):
             visibility = payload.visibility
 
-        normalized_template_repo_url = normalize_git_repo_url(template_agent.repo_url)
+        runtime_repo_url = normalize_git_repo_url(self.settings.default_agent_runtime_repo_url or self.settings.default_agent_repo_url)
+        runtime_branch = (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
         created = self.agent_repo.create(
             name=payload.name,
             description=f"ephemeral-task-agent:{payload.scope_label or group_id}",
@@ -486,8 +487,10 @@ class AgentGroupService:
             visibility=visibility,
             status="creating",
             image=template_agent.image,
-            repo_url=normalized_template_repo_url,
-            branch=template_agent.branch,
+            repo_url=runtime_repo_url,
+            branch=runtime_branch,
+            skill_repo_url=normalize_git_repo_url(getattr(template_agent, "skill_repo_url", None)),
+            skill_branch=getattr(template_agent, "skill_branch", None),
             cpu=template_agent.cpu,
             memory=template_agent.memory,
             agent_type="task",

@@ -160,3 +160,9 @@ class InternalAgentGroupTaskAgentCreateResponse(BaseModel):
     leader_agent_id: str
     capability_profile_id: str | None = None
     policy_profile_id: str | None = None
+    repo_url: str | None = None
+    branch: str | None = None
+    skill_repo_url: str | None = None
+    skill_branch: str | None = None
+    effective_skill_repo_url: str | None = None
+    effective_skill_branch: str | None = None
