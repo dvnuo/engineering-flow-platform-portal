@@ -399,3 +399,24 @@ def test_api_create_org_mode_with_max_repos_per_run_succeeds():
         assert resp.status_code == 200
     finally:
         cleanup()
+
+
+
+def test_api_create_account_notifications_mode_success():
+    client, _db, agent, cleanup = _build_client_with_overrides()
+    try:
+        payload={"name":"acc","target_agent_id":agent.id,"task_template_id":"github_comment_mention","scope":{"mode":"account_notifications","surfaces":["issue_comment"],"notification_reasons":["mention"]},"trigger_config":{"mention_target":"efp-agent"}}
+        r=client.post('/api/automation-rules', json=payload)
+        assert r.status_code==200
+        b=r.json(); assert b["trigger_type"]=="github_comment_mention" and b["task_type"]=="triggered_event_task"
+    finally:
+        cleanup()
+
+def test_api_create_account_notifications_bad_notification_reasons_returns_400():
+    client, _db, agent, cleanup = _build_client_with_overrides()
+    try:
+        payload={"name":"acc","target_agent_id":agent.id,"task_template_id":"github_comment_mention","scope":{"mode":"account_notifications","notification_reasons":"mention"},"trigger_config":{"mention_target":"efp-agent"}}
+        r=client.post('/api/automation-rules', json=payload)
+        assert r.status_code==400
+    finally:
+        cleanup()

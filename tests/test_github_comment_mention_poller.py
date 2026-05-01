@@ -251,3 +251,43 @@ async def test_poll_mentions_commit_comment_initial_tail_respects_max_pages(monk
     monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
     await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner='acme', repo='r', mention_target='efp-agent', since_by_surface={}, surfaces=['commit_comment'], max_pages_per_surface=1, commit_comment_initial_tail_pages=2)
     assert calls == [1, 10]
+
+@pytest.mark.anyio
+async def test_list_account_notifications_filters_reasons_and_extracts_repo(monkeypatch):
+    responses=[_Resp(200,[{"id":"1","reason":"mention","updated_at":"2026-01-01T00:00:00Z","repository":{"full_name":"acme/a"},"subject":{}},{"id":"2","reason":"subscribed","updated_at":"2026-01-01T00:00:01Z","repository":{"full_name":"acme/b"},"subject":{}}])]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client(responses))
+    items,_=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), reasons=["mention"])
+    assert [i["repository_full_name"] for i in items]==["acme/a"]
+
+@pytest.mark.anyio
+async def test_list_account_notifications_sends_since_and_participating_params(monkeypatch):
+    seen={}
+    class C(_Client):
+        async def get(self,*_a,**kw): seen.update(kw.get("params") or {}); return _Resp(200,[])
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    from datetime import datetime
+    await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), since=datetime(2026,1,1))
+    assert seen["all"]=="true" and seen["participating"]=="true" and seen.get("since")
+
+@pytest.mark.anyio
+async def test_list_account_notifications_page_limit_does_not_advance_to_poll_time(monkeypatch):
+    batch=[{"id":str(i),"reason":"mention","updated_at":"2026-01-01T00:00:00Z","repository":{"full_name":"acme/a"},"subject":{}} for i in range(100)]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(200,batch)]))
+    _,state=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), max_pages=1)
+    assert state["hit_page_limit"] is True and state["next_notification_page"]==2
+    assert state["last_seen_notification_updated_at"].startswith("2026-01-01T00:00:00")
+
+@pytest.mark.anyio
+async def test_list_account_notifications_start_page(monkeypatch):
+    pages=[]
+    class C(_Client):
+        async def get(self,*_a,**kw): pages.append((kw.get("params") or {}).get("page")); return _Resp(200,[])
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), start_page=3)
+    assert pages[0]==3
+
+@pytest.mark.anyio
+async def test_list_account_notifications_user_token_error(monkeypatch):
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(403,[])]))
+    with pytest.raises(ValueError, match="requires a user/PAT-compatible token"):
+        await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider())

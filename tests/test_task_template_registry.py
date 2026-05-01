@@ -116,3 +116,9 @@ def test_github_comment_mention_template_supports_discussion_fields():
     assert "discussion_id" in template.optional_inputs
     assert "discussion_comment_id" in template.optional_inputs
     assert "reply_to_id" in template.optional_inputs
+
+def test_github_comment_mention_template_includes_notification_metadata():
+    from app.services.task_template_registry import require_task_template
+    t=require_task_template("github_comment_mention")
+    for k in ["notification_id","notification_reason","notification_subject_type","notification_url","notification_updated_at"]:
+        assert k in t.optional_inputs
