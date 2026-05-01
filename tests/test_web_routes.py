@@ -93,13 +93,6 @@ def test_app_page():
     assert response.status_code in [200, 302]
 
 
-def test_files_panel():
-    """Test files panel endpoint."""
-    from app.main import app
-    client = TestClient(app)
-    response = client.get("/app/agents/agent-1/files/panel")
-    assert response.status_code in [200, 302, 401, 403, 404]
-
 
 def test_sessions_panel():
     """Test sessions panel endpoint."""

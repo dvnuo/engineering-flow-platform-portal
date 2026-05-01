@@ -1967,54 +1967,6 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
     finally:
         db.close()
 
-
-
-
-@router.get("/app/agents/{agent_id}/files/panel")
-async def app_agent_files_panel(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        # When K8s is disabled, return empty files
-        if not settings.k8s_enabled:
-            return templates.TemplateResponse(
-                "partials/files_panel.html",
-                {"request": request, "agent_id": agent_id, "files": [], "path": "/"},
-            )
-
-        status_code, content, _ = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="GET",
-            subpath="api/files/list",
-            query_items=[],
-            body=None,
-        )
-
-        if status_code >= 400:
-            raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
-
-        payload = json.loads(content.decode("utf-8"))
-        return templates.TemplateResponse(
-            "partials/files_panel.html",
-            {
-                "request": request,
-                "files": payload.get("files") or [],
-            },
-        )
-    finally:
-        db.close()
-
-
 @router.post("/a/{agent_id}/api/files/upload")
 async def agent_files_upload(agent_id: str, request: Request):
     """Proxy file upload to EFP agent"""

@@ -123,7 +123,6 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "setButtonDisabled" in js_source
     assert "removeTemporaryAssistantRows" in js_source
     assert "removeLatestOptimisticUserRow" in js_source
-    assert "didAppendAttachmentHistoryForPendingSend" in js_source
     assert "data-temporary-assistant=\"1\"" in js_source
     assert "closest('.message-row')" in js_source
     assert 'data-optimistic-user="1"' in js_source
@@ -291,7 +290,6 @@ def test_templates_portalized_for_panel_visual_consistency():
     task_detail_html = Path("app/templates/partials/task_detail_panel.html").read_text(encoding="utf-8")
     users_html = Path("app/templates/partials/users_panel.html").read_text(encoding="utf-8")
     skills_html = Path("app/templates/partials/skills_panel.html").read_text(encoding="utf-8")
-    files_html = Path("app/templates/partials/files_panel.html").read_text(encoding="utf-8")
     bundles_html = Path("app/templates/partials/requirement_bundles_panel.html").read_text(encoding="utf-8")
     settings_html = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     usage_html = Path("app/templates/partials/usage_panel.html").read_text(encoding="utf-8")
@@ -315,7 +313,6 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-panel-stack" in task_detail_html
     assert "portal-panel-stack" in users_html
     assert "portal-panel-stack" in skills_html
-    assert "portal-panel-stack" in files_html
     assert "portal-panel-stack" in bundles_html
     assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html)
     assert "portal-settings-section-head" in settings_html

@@ -21,6 +21,16 @@ def _chat_ui_js_source() -> str:
     return chat_ui_path.read_text(encoding="utf-8")
 
 
+def _run_node_script(node_bin: str, script: str):
+    return subprocess.run(
+        [node_bin, "-e", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=15,
+    )
+
+
 def test_chat_ui_includes_display_block_renderer_helpers():
     js_source = _chat_ui_js_source()
     assert "function parseDisplayBlocks(" in js_source
@@ -128,7 +138,7 @@ console.log(JSON.stringify({{
   hidden: dom.chatModelWrap.classList.contains("hidden"),
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["selectedA"] == "gpt-5"
     assert data["selectedB"] == "claude-haiku-4-20250514"
@@ -198,7 +208,7 @@ console.log(JSON.stringify({{
   hidden: dom.chatModelWrap.classList.contains("hidden"),
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["selected"] == "gpt-unknown-custom"
     assert ["gpt-unknown-custom", "gpt-unknown-custom (Current)"] in data["options"]
@@ -298,7 +308,7 @@ const console = {{ warn() {{}}, log: globalThis.console.log }};
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["selectedAgentId"] == "agent-B"
     assert data["domValue"] == "claude-sonnet-4-20250514"
@@ -363,7 +373,7 @@ aState.activeRequest = {{ clientRequestId: "req-a" }};
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["unread"] == 1
     assert data["needsReload"] is True
@@ -437,7 +447,7 @@ chatState.inflightThinking = {{ events: [{{type: "execution.started", request_id
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["notifyCalls"] == 1
     assert data["editCalls"] == 1
@@ -463,7 +473,7 @@ const cases = {{
 }};
 console.log(JSON.stringify(cases));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data == {
         "empty": False,
@@ -492,7 +502,7 @@ const cases = {{
 }};
 console.log(JSON.stringify(cases));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data == {
         "empty": False,
@@ -542,7 +552,7 @@ const result = extractLatestContextStateFromEvents([
 
 console.log(JSON.stringify(result));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["summary"] == "Real final summary"
     assert data["next_step"] == "Keep this"
@@ -586,7 +596,7 @@ updateThinkingContextFromEvent(thinking, {{
 
 console.log(JSON.stringify(thinking));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["contextState"]["summary"] == "Existing live summary"
     assert data["contextState"]["next_step"] == "Existing next step"
@@ -671,7 +681,7 @@ chatState.inflightThinking = {{
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["summary"] == "Live summary"
     assert data["contextSource"] == "final_response"
@@ -770,7 +780,7 @@ chatState.inflightThinking = {{ events: [], contextState: null, contextBudget: {
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["summary"] == "Final event summary"
     assert data["nextStep"] == "Keep final context"
@@ -886,7 +896,7 @@ chatState.inflightThinking = {{
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["rendered"]["summary"] == "Final payload summary"
     assert data["rendered"]["nextStep"] == "Final next step"
@@ -972,7 +982,7 @@ console.log(JSON.stringify({{
   budgetUsage: chatState.lastThinkingSnapshot.contextBudget.usage_percent,
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["inflightIsNull"] is True
     assert data["eventCount"] == 1
@@ -1078,7 +1088,7 @@ global.fetch = async () => ({{
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["changedFirst"] is False
     assert data["before"] == data["afterFirst"]
@@ -1138,12 +1148,12 @@ chatState.activeRequest = {{ clientRequestId: "req-a" }};
   console.log(JSON.stringify({{ reloadCalls }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["reloadCalls"] == [["agent-A", "s-a2", True]]
 
 
-def test_failure_restores_hidden_attachments_and_hidden_tab_notifies():
+def test_failure_clears_hidden_attachments_and_hidden_tab_notifies():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1171,6 +1181,7 @@ const document = {{
   getElementById(id) {{ return id === "chat-attachments" ? attachmentNode : null; }},
 }};
 let notifyCalls = 0;
+let toastCalls = 0;
 function removeTemporaryAssistantRows() {{}}
 function removeLatestOptimisticUserRow() {{}}
 function renderInputPreview() {{}}
@@ -1182,29 +1193,35 @@ function renderIcons() {{}}
 function markAgentUnread() {{}}
 function renderAgentList() {{}}
 function notifyAgentCompletion() {{ notifyCalls += 1; }}
+function showToast() {{ toastCalls += 1; }}
 {create_state}
 {ensure_state}
 {set_submitting}
 {handle_failure}
 const chatState = ensureChatState("agent-A");
+chatState.pendingFiles = [{{ id: "pf-1" }}];
 chatState.activeRequest = {{ clientRequestId: "req-a" }};
 handleAgentChatFailure("agent-A", {{
   clientRequestId: "req-a",
-  attachments: ["file-1", "file-2"],
-  backupFiles: [],
   backupMessage: "msg"
 }}, new Error("boom"));
 console.log(JSON.stringify({{
   attachmentsValue: attachmentNode.value,
-  draftAttachmentsValue: ensureChatState("agent-A").draftAttachmentsValue,
-  notifyCalls
+  pendingFiles: ensureChatState("agent-A").pendingFiles,
+  draftText: ensureChatState("agent-A").draftText,
+  inputValue: dom.chatInput.value,
+  notifyCalls,
+  toastCalls
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
-    assert data["attachmentsValue"] == '["file-1","file-2"]'
-    assert data["draftAttachmentsValue"] == '["file-1","file-2"]'
+    assert data["attachmentsValue"] == ""
+    assert data["pendingFiles"] == []
+    assert data["draftText"] == ""
+    assert data["inputValue"] == "msg"
     assert data["notifyCalls"] == 1
+    assert data["toastCalls"] >= 1
 
 
 def test_background_failure_restores_original_agent_draft_state_only():
@@ -1257,36 +1274,31 @@ function notifyAgentCompletion() {{}}
 {handle_failure}
 const chatStateA = ensureChatState("agent-A");
 chatStateA.activeRequest = {{ clientRequestId: "req-a" }};
-chatStateA.attachmentHistory = [["old-1"], ["new-failed"]];
-chatStateA.didAppendAttachmentHistoryForPendingSend = true;
+chatStateA.pendingFiles = [{{ id: "pf-1" }}];
 handleAgentChatFailure("agent-A", {{
   clientRequestId: "req-a",
-  backupMessage: "fix this",
-  backupFiles: [{{id: "pf-1"}}],
-  attachments: ["file-1", "file-2"],
+  backupMessage: "msg"
 }}, new Error("failed"));
 console.log(JSON.stringify({{
   draftText: ensureChatState("agent-A").draftText,
-  draftAttachmentsValue: ensureChatState("agent-A").draftAttachmentsValue,
-  pendingFilesLen: ensureChatState("agent-A").pendingFiles.length,
-  attachmentHistory: ensureChatState("agent-A").attachmentHistory,
+  pendingFiles: ensureChatState("agent-A").pendingFiles,
   backgroundStatus: ensureChatState("agent-A").backgroundStatus,
+  unreadCount: ensureChatState("agent-A").unreadCount,
   needsReload: ensureChatState("agent-A").needsReload,
   renderCalls
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
-    assert data["draftText"] == "fix this"
-    assert data["draftAttachmentsValue"] == '["file-1","file-2"]'
-    assert data["pendingFilesLen"] == 1
-    assert data["attachmentHistory"] == [["old-1"]]
+    assert data["draftText"] == "msg"
+    assert data["pendingFiles"] == []
     assert data["backgroundStatus"] == "error"
+    assert data["unreadCount"] >= 1
     assert data["needsReload"] is False
     assert data["renderCalls"] == 1
 
 
-def test_render_chat_history_rebuilds_attachment_history_for_selected_agent():
+def test_render_chat_history_does_not_rebuild_reusable_attachment_state():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1302,7 +1314,7 @@ def test_render_chat_history_rebuilds_attachment_history_for_selected_agent():
 const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [["dirty-old"]] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const dom = {{
   messageList: {{
@@ -1324,7 +1336,8 @@ const document = {{
       className: "",
       dataset: {{}},
       textContent: "",
-      appendChild() {{}},
+      children: [],
+      appendChild(child) {{ this.children.push(child); }},
     }};
   }},
 }};
@@ -1339,15 +1352,17 @@ renderChatHistory([
   {{ role: "user", content: "u2", attachments: [] }},
 ], {{}});
 console.log(JSON.stringify({{
-  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory
+  chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
+  attachmentChipCount: dom.messageList.children[0].children[1].children[1].children.length
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
-    assert data["attachmentHistory"] == [["file-1"], []]
+    assert "attachmentHistory" not in data["chatStateKeys"]
+    assert data["attachmentChipCount"] == 1
 
 
-def test_render_chat_history_empty_clears_attachment_history():
+def test_render_chat_history_empty_leaves_no_reusable_attachment_state():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1359,7 +1374,7 @@ def test_render_chat_history_empty_clears_attachment_history():
 const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [["dirty-old"]] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const dom = {{
   messageList: {{
@@ -1382,13 +1397,13 @@ const document = {{
 {render_history_dependencies}
 renderChatHistory([], {{}});
 console.log(JSON.stringify({{
-  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory,
+  chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
   messageListHtml: dom.messageList.innerHTML
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
-    assert data["attachmentHistory"] == []
+    assert "attachmentHistory" not in data["chatStateKeys"]
     assert data["messageListHtml"] == "WELCOME"
 
 
@@ -1405,7 +1420,7 @@ const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
   currentUserName: "Portal User",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const dom = {{
   messageList: {{
@@ -1455,20 +1470,20 @@ console.log(JSON.stringify({{
   imageNodeCount,
   fileNodeCount: fileNodes.length,
   fileTexts,
-  attachmentHistory: state.chatStatesByAgent.get("agent-A").attachmentHistory,
+  chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
+  articleDatasetAttachments: article.dataset.attachments || null,
+  attachmentDivDatasetAttachments: attachmentsContainer.dataset.attachments || null,
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["imageNodeCount"] == 1
     assert data["fileNodeCount"] == 2
     assert any(text.startswith("📄 file_legacy_ref") for text in data["fileTexts"])
     assert any(text.startswith("📄 spec.pdf · application/pdf · 2 KB") for text in data["fileTexts"])
-    assert data["attachmentHistory"] == [[
-        {"type": "image", "previewUrl": "blob:image-1", "file_id": "img-1", "name": "diagram.png"},
-        "file_legacy_ref",
-        {"type": "file", "filename": "spec.pdf", "content_type": "application/pdf", "size": 2048},
-    ]]
+    assert "attachmentHistory" not in data["chatStateKeys"]
+    assert data["articleDatasetAttachments"] in ("", None)
+    assert data["attachmentDivDatasetAttachments"] in ("", None)
 
 
 def test_build_user_message_article_uses_current_user_display_name():
@@ -1490,7 +1505,7 @@ function escapeHtmlAttr(value) {{ return String(value || ""); }}
 const html = buildUserMessageArticle("hello", []);
 console.log(JSON.stringify({{ html }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert 'message-author">Alice<' in data["html"]
 
@@ -1508,7 +1523,7 @@ const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
   currentUserName: "Portal User",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const appendedRows = [];
 const dom = {{
@@ -1544,7 +1559,7 @@ renderChatHistory([
 const authorLabels = appendedRows.map((row) => row.children[0].children[0].textContent);
 console.log(JSON.stringify({{ authorLabels }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["authorLabels"] == ["Alice", "Portal Agent"]
 
@@ -1562,7 +1577,7 @@ const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Agent A",
   currentUserName: "Portal User",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const appendedRows = [];
 const dom = {{
@@ -1597,7 +1612,7 @@ renderChatHistory([
 const authorLabel = appendedRows[0].children[0].children[0].textContent;
 console.log(JSON.stringify({{ authorLabel }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["authorLabel"] == "Agent A"
 
@@ -1615,7 +1630,7 @@ const state = {{
   selectedAgentId: "agent-A",
   selectedAgentName: "Portal Agent",
   currentUserName: "Alice",
-  chatStatesByAgent: new Map([["agent-A", {{ attachmentHistory: [] }}]]),
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
 }};
 const appendedRows = [];
 const dom = {{
@@ -1651,7 +1666,7 @@ renderChatHistory([
 const authorLabels = appendedRows.map((row) => row.children[0].children[0].textContent);
 console.log(JSON.stringify({{ authorLabels }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["authorLabels"] == ["Alice", "Portal Agent"]
 
@@ -1720,7 +1735,7 @@ chatState.activeRequest = {{ clientRequestId: "req-a" }};
   console.log(JSON.stringify({{ capturedAuthorName }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["capturedAuthorName"] == "Portal Agent"
 
@@ -1761,7 +1776,7 @@ globalThis.WebSocket = FakeWebSocket;
 ensureEventSocketForSelectedAgent();
 console.log(JSON.stringify({{ createdUrl }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert "session_id=s-1" in data["createdUrl"]
     assert "request_id=req-live-1" in data["createdUrl"]
@@ -1866,12 +1881,7 @@ console.log(JSON.stringify({{
 }}));
 """
 
-    completed = subprocess.run(
-        [node_bin, "-e", script],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
 
     assert "closed:old" in data["events"]
@@ -1935,7 +1945,7 @@ state.selectedAgentId = "agent-B";
 restoreComposerForAgent("agent-B");
 console.log(JSON.stringify({{ disabled: dom.sendChatBtn.disabled }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["disabled"] is False
 
@@ -1999,7 +2009,7 @@ chatState.sessionId = "s-a";
   }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["updatedSession"] == 0
     assert data["setChatSubmittingFalse"] == 0
@@ -2032,7 +2042,7 @@ const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.failed" }
 const byState = deriveSessionRecoveryNotice({{ latest_event_state: "error" }});
 console.log(JSON.stringify({{ byType, byState }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["byType"]["level"] == "error"
     assert "failed" in data["byType"]["message"].lower()
@@ -2055,7 +2065,7 @@ const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.started" 
 const byState = deriveSessionRecoveryNotice({{ latest_event_state: "running" }});
 console.log(JSON.stringify({{ byType, byState }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["byType"]["level"] == "warning"
     assert ("interrupted" in data["byType"]["message"].lower()) or ("still be running" in data["byType"]["message"].lower())
@@ -2175,7 +2185,7 @@ console.log(JSON.stringify({{
   busy: hasActiveChatRequestForAgent("agent-A"),
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["sessionId"] == ""
     assert data["hasAgentSession"] is False
@@ -2240,7 +2250,7 @@ console.log(JSON.stringify({{
   domSession: dom.chatSessionId.value,
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["sessionId"] == "session-new"
     assert data["mappedSession"] == "session-new"

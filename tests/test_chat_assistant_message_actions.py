@@ -208,7 +208,6 @@ const assistantRow = {{
 function getChatState() {{ return {{ isSubmitting: false, pendingFiles: [] }}; }}
 function currentSessionIdForAgent() {{ return "session-9"; }}
 function getUserArticleContent() {{ return "retry this"; }}
-function getUserArticleAttachments() {{ return []; }}
 function truncateDomFromUserArticle() {{}}
 function setChatStatus() {{}}
 async function submitChatForSelectedAgent() {{}}

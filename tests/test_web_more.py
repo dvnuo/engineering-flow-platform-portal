@@ -35,13 +35,6 @@ def test_agent_settings_save():
     assert response.status_code in [200, 302, 400, 401, 403, 404]
 
 
-def test_agent_files_panel():
-    """Test agent files panel."""
-    from app.main import app
-    client = TestClient(app)
-    response = client.get("/app/agents/agent-123/files/panel")
-    assert response.status_code in [200, 302, 401, 403, 404]
-
 
 def test_agent_sessions_panel():
     """Test agent sessions panel."""

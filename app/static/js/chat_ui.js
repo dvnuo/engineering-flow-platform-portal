@@ -126,7 +126,6 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "server-files",
   "skills",
   "usage",
-  "uploads",
   "users",
 ]);
 
@@ -229,11 +228,6 @@ function setBlobUrlMapping(blobUrl, fileId) {
   blobUrlToFileId[blobUrl] = fileId;
 }
 
-function addToAttachmentHistory(attachments) {
-  const chatState = getChatState();
-  if (!chatState) return;
-  chatState.attachmentHistory.push(attachments);
-}
 
 function getLastSessionKey(agentId) {
   return `portal-last-session-${agentId}`;
@@ -263,8 +257,6 @@ const state = {
   activeUtilityPanel: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
   cachedSkills: [],
   cachedSkillsByAgent: new Map(),
-  cachedMentionFiles: [],
-  cachedMentionFilesByAgent: new Map(),
   selectedSuggestionIndex: -1,
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
@@ -307,13 +299,10 @@ function createDefaultChatState() {
     sessionId: "",
     isSubmitting: false,
     pendingFiles: [],
-    attachmentHistory: [],
     inflightThinking: null,
     lastThinkingSnapshot: null,
     pendingThinkingEvents: null,
-    didAppendAttachmentHistoryForPendingSend: false,
     draftText: "",
-    draftAttachmentsValue: "",
     activeRequest: null,
     needsReload: false,
     unreadCount: 0,
@@ -2326,7 +2315,6 @@ function persistComposerForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.draftText = dom.chatInput?.value || "";
-  chatState.draftAttachmentsValue = document.getElementById("chat-attachments")?.value || "";
 }
 
 function restoreComposerForAgent(agentId) {
@@ -2334,7 +2322,7 @@ function restoreComposerForAgent(agentId) {
   if (!chatState) return;
   if (dom.chatInput) dom.chatInput.value = chatState.draftText || "";
   const attachmentsInput = document.getElementById("chat-attachments");
-  if (attachmentsInput) attachmentsInput.value = chatState.draftAttachmentsValue || "";
+  if (attachmentsInput) attachmentsInput.value = "";
   syncChatInputHeight();
   renderInputPreview();
   renderComposerModelSelectorForAgent(agentId);
@@ -2666,7 +2654,6 @@ async function selectAgentById(agentId) {
   window.selectedAgentId = agentId;
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
-  state.cachedMentionFiles = [];
   state.selectedSuggestionIndex = -1;
   disconnectEventSocket();
 
@@ -2850,14 +2837,7 @@ function buildAttachmentsFromChatState(agentId, chatState) {
   const uploadedFileIds = chatState.pendingFiles
     .filter((pf) => pf.file_id && pf.status === "uploaded")
     .map((pf) => pf.file_id);
-  if (uploadedFileIds.length) return uploadedFileIds;
-  const existingAttachments = document.getElementById("chat-attachments")?.value;
-  if (!existingAttachments) return [];
-  try {
-    return JSON.parse(existingAttachments);
-  } catch {
-    return [];
-  }
+  return uploadedFileIds;
 }
 
 async function submitChatForSelectedAgent() {
@@ -2875,33 +2855,34 @@ async function submitChatForSelectedAgent() {
     showToast(`Waiting for ${parsingFiles.length} file(s) to finish processing...`);
     return;
   }
-  const messageAtSend = dom.chatInput?.value?.trim() || "";
-  if (!messageAtSend) return;
+  const rawMessageAtSend = dom.chatInput?.value || "";
+  const messageAtSend = rawMessageAtSend.trim();
   const attachmentsAtSend = buildAttachmentsFromChatState(agentIdAtSend, chatState);
+  if (!messageAtSend && attachmentsAtSend.length === 0) return;
+  const requestMessage = messageAtSend || "[attachment]";
+  const displayMessage = messageAtSend || "📎 Attachment";
   const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
   const clientRequestId = `portal-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const requestCtx = {
     agentId: agentIdAtSend,
     sessionIdAtSend,
-    message: messageAtSend,
+    message: requestMessage,
     attachments: attachmentsAtSend,
     clientRequestId,
     startedAt: Date.now(),
     backupMessage: messageAtSend,
-    backupFiles: [...chatState.pendingFiles],
   };
 
   maybeRequestNotificationPermission();
   const modelOverride = (chatState.modelOverride || dom.chatModelSelect?.value || "").trim();
   const defaultModel = (chatState.profileDefaultModel || "").trim();
   const requestBody = {
-    message: messageAtSend,
+    message: requestMessage,
     session_id: sessionIdAtSend || undefined,
     attachments: attachmentsAtSend,
     client_request_id: clientRequestId,
     ...(modelOverride && modelOverride !== defaultModel ? { model_override: modelOverride } : {}),
   };
-  chatState.didAppendAttachmentHistoryForPendingSend = false;
   removeWelcomeMessageIfPresent();
   removeTemporaryAssistantRows();
   hideSuggest();
@@ -2912,7 +2893,7 @@ async function submitChatForSelectedAgent() {
       previewUrl: pf.previewUrl,
       url: pf.uploadedData?.url,
     }));
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(messageAtSend, displayAttachments));
+    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(displayMessage, displayAttachments));
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
     chatState.inflightThinking = {
       id: clientRequestId,
@@ -2931,8 +2912,6 @@ async function submitChatForSelectedAgent() {
     }
     scrollToBottom();
   }
-  chatState.attachmentHistory.push(attachmentsAtSend);
-  chatState.didAppendAttachmentHistoryForPendingSend = true;
   chatState.pendingFiles = [];
   renderInputPreview();
   if (dom.chatInput) dom.chatInput.value = "";
@@ -3049,7 +3028,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
   chatState.activeRequest = null;
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
-  chatState.didAppendAttachmentHistoryForPendingSend = false;
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
@@ -3135,14 +3113,7 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
   const restoredMessage = requestCtx.backupMessage || "";
-  const restoredFiles = Array.isArray(requestCtx.backupFiles) ? requestCtx.backupFiles : [];
-  const restoredAttachmentsValue = JSON.stringify(requestCtx.attachments || []);
-  const shouldRollbackAttachmentHistory =
-    !!chatState.didAppendAttachmentHistoryForPendingSend &&
-    Array.isArray(chatState.attachmentHistory) &&
-    chatState.attachmentHistory.length > 0;
   chatState.activeRequest = null;
-  chatState.didAppendAttachmentHistoryForPendingSend = false;
   const errorMsg = error?.message || "Send failed";
   if (chatState.inflightThinking) {
     const failedEvent = {
@@ -3161,12 +3132,8 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
-    if (shouldRollbackAttachmentHistory) {
-      chatState.attachmentHistory.pop();
-    }
     chatState.draftText = restoredMessage;
-    chatState.pendingFiles = restoredFiles;
-    chatState.draftAttachmentsValue = restoredAttachmentsValue;
+    chatState.pendingFiles = [];
     chatState.inflightThinking = null;
     chatState.pendingThinkingEvents = null;
     chatState.backgroundStatus = "error";
@@ -3179,14 +3146,11 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   removeTemporaryAssistantRows();
   removeLatestOptimisticUserRow();
-  if (shouldRollbackAttachmentHistory) {
-    chatState.attachmentHistory.pop();
-  }
-  chatState.pendingFiles = restoredFiles;
+  chatState.pendingFiles = [];
   if (dom.chatInput) dom.chatInput.value = restoredMessage;
   const attachmentsInput = document.getElementById("chat-attachments");
-  if (attachmentsInput) attachmentsInput.value = restoredAttachmentsValue;
-  chatState.draftAttachmentsValue = restoredAttachmentsValue;
+  if (attachmentsInput) attachmentsInput.value = "";
+  showToast("Send failed. Please re-attach files before retrying.");
   renderInputPreview();
   syncChatInputHeight();
   if (typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend)) {
@@ -3306,27 +3270,6 @@ function pickCurrentSuggestion() {
   return true;
 }
 
-function insertFileReference(fileIdOrRef) {
-  if (!dom.chatInput) return;
-  const raw = String(fileIdOrRef || "").trim();
-  if (!raw) return;
-
-  const token = raw.startsWith("@file_")
-    ? raw
-    : `@file_${raw.slice(0, 8)}`;
-  const start = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
-  const end = dom.chatInput.selectionEnd ?? dom.chatInput.value.length;
-  const before = dom.chatInput.value.slice(0, start);
-  const after = dom.chatInput.value.slice(end);
-  const prefix = before && !/\s$/.test(before) ? " " : "";
-  const suffix = after && !/^\s/.test(after) ? " " : "";
-  dom.chatInput.setRangeText(`${prefix}${token}${suffix}`, start, end, "end");
-  dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
-  dom.chatInput.focus();
-  syncChatInputHeight();
-  maybeShowSuggest();
-}
-
 // Fetch file preview and update pendingFile
 async function maybeShowSuggest() {
   if (!dom.chatInput) return;
@@ -3336,7 +3279,6 @@ async function maybeShowSuggest() {
   const cursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
   const before = text.slice(0, cursor);
   const slash = before.match(/(^|\s)\/([^\s/]*)$/);
-  const at = before.match(/(^|\s)@([^\s@]*)$/);
 
   if (slash) {
     if (!state.cachedSkills.length) {
@@ -3381,66 +3323,6 @@ async function maybeShowSuggest() {
       // Replace from the start of "/" token to cursor while preserving preceding whitespace.
       const start = pickSlash.index + pickSlash[1].length;
       dom.chatInput.setRangeText(`${command} `, start, pickCursor, "end");
-      hideSuggest();
-    });
-    return;
-  }
-
-  if (at) {
-    const mentionAgentKey = state.selectedAgentId ?? "__global__";
-    if (state.cachedMentionFilesByAgent.has(mentionAgentKey)) {
-      state.cachedMentionFiles = state.cachedMentionFilesByAgent.get(mentionAgentKey) || [];
-    } else {
-      const requestAgentKey = mentionAgentKey;
-      try {
-        const data = await agentApi("/api/files/list");
-        const mentionFiles = (data.files || []).map((item) => ({
-          title: `@file_${item.file_id.slice(0, 8)}`,
-          desc: item.filename,
-          full: `@file_${item.file_id}`,
-        }));
-        state.cachedMentionFilesByAgent.set(requestAgentKey, mentionFiles);
-        if ((state.selectedAgentId ?? "__global__") === requestAgentKey) {
-          state.cachedMentionFiles = mentionFiles;
-        }
-      } catch {
-        if (!state.cachedMentionFilesByAgent.has(requestAgentKey)) {
-          state.cachedMentionFilesByAgent.set(requestAgentKey, []);
-        }
-        if ((state.selectedAgentId ?? "__global__") === requestAgentKey) {
-          state.cachedMentionFiles = [];
-        }
-      }
-    }
-    if (requestSeq !== state.suggestRequestSeq) return;
-    const nowCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
-    const nowBefore = dom.chatInput.value.slice(0, nowCursor);
-    const nowAt = nowBefore.match(/(^|\s)@([^\s@]*)$/);
-    if (!nowAt) {
-      hideSuggest();
-      return;
-    }
-
-    const mentionQuery = (nowAt[2] || "").toLowerCase();
-    const filteredMentionFiles = !mentionQuery
-      ? state.cachedMentionFiles
-      : state.cachedMentionFiles.filter((item) => {
-        const haystack = [item.title, item.desc, item.full].map((v) => String(v || "").toLowerCase());
-        return haystack.some((v) => v.includes(mentionQuery));
-      });
-    if (!filteredMentionFiles.length) {
-      hideSuggest();
-      return;
-    }
-
-    showSuggest(filteredMentionFiles, (item) => {
-      const pickCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
-      const pickBefore = dom.chatInput.value.slice(0, pickCursor);
-      const pickAt = pickBefore.match(/(^|\s)@([^\s@]*)$/);
-      if (!pickAt) return;
-      // Replace from the start of "@" token to cursor while preserving preceding whitespace.
-      const start = pickAt.index + pickAt[1].length;
-      dom.chatInput.setRangeText(`${item.full} `, start, pickCursor, "end");
       hideSuggest();
     });
     return;
@@ -3520,8 +3402,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       "server-files",
       "skills",
       "usage",
-      "uploads",
-    ]);
+        ]);
 
     if (!panelKey) {
       showPinnedPanelRestorePlaceholder();
@@ -3565,10 +3446,6 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
     }
     if (panelKey === "usage") {
       await openUsagePanel();
-      return;
-    }
-    if (panelKey === "uploads") {
-      await openMyUploads();
       return;
     }
     if (panelKey === "users") {
@@ -4228,13 +4105,11 @@ function renderChatHistory(messages, metadata = {}) {
   const selectedChatState = getChatState();
 
   if (!messages.length) {
-    if (selectedChatState) selectedChatState.attachmentHistory = [];
     clearMessageListToWelcome();
     return;
   }
 
   dom.messageList.innerHTML = "";
-  if (selectedChatState) selectedChatState.attachmentHistory = [];
   messages.forEach((message) => {
     if (message.role !== "user" && message.role !== "assistant") return;
     const isUser = message.role === "user";
@@ -4274,13 +4149,10 @@ function renderChatHistory(messages, metadata = {}) {
       article.appendChild(content);
 
       const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
-      if (selectedChatState) selectedChatState.attachmentHistory.push([...normalizedAttachments]);
       if (normalizedAttachments.length > 0) {
         const attachmentDiv = document.createElement("div");
         attachmentDiv.className = "message-attachments";
-        attachmentDiv.dataset.attachments = JSON.stringify(normalizedAttachments);
-        article.dataset.attachments = JSON.stringify(normalizedAttachments);
-        normalizedAttachments.forEach((attachment) => {
+            normalizedAttachments.forEach((attachment) => {
           const isAttachmentObject = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
           const attachmentType = isAttachmentObject ? String(attachment.type || "").toLowerCase() : "";
           const imageUrl = isAttachmentObject ? (attachment.url || attachment.previewUrl || "") : "";
@@ -4913,22 +4785,6 @@ async function openUsagePanel() {
   }
 }
 
-
-async function openMyUploads() {
-  if (!state.selectedAgentId) return;
-
-
-  setToolPanel("Select Source", '<div class="portal-inline-state">Loading files…</div>', "uploads");
-
-  try {
-    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/files/panel`, {
-      target: "#tool-panel-body",
-      swap: "innerHTML",
-    });
-  } catch (error) {
-    setToolPanel("Select Source", `Failed: ${safe(error.message)}`, "uploads");
-  }
-}
 
 
 function normalizeManagedModelIdForCapabilities(value) {
@@ -6080,10 +5936,9 @@ async function openEditDialog(agent) {
 }
 
 // Open message edit modal
-function openEditMessageModal(messageId, currentContent, attachments = []) {
+function openEditMessageModal(messageId, currentContent) {
   document.getElementById("edit-message-id").value = messageId;
   document.getElementById("edit-message-content").value = currentContent;
-  document.getElementById("edit-attachments").value = JSON.stringify(attachments);
   document.getElementById("message-edit-modal")?.classList.remove("hidden");
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
   document.getElementById("edit-message-content")?.focus();
@@ -6116,44 +5971,6 @@ function closeEditMessageModal() {
 function getUserArticleContent(article) {
   const contentEl = article?.querySelector(".message-body, .whitespace-pre-wrap");
   return contentEl ? contentEl.textContent || "" : "";
-}
-
-function getUserArticleAttachments(article) {
-  const attachments = [];
-
-  if (article?.dataset?.attachments) {
-    try {
-      const parsedAttachments = JSON.parse(article.dataset.attachments);
-      if (Array.isArray(parsedAttachments)) attachments.push(...parsedAttachments);
-    } catch (_error) {}
-  }
-
-  if (attachments.length === 0 && dom.messageList && article) {
-    const allUserArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
-    const articleIndex = allUserArticles.indexOf(article);
-    const chatState = getChatState();
-    if (
-      chatState &&
-      articleIndex >= 0 &&
-      Array.isArray(chatState.attachmentHistory) &&
-      articleIndex < chatState.attachmentHistory.length &&
-      Array.isArray(chatState.attachmentHistory[articleIndex])
-    ) {
-      attachments.push(...chatState.attachmentHistory[articleIndex]);
-    }
-  }
-
-  if (attachments.length === 0 && article) {
-    const images = article.querySelectorAll("img");
-    images.forEach((img) => {
-      if (img.src && img.src.startsWith("blob:")) {
-        const fileId = getFileIdFromBlobUrl(img.src);
-        if (fileId) attachments.push(fileId);
-      }
-    });
-  }
-
-  return attachments;
 }
 
 function findPrecedingUserArticle(row) {
@@ -6223,19 +6040,15 @@ function truncateDomFromUserArticle(userArticle) {
   const selectedChatState = getChatState();
   if (!dom.messageList || !userArticle) {
     clearMessageListToWelcome();
-    if (selectedChatState) selectedChatState.attachmentHistory = [];
     return;
   }
 
   const rows = Array.from(dom.messageList.querySelectorAll(".message-row"));
   const targetRow = userArticle.closest(".message-row");
   const targetRowIndex = rows.indexOf(targetRow);
-  const userArticlesBeforeDelete = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
-  const targetUserIndex = userArticlesBeforeDelete.indexOf(userArticle);
 
   if (!targetRow || targetRowIndex < 0) {
     clearMessageListToWelcome();
-    if (selectedChatState) selectedChatState.attachmentHistory = [];
     return;
   }
 
@@ -6243,10 +6056,6 @@ function truncateDomFromUserArticle(userArticle) {
     rows[i].remove();
   }
 
-  if (Array.isArray(selectedChatState?.attachmentHistory)) {
-    const safeTargetUserIndex = targetUserIndex >= 0 ? targetUserIndex : selectedChatState.attachmentHistory.length;
-    selectedChatState.attachmentHistory = selectedChatState.attachmentHistory.slice(0, safeTargetUserIndex);
-  }
 }
 
 async function retryAssistantMessage(row) {
@@ -6271,7 +6080,6 @@ async function retryAssistantMessage(row) {
   }
 
   const content = getUserArticleContent(userArticle).trim();
-  const attachments = getUserArticleAttachments(userArticle);
   if (!content) {
     showToast("Original message is empty");
     return;
@@ -6307,8 +6115,6 @@ async function retryAssistantMessage(row) {
     truncateDomFromUserArticle(userArticle);
     if (chatState) chatState.pendingFiles = [];
     if (dom.chatInput) dom.chatInput.value = content;
-    const attachmentsInput = document.getElementById("chat-attachments");
-    if (attachmentsInput) attachmentsInput.value = JSON.stringify(attachments);
     setChatStatus("Retrying...");
     await submitChatForSelectedAgent();
   } catch (err) {
@@ -6338,8 +6144,7 @@ function addUserEditButtonsToMessages() {
     editBtn.setAttribute("aria-label", "Edit message");
     editBtn.onclick = () => {
       const content = getUserArticleContent(article);
-      const attachments = getUserArticleAttachments(article);
-      openEditMessageModal(messageId, content, attachments);
+      openEditMessageModal(messageId, content);
     };
 
     container.appendChild(editBtn);
@@ -6521,8 +6326,7 @@ function bindEvents() {
         } else {
           clearMessageListToWelcome();
           const selectedChatState = getChatState();
-          if (selectedChatState) selectedChatState.attachmentHistory = [];
-        }
+              }
         
         // Now send the edited message to LLM for processing
         setChatStatus("Sending edited message to AI...");
@@ -6530,13 +6334,6 @@ function bindEvents() {
         // Set the chat input to the edited content
         if (dom.chatInput) {
           dom.chatInput.value = newContent;
-        }
-        
-        // Set attachments from edit-attachments hidden field
-        const editAttachments = document.getElementById("edit-attachments")?.value || '[]';
-        const attachmentsInput = document.getElementById("chat-attachments");
-        if (attachmentsInput) {
-          attachmentsInput.value = editAttachments;
         }
         
         await submitChatForSelectedAgent();
@@ -6716,15 +6513,6 @@ function bindEvents() {
       return;
     }
 
-    const fileBtn = event.target.closest("[data-file-ref]");
-    if (fileBtn) {
-      event.preventDefault();
-      insertFileReference(fileBtn.dataset.fileRef || "");
-      hideSuggest();
-      dom.chatInput?.focus();
-      setChatStatus(`Inserted ${fileBtn.dataset.fileRef || "file reference"}`);
-      return;
-    }
 
     const skillBtn = event.target.closest("[data-skill-command]");
     if (skillBtn) {
@@ -7217,14 +7005,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  // Quick action buttons
-  document.getElementById('quick-uploads-btn')?.addEventListener('click', () => {
-    if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
-      return;
-    }
-    openMyUploads();
-  });
 
   // Server Files button in header
   document.getElementById('btn-files')?.addEventListener('click', () => {

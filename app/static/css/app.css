@@ -407,16 +407,6 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   transform: translateY(-1px);
 }
 
-#quick-uploads-btn {
-  border-color: color-mix(in srgb, var(--portal-border), transparent 24%);
-  background: color-mix(in srgb, var(--portal-surface-muted) 82%, transparent);
-  color: color-mix(in srgb, var(--portal-text-muted), var(--portal-text-secondary) 20%);
-}
-
-#quick-uploads-btn:hover {
-  border-color: color-mix(in srgb, var(--portal-border-strong), transparent 22%);
-  background: color-mix(in srgb, var(--portal-surface-soft) 84%, transparent);
-}
 
 #composer-attach-btn {
   color: var(--portal-text-secondary);
