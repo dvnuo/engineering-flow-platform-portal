@@ -5897,7 +5897,7 @@ async function submitCreateAutomationRule(formEl) {
       scope,
       trigger_config: { mention_target_type: "user", mention_target: String(fd.get("mention_target") || ""), ignore_self_comments: true, ignore_bot_comments: true, ignore_efp_auto_reply_marker: true, strip_code_blocks_before_matching: true },
       task_input_defaults: { skill_name: "handle-triggered-event", execution_mode: "chat_tool_loop", reply_mode: String(fd.get("reply_mode") || "same_surface") },
-      schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60), initial_lookback_seconds: 0, overlap_seconds: 120, max_pages_per_surface: 10, max_repos_per_run: Number(fd.get("max_repos_per_run") || 20), commit_comment_initial_tail_pages: 2 },
+      schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60), initial_lookback_seconds: 0, overlap_seconds: 120, max_pages_per_surface: 10, max_repos_per_run: Number(fd.get("max_repos_per_run") || 20), commit_comment_initial_tail_pages: 2, max_discussion_pages_per_run: 5, discussion_comments_tail_count: 100, discussion_replies_tail_count: 50 },
     };
     const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
     await loadAutomationRules();

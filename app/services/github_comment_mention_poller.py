@@ -101,7 +101,7 @@ class GithubCommentMentionPoller:
             raise ValueError(f"GitHub GraphQL error: {msg}")
         return body.get("data") or {}
 
-    async def poll_mentions(self, *, provider_config: GithubProviderConfig, owner: str, repo: str, mention_target: str, since_by_surface: dict, surfaces: list[str], overlap_seconds: int = 120, max_pages_per_surface: int = 10, initial_since: datetime | None = None, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True, commit_comment_initial_tail_pages: int = 2) -> tuple[list[dict], dict]:
+    async def poll_mentions(self, *, provider_config: GithubProviderConfig, owner: str, repo: str, mention_target: str, since_by_surface: dict, surfaces: list[str], overlap_seconds: int = 120, max_pages_per_surface: int = 10, initial_since: datetime | None = None, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True, commit_comment_initial_tail_pages: int = 2, max_discussion_pages_per_run: int = 5, discussion_comments_tail_count: int = 100, discussion_replies_tail_count: int = 50) -> tuple[list[dict], dict]:
         base_url = provider_config.base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {provider_config.api_token}", "Accept": "application/vnd.github+json"}
         poll_started_at = datetime.utcnow()
@@ -118,6 +118,7 @@ class GithubCommentMentionPoller:
                         cursor=since_by_surface.get(surface) or {}, initial_since=initial_since, overlap_seconds=overlap_seconds,
                         ignore_self_comments=ignore_self_comments, ignore_bot_comments=ignore_bot_comments,
                         ignore_efp_auto_reply_marker=ignore_efp_auto_reply_marker, strip_code_blocks_before_matching=strip_code_blocks_before_matching,
+                        max_discussion_pages_per_run=max_discussion_pages_per_run, discussion_comments_tail_count=discussion_comments_tail_count, discussion_replies_tail_count=discussion_replies_tail_count,
                     )
                     items.extend(d_items)
                     poll_cursors[surface] = d_cursor
@@ -154,7 +155,12 @@ class GithubCommentMentionPoller:
                         page = start_page
                         params = {"per_page": 100, "page": page}
                         resp = await client.get(f"{base_url}/repos/{owner}/{repo}/{endpoint}", params=params, headers=headers)
+                        if resp.status_code >= 400:
+                            raise ValueError(f"GitHub API error surface={surface} status={resp.status_code}")
                         batch = resp.json() or []
+                        last_from_header = _parse_last_page_from_link_header((getattr(resp, "headers", {}) or {}).get("Link"))
+                        if last_from_header:
+                            last_page_seen = last_from_header
                     for c in batch:
                         upd = _parse_dt(c.get("updated_at")) or _parse_dt(c.get("created_at")) or poll_started_at
                         cid = int(c.get("id") or 0)
@@ -196,33 +202,56 @@ class GithubCommentMentionPoller:
                     poll_cursors[surface].update({"last_seen_page": page_where_max_seen, "next_scan_page": next_scan_page, "last_seen_total_pages": last_page_seen})
         return items, {"poll_cursors": poll_cursors}
 
-    async def _poll_discussion_comments_for_repo(self, *, client, base_url: str, headers: dict, owner: str, repo: str, mention_target: str, cursor: dict, initial_since: datetime | None, overlap_seconds: int, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True) -> tuple[list[dict], dict]:
+    async def _poll_discussion_comments_for_repo(self, *, client, base_url: str, headers: dict, owner: str, repo: str, mention_target: str, cursor: dict, initial_since: datetime | None, overlap_seconds: int, max_discussion_pages_per_run: int = 5, discussion_comments_tail_count: int = 100, discussion_replies_tail_count: int = 50, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True) -> tuple[list[dict], dict]:
         last_dt = _parse_dt(cursor.get("last_seen_updated_at"))
         query_since = (last_dt - timedelta(seconds=overlap_seconds)) if last_dt else (initial_since or datetime.utcnow())
-        gql = """query RepoDiscussions($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){discussions(first:25,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{id number updatedAt comments(last:100){nodes{id body url createdAt updatedAt authorAssociation author{login} replyTo{id} replies(last:50){nodes{id body url createdAt updatedAt authorAssociation author{login} replyTo{id}}}}}}}}}"""
-        data = await self._graphql_request(client, base_url=base_url, headers=headers, query=gql, variables={"owner": owner, "repo": repo})
+        gql = """query RepoDiscussions($owner:String!,$repo:String!,$after:String,$commentsLast:Int!,$repliesLast:Int!){repository(owner:$owner,name:$repo){discussions(first:25,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{id number updatedAt comments(last:$commentsLast){nodes{id body url createdAt updatedAt authorAssociation author{login __typename} replyTo{id} replies(last:$repliesLast){nodes{id body url createdAt updatedAt authorAssociation author{login __typename} replyTo{id}}}}}}}}}"""
         items = []
         max_dt = last_dt or query_since
         max_id = str(cursor.get("last_seen_comment_id") or "")
-        for d in (((data.get("repository") or {}).get("discussions") or {}).get("nodes") or []):
-            for c in ((d.get("comments") or {}).get("nodes") or []):
-                for node in [c] + (((c.get("replies") or {}).get("nodes") or [])):
-                    upd = _parse_dt(node.get("updatedAt")) or _parse_dt(node.get("createdAt")) or query_since
-                    if upd > max_dt:
-                        max_dt = upd; max_id = str(node.get("id") or max_id)
-                    if upd < query_since:
-                        continue
-                    body = node.get("body") or ""
-                    mentioned = extract_github_mentions(body, strip_code_blocks_before_matching)
-                    if mention_target.lower() not in mentioned:
-                        continue
-                    author = str(((node.get("author") or {}).get("login") or "")).lower()
-                    if ignore_self_comments and author == mention_target.lower():
-                        continue
-                    if ignore_efp_auto_reply_marker and is_efp_auto_reply(body):
-                        continue
-                    items.append(self._normalize("discussion_comment", {"discussion": d, "comment": node}, owner, repo, mention_target.lower(), mentioned))
-        return items, {"last_seen_updated_at": _iso_z(max_dt), "last_seen_comment_id": max_id}
+        after = cursor.get("discussion_after_cursor")
+        pages = 0
+        hit_page_limit = False
+        while pages < max_discussion_pages_per_run:
+            data = await self._graphql_request(client, base_url=base_url, headers=headers, query=gql, variables={"owner": owner, "repo": repo, "after": after, "commentsLast": discussion_comments_tail_count, "repliesLast": discussion_replies_tail_count})
+            discussions_obj = ((data.get("repository") or {}).get("discussions") or {})
+            nodes = discussions_obj.get("nodes") or []
+            page_info = discussions_obj.get("pageInfo") or {}
+            pages += 1
+            stop_after = False
+            for d in nodes:
+                dud = _parse_dt(d.get("updatedAt"))
+                if dud and dud < query_since:
+                    stop_after = True
+                for c in ((d.get("comments") or {}).get("nodes") or []):
+                    for node in [c] + (((c.get("replies") or {}).get("nodes") or [])):
+                        upd = _parse_dt(node.get("updatedAt")) or _parse_dt(node.get("createdAt")) or query_since
+                        if upd > max_dt:
+                            max_dt = upd; max_id = str(node.get("id") or max_id)
+                        if upd < query_since:
+                            continue
+                        body = node.get("body") or ""
+                        mentioned = extract_github_mentions(body, strip_code_blocks_before_matching)
+                        if mention_target.lower() not in mentioned:
+                            continue
+                        author_login = str(((node.get("author") or {}).get("login") or "")).lower()
+                        author_type = str(((node.get("author") or {}).get("__typename") or "")).lower()
+                        if ignore_self_comments and author_login == mention_target.lower():
+                            continue
+                        if ignore_bot_comments and author_type == "bot":
+                            continue
+                        if ignore_efp_auto_reply_marker and is_efp_auto_reply(body):
+                            continue
+                        items.append(self._normalize("discussion_comment", {"discussion": d, "comment": node}, owner, repo, mention_target.lower(), mentioned))
+            if stop_after or not page_info.get("hasNextPage"):
+                after = None
+                break
+            after = page_info.get("endCursor")
+            if pages >= max_discussion_pages_per_run:
+                hit_page_limit = True
+                break
+        cursor_dt = max_dt if hit_page_limit else max(max_dt, datetime.utcnow())
+        return items, {"last_seen_updated_at": _iso_z(cursor_dt), "last_seen_comment_id": max_id, "discussion_after_cursor": after, "hit_page_limit": hit_page_limit}
 
     async def list_org_repositories(self, *, provider_config: GithubProviderConfig, org: str, repo_selector: dict | None = None, max_pages: int = 10) -> list[dict]:
         base_url = provider_config.base_url.rstrip("/")
