@@ -22,7 +22,7 @@ from app.schemas.agent_group import (
     AgentGroupTaskSummaryResponse,
 )
 from app.schemas.agent import AgentResponse
-from app.utils.agent_responses import build_agent_response
+from app.utils.agent_responses import build_agent_response, effective_skill_branch, effective_skill_repo_url
 from app.schemas.agent_task import AgentTaskResponse
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 
@@ -237,6 +237,12 @@ def create_internal_group_task_agent(
         leader_agent_id=group.leader_agent_id,
         capability_profile_id=agent.capability_profile_id,
         policy_profile_id=agent.policy_profile_id,
+        repo_url=agent.repo_url,
+        branch=agent.branch,
+        skill_repo_url=agent.skill_repo_url,
+        skill_branch=agent.skill_branch,
+        effective_skill_repo_url=effective_skill_repo_url(agent),
+        effective_skill_branch=effective_skill_branch(agent),
     )
 
 

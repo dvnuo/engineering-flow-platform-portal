@@ -704,6 +704,12 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert created["agent_type"] == "task"
         assert created["capability_profile_id"] == capability_profile.id
         assert created["policy_profile_id"] == policy_profile.id
+        assert created["repo_url"] == runtime_repo
+        assert created["branch"] == runtime_branch
+        assert created["skill_repo_url"] == specialist_template.skill_repo_url
+        assert created["skill_branch"] == specialist_template.skill_branch
+        assert created["effective_skill_repo_url"] == specialist_template.skill_repo_url
+        assert created["effective_skill_branch"] == specialist_template.skill_branch
         agent_detail = client.get(f"/api/agents/{created['id']}")
         assert agent_detail.status_code == 200
         assert agent_detail.json()["repo_url"] == runtime_repo
