@@ -670,53 +670,82 @@ class AutomationRuleService:
                 if notif_since_raw:
                     parsed = datetime.fromisoformat(str(notif_since_raw).replace("Z", "+00:00")).replace(tzinfo=None)
                     notif_since = parsed - timedelta(seconds=overlap_seconds)
+                scan_since_raw = account_state.get("scan_since")
+                scan_since = None
+                if scan_since_raw:
+                    scan_since = datetime.fromisoformat(str(scan_since_raw).replace("Z", "+00:00")).replace(tzinfo=None)
                 start_page = int(account_state.get("next_notification_page") or 1)
-                notifications, notif_patch = await self.comment_mention_poller.list_account_notifications(provider_config=provider_cfg, since=notif_since, reasons=scope.get("notification_reasons") or ["mention", "team_mention"], max_pages=int(schedule.get("max_notification_pages_per_run") or 5), start_page=start_page)
+                notifications, notif_patch = await self.comment_mention_poller.list_account_notifications(provider_config=provider_cfg, since=notif_since, scan_since=scan_since, reasons=scope.get("notification_reasons") or ["mention", "team_mention"], max_pages=int(schedule.get("max_notification_pages_per_run") or 5), start_page=start_page)
                 selector = scope.get("repo_selector") or {}
                 include = selector.get("include") or []
                 exclude = selector.get("exclude") or []
                 include_archived = bool(selector.get("include_archived", False))
                 include_forks = bool(selector.get("include_forks", False))
+
                 def allowed_repo(name: str) -> bool:
                     from fnmatch import fnmatchcase
-                    short = name.split("/",1)[1] if "/" in name else name
+                    short = name.split("/", 1)[1] if "/" in name else name
                     if include and not any(fnmatchcase(short, p) for p in include):
                         return False
                     if exclude and any(fnmatchcase(short, p) for p in exclude):
                         return False
                     return True
-                candidates=[]; seen=set(); meta_by_repo={}
+
+                existing_queue = state.get("account_candidate_queue")
+                if not isinstance(existing_queue, list):
+                    existing_queue = []
+                queue_by_repo = {}
+                for entry in existing_queue:
+                    if not isinstance(entry, dict):
+                        continue
+                    full = str(entry.get("full_name") or "").strip()
+                    if not full or "/" not in full:
+                        continue
+                    queue_by_repo[full] = dict(entry)
+
                 for n in notifications:
-                    full=str(n.get("repository_full_name") or "").strip()
-                    if not full or "/" not in full or not allowed_repo(full) or full in seen:
+                    full = str(n.get("repository_full_name") or "").strip()
+                    if not full or "/" not in full or not allowed_repo(full):
                         continue
                     repo_obj = (n.get("source_payload") or {}).get("repository") or {}
                     if repo_obj.get("archived") is True and not include_archived:
                         continue
                     if repo_obj.get("fork") is True and not include_forks:
                         continue
-                    seen.add(full); candidates.append(full); meta_by_repo[full]=n
-                candidates = sorted(candidates)
-                account_repo_cursor = int(state.get("account_repo_cursor") or 0)
-                repo_count = len(candidates)
-                limit = min(max_repos_per_run, repo_count)
-                selected_candidates = [candidates[(account_repo_cursor + i) % repo_count] for i in range(limit)] if repo_count else []
-                next_account_repo_cursor = (account_repo_cursor + limit) % repo_count if repo_count else 0
+                    queue_by_repo[full] = {
+                        "full_name": full,
+                        "notification_id": n.get("notification_id"),
+                        "notification_reason": n.get("reason"),
+                        "notification_subject_type": n.get("subject_type"),
+                        "notification_url": n.get("subject_url") or n.get("latest_comment_url"),
+                        "notification_updated_at": n.get("updated_at"),
+                    }
+
+                queue = sorted(queue_by_repo.values(), key=lambda x: str(x.get("full_name") or ""))
+                selected_entries = queue[:max_repos_per_run]
+                completed = set()
                 next_cursor_map = dict(state.get("poll_cursors_by_repo") or {})
-                for full in selected_candidates:
-                    o,r = full.split("/",1)
+                for entry in selected_entries:
+                    full = str(entry.get("full_name") or "").strip()
+                    if not full or "/" not in full:
+                        continue
+                    o, r = full.split("/", 1)
                     repo_cursors = next_cursor_map.get(full) if isinstance(next_cursor_map.get(full), dict) else {}
-                    repo_items, next_patch = await self.comment_mention_poller.poll_mentions(provider_config=provider_cfg, owner=o, repo=r, mention_target=mention_target, since_by_surface=repo_cursors, surfaces=surfaces, overlap_seconds=overlap_seconds, max_pages_per_surface=max_pages_per_surface, initial_since=initial_since, ignore_self_comments=bool(trigger_cfg.get("ignore_self_comments", True)), ignore_bot_comments=bool(trigger_cfg.get("ignore_bot_comments", True)), ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)), commit_comment_initial_tail_pages=commit_comment_initial_tail_pages, max_discussion_pages_per_run=max_discussion_pages_per_run, discussion_comments_tail_count=discussion_comments_tail_count, discussion_replies_tail_count=discussion_replies_tail_count)
-                    next_cursor_map[full] = next_patch.get("poll_cursors", repo_cursors)
-                    meta = meta_by_repo.get(full) or {}
-                    for it in repo_items:
-                        it["notification_id"] = meta.get("notification_id")
-                        it["notification_reason"] = meta.get("reason")
-                        it["notification_subject_type"] = meta.get("subject_type")
-                        it["notification_url"] = meta.get("subject_url") or meta.get("latest_comment_url")
-                        it["notification_updated_at"] = meta.get("updated_at")
-                    items.extend(repo_items)
-                next_state_patch = {"poll_cursors_by_repo": next_cursor_map, "account_notifications": notif_patch, "account_repo_cursor": next_account_repo_cursor, "account_repo_limit_reached": repo_count > max_repos_per_run, "account_candidate_repo_count": repo_count, "account_polled_repo_count": len(selected_candidates)}
+                    try:
+                        repo_items, next_patch = await self.comment_mention_poller.poll_mentions(provider_config=provider_cfg, owner=o, repo=r, mention_target=mention_target, since_by_surface=repo_cursors, surfaces=surfaces, overlap_seconds=overlap_seconds, max_pages_per_surface=max_pages_per_surface, initial_since=initial_since, ignore_self_comments=bool(trigger_cfg.get("ignore_self_comments", True)), ignore_bot_comments=bool(trigger_cfg.get("ignore_bot_comments", True)), ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)), commit_comment_initial_tail_pages=commit_comment_initial_tail_pages, max_discussion_pages_per_run=max_discussion_pages_per_run, discussion_comments_tail_count=discussion_comments_tail_count, discussion_replies_tail_count=discussion_replies_tail_count)
+                        next_cursor_map[full] = next_patch.get("poll_cursors", repo_cursors)
+                        for it in repo_items:
+                            it["notification_id"] = entry.get("notification_id")
+                            it["notification_reason"] = entry.get("notification_reason")
+                            it["notification_subject_type"] = entry.get("notification_subject_type")
+                            it["notification_url"] = entry.get("notification_url")
+                            it["notification_updated_at"] = entry.get("notification_updated_at")
+                        items.extend(repo_items)
+                        completed.add(full)
+                    except Exception:
+                        run_error_count += 1
+                remaining_queue = [entry for entry in queue if str(entry.get("full_name") or "") not in completed]
+                next_state_patch = {"poll_cursors_by_repo": next_cursor_map, "account_notifications": notif_patch, "account_candidate_queue": remaining_queue, "account_repo_limit_reached": len(queue) > max_repos_per_run, "account_candidate_repo_count": len(queue), "account_polled_repo_count": len(selected_entries)}
             else:
                 poll_cursors = state.get("poll_cursors") if isinstance(state.get("poll_cursors"), dict) else {}
                 items, next_state_patch = await self.comment_mention_poller.poll_mentions(
@@ -745,7 +774,7 @@ class AutomationRuleService:
             elif mode == "account_notifications":
                 new_state["poll_cursors_by_repo"] = next_state_patch.get("poll_cursors_by_repo", state.get("poll_cursors_by_repo") or {})
                 new_state["account_notifications"] = next_state_patch.get("account_notifications", state.get("account_notifications") or {})
-                new_state["account_repo_cursor"] = next_state_patch.get("account_repo_cursor", state.get("account_repo_cursor") or 0)
+                new_state["account_candidate_queue"] = next_state_patch.get("account_candidate_queue", state.get("account_candidate_queue") or [])
             else:
                 poll_cursors = state.get("poll_cursors") if isinstance(state.get("poll_cursors"), dict) else {}
                 new_state["poll_cursors"] = next_state_patch.get("poll_cursors", poll_cursors)

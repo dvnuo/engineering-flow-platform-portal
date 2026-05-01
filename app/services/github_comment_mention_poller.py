@@ -256,14 +256,17 @@ class GithubCommentMentionPoller:
 
 
 
-    async def list_account_notifications(self, *, provider_config: GithubProviderConfig, since: datetime | None = None, reasons: list[str] | None = None, max_pages: int = 5, start_page: int = 1) -> tuple[list[dict], dict]:
+    async def list_account_notifications(self, *, provider_config: GithubProviderConfig, since: datetime | None = None, reasons: list[str] | None = None, max_pages: int = 5, start_page: int = 1, scan_since: datetime | None = None) -> tuple[list[dict], dict]:
         base_url = provider_config.base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {provider_config.api_token}", "Accept": "application/vnd.github+json"}
         poll_started_at = datetime.utcnow()
+        effective_since = scan_since or since
         allowed_reasons = {str(x).strip() for x in (reasons or ["mention", "team_mention"]) if str(x).strip()}
         notifications: list[dict] = []
-        max_updated = since
-        max_id = ""
+        max_seen_updated_at = since
+        max_seen_notification_id = ""
+        max_returned_updated_at = None
+        max_returned_notification_id = ""
         hit_page_limit = False
         next_notification_page = None
         last_page_scanned = 0
@@ -272,8 +275,8 @@ class GithubCommentMentionPoller:
             for page in range(first_page, first_page + max(1, max_pages)):
                 last_page_scanned = page
                 params = {"all": "true", "participating": "true", "per_page": 100, "page": page}
-                if since:
-                    params["since"] = _iso_z(since)
+                if effective_since:
+                    params["since"] = _iso_z(effective_since)
                 resp = await client.get(f"{base_url}/notifications", params=params, headers=headers)
                 if resp.status_code in {403, 404}:
                     raise ValueError("GitHub account notifications polling requires a user/PAT-compatible token")
@@ -281,18 +284,23 @@ class GithubCommentMentionPoller:
                     raise ValueError(f"GitHub notifications API error status={resp.status_code}")
                 batch = resp.json() or []
                 for n in batch:
+                    updated_at = _parse_dt(n.get("updated_at")) or poll_started_at
+                    if max_seen_updated_at is None or updated_at > max_seen_updated_at:
+                        max_seen_updated_at = updated_at
+                    nid = str(n.get("id") or "")
+                    if nid and ((nid.isdigit() and (not max_seen_notification_id.isdigit() or int(nid) > int(max_seen_notification_id or 0))) or (not nid.isdigit() and nid > max_seen_notification_id)):
+                        max_seen_notification_id = nid
+
                     reason = str(n.get("reason") or "").strip()
                     full_name = str(((n.get("repository") or {}).get("full_name") or "")).strip()
                     if allowed_reasons and reason not in allowed_reasons:
                         continue
                     if not full_name:
                         continue
-                    updated_at = _parse_dt(n.get("updated_at")) or poll_started_at
-                    if max_updated is None or updated_at > max_updated:
-                        max_updated = updated_at
-                    nid = str(n.get("id") or "")
-                    if nid and nid > max_id:
-                        max_id = nid
+                    if max_returned_updated_at is None or updated_at > max_returned_updated_at:
+                        max_returned_updated_at = updated_at
+                    if nid and ((nid.isdigit() and (not max_returned_notification_id.isdigit() or int(nid) > int(max_returned_notification_id or 0))) or (not nid.isdigit() and nid > max_returned_notification_id)):
+                        max_returned_notification_id = nid
                     subject = n.get("subject") or {}
                     notifications.append({"notification_id": n.get("id"), "reason": reason, "updated_at": n.get("updated_at"), "repository_full_name": full_name, "subject_type": subject.get("type"), "subject_url": subject.get("url"), "latest_comment_url": subject.get("latest_comment_url"), "source_payload": n})
                 if len(batch) < 100:
@@ -300,9 +308,23 @@ class GithubCommentMentionPoller:
                 if page == (first_page + max(1, max_pages) - 1):
                     hit_page_limit = True
                     next_notification_page = page + 1
-        effective_max_updated = max_updated or poll_started_at
-        cursor_updated_at = effective_max_updated if hit_page_limit else max(effective_max_updated, poll_started_at)
-        return notifications, {"last_seen_notification_updated_at": _iso_z(cursor_updated_at), "last_seen_notification_id": max_id, "hit_page_limit": hit_page_limit, "next_notification_page": next_notification_page, "last_page_scanned": last_page_scanned}
+        if hit_page_limit:
+            stable_cursor_dt = since or max_seen_updated_at or poll_started_at
+            next_scan_since = effective_since
+        else:
+            stable_cursor_dt = max(max_seen_updated_at or poll_started_at, poll_started_at)
+            next_scan_since = None
+            next_notification_page = None
+        return notifications, {
+            "last_seen_notification_updated_at": _iso_z(stable_cursor_dt),
+            "last_seen_notification_id": max_seen_notification_id,
+            "max_returned_notification_updated_at": _iso_z(max_returned_updated_at) if max_returned_updated_at else None,
+            "max_returned_notification_id": max_returned_notification_id,
+            "hit_page_limit": hit_page_limit,
+            "next_notification_page": next_notification_page,
+            "last_page_scanned": last_page_scanned,
+            "scan_since": _iso_z(next_scan_since) if next_scan_since else None,
+        }
 
     async def list_org_repositories(self, *, provider_config: GithubProviderConfig, org: str, repo_selector: dict | None = None, max_pages: int = 10) -> list[dict]:
         base_url = provider_config.base_url.rstrip("/")

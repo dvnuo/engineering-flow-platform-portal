@@ -291,3 +291,35 @@ async def test_list_account_notifications_user_token_error(monkeypatch):
     monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(403,[])]))
     with pytest.raises(ValueError, match="requires a user/PAT-compatible token"):
         await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider())
+
+
+@pytest.mark.anyio
+async def test_list_account_notifications_updates_seen_cursor_for_unmatched_reasons(monkeypatch):
+    batch=[{"id":str(i),"reason":"subscribed","updated_at":"2026-01-01T00:00:00Z","repository":{"full_name":"acme/a"},"subject":{}} for i in range(1,101)]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(200,batch)]))
+    items,state=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), reasons=["mention"], max_pages=1, scan_since=__import__('datetime').datetime(2026,1,1))
+    assert items==[]
+    assert state["last_seen_notification_id"]=="100"
+    assert state["hit_page_limit"] is True
+    assert state["next_notification_page"]==2
+    assert state["scan_since"].startswith("2026-01-01T00:00:00")
+
+@pytest.mark.anyio
+async def test_list_account_notifications_continues_with_scan_since(monkeypatch):
+    seen={}
+    class C(_Client):
+        async def get(self,*_a,**kw):
+            seen.update(kw.get("params") or {})
+            return _Resp(200,[])
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    dt=__import__('datetime').datetime(2026,1,1)
+    await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), scan_since=dt, start_page=3)
+    assert seen.get("page")==3
+    assert seen.get("since").startswith("2026-01-01T00:00:00")
+
+@pytest.mark.anyio
+async def test_list_account_notifications_page_limit_does_not_use_poll_started_as_completed_cursor(monkeypatch):
+    batch=[{"id":"1","reason":"subscribed","updated_at":"2026-01-01T00:00:00Z","repository":{"full_name":"acme/a"},"subject":{}} for _ in range(100)]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(200,batch)]))
+    _,state=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), reasons=["mention"], max_pages=1)
+    assert state["last_seen_notification_updated_at"].startswith("2026-01-01T00:00:00")
