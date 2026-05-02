@@ -16,10 +16,13 @@ def test_build_agent_response_applies_effective_skill_defaults(monkeypatch):
         status="running",
         visibility="private",
         image="example/image:latest",
+        runtime_type="native",
         repo_url="https://github.com/acme/runtime.git",
         branch="main",
         skill_repo_url=None,
         skill_branch=None,
+        tool_repo_url=None,
+        tool_branch=None,
         owner_user_id=1,
         cpu=None,
         memory=None,
@@ -36,5 +39,6 @@ def test_build_agent_response_applies_effective_skill_defaults(monkeypatch):
 
     response = build_agent_response(agent)
     assert response.skill_repo_url is None
+    assert response.runtime_type == "native"
     assert response.effective_skill_repo_url == "https://github.com/acme/default-skills.git"
     assert response.effective_skill_branch == "skills-main"

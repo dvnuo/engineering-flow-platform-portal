@@ -11,6 +11,7 @@ from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.agent import (
     ALLOWED_AGENT_TYPES,
+    ALLOWED_RUNTIME_TYPES,
     AgentChatModelProfileResponse,
     AgentCreateRequest,
     AgentDeleteResponse,
@@ -35,8 +36,8 @@ settings = get_settings()
 def get_agent_defaults(user=Depends(get_current_user)):
     """Get default configuration for agent creation."""
     return {
-        "image_repo": settings.default_agent_image_repo,
-        "image_tag": settings.default_agent_image_tag,
+        "image_repo": _native_runtime_image_repo(),
+        "image_tag": _native_runtime_image_tag(),
         "git_image": settings.default_agent_git_image,
         "default_runtime_repo_url": _runtime_repo_url_from_settings(),
         "default_runtime_branch": _runtime_branch_from_settings(),
@@ -48,6 +49,25 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,
         "mount_path": settings.default_agent_mount_path,
+        "default_runtime_type": _default_runtime_type_from_settings(),
+        "runtime_types": [
+            {
+                "value": "native",
+                "label": "EFP Native Runtime",
+                "image_repo": _native_runtime_image_repo(),
+                "image_tag": _native_runtime_image_tag(),
+                "default_mount_path": settings.default_agent_mount_path or "/root/.efp",
+            },
+            {
+                "value": "opencode",
+                "label": "OpenCode Runtime",
+                "image_repo": _opencode_runtime_image_repo(),
+                "image_tag": _opencode_runtime_image_tag(),
+                "default_mount_path": "/workspace",
+            },
+        ],
+        "default_tool_repo_url": normalize_git_repo_url(settings.default_tool_repo_url),
+        "default_tool_branch": settings.default_tool_branch or "main",
     }
 
 
@@ -126,7 +146,46 @@ def _validate_agent_type_or_422(agent_type: str | None) -> None:
 
 
 def _default_agent_image() -> str:
-    return f"{settings.default_agent_image_repo}:{settings.default_agent_image_tag}"
+    return _default_agent_image_for_runtime("native")
+
+
+def _normalize_runtime_type(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in ALLOWED_RUNTIME_TYPES:
+        return normalized
+    return "native"
+
+
+def _default_runtime_type_from_settings() -> str:
+    return _normalize_runtime_type(settings.default_runtime_type)
+
+
+def _native_runtime_image_repo() -> str:
+    return (settings.default_native_runtime_image_repo or settings.default_agent_image_repo or "").strip()
+
+
+def _native_runtime_image_tag() -> str:
+    return (settings.default_native_runtime_image_tag or settings.default_agent_image_tag or "latest").strip() or "latest"
+
+
+def _opencode_runtime_image_repo() -> str:
+    return (settings.default_opencode_runtime_image_repo or "ghcr.io/dvnuo/efp-opencode-runtime").strip()
+
+
+def _opencode_runtime_image_tag() -> str:
+    return (settings.default_opencode_runtime_image_tag or "1.14.29").strip() or "1.14.29"
+
+
+def _runtime_image_parts(runtime_type: str) -> tuple[str, str]:
+    runtime_type = _normalize_runtime_type(runtime_type)
+    if runtime_type == "opencode":
+        return _opencode_runtime_image_repo(), _opencode_runtime_image_tag()
+    return _native_runtime_image_repo(), _native_runtime_image_tag()
+
+
+def _default_agent_image_for_runtime(runtime_type: str) -> str:
+    repo, tag = _runtime_image_parts(runtime_type)
+    return f"{repo}:{tag}"
 
 
 def _runtime_repo_url_from_settings() -> str | None:
@@ -148,9 +207,31 @@ def _resolve_create_skill_branch(payload: AgentCreateRequest) -> str:
     return branch or settings.default_skill_branch or "master"
 
 
-def _resolve_create_image(payload: AgentCreateRequest) -> str:
+def _resolve_create_runtime_type(payload: AgentCreateRequest) -> str:
+    if "runtime_type" not in payload.model_fields_set:
+        return _default_runtime_type_from_settings()
+    return _normalize_runtime_type(payload.runtime_type)
+
+
+def _resolve_create_image(payload: AgentCreateRequest, runtime_type: str) -> str:
     image = (payload.image or "").strip()
-    return image or _default_agent_image()
+    return image or _default_agent_image_for_runtime(runtime_type)
+
+
+def _resolve_create_tool_repo_url(payload: AgentCreateRequest) -> str | None:
+    return payload.tool_repo_url or normalize_git_repo_url(settings.default_tool_repo_url)
+
+
+def _resolve_create_tool_branch(payload: AgentCreateRequest) -> str:
+    branch = (payload.tool_branch or "").strip()
+    return branch or settings.default_tool_branch or "main"
+
+
+def _validate_runtime_type_or_422(runtime_type: str | None) -> None:
+    if runtime_type is None:
+        return
+    if runtime_type not in ALLOWED_RUNTIME_TYPES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="runtime_type must be one of: native, opencode")
 
 
 @router.get("/mine", response_model=list[AgentResponse])
@@ -174,11 +255,14 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
     if runtime_profile_id is None:
         runtime_profile_id = RuntimeProfileService(db).ensure_user_has_default_profile(user).id
 
-    effective_image = _resolve_create_image(payload)
+    effective_runtime_type = _resolve_create_runtime_type(payload)
+    effective_image = _resolve_create_image(payload, effective_runtime_type)
     effective_runtime_repo_url = _runtime_repo_url_from_settings()
     effective_runtime_branch = _runtime_branch_from_settings()
     effective_skill_repo_url = _resolve_create_skill_repo_url(payload)
     effective_skill_branch = _resolve_create_skill_branch(payload)
+    effective_tool_repo_url = _resolve_create_tool_repo_url(payload)
+    effective_tool_branch = _resolve_create_tool_branch(payload)
 
     repo = AgentRepository(db)
     agent = repo.create(
@@ -188,10 +272,13 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         visibility="private",
         status="creating",
         image=effective_image,
+        runtime_type=effective_runtime_type,
         repo_url=effective_runtime_repo_url,
         branch=effective_runtime_branch,
         skill_repo_url=effective_skill_repo_url,
         skill_branch=effective_skill_branch,
+        tool_repo_url=effective_tool_repo_url,
+        tool_branch=effective_tool_branch,
         cpu=payload.cpu,
         memory=payload.memory,
         agent_type=payload.agent_type,
@@ -220,7 +307,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         target_type="agent",
         target_id=agent.id,
         user_id=user.id,
-        details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch},
+        details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch, "runtime_type": effective_runtime_type, "tool_repo_url": effective_tool_repo_url, "tool_branch": effective_tool_branch},
     )
     return build_agent_response(agent)
 
@@ -252,6 +339,13 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         if changes["agent_type"] is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_type cannot be null")
         _validate_agent_type_or_422(changes["agent_type"])
+    if "runtime_type" in changes:
+        if changes["runtime_type"] is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="runtime_type cannot be null")
+        _validate_runtime_type_or_422(changes["runtime_type"])
+        runtime_type_changed = changes["runtime_type"] != getattr(agent, "runtime_type", "native")
+        if runtime_type_changed and "image" not in changes:
+            changes["image"] = _default_agent_image_for_runtime(changes["runtime_type"])
 
     for field, value in changes.items():
         setattr(agent, field, value)

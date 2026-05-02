@@ -36,8 +36,14 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert 'name="branch"' not in html
     assert 'name="skill_repo_url"' in html
     assert 'name="skill_branch"' in html
+    assert 'name="runtime_type"' in html
+    assert 'name="tool_repo_url"' in html
+    assert 'name="tool_branch"' in html
     assert "Skill Repository" in html
     assert "Skill Branch" in html
+    assert "Runtime Type" in html
+    assert "Tools Repository" in html
+    assert "Tools Branch" in html
 
     js = _chat_ui_js_source()
     assert "updates.repo_url =" not in js
@@ -46,6 +52,12 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "updates.skill_branch =" in js
     assert "skill_repo_url: repoUrl || null" in js
     assert "skill_branch: branch || null" in js
+    assert "runtime_types" in js
+    assert "default_tool_repo_url" in js
+    assert "runtime_type: runtimeType" in js
+    assert "tool_repo_url: toolRepoUrl || null" in js
+    assert "tool_branch: toolBranch || null" in js
+    assert 'image: defaults.image_repo + ":"' not in js
     assert "/api/skill-git-info" in js
     assert "Skills Repository" in js
     assert "Using configured default" in js
