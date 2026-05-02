@@ -2390,10 +2390,12 @@ function renderAgentList() {
       if (chatState?.isSubmitting) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
       else if (chatState?.backgroundStatus === "completed") runtimeBadge = '<span class="portal-agent-chat-badge is-completed">completed</span>';
       else if (chatState?.backgroundStatus === "error") runtimeBadge = '<span class="portal-agent-chat-badge is-error">error</span>';
+      const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
+      const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
           <span class="portal-agent-name">${safe(agent.name)}</span>
-          <span class="portal-agent-row-badges">${runtimeBadge}${unreadBadge}${sharedBadge}</span>
+          <span class="portal-agent-row-badges">${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}</span>
         </div>
         <div class="portal-agent-row-foot">
           <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
@@ -2427,6 +2429,10 @@ function renderAgentMeta(agent) {
   const effectiveSkillRepoUrl = agent.effective_skill_repo_url || agent.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
   const effectiveSkillBranch = agent.effective_skill_branch || agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
   const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
+  const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
+  const toolRepoUrl = agent.tool_repo_url || state.agentDefaults?.default_tool_repo_url || "";
+  const toolBranch = agent.tool_branch || state.agentDefaults?.default_tool_branch || "";
+  const isDefaultToolRepo = !agent.tool_repo_url && !!toolRepoUrl;
 
   // Build repo/branch section if present
   let repoSection = '';
@@ -2445,6 +2451,21 @@ function renderAgentMeta(agent) {
       </div>
     `;
   }
+  let toolRepoSection = "";
+  if (toolRepoUrl) {
+    const toolBranchLine = toolBranch
+      ? `<div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(toolBranch)}</span></div>`
+      : "";
+    const toolDefaultIndicator = isDefaultToolRepo ? `<div class="portal-detail-subtle">Using configured default</div>` : "";
+    toolRepoSection = `
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Tools Repository</div>
+        <code class="portal-detail-code">${safe(toolRepoUrl)}</code>
+        ${toolBranchLine}
+        ${toolDefaultIndicator}
+      </div>
+    `;
+  }
 
   dom.agentMeta.innerHTML = `
     <div class="portal-detail-stack">
@@ -2453,10 +2474,15 @@ function renderAgentMeta(agent) {
         <code class="portal-detail-code">${safe(agent.id)}</code>
       </div>
       <div class="portal-detail-section">
+        <div class="portal-detail-label">Runtime Type</div>
+        <div class="portal-detail-value">${safe(runtimeType)}</div>
+      </div>
+      <div class="portal-detail-section">
         <div class="portal-detail-label">Image</div>
         <code class="portal-detail-code">${safe(agent.image)}</code>
       </div>
       ${repoSection}
+      ${toolRepoSection}
       <div class="portal-detail-section">
         <div class="portal-detail-label">Created</div>
         <div class="portal-detail-value">${dateStr}</div>
@@ -5489,6 +5515,52 @@ async function loadAgentDefaults(force = false) {
   return defaults;
 }
 
+function getRuntimeTypes(defaults) {
+  const runtimeTypes = Array.isArray(defaults?.runtime_types) ? defaults.runtime_types : [];
+  if (runtimeTypes.length) return runtimeTypes;
+  return [{ value: "native", label: "EFP Native Runtime", image_repo: defaults?.image_repo || "", image_tag: defaults?.image_tag || "latest", default_mount_path: defaults?.mount_path || "/root/.efp" }];
+}
+
+function normalizeRuntimeTypeValue(value, defaults) {
+  const raw = String(value || "").trim().toLowerCase();
+  const runtimeTypes = getRuntimeTypes(defaults);
+  if (runtimeTypes.some((item) => item.value === raw)) return raw;
+  return String(defaults?.default_runtime_type || "native").trim().toLowerCase() || "native";
+}
+
+function findRuntimeTypeConfig(defaults, runtimeType) {
+  const normalized = normalizeRuntimeTypeValue(runtimeType, defaults);
+  return getRuntimeTypes(defaults).find((item) => item.value === normalized) || getRuntimeTypes(defaults)[0] || null;
+}
+
+function runtimeImagePreview(config) {
+  const repo = String(config?.image_repo || "").trim();
+  const tag = String(config?.image_tag || "latest").trim() || "latest";
+  return repo ? `${repo}:${tag}` : "";
+}
+
+function populateRuntimeTypeSelect(selectEl, defaults, selectedValue = "") {
+  if (!selectEl) return;
+  const runtimeTypes = getRuntimeTypes(defaults);
+  const selected = normalizeRuntimeTypeValue(selectedValue || defaults?.default_runtime_type || "native", defaults);
+  selectEl.innerHTML = runtimeTypes.map((item) => {
+    const value = String(item.value || "").trim();
+    const label = item.label || value;
+    const selectedAttr = value === selected ? " selected" : "";
+    return `<option value="${escapeHtmlAttr(value)}"${selectedAttr}>${safe(label)}</option>`;
+  }).join("");
+  selectEl.value = selected;
+}
+
+function updateCreateRuntimeTypeHint(form, defaults) {
+  const selectEl = form?.elements?.["runtime_type"];
+  const hintEl = document.getElementById("create-runtime-type-hint");
+  const config = findRuntimeTypeConfig(defaults, selectEl?.value || defaults?.default_runtime_type || "native");
+  const image = runtimeImagePreview(config);
+  const mountPath = config?.default_mount_path || defaults?.mount_path || "";
+  if (hintEl) hintEl.textContent = image ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}` : "";
+}
+
 function applyCreateAgentDefaults(form, defaults) {
   if (!form?.elements) return;
   const repoInput = form.elements["skill_repo_url"];
@@ -5504,6 +5576,27 @@ function applyCreateAgentDefaults(form, defaults) {
     branchInput.defaultValue = branchDefault;
     branchInput.placeholder = branchDefault ? `Configured default branch (${branchDefault})` : "Configured default branch";
   }
+  const runtimeProfileSelect = form.elements["runtime_profile_id"];
+  if (runtimeProfileSelect) {
+    const defaultRuntimeProfileId = defaults?.default_runtime_profile_id || "";
+    if (defaultRuntimeProfileId) runtimeProfileSelect.value = defaultRuntimeProfileId;
+  }
+  const runtimeTypeSelect = form.elements["runtime_type"];
+  populateRuntimeTypeSelect(runtimeTypeSelect, defaults, defaults?.default_runtime_type || "native");
+  const toolRepoInput = form.elements["tool_repo_url"];
+  if (toolRepoInput) {
+    const toolRepoDefault = defaults?.default_tool_repo_url || "";
+    toolRepoInput.value = toolRepoDefault;
+    toolRepoInput.defaultValue = toolRepoDefault;
+  }
+  const toolBranchInput = form.elements["tool_branch"];
+  if (toolBranchInput) {
+    const toolBranchDefault = defaults?.default_tool_branch || "";
+    toolBranchInput.value = toolBranchDefault;
+    toolBranchInput.defaultValue = toolBranchDefault;
+    toolBranchInput.placeholder = toolBranchDefault ? `Configured default branch (${toolBranchDefault})` : "Configured default branch";
+  }
+  updateCreateRuntimeTypeHint(form, defaults);
 }
 
 function populateRuntimeProfileSelect(selectEl, selectedId = '') {
@@ -5930,27 +6023,28 @@ function updateCreateTaskTemplateFieldVisibility(formEl) {
 
 async function openEditDialog(agent) {
   await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults()]);
-  // Populate the edit form by setting input values directly
   const form = document.getElementById("edit-form");
   if (form && form.elements) {
-    if (form.elements["id"]) {
-      form.elements["id"].value = agent.id ?? "";
+    if (form.elements["id"]) form.elements["id"].value = agent.id ?? "";
+    if (form.elements["name"]) form.elements["name"].value = agent.name || "";
+    if (form.elements["runtime_type"]) {
+      populateRuntimeTypeSelect(form.elements["runtime_type"], state.agentDefaults || {}, agent.runtime_type || "native");
     }
-    if (form.elements["name"]) {
-      form.elements["name"].value = agent.name || "";
-    }
-    if (form.elements["skill_repo_url"]) {
-      form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
-    }
+    if (form.elements["skill_repo_url"]) form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     if (form.elements["skill_branch"]) {
       form.elements["skill_branch"].value = agent.skill_branch || "";
       form.elements["skill_branch"].placeholder = state.agentDefaults?.default_skill_branch
         ? `Configured default branch (${state.agentDefaults.default_skill_branch})`
         : "Configured default branch";
     }
-    if (form.elements["runtime_profile_id"]) {
-      populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
+    if (form.elements["tool_repo_url"]) form.elements["tool_repo_url"].value = agent.tool_repo_url || "";
+    if (form.elements["tool_branch"]) {
+      form.elements["tool_branch"].value = agent.tool_branch || "";
+      form.elements["tool_branch"].placeholder = state.agentDefaults?.default_tool_branch
+        ? `Configured default branch (${state.agentDefaults.default_tool_branch})`
+        : "Configured default branch";
     }
+    if (form.elements["runtime_profile_id"]) populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
   }
 
   // Show the modal
@@ -6264,11 +6358,17 @@ function bindEvents() {
     const repoUrl = formData.get("skill_repo_url")?.trim();
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
+    const runtimeType = (formData.get("runtime_type") || "").toString().trim().toLowerCase();
+    const toolRepoUrl = formData.get("tool_repo_url")?.toString().trim();
+    const toolBranch = formData.get("tool_branch")?.toString().trim();
 
     // Always include skill_repo_url and skill_branch; empty values mean "use configured default".
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
+    if (runtimeType) updates.runtime_type = runtimeType;
+    if (toolRepoUrl !== undefined) updates.tool_repo_url = toolRepoUrl || null;
+    if (toolBranch !== undefined) updates.tool_branch = toolBranch || null;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
@@ -6749,6 +6849,9 @@ function bindEvents() {
     dom.createBundleModal?.classList.add("hidden");
     dom.createBundleModal?.setAttribute("aria-hidden", "true");
   });
+  document.getElementById("create-runtime-type-select")?.addEventListener("change", () => {
+    updateCreateRuntimeTypeHint(document.getElementById("create-form"), state.agentDefaults || {});
+  });
 
   dom.addAgentBtn?.addEventListener("click", async () => {
     const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
@@ -6784,26 +6887,32 @@ function bindEvents() {
     const repoUrl = (formData.get("skill_repo_url") || "").toString().trim();
     const branch = (formData.get("skill_branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
+    const runtimeType = normalizeRuntimeTypeValue(formData.get("runtime_type"), state.agentDefaults || {});
+    const toolRepoUrl = (formData.get("tool_repo_url") || "").toString().trim();
+    const toolBranch = (formData.get("tool_branch") || "").toString().trim();
 
     const msgEl = document.getElementById("create-msg");
 
     try {
       const defaults = await loadAgentDefaults();
 
-      if (!defaults.image_repo || !defaults.disk_size_gi) {
+      if (!defaults.disk_size_gi) {
         throw new Error("Invalid defaults configuration");
       }
+      const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
 
       // Use form values if provided, or null to skip repo
       const data = {
         name: name,
-        image: defaults.image_repo + ":" + (defaults.image_tag || "latest"),
+        runtime_type: runtimeType,
         skill_repo_url: repoUrl || null,
         skill_branch: branch || null,
+        tool_repo_url: toolRepoUrl || null,
+        tool_branch: toolBranch || null,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,
-        mount_path: defaults.mount_path,
+        mount_path: runtimeConfig?.default_mount_path || defaults.mount_path,
         runtime_profile_id: runtimeProfileId || null,
       };
 

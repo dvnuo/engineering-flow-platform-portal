@@ -320,12 +320,28 @@
         <input name="name" placeholder="MyAgent" value="MyAgent" required />
       </div>
       <div>
+        <label>Runtime Type</label>
+        <select name="runtime_type" id="create-runtime-type-select">
+          <option value="native">EFP Native Runtime</option>
+          <option value="opencode">OpenCode Runtime</option>
+        </select>
+        <p id="create-runtime-type-hint" class="portal-modal-copy"></p>
+      </div>
+      <div>
         <label>Skill Repository</label>
         <input name="skill_repo_url" placeholder="https://github.com/org/engineering-flow-platform-skills" />
       </div>
       <div>
         <label>Skill Branch</label>
         <input name="skill_branch" placeholder="Configured default branch" />
+      </div>
+      <div>
+        <label>Tools Repository</label>
+        <input name="tool_repo_url" placeholder="https://github.com/org/engineering-flow-platform-tools" />
+      </div>
+      <div>
+        <label>Tools Branch</label>
+        <input name="tool_branch" placeholder="Configured default branch" />
       </div>
       <div>
         <label>Runtime Profile</label>
@@ -351,12 +367,28 @@
         <input name="name" placeholder="MyAgent" required />
       </div>
       <div>
+        <label>Runtime Type</label>
+        <select name="runtime_type" id="edit-runtime-type-select">
+          <option value="native">EFP Native Runtime</option>
+          <option value="opencode">OpenCode Runtime</option>
+        </select>
+        <p class="portal-modal-copy">Changing runtime type may recreate the runtime deployment.</p>
+      </div>
+      <div>
         <label>Skill Repository</label>
         <input name="skill_repo_url" placeholder="https://github.com/user/repo (leave empty to use configured default)" />
       </div>
       <div>
         <label>Skill Branch</label>
         <input name="skill_branch" placeholder="Configured default branch" />
+      </div>
+      <div>
+        <label>Tools Repository</label>
+        <input name="tool_repo_url" placeholder="https://github.com/user/tools-repo (leave empty to use configured default)" />
+      </div>
+      <div>
+        <label>Tools Branch</label>
+        <input name="tool_branch" placeholder="Configured default branch" />
       </div>
       <div>
         <label>Runtime Profile</label>

@@ -618,8 +618,11 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
             image="example/image:latest",
             repo_url="git@github.com:Acme/Portal.git",
             branch="main",
+            runtime_type="opencode",
             skill_repo_url="https://github.com/Acme/Skills.git",
             skill_branch="skills-main",
+            tool_repo_url="git@github.com:Acme/Tools.git",
+            tool_branch="tools-main",
             cpu="500m",
             memory="1Gi",
             disk_size_gi=20,
@@ -706,22 +709,31 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert created["policy_profile_id"] == policy_profile.id
         assert created["repo_url"] == runtime_repo
         assert created["branch"] == runtime_branch
+        assert created["runtime_type"] == "opencode"
         assert created["skill_repo_url"] == specialist_template.skill_repo_url
         assert created["skill_branch"] == specialist_template.skill_branch
+        assert created["tool_repo_url"] == "https://github.com/Acme/Tools.git"
+        assert created["tool_branch"] == "tools-main"
         assert created["effective_skill_repo_url"] == specialist_template.skill_repo_url
         assert created["effective_skill_branch"] == specialist_template.skill_branch
         agent_detail = client.get(f"/api/agents/{created['id']}")
         assert agent_detail.status_code == 200
         assert agent_detail.json()["repo_url"] == runtime_repo
         assert agent_detail.json()["branch"] == runtime_branch
+        assert agent_detail.json()["runtime_type"] == "opencode"
         assert agent_detail.json()["skill_repo_url"] == specialist_template.skill_repo_url
         assert agent_detail.json()["skill_branch"] == specialist_template.skill_branch
+        assert agent_detail.json()["tool_repo_url"] == "https://github.com/Acme/Tools.git"
+        assert agent_detail.json()["tool_branch"] == "tools-main"
         persisted_agent = db.get(Agent, created["id"])
         assert persisted_agent is not None
         assert persisted_agent.repo_url == runtime_repo
         assert persisted_agent.branch == runtime_branch
+        assert persisted_agent.runtime_type == "opencode"
         assert persisted_agent.skill_repo_url == specialist_template.skill_repo_url
         assert persisted_agent.skill_branch == specialist_template.skill_branch
+        assert persisted_agent.tool_repo_url == "https://github.com/Acme/Tools.git"
+        assert persisted_agent.tool_branch == "tools-main"
         assert persisted_agent.template_agent_id == specialist_template.id
         assert persisted_agent.task_scope_label == "runtime-scope"
         assert persisted_agent.task_cleanup_policy == "delete_on_done"

@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     # Default agent config (image repo without tag)
     default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"
     default_agent_image_tag: str = "latest"
+    default_runtime_type: str = Field(default="native", validation_alias="DEFAULT_RUNTIME_TYPE")
+    default_native_runtime_image_repo: str = Field(default="", validation_alias="DEFAULT_NATIVE_RUNTIME_IMAGE_REPO")
+    default_native_runtime_image_tag: str = Field(default="", validation_alias="DEFAULT_NATIVE_RUNTIME_IMAGE_TAG")
+    default_opencode_runtime_image_repo: str = Field(
+        default="ghcr.io/dvnuo/efp-opencode-runtime",
+        validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO",
+    )
+    default_opencode_runtime_image_tag: str = Field(default="1.14.29", validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG")
     default_agent_git_image: str = "alpine/git:latest"
     default_agent_repo_url: str = "https://github.com/dvnuo/engineering-flow-platform"
     default_agent_branch: str = "master"
@@ -60,6 +68,8 @@ class Settings(BaseSettings):
         default="master",
         validation_alias="DEFAULT_SKILL_BRANCH",
     )
+    default_tool_repo_url: str = Field(default="", validation_alias="DEFAULT_TOOL_REPO_URL")
+    default_tool_branch: str = Field(default="main", validation_alias="DEFAULT_TOOL_BRANCH")
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"

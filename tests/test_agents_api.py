@@ -28,6 +28,9 @@ def test_agent_model_fields():
     assert "capability_profile_id" in columns
     assert "policy_profile_id" in columns
     assert "runtime_profile_id" in columns
+    assert "runtime_type" in columns
+    assert "tool_repo_url" in columns
+    assert "tool_branch" in columns
 
 
 def test_agent_response_schema():
@@ -44,6 +47,9 @@ def test_agent_response_schema():
     assert "policy_profile_id" in fields
     assert "skill_repo_url" in fields
     assert "skill_branch" in fields
+    assert "runtime_type" in fields
+    assert "tool_repo_url" in fields
+    assert "tool_branch" in fields
 
 
 def test_agent_response_normalizes_legacy_repo_url():
@@ -188,6 +194,7 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         response = client.post("/api/agents", json={"name": "defaulted-agent"})
         assert response.status_code == 200
         body = response.json()
+        assert body["runtime_type"] == "native"
         assert body["image"] == "ghcr.io/acme/portal-agent:v2.4.1"
         assert body["branch"] == "release/default"
         assert body["repo_url"] == "https://github.com/Acme/Portal.git"
@@ -207,8 +214,18 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
         body = response.json()
         assert "default_runtime_repo_url" in body
         assert "default_runtime_branch" in body
+        assert "runtime_repo_url" in body
+        assert "runtime_branch" in body
+        assert body["runtime_repo_url"] == body["default_runtime_repo_url"]
+        assert body["runtime_branch"] == body["default_runtime_branch"]
         assert "default_skill_repo_url" in body
         assert "default_skill_branch" in body
+        assert body["default_runtime_type"] == "native"
+        assert "runtime_types" in body
+        values = {item["value"] for item in body["runtime_types"]}
+        assert values == {"native", "opencode"}
+        assert "default_tool_repo_url" in body
+        assert "default_tool_branch" in body
         assert body["default_repo_url"] == body["default_skill_repo_url"]
         assert body["default_branch"] == body["default_skill_branch"]
     finally:
@@ -597,5 +614,119 @@ def test_agent_response_includes_effective_skill_defaults(monkeypatch):
         assert body["skill_branch"] is None
         assert body["effective_skill_repo_url"] == "https://github.com/acme/default-skills.git"
         assert body["effective_skill_branch"] == "skills-main"
+    finally:
+        cleanup()
+
+
+def test_create_opencode_agent_uses_opencode_default_image_and_tool_defaults(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode")
+        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.29-test")
+        monkeypatch.setattr(agents_api.settings, "default_tool_repo_url", "git@github.com:Acme/Tools.git")
+        monkeypatch.setattr(agents_api.settings, "default_tool_branch", "tools-main")
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        response = client.post("/api/agents", json={"name": "opencode-agent", "runtime_type": "opencode"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["runtime_type"] == "opencode"
+        assert body["image"] == "ghcr.io/acme/opencode:1.14.29-test"
+        assert body["tool_repo_url"] == "https://github.com/Acme/Tools.git"
+        assert body["tool_branch"] == "tools-main"
+    finally:
+        cleanup()
+
+def test_patch_runtime_type_switches_default_image_without_k8s_update(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode")
+        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.29-test")
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.update_agent_runtime",
+            lambda _agent: calls.__setitem__("n", calls["n"] + 1) or SimpleNamespace(status="running", message=None),
+        )
+        created = client.post("/api/agents", json={"name": "agent"}).json()
+        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "opencode"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["runtime_type"] == "opencode"
+        assert body["image"] == "ghcr.io/acme/opencode:1.14.29-test"
+        assert calls["n"] == 0
+    finally:
+        cleanup()
+
+
+def test_patch_runtime_type_respects_explicit_image(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        created = client.post("/api/agents", json={"name": "agent"}).json()
+        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "opencode", "image": "custom/runtime:v1"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["runtime_type"] == "opencode"
+        assert body["image"] == "custom/runtime:v1"
+    finally:
+        cleanup()
+
+
+def test_patch_invalid_runtime_type_returns_422(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        created = client.post("/api/agents", json={"name": "agent"}).json()
+        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "bad"})
+        assert resp.status_code == 422
+    finally:
+        cleanup()
+
+
+def test_patch_null_runtime_type_returns_422_and_does_not_mutate_agent(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        created = client.post("/api/agents", json={"name": "agent"}).json()
+        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": None})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "runtime_type cannot be null"
+        after = client.get(f"/api/agents/{created['id']}").json()
+        assert after["runtime_type"] == "native"
+    finally:
+        cleanup()
+
+
+def test_patch_tool_repo_fields_updates_without_k8s(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.update_agent_runtime",
+            lambda _agent: calls.__setitem__("n", calls["n"] + 1) or SimpleNamespace(status="running", message=None),
+        )
+        created = client.post("/api/agents", json={"name": "agent"}).json()
+        resp = client.patch(
+            f"/api/agents/{created['id']}",
+            json={"tool_repo_url": "git@github.com:Acme/Tools.git", "tool_branch": "tools-next"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["tool_repo_url"] == "https://github.com/Acme/Tools.git"
+        assert body["tool_branch"] == "tools-next"
+        assert calls["n"] == 0
+    finally:
+        cleanup()
+
+
+def test_create_invalid_runtime_type_returns_422(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        resp = client.post("/api/agents", json={"name": "bad", "runtime_type": "bad"})
+        assert resp.status_code == 422
     finally:
         cleanup()
