@@ -102,3 +102,23 @@ def test_github_comment_mention_payload_contains_runtime_template_fields():
     assert runtime_payload["skill_name"] == "handle-triggered-event"
     assert runtime_payload["execution_mode"] == "chat_tool_loop"
     assert runtime_payload["reply_mode"] == "same_surface"
+
+
+def test_github_comment_mention_template_supports_commit_fields():
+    template = require_task_template("github_comment_mention")
+    assert "commit_id" in template.optional_inputs
+    assert "commit_sha" in template.optional_inputs
+    assert "position" in template.optional_inputs
+
+def test_github_comment_mention_template_supports_discussion_fields():
+    template = require_task_template("github_comment_mention")
+    assert "discussion_number" in template.optional_inputs
+    assert "discussion_id" in template.optional_inputs
+    assert "discussion_comment_id" in template.optional_inputs
+    assert "reply_to_id" in template.optional_inputs
+
+def test_github_comment_mention_template_includes_notification_metadata():
+    from app.services.task_template_registry import require_task_template
+    t=require_task_template("github_comment_mention")
+    for k in ["notification_id","notification_reason","notification_subject_type","notification_url","notification_updated_at"]:
+        assert k in t.optional_inputs

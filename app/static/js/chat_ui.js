@@ -5682,6 +5682,7 @@ function openCreateAutomationRuleModal() {
           <h4>Trigger</h4>
           <label class="portal-form-label"><span class="portal-form-label">Trigger</span><select class="portal-form-select" name="trigger_type"><option value="github_pr_review_requested">GitHub PR review requested</option><option value="github_comment_mention">GitHub comment mention</option></select></label>
           <label class="portal-form-label"><span class="portal-form-label">Owner</span><input class="portal-form-input" name="owner" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Mode</span><select class="portal-form-select" name="scope_mode"><option value="repo">repo</option><option value="org">org</option><option value="account_notifications">account_notifications</option></select></label>
           <label class="portal-form-label"><span class="portal-form-label">Repo</span><input class="portal-form-input" name="repo" required /></label>
           <div data-pr-only="1">
             <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
@@ -5691,6 +5692,15 @@ function openCreateAutomationRuleModal() {
             <label class="portal-form-label"><span class="portal-form-label">Mention target</span><input class="portal-form-input" name="mention_target" /></label>
             <label><input type="checkbox" name="surfaces" value="issue_comment" checked /> issue_comment</label>
             <label><input type="checkbox" name="surfaces" value="pull_request_review_comment" checked /> pull_request_review_comment</label>
+            <label><input type="checkbox" name="surfaces" value="commit_comment" /> commit_comment</label>
+            <label><input type="checkbox" name="surfaces" value="discussion_comment" /> discussion_comment</label>
+            <div data-org-account-only="1" style="display:none">
+              <label class="portal-form-label"><span class="portal-form-label">Repo include</span><input class="portal-form-input" name="repo_include" placeholder="api-*,portal" /></label>
+              <label class="portal-form-label"><span class="portal-form-label">Repo exclude</span><input class="portal-form-input" name="repo_exclude" placeholder="archived-*" /></label>
+              <label><input type="checkbox" name="include_forks" /> include_forks</label>
+              <label><input type="checkbox" name="include_archived" /> include_archived</label>
+              <label class="portal-form-label"><span class="portal-form-label">Max repos/run</span><input class="portal-form-input" name="max_repos_per_run" type="number" value="20" min="1" max="200" /></label>
+            </div>
           </div>
           <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
         </section>
@@ -5721,9 +5731,16 @@ function openCreateAutomationRuleModal() {
     form?.querySelectorAll("[data-pr-only='1']").forEach((el) => { el.style.display = isMention ? "none" : ""; });
     form?.querySelectorAll("[data-mention-only='1']").forEach((el) => { el.style.display = isMention ? "" : "none"; });
     if (triggerSel) triggerSel.value = isMention ? "github_comment_mention" : "github_pr_review_requested";
+    const mode = String(form?.querySelector('select[name=\"scope_mode\"]')?.value || "repo");
+    form?.querySelectorAll("[data-org-account-only='1']").forEach((el) => { el.style.display = isMention && ["org","account_notifications"].includes(mode) ? "" : "none"; });
+    const repoInput = form?.querySelector('input[name=\"repo\"]');
+    if (repoInput) repoInput.required = !isMention || mode === "repo";
+    const ownerInput = form?.querySelector('input[name="owner"]');
+    if (ownerInput) ownerInput.required = !isMention || mode !== "account_notifications";
   };
   triggerSel?.addEventListener("change", () => { if (tplSel) tplSel.value = triggerSel.value === "github_comment_mention" ? "github_comment_mention" : "github_pr_review"; toggle(); });
   tplSel?.addEventListener("change", toggle);
+  form?.querySelector('select[name="scope_mode"]')?.addEventListener("change", toggle);
   toggle();
 }
 
@@ -5731,14 +5748,23 @@ async function submitCreateAutomationRule(formEl) {
   const fd = new FormData(formEl);
   const taskTemplateId = String(fd.get("task_template_id") || "github_pr_review");
   if (taskTemplateId === "github_comment_mention") {
+    const parseCommaList = (raw) => String(raw || "").split(",").map((s) => s.trim()).filter(Boolean);
     const selectedSurfaces = fd.getAll("surfaces").map((s) => String(s));
+    const mode = String(fd.get("scope_mode") || "repo");
+    const baseSurfaces = selectedSurfaces.length ? selectedSurfaces : ["issue_comment", "pull_request_review_comment"];
+    const selector = { include: parseCommaList(fd.get("repo_include")), exclude: parseCommaList(fd.get("repo_exclude")), include_forks: fd.get("include_forks") !== null, include_archived: fd.get("include_archived") !== null };
+    const scope = mode === "org"
+      ? { mode: "org", owner: String(fd.get("owner") || ""), repo_selector: selector, surfaces: baseSurfaces }
+      : mode === "account_notifications"
+        ? { mode: "account_notifications", surfaces: baseSurfaces, notification_reasons: ["mention", "team_mention"], repo_selector: selector }
+        : { mode: "repo", owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || ""), surfaces: baseSurfaces };
     const payload = {
       name: String(fd.get("name") || ""), target_agent_id: String(fd.get("target_agent_id") || ""), enabled: true, source_type: "github",
       trigger_type: "github_comment_mention", task_template_id: "github_comment_mention",
-      scope: { mode: "repo", owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || ""), surfaces: selectedSurfaces.length ? selectedSurfaces : ["issue_comment", "pull_request_review_comment"] },
+      scope,
       trigger_config: { mention_target_type: "user", mention_target: String(fd.get("mention_target") || ""), ignore_self_comments: true, ignore_bot_comments: true, ignore_efp_auto_reply_marker: true, strip_code_blocks_before_matching: true },
       task_input_defaults: { skill_name: "handle-triggered-event", execution_mode: "chat_tool_loop", reply_mode: String(fd.get("reply_mode") || "same_surface") },
-      schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60), initial_lookback_seconds: 0, overlap_seconds: 120, max_pages_per_surface: 10 },
+      schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60), initial_lookback_seconds: 0, overlap_seconds: 120, max_pages_per_surface: 10, max_repos_per_run: Number(fd.get("max_repos_per_run") || 20), max_notification_pages_per_run: 5, commit_comment_initial_tail_pages: 2, max_discussion_pages_per_run: 5, discussion_comments_tail_count: 100, discussion_replies_tail_count: 50 },
     };
     const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
     await loadAutomationRules();
