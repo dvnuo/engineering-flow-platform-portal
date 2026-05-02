@@ -1050,6 +1050,25 @@ async def test_run_once_account_notifications_keeps_repo_in_queue_when_discussio
     st=json.loads(svc.repo.get(rule.id).state_json)
     assert st["account_candidate_queue"][0]["full_name"]=="acme/a"
 
+
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_keeps_repo_in_queue_when_discussion_page_limit_preserves_completed_cursor(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-disc-preserve"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["discussion_comment"]}, trigger_config={"mention_target":"efp-agent"}), current_user_id=user.id)
+    rule.state_json=json.dumps({"account_candidate_queue":[{"full_name":"acme/a"}]}); db.add(rule); db.commit()
+    async def l(**_): return [], {"last_seen_notification_updated_at":"2026-01-01T00:00:00Z","hit_page_limit":False}
+    async def p(**_):
+        return [], {"poll_cursors":{"discussion_comment":{"last_seen_updated_at":"2026-01-10T00:00:00Z","discussion_after_cursor":"CURSOR_1","discussion_scan_since":"2026-01-09T23:58:00Z","hit_page_limit":True}}}
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l); monkeypatch.setattr(svc.comment_mention_poller,'poll_mentions',p)
+    await svc.run_rule_once(rule.id)
+    st=json.loads(svc.repo.get(rule.id).state_json)
+    assert st["account_candidate_queue"][0]["full_name"]=="acme/a"
+    c=st["poll_cursors_by_repo"]["acme/a"]["discussion_comment"]
+    assert c["last_seen_updated_at"]=="2026-01-10T00:00:00Z"
+    assert c["discussion_after_cursor"]=="CURSOR_1"
+    assert c["discussion_scan_since"]=="2026-01-09T23:58:00Z"
+    assert c["hit_page_limit"] is True
 def test_github_comment_mention_repo_poll_incomplete_helper():
     db=_session(); svc=AutomationRuleService(db)
     assert svc._github_comment_mention_repo_poll_incomplete({"issue_comment":{"hit_page_limit":True}}, ["issue_comment"]) is True

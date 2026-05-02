@@ -411,6 +411,64 @@ async def test_list_account_notifications_returns_max_seen_diagnostics(monkeypat
     assert state.get("max_seen_notification_updated_at").startswith("2026-01-02T00:00:00")
     assert state.get("max_seen_notification_id")=="2"
 
+
+
+@pytest.mark.anyio
+async def test_poll_mentions_discussion_page_limit_preserves_completed_cursor(monkeypatch):
+    payload={"data":{"repository":{"discussions":{"pageInfo":{"hasNextPage":True,"endCursor":"CURSOR_1"},"nodes":[{"id":"D1","number":1,"updatedAt":"2026-01-11T00:00:00Z","comments":{"nodes":[{"id":"DC1","body":"@efp-agent hi","url":"u","createdAt":"2026-01-11T00:00:00Z","updatedAt":"2026-01-11T00:00:00Z","author":{"login":"alice","__typename":"User"},"replyTo":None,"replies":{"nodes":[]}}]}}]}}}}
+    class C(_Client):
+        async def post(self,*_a,**_kw): return _Resp(200,payload)
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    _,state=await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner='acme', repo='r', mention_target='efp-agent', since_by_surface={"discussion_comment":{"last_seen_updated_at":"2026-01-10T00:00:00Z","last_seen_comment_id":"DC_old"}}, surfaces=['discussion_comment'], overlap_seconds=120, max_discussion_pages_per_run=1)
+    c=state["poll_cursors"]["discussion_comment"]
+    assert c["hit_page_limit"] is True
+    assert c["last_seen_updated_at"].startswith("2026-01-10T00:00:00")
+    assert c["discussion_after_cursor"]=="CURSOR_1"
+    assert c["discussion_scan_since"].startswith("2026-01-09T23:58:00")
+    assert c["max_seen_updated_at"].startswith("2026-01-11T00:00:00")
+
+@pytest.mark.anyio
+async def test_poll_mentions_discussion_first_scan_page_limit_keeps_completed_cursor_empty(monkeypatch):
+    payload={"data":{"repository":{"discussions":{"pageInfo":{"hasNextPage":True,"endCursor":"CURSOR_1"},"nodes":[]}}}}
+    class C(_Client):
+        async def post(self,*_a,**_kw): return _Resp(200,payload)
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    from datetime import datetime
+    _,state=await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner='acme', repo='r', mention_target='efp-agent', since_by_surface={}, initial_since=datetime(2026,1,10), surfaces=['discussion_comment'], max_discussion_pages_per_run=1)
+    c=state["poll_cursors"]["discussion_comment"]
+    assert c["last_seen_updated_at"] is None
+    assert c["discussion_scan_since"].startswith("2026-01-10T00:00:00")
+    assert c["discussion_after_cursor"]=="CURSOR_1"
+    assert c["hit_page_limit"] is True
+
+@pytest.mark.anyio
+async def test_poll_mentions_discussion_continuation_uses_existing_scan_since(monkeypatch):
+    seen={}
+    payload={"data":{"repository":{"discussions":{"pageInfo":{"hasNextPage":True,"endCursor":"CURSOR_2"},"nodes":[]}}}}
+    class C(_Client):
+        async def post(self,*a,**kw):
+            seen.update((kw.get('json') or {}).get('variables') or {})
+            return _Resp(200,payload)
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    _,state=await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner='acme', repo='r', mention_target='efp-agent', since_by_surface={"discussion_comment":{"last_seen_updated_at":"2026-01-10T00:00:00Z","discussion_scan_since":"2026-01-09T23:58:00Z","discussion_after_cursor":"CURSOR_1","hit_page_limit":True}}, surfaces=['discussion_comment'], max_discussion_pages_per_run=1)
+    c=state["poll_cursors"]["discussion_comment"]
+    assert seen.get("after")=="CURSOR_1"
+    assert c["last_seen_updated_at"].startswith("2026-01-10T00:00:00")
+    assert c["discussion_scan_since"].startswith("2026-01-09T23:58:00")
+    assert c["discussion_after_cursor"]=="CURSOR_2"
+
+@pytest.mark.anyio
+async def test_poll_mentions_discussion_completed_scan_clears_scan_cursor(monkeypatch):
+    payload={"data":{"repository":{"discussions":{"pageInfo":{"hasNextPage":False,"endCursor":None},"nodes":[]}}}}
+    class C(_Client):
+        async def post(self,*_a,**_kw): return _Resp(200,payload)
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    _,state=await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner='acme', repo='r', mention_target='efp-agent', since_by_surface={"discussion_comment":{"last_seen_updated_at":"2026-01-10T00:00:00Z","discussion_scan_since":"2026-01-09T23:58:00Z","discussion_after_cursor":"CURSOR_1","hit_page_limit":True}}, surfaces=['discussion_comment'], max_discussion_pages_per_run=1)
+    c=state["poll_cursors"]["discussion_comment"]
+    assert c["hit_page_limit"] is False
+    assert c["discussion_after_cursor"] is None
+    assert c["discussion_scan_since"] is None
+    assert c["last_seen_updated_at"] is not None
 @pytest.mark.anyio
 async def test_list_org_repositories_uses_repos_per_page_break_condition(monkeypatch):
     calls=[]

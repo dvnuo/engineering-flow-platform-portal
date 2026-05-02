@@ -207,13 +207,18 @@ class GithubCommentMentionPoller:
         return items, {"poll_cursors": poll_cursors}
 
     async def _poll_discussion_comments_for_repo(self, *, client, base_url: str, headers: dict, owner: str, repo: str, mention_target: str, cursor: dict, initial_since: datetime | None, overlap_seconds: int, max_discussion_pages_per_run: int = 5, discussion_comments_tail_count: int = 100, discussion_replies_tail_count: int = 50, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True) -> tuple[list[dict], dict]:
-        last_dt = _parse_dt(cursor.get("last_seen_updated_at"))
-        query_since = (last_dt - timedelta(seconds=overlap_seconds)) if last_dt else (initial_since or datetime.utcnow())
+        poll_started_at = datetime.utcnow()
+        completed_dt = _parse_dt(cursor.get("last_seen_updated_at"))
+        scan_since_dt = _parse_dt(cursor.get("discussion_scan_since"))
+        if scan_since_dt:
+            query_since = scan_since_dt
+        else:
+            query_since = (completed_dt - timedelta(seconds=overlap_seconds)) if completed_dt else (initial_since or poll_started_at)
         gql = """query RepoDiscussions($owner:String!,$repo:String!,$after:String,$commentsLast:Int!,$repliesLast:Int!){repository(owner:$owner,name:$repo){discussions(first:25,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor} nodes{id number updatedAt comments(last:$commentsLast){nodes{id body url createdAt updatedAt authorAssociation author{login __typename} replyTo{id} replies(last:$repliesLast){nodes{id body url createdAt updatedAt authorAssociation author{login __typename} replyTo{id}}}}}}}}}"""
         items = []
-        max_dt = last_dt or query_since
+        max_dt = completed_dt or query_since
         max_id = str(cursor.get("last_seen_comment_id") or "")
-        after = cursor.get("discussion_after_cursor")
+        after = cursor.get("discussion_after_cursor") or None
         pages = 0
         hit_page_limit = False
         while pages < max_discussion_pages_per_run:
@@ -250,12 +255,20 @@ class GithubCommentMentionPoller:
             if stop_after or not page_info.get("hasNextPage"):
                 after = None
                 break
-            after = page_info.get("endCursor")
-            if pages >= max_discussion_pages_per_run:
+            if pages >= max_discussion_pages_per_run and page_info.get("hasNextPage"):
                 hit_page_limit = True
+                after = page_info.get("endCursor")
                 break
-        cursor_dt = max_dt if hit_page_limit else max(max_dt, datetime.utcnow())
-        return items, {"last_seen_updated_at": _iso_z(cursor_dt), "last_seen_comment_id": max_id, "discussion_after_cursor": after, "hit_page_limit": hit_page_limit}
+            after = page_info.get("endCursor")
+        if hit_page_limit:
+            cursor_dt = completed_dt
+            next_scan_since = query_since
+            next_after = after
+        else:
+            cursor_dt = max(max_dt, poll_started_at)
+            next_scan_since = None
+            next_after = None
+        return items, {"last_seen_updated_at": _iso_z(cursor_dt) if cursor_dt else None, "last_seen_comment_id": max_id, "discussion_after_cursor": next_after, "discussion_scan_since": _iso_z(next_scan_since) if next_scan_since else None, "hit_page_limit": hit_page_limit, "max_seen_updated_at": _iso_z(max_dt) if max_dt else None, "max_seen_comment_id": max_id}
 
 
 
@@ -265,6 +278,8 @@ class GithubCommentMentionPoller:
         poll_started_at = datetime.utcnow()
         if query_since is None and since is not None:
             query_since = since
+        if completed_since is None and since is not None:
+            completed_since = since
         effective_since = scan_since or query_since or completed_since
         allowed_reasons = {str(x).strip() for x in (reasons or ["mention", "team_mention"]) if str(x).strip()}
         notifications: list[dict] = []
