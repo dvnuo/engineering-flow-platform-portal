@@ -48,6 +48,13 @@ class AgentCreateRequest(BaseModel):
         if normalized not in ALLOWED_RUNTIME_TYPES:
             raise ValueError("runtime_type must be one of: native, opencode")
         return normalized
+    @field_validator("tool_branch")
+    @classmethod
+    def normalize_tool_branch(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class AgentUpdateRequest(BaseModel):
@@ -92,6 +99,13 @@ class AgentUpdateRequest(BaseModel):
         if normalized not in ALLOWED_RUNTIME_TYPES:
             raise ValueError("runtime_type must be one of: native, opencode")
         return normalized
+    @field_validator("tool_branch")
+    @classmethod
+    def normalize_tool_branch(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class AgentDeleteResponse(BaseModel):

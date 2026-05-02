@@ -2390,6 +2390,8 @@ function renderAgentList() {
       if (chatState?.isSubmitting) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
       else if (chatState?.backgroundStatus === "completed") runtimeBadge = '<span class="portal-agent-chat-badge is-completed">completed</span>';
       else if (chatState?.backgroundStatus === "error") runtimeBadge = '<span class="portal-agent-chat-badge is-error">error</span>';
+      const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
+      const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
           <span class="portal-agent-name">${safe(agent.name)}</span>
@@ -2427,6 +2429,10 @@ function renderAgentMeta(agent) {
   const effectiveSkillRepoUrl = agent.effective_skill_repo_url || agent.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
   const effectiveSkillBranch = agent.effective_skill_branch || agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
   const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
+  const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
+  const toolRepoUrl = agent.tool_repo_url || state.agentDefaults?.default_tool_repo_url || "";
+  const toolBranch = agent.tool_branch || state.agentDefaults?.default_tool_branch || "";
+  const isDefaultToolRepo = !agent.tool_repo_url && !!toolRepoUrl;
 
   // Build repo/branch section if present
   let repoSection = '';
@@ -2445,6 +2451,21 @@ function renderAgentMeta(agent) {
       </div>
     `;
   }
+  let toolRepoSection = "";
+  if (toolRepoUrl) {
+    const toolBranchLine = toolBranch
+      ? `<div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(toolBranch)}</span></div>`
+      : "";
+    const toolDefaultIndicator = isDefaultToolRepo ? `<div class="portal-detail-subtle">Using configured default</div>` : "";
+    toolRepoSection = `
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Tools Repository</div>
+        <code class="portal-detail-code">${safe(toolRepoUrl)}</code>
+        ${toolBranchLine}
+        ${toolDefaultIndicator}
+      </div>
+    `;
+  }
 
   dom.agentMeta.innerHTML = `
     <div class="portal-detail-stack">
@@ -2453,10 +2474,15 @@ function renderAgentMeta(agent) {
         <code class="portal-detail-code">${safe(agent.id)}</code>
       </div>
       <div class="portal-detail-section">
-        <div class="portal-detail-label">Runtime Type</div><div class="portal-detail-value">${safe(runtimeType)}</div></div><div class="portal-detail-section"><div class="portal-detail-label">Image</div>
+        <div class="portal-detail-label">Runtime Type</div>
+        <div class="portal-detail-value">${safe(runtimeType)}</div>
+      </div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Image</div>
         <code class="portal-detail-code">${safe(agent.image)}</code>
       </div>
       ${repoSection}
+      ${toolRepoSection}
       <div class="portal-detail-section">
         <div class="portal-detail-label">Created</div>
         <div class="portal-detail-value">${dateStr}</div>
@@ -5997,35 +6023,28 @@ function updateCreateTaskTemplateFieldVisibility(formEl) {
 
 async function openEditDialog(agent) {
   await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults()]);
-  // Populate the edit form by setting input values directly
   const form = document.getElementById("edit-form");
   if (form && form.elements) {
-    if (form.elements["id"]) {
-      form.elements["id"].value = agent.id ?? "";
+    if (form.elements["id"]) form.elements["id"].value = agent.id ?? "";
+    if (form.elements["name"]) form.elements["name"].value = agent.name || "";
+    if (form.elements["runtime_type"]) {
+      populateRuntimeTypeSelect(form.elements["runtime_type"], state.agentDefaults || {}, agent.runtime_type || "native");
     }
-    if (form.elements["name"]) {
-      form.elements["name"].value = agent.name || "";
-    }
-    if (form.elements["skill_repo_url"]) {
-      form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
-    }
+    if (form.elements["skill_repo_url"]) form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     if (form.elements["skill_branch"]) {
-      if (form.elements["runtime_type"]) {
-    populateRuntimeTypeSelect(form.elements["runtime_type"], state.agentDefaults || {}, agent.runtime_type || "native");
-  }
-  form.elements["skill_branch"].value = agent.skill_branch || "";
-  if (form.elements["tool_repo_url"]) form.elements["tool_repo_url"].value = agent.tool_repo_url || "";
-  if (form.elements["tool_branch"]) {
-    form.elements["tool_branch"].value = agent.tool_branch || "";
-    form.elements["tool_branch"].placeholder = state.agentDefaults?.default_tool_branch ? `Configured default branch (${state.agentDefaults.default_tool_branch})` : "Configured default branch";
-  }
+      form.elements["skill_branch"].value = agent.skill_branch || "";
       form.elements["skill_branch"].placeholder = state.agentDefaults?.default_skill_branch
         ? `Configured default branch (${state.agentDefaults.default_skill_branch})`
         : "Configured default branch";
     }
-    if (form.elements["runtime_profile_id"]) {
-      populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
+    if (form.elements["tool_repo_url"]) form.elements["tool_repo_url"].value = agent.tool_repo_url || "";
+    if (form.elements["tool_branch"]) {
+      form.elements["tool_branch"].value = agent.tool_branch || "";
+      form.elements["tool_branch"].placeholder = state.agentDefaults?.default_tool_branch
+        ? `Configured default branch (${state.agentDefaults.default_tool_branch})`
+        : "Configured default branch";
     }
+    if (form.elements["runtime_profile_id"]) populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
   }
 
   // Show the modal
@@ -6347,6 +6366,9 @@ function bindEvents() {
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
+    if (runtimeType) updates.runtime_type = runtimeType;
+    if (toolRepoUrl !== undefined) updates.tool_repo_url = toolRepoUrl || null;
+    if (toolBranch !== undefined) updates.tool_branch = toolBranch || null;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";

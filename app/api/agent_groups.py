@@ -241,6 +241,9 @@ def create_internal_group_task_agent(
         branch=agent.branch,
         skill_repo_url=agent.skill_repo_url,
         skill_branch=agent.skill_branch,
+        runtime_type=getattr(agent, "runtime_type", "native") or "native",
+        tool_repo_url=agent.tool_repo_url,
+        tool_branch=agent.tool_branch,
         effective_skill_repo_url=effective_skill_repo_url(agent),
         effective_skill_branch=effective_skill_branch(agent),
     )

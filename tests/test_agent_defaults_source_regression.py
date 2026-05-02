@@ -57,6 +57,12 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "runtime_type: runtimeType" in js
     assert "tool_repo_url: toolRepoUrl || null" in js
     assert "tool_branch: toolBranch || null" in js
+    assert "updates.runtime_type = runtimeType" in js
+    assert "updates.tool_repo_url = toolRepoUrl || null" in js
+    assert "updates.tool_branch = toolBranch || null" in js
+    assert "const runtimeTypeBadge" in js
+    assert 'agent.runtime_type || "native"' in js
+    assert "toolRepoSection" in js
     assert 'image: defaults.image_repo + ":"' not in js
     assert "/api/skill-git-info" in js
     assert "Skills Repository" in js
