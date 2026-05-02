@@ -676,16 +676,16 @@ class AutomationRuleService:
             elif mode == "account_notifications":
                 account_state = state.get("account_notifications") if isinstance(state.get("account_notifications"), dict) else {}
                 notif_since_raw = account_state.get("last_seen_notification_updated_at")
-                notif_since = None
+                completed_since = None
                 if notif_since_raw:
-                    parsed = datetime.fromisoformat(str(notif_since_raw).replace("Z", "+00:00")).replace(tzinfo=None)
-                    notif_since = parsed - timedelta(seconds=overlap_seconds)
+                    completed_since = datetime.fromisoformat(str(notif_since_raw).replace("Z", "+00:00")).replace(tzinfo=None)
+                query_since = (completed_since - timedelta(seconds=overlap_seconds)) if completed_since else None
                 scan_since_raw = account_state.get("scan_since")
                 scan_since = None
                 if scan_since_raw:
                     scan_since = datetime.fromisoformat(str(scan_since_raw).replace("Z", "+00:00")).replace(tzinfo=None)
                 start_page = int(account_state.get("next_notification_page") or 1)
-                notifications, notif_patch = await self.comment_mention_poller.list_account_notifications(provider_config=provider_cfg, since=notif_since, scan_since=scan_since, reasons=scope.get("notification_reasons") or ["mention", "team_mention"], max_pages=int(schedule.get("max_notification_pages_per_run") or 5), start_page=start_page)
+                notifications, notif_patch = await self.comment_mention_poller.list_account_notifications(provider_config=provider_cfg, completed_since=completed_since, query_since=query_since, scan_since=scan_since, reasons=scope.get("notification_reasons") or ["mention", "team_mention"], max_pages=int(schedule.get("max_notification_pages_per_run") or 5), start_page=start_page)
                 selector = scope.get("repo_selector") or {}
                 include = selector.get("include") or []
                 exclude = selector.get("exclude") or []

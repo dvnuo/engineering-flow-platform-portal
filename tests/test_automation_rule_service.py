@@ -1100,3 +1100,33 @@ async def test_run_once_account_notifications_repo_selector_excludes_full_name_p
     monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l); monkeypatch.setattr(svc.comment_mention_poller,'poll_mentions',p)
     await svc.run_rule_once(rule.id)
     assert called==["acme/public-api"]
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_passes_completed_and_query_since_separately(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-sep"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"]}, trigger_config={"mention_target":"efp-agent"}, schedule={"interval_seconds":60,"overlap_seconds":120}), current_user_id=user.id)
+    rule.state_json=json.dumps({"account_notifications":{"last_seen_notification_updated_at":"2026-01-10T00:00:00Z"}}); db.add(rule); db.commit()
+    seen={}
+    async def l(**kw): seen.update(kw); return [], {"last_seen_notification_updated_at":"2026-01-10T00:00:00Z"}
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l)
+    await svc.run_rule_once(rule.id)
+    assert seen.get("completed_since").isoformat().startswith("2026-01-10T00:00:00")
+    assert seen.get("query_since").isoformat().startswith("2026-01-09T23:58:00")
+    assert seen.get("scan_since") is None
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_continuation_preserves_completed_cursor(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-cont"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"]}, trigger_config={"mention_target":"efp-agent"}), current_user_id=user.id)
+    rule.state_json=json.dumps({"account_notifications":{"last_seen_notification_updated_at":"2026-01-10T00:00:00Z","scan_since":"2026-01-09T23:58:00Z","next_notification_page":3,"hit_page_limit":True}}); db.add(rule); db.commit()
+    seen={}
+    async def l(**kw):
+        seen.update(kw)
+        return [], {"last_seen_notification_updated_at":"2026-01-10T00:00:00Z","scan_since":"2026-01-09T23:58:00Z","next_notification_page":4,"hit_page_limit":True}
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l)
+    await svc.run_rule_once(rule.id)
+    st=json.loads(svc.repo.get(rule.id).state_json)
+    assert seen.get("completed_since").isoformat().startswith("2026-01-10T00:00:00")
+    assert seen.get("scan_since").isoformat().startswith("2026-01-09T23:58:00")
+    assert seen.get("start_page")==3
+    assert st["account_notifications"]["last_seen_notification_updated_at"]=="2026-01-10T00:00:00Z"

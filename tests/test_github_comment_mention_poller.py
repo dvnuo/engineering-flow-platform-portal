@@ -423,3 +423,35 @@ async def test_list_org_repositories_uses_repos_per_page_break_condition(monkeyp
     await GithubCommentMentionPoller().list_org_repositories(provider_config=_provider(), org="acme")
     assert len(calls)==1
     assert calls[0].get("per_page")==100
+
+@pytest.mark.anyio
+async def test_list_account_notifications_page_limit_preserves_completed_cursor_not_query_since(monkeypatch):
+    from datetime import datetime
+    batch=[{"id":str(i),"reason":"mention","updated_at":"2026-01-11T00:00:00Z","repository":{"full_name":"acme/a"},"subject":{}} for i in range(50)]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(200,batch)]))
+    st=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), completed_since=datetime(2026,1,10), query_since=datetime(2026,1,9,23,58), max_pages=1)
+    _,state=st
+    assert state["hit_page_limit"] is True and state["next_notification_page"]==2
+    assert state["last_seen_notification_updated_at"].startswith("2026-01-10T00:00:00")
+    assert state["scan_since"].startswith("2026-01-09T23:58:00")
+
+@pytest.mark.anyio
+async def test_list_account_notifications_continuation_uses_scan_since_but_preserves_completed_cursor(monkeypatch):
+    from datetime import datetime
+    seen={}
+    batch=[{"id":str(i),"reason":"mention","updated_at":"2026-01-11T00:00:00Z","repository":{"full_name":"acme/a"},"subject":{}} for i in range(50)]
+    class C(_Client):
+        async def get(self,*a,**kw): seen.update(kw.get("params") or {}); return _Resp(200,batch)
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    _,state=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), completed_since=datetime(2026,1,10), scan_since=datetime(2026,1,9,23,58), start_page=3, max_pages=1)
+    assert seen.get("page")==3 and seen.get("since").startswith("2026-01-09T23:58:00")
+    assert state["last_seen_notification_updated_at"].startswith("2026-01-10T00:00:00")
+    assert state["scan_since"].startswith("2026-01-09T23:58:00") and state["next_notification_page"]==4
+
+@pytest.mark.anyio
+async def test_list_account_notifications_completed_scan_advances_completed_cursor(monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(200,[])]))
+    _,state=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), completed_since=datetime(2026,1,10), query_since=datetime(2026,1,9,23,58))
+    assert state["last_seen_notification_updated_at"] is not None
+    assert state["scan_since"] is None and state["next_notification_page"] is None

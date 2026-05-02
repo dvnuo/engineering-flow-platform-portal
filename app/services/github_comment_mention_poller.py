@@ -259,14 +259,16 @@ class GithubCommentMentionPoller:
 
 
 
-    async def list_account_notifications(self, *, provider_config: GithubProviderConfig, since: datetime | None = None, reasons: list[str] | None = None, max_pages: int = 5, start_page: int = 1, scan_since: datetime | None = None) -> tuple[list[dict], dict]:
+    async def list_account_notifications(self, *, provider_config: GithubProviderConfig, completed_since: datetime | None = None, query_since: datetime | None = None, scan_since: datetime | None = None, reasons: list[str] | None = None, max_pages: int = 5, start_page: int = 1, since: datetime | None = None) -> tuple[list[dict], dict]:
         base_url = provider_config.base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {provider_config.api_token}", "Accept": "application/vnd.github+json"}
         poll_started_at = datetime.utcnow()
-        effective_since = scan_since or since
+        if query_since is None and since is not None:
+            query_since = since
+        effective_since = scan_since or query_since or completed_since
         allowed_reasons = {str(x).strip() for x in (reasons or ["mention", "team_mention"]) if str(x).strip()}
         notifications: list[dict] = []
-        max_seen_updated_at = since
+        max_seen_updated_at = completed_since
         max_seen_notification_id = ""
         max_returned_updated_at = None
         max_returned_notification_id = ""
@@ -312,7 +314,7 @@ class GithubCommentMentionPoller:
                     hit_page_limit = True
                     next_notification_page = page + 1
         if hit_page_limit:
-            stable_cursor_dt = since
+            stable_cursor_dt = completed_since
             stable_cursor_id = ""
             next_scan_since = effective_since
         else:
