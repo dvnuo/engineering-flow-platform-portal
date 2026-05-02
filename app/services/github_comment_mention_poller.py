@@ -361,7 +361,7 @@ class GithubCommentMentionPoller:
                     if exclude_patterns and any(fnmatchcase(name, p) for p in exclude_patterns):
                         continue
                     output.append({"owner": org, "repo": name, "full_name": repo.get("full_name") or f"{org}/{name}", "archived": repo.get("archived"), "fork": repo.get("fork")})
-                if len(batch) < NOTIFICATIONS_PER_PAGE:
+                if len(batch) < REPOS_PER_PAGE:
                     break
         return sorted(output, key=lambda x: str(x.get("full_name") or ""))
 

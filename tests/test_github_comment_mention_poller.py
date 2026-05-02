@@ -410,3 +410,16 @@ async def test_list_account_notifications_returns_max_seen_diagnostics(monkeypat
     _,state=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), reasons=["mention"])
     assert state.get("max_seen_notification_updated_at").startswith("2026-01-02T00:00:00")
     assert state.get("max_seen_notification_id")=="2"
+
+@pytest.mark.anyio
+async def test_list_org_repositories_uses_repos_per_page_break_condition(monkeypatch):
+    calls=[]
+    repos=[{"name":f"r{i}","full_name":f"acme/r{i}","archived":False,"fork":False} for i in range(60)]
+    class C(_Client):
+        async def get(self,*a,**kw):
+            calls.append((kw.get("params") or {}).copy())
+            return _Resp(200,repos)
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    await GithubCommentMentionPoller().list_org_repositories(provider_config=_provider(), org="acme")
+    assert len(calls)==1
+    assert calls[0].get("per_page")==100

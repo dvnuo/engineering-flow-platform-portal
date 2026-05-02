@@ -1054,3 +1054,49 @@ def test_github_comment_mention_repo_poll_incomplete_helper():
     db=_session(); svc=AutomationRuleService(db)
     assert svc._github_comment_mention_repo_poll_incomplete({"issue_comment":{"hit_page_limit":True}}, ["issue_comment"]) is True
     assert svc._github_comment_mention_repo_poll_incomplete({"issue_comment":{"hit_page_limit":False}}, ["issue_comment","discussion_comment"]) is False
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_rotates_incomplete_repo_to_queue_tail(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-rot-inc"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"]}, trigger_config={"mention_target":"efp-agent"}, schedule={"interval_seconds":60,"max_repos_per_run":1}), current_user_id=user.id)
+    rule.state_json=json.dumps({"account_candidate_queue":[{"full_name":"acme/a"},{"full_name":"acme/b"}]}); db.add(rule); db.commit()
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications', lambda **_: __import__('asyncio').sleep(0, result=([],{"last_seen_notification_updated_at":"2026-01-01T00:00:00Z"})))
+    async def p(**_): return [], {"poll_cursors":{"issue_comment":{"hit_page_limit":True}}}
+    monkeypatch.setattr(svc.comment_mention_poller,'poll_mentions',p)
+    await svc.run_rule_once(rule.id)
+    q=[e["full_name"] for e in json.loads(svc.repo.get(rule.id).state_json)["account_candidate_queue"]]
+    assert q==["acme/b","acme/a"]
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_rotates_failed_repo_to_queue_tail(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-rot-fail"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"]}, trigger_config={"mention_target":"efp-agent"}, schedule={"interval_seconds":60,"max_repos_per_run":1}), current_user_id=user.id)
+    rule.state_json=json.dumps({"account_candidate_queue":[{"full_name":"acme/a"},{"full_name":"acme/b"}]}); db.add(rule); db.commit()
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications', lambda **_: __import__('asyncio').sleep(0, result=([],{"last_seen_notification_updated_at":"2026-01-01T00:00:00Z"})))
+    async def p(**_): raise RuntimeError('x')
+    monkeypatch.setattr(svc.comment_mention_poller,'poll_mentions',p)
+    await svc.run_rule_once(rule.id)
+    q=[e["full_name"] for e in json.loads(svc.repo.get(rule.id).state_json)["account_candidate_queue"]]
+    assert q==["acme/b","acme/a"]
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_repo_selector_matches_full_name_patterns(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-full-inc"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"],"repo_selector":{"include":["acme/*"]}}, trigger_config={"mention_target":"efp-agent"}), current_user_id=user.id)
+    async def l(**_): return [{"repository_full_name":"acme/a","source_payload":{"repository":{}},"reason":"mention"},{"repository_full_name":"other/b","source_payload":{"repository":{}},"reason":"mention"}],{"last_seen_notification_updated_at":"2026-01-01T00:00:00Z"}
+    called=[]
+    async def p(**kw): called.append(f"{kw['owner']}/{kw['repo']}"); return [], {"poll_cursors":{}}
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l); monkeypatch.setattr(svc.comment_mention_poller,'poll_mentions',p)
+    await svc.run_rule_once(rule.id)
+    assert called==["acme/a"]
+
+@pytest.mark.anyio
+async def test_run_once_account_notifications_repo_selector_excludes_full_name_patterns(monkeypatch):
+    db=_session(); user,agent=_create_runtime_and_agent(db,"u-full-ex"); svc=AutomationRuleService(db)
+    rule=svc.create_rule(AutomationRuleCreate(name="acc", target_agent_id=agent.id, task_template_id="github_comment_mention", scope={"mode":"account_notifications","surfaces":["issue_comment"],"repo_selector":{"include":["*"],"exclude":["acme/private-*"]}}, trigger_config={"mention_target":"efp-agent"}), current_user_id=user.id)
+    async def l(**_): return [{"repository_full_name":"acme/private-api","source_payload":{"repository":{}},"reason":"mention"},{"repository_full_name":"acme/public-api","source_payload":{"repository":{}},"reason":"mention"}],{"last_seen_notification_updated_at":"2026-01-01T00:00:00Z"}
+    called=[]
+    async def p(**kw): called.append(f"{kw['owner']}/{kw['repo']}"); return [], {"poll_cursors":{}}
+    monkeypatch.setattr(svc.comment_mention_poller,'list_account_notifications',l); monkeypatch.setattr(svc.comment_mention_poller,'poll_mentions',p)
+    await svc.run_rule_once(rule.id)
+    assert called==["acme/public-api"]

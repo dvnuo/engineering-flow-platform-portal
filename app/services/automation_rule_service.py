@@ -692,26 +692,30 @@ class AutomationRuleService:
                 include_archived = bool(selector.get("include_archived", False))
                 include_forks = bool(selector.get("include_forks", False))
 
-                def allowed_repo(name: str) -> bool:
-                    from fnmatch import fnmatchcase
-                    short = name.split("/", 1)[1] if "/" in name else name
-                    if include and not any(fnmatchcase(short, p) for p in include):
+                from fnmatch import fnmatchcase
+                def _matches_repo_pattern(full_name: str, pattern: str) -> bool:
+                    short = full_name.split("/", 1)[1] if "/" in full_name else full_name
+                    return fnmatchcase(short, pattern) or fnmatchcase(full_name, pattern)
+
+                def allowed_repo(full_name: str) -> bool:
+                    if include and not any(_matches_repo_pattern(full_name, p) for p in include):
                         return False
-                    if exclude and any(fnmatchcase(short, p) for p in exclude):
+                    if exclude and any(_matches_repo_pattern(full_name, p) for p in exclude):
                         return False
                     return True
 
                 existing_queue = state.get("account_candidate_queue")
                 if not isinstance(existing_queue, list):
                     existing_queue = []
-                queue_by_repo = {}
+                queue = []
+                seen = set()
                 for entry in existing_queue:
                     if not isinstance(entry, dict):
                         continue
                     full = str(entry.get("full_name") or "").strip()
-                    if not full or "/" not in full:
+                    if not full or "/" not in full or full in seen:
                         continue
-                    queue_by_repo[full] = dict(entry)
+                    queue.append(dict(entry)); seen.add(full)
 
                 for n in notifications:
                     full = str(n.get("repository_full_name") or "").strip()
@@ -722,7 +726,7 @@ class AutomationRuleService:
                         continue
                     if repo_obj.get("fork") is True and not include_forks:
                         continue
-                    queue_by_repo[full] = {
+                    new_entry = {
                         "full_name": full,
                         "notification_id": n.get("notification_id"),
                         "notification_reason": n.get("reason"),
@@ -730,11 +734,19 @@ class AutomationRuleService:
                         "notification_url": n.get("subject_url") or n.get("latest_comment_url"),
                         "notification_updated_at": n.get("updated_at"),
                     }
+                    if full in seen:
+                        for existing in queue:
+                            if existing.get("full_name") == full:
+                                existing.update(new_entry)
+                                break
+                    else:
+                        queue.append(new_entry); seen.add(full)
 
-                queue = sorted(queue_by_repo.values(), key=lambda x: str(x.get("full_name") or ""))
-                selected_entries = queue[:max_repos_per_run]
-                completed = set()
+                limit = min(max_repos_per_run, len(queue))
+                selected_entries = queue[:limit]
+                unselected_entries = queue[limit:]
                 next_cursor_map = dict(state.get("poll_cursors_by_repo") or {})
+                retry_entries = []
                 for entry in selected_entries:
                     full = str(entry.get("full_name") or "").strip()
                     if not full or "/" not in full:
@@ -753,12 +765,14 @@ class AutomationRuleService:
                             it["notification_url"] = entry.get("notification_url")
                             it["notification_updated_at"] = entry.get("notification_updated_at")
                         items.extend(repo_items)
-                        if not incomplete:
-                            completed.add(full)
+                        if incomplete:
+                            retry_entries.append(entry)
                     except Exception:
                         run_error_count += 1
-                remaining_queue = [entry for entry in queue if str(entry.get("full_name") or "") not in completed]
+                        retry_entries.append(entry)
+                remaining_queue = unselected_entries + retry_entries
                 next_state_patch = {"poll_cursors_by_repo": next_cursor_map, "account_notifications": notif_patch, "account_candidate_queue": remaining_queue, "account_repo_limit_reached": len(queue) > max_repos_per_run, "account_candidate_repo_count": len(queue), "account_polled_repo_count": len(selected_entries)}
+
             else:
                 poll_cursors = state.get("poll_cursors") if isinstance(state.get("poll_cursors"), dict) else {}
                 items, next_state_patch = await self.comment_mention_poller.poll_mentions(
