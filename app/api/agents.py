@@ -41,6 +41,8 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "git_image": settings.default_agent_git_image,
         "default_runtime_repo_url": _runtime_repo_url_from_settings(),
         "default_runtime_branch": _runtime_branch_from_settings(),
+        "runtime_repo_url": _runtime_repo_url_from_settings(),
+        "runtime_branch": _runtime_branch_from_settings(),
         "default_skill_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),
         "default_skill_branch": settings.default_skill_branch,
         "default_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),

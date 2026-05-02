@@ -214,6 +214,10 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
         body = response.json()
         assert "default_runtime_repo_url" in body
         assert "default_runtime_branch" in body
+        assert "runtime_repo_url" in body
+        assert "runtime_branch" in body
+        assert body["runtime_repo_url"] == body["default_runtime_repo_url"]
+        assert body["runtime_branch"] == body["default_runtime_branch"]
         assert "default_skill_repo_url" in body
         assert "default_skill_branch" in body
         assert body["default_runtime_type"] == "native"
