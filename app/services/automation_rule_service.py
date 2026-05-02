@@ -491,6 +491,16 @@ class AutomationRuleService:
         self.dispatcher.dispatch_task_in_background(task.id)
         return task, False
 
+
+    def _github_comment_mention_repo_poll_incomplete(self, repo_cursors: dict, surfaces: list[str]) -> bool:
+        if not isinstance(repo_cursors, dict):
+            return False
+        for surface in surfaces:
+            cursor = repo_cursors.get(surface)
+            if isinstance(cursor, dict) and bool(cursor.get("hit_page_limit")):
+                return True
+        return False
+
     async def run_rule_once(self, rule_id: str, triggered_by: str = "api") -> RunOnceResult:
         rule = self.repo.get(rule_id)
         if not rule:
@@ -733,7 +743,9 @@ class AutomationRuleService:
                     repo_cursors = next_cursor_map.get(full) if isinstance(next_cursor_map.get(full), dict) else {}
                     try:
                         repo_items, next_patch = await self.comment_mention_poller.poll_mentions(provider_config=provider_cfg, owner=o, repo=r, mention_target=mention_target, since_by_surface=repo_cursors, surfaces=surfaces, overlap_seconds=overlap_seconds, max_pages_per_surface=max_pages_per_surface, initial_since=initial_since, ignore_self_comments=bool(trigger_cfg.get("ignore_self_comments", True)), ignore_bot_comments=bool(trigger_cfg.get("ignore_bot_comments", True)), ignore_efp_auto_reply_marker=bool(trigger_cfg.get("ignore_efp_auto_reply_marker", True)), strip_code_blocks_before_matching=bool(trigger_cfg.get("strip_code_blocks_before_matching", True)), commit_comment_initial_tail_pages=commit_comment_initial_tail_pages, max_discussion_pages_per_run=max_discussion_pages_per_run, discussion_comments_tail_count=discussion_comments_tail_count, discussion_replies_tail_count=discussion_replies_tail_count)
-                        next_cursor_map[full] = next_patch.get("poll_cursors", repo_cursors)
+                        repo_poll_cursors = next_patch.get("poll_cursors", repo_cursors)
+                        next_cursor_map[full] = repo_poll_cursors
+                        incomplete = self._github_comment_mention_repo_poll_incomplete(repo_poll_cursors, surfaces)
                         for it in repo_items:
                             it["notification_id"] = entry.get("notification_id")
                             it["notification_reason"] = entry.get("notification_reason")
@@ -741,7 +753,8 @@ class AutomationRuleService:
                             it["notification_url"] = entry.get("notification_url")
                             it["notification_updated_at"] = entry.get("notification_updated_at")
                         items.extend(repo_items)
-                        completed.add(full)
+                        if not incomplete:
+                            completed.add(full)
                     except Exception:
                         run_error_count += 1
                 remaining_queue = [entry for entry in queue if str(entry.get("full_name") or "") not in completed]

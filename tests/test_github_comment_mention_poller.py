@@ -375,3 +375,38 @@ async def test_list_account_notifications_classic_pat_error_message(monkeypatch)
     monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(403,[])]))
     with pytest.raises(ValueError, match="classic PAT with notifications or repo scope"):
         await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider())
+
+
+@pytest.mark.anyio
+async def test_poll_mentions_rest_comments_use_comments_per_page_not_notifications_per_page(monkeypatch):
+    calls=[]
+    batch=[{"id":i,"body":"x","issue_url":"https://api.github.com/repos/acme/portal/issues/1","html_url":"https://github.com/acme/portal/issues/1#issuecomment-1","user":{"login":"u","type":"User"},"updated_at":"2026-01-01T00:00:00Z"} for i in range(60)]
+    class C(_Client):
+        async def get(self,*a,**kw): calls.append((kw.get("params") or {}).copy()); return _Resp(200,batch)
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: C([]))
+    await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["issue_comment"], max_pages_per_surface=5)
+    assert len(calls)==1
+    assert calls[0].get("per_page")==100
+
+@pytest.mark.anyio
+async def test_poll_mentions_issue_comment_cursor_includes_hit_page_limit(monkeypatch):
+    batch=[{"id":i,"body":"x","issue_url":"https://api.github.com/repos/acme/portal/issues/1","html_url":"https://github.com/acme/portal/issues/1#issuecomment-1","user":{"login":"u","type":"User"},"updated_at":"2026-01-01T00:00:00Z"} for i in range(100)]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(200,batch)]))
+    _,state=await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={}, surfaces=["issue_comment"], max_pages_per_surface=1)
+    assert state["poll_cursors"]["issue_comment"]["hit_page_limit"] is True
+
+@pytest.mark.anyio
+async def test_poll_mentions_commit_comment_cursor_includes_hit_page_limit(monkeypatch):
+    batch=[{"id":i,"commit_id":f"c{i}","body":"x","user":{"login":"u","type":"User"},"updated_at":"2026-01-01T00:00:00Z"} for i in range(1,101)]
+    r=_Resp(200,batch); r.headers={"Link": '<x?page=3>; rel="last"'}
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([r]))
+    _,state=await GithubCommentMentionPoller().poll_mentions(provider_config=_provider(), owner="acme", repo="portal", mention_target="efp-agent", since_by_surface={"commit_comment":{"last_seen_comment_id":1,"last_seen_updated_at":"2026-01-01T00:00:00Z"}}, surfaces=["commit_comment"], max_pages_per_surface=1)
+    assert state["poll_cursors"]["commit_comment"]["hit_page_limit"] is True
+
+@pytest.mark.anyio
+async def test_list_account_notifications_returns_max_seen_diagnostics(monkeypatch):
+    batch=[{"id":"1","reason":"subscribed","updated_at":"2026-01-01T00:00:00Z","repository":{"full_name":"acme/a"},"subject":{}},{"id":"2","reason":"mention","updated_at":"2026-01-02T00:00:00Z","repository":{"full_name":"acme/a"},"subject":{}}]
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: _Client([_Resp(200,batch)]))
+    _,state=await GithubCommentMentionPoller().list_account_notifications(provider_config=_provider(), reasons=["mention"])
+    assert state.get("max_seen_notification_updated_at").startswith("2026-01-02T00:00:00")
+    assert state.get("max_seen_notification_id")=="2"

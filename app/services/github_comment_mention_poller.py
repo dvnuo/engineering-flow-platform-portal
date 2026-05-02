@@ -10,6 +10,8 @@ import httpx
 from app.services.provider_config_resolver import GithubProviderConfig
 
 MENTION_RE = re.compile(r"(?<![A-Za-z0-9_.-])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9_-])")
+COMMENTS_PER_PAGE = 100
+REPOS_PER_PAGE = 100
 NOTIFICATIONS_PER_PAGE = 50
 SURFACE_CONFIG = {
     "issue_comment": {"endpoint": "issues/comments", "supports_since": True, "supports_updated_sort": True},
@@ -139,7 +141,7 @@ class GithubCommentMentionPoller:
                 last_page_seen = int((since_by_surface.get(surface) or {}).get("last_seen_total_pages") or 0)
                 for idx in range(max_pages_per_surface):
                     page = start_page + idx
-                    params = {"per_page": 100, "page": page}
+                    params = {"per_page": COMMENTS_PER_PAGE, "page": page}
                     if cfg.get("supports_since"):
                         params["since"] = _iso_z(query_since)
                     if cfg.get("supports_updated_sort"):
@@ -155,7 +157,7 @@ class GithubCommentMentionPoller:
                         effective_tail_pages = min(max(1, commit_comment_initial_tail_pages), max(1, max_pages_per_surface))
                         start_page = max(1, last_page_seen - effective_tail_pages + 1)
                         page = start_page
-                        params = {"per_page": 100, "page": page}
+                        params = {"per_page": COMMENTS_PER_PAGE, "page": page}
                         resp = await client.get(f"{base_url}/repos/{owner}/{repo}/{endpoint}", params=params, headers=headers)
                         if resp.status_code >= 400:
                             raise ValueError(f"GitHub API error surface={surface} status={resp.status_code}")
@@ -190,18 +192,18 @@ class GithubCommentMentionPoller:
                             continue
                         item = self._normalize(surface, c, owner, repo, target, mentioned)
                         items.append(item)
-                    if len(batch) < NOTIFICATIONS_PER_PAGE:
+                    if len(batch) < COMMENTS_PER_PAGE:
                         break
                     is_last_allowed_page = idx == max_pages_per_surface - 1
-                    has_more_by_batch_size = len(batch) >= 100
+                    has_more_by_batch_size = len(batch) >= COMMENTS_PER_PAGE
                     has_more_by_link = bool(last_page_seen and page < last_page_seen)
                     if is_last_allowed_page and has_more_by_batch_size and (not last_page_seen or has_more_by_link):
                         hit_page_limit = True
                 cursor_dt = max_seen_dt if hit_page_limit else max(max_seen_dt, poll_started_at)
-                poll_cursors[surface] = {"last_seen_updated_at": _iso_z(cursor_dt), "last_seen_comment_id": max_seen_id}
+                poll_cursors[surface] = {"last_seen_updated_at": _iso_z(cursor_dt), "last_seen_comment_id": max_seen_id, "hit_page_limit": hit_page_limit}
                 if surface == "commit_comment":
                     next_scan_page = (start_page + max_pages_per_surface) if hit_page_limit else max(1, page_where_max_seen - 1)
-                    poll_cursors[surface].update({"last_seen_page": page_where_max_seen, "next_scan_page": next_scan_page, "last_seen_total_pages": last_page_seen})
+                    poll_cursors[surface].update({"last_seen_page": page_where_max_seen, "next_scan_page": next_scan_page, "last_seen_total_pages": last_page_seen, "hit_page_limit": hit_page_limit})
         return items, {"poll_cursors": poll_cursors}
 
     async def _poll_discussion_comments_for_repo(self, *, client, base_url: str, headers: dict, owner: str, repo: str, mention_target: str, cursor: dict, initial_since: datetime | None, overlap_seconds: int, max_discussion_pages_per_run: int = 5, discussion_comments_tail_count: int = 100, discussion_replies_tail_count: int = 50, ignore_self_comments: bool = True, ignore_bot_comments: bool = True, ignore_efp_auto_reply_marker: bool = True, strip_code_blocks_before_matching: bool = True) -> tuple[list[dict], dict]:
@@ -321,6 +323,8 @@ class GithubCommentMentionPoller:
         return notifications, {
             "last_seen_notification_updated_at": _iso_z(stable_cursor_dt) if stable_cursor_dt else None,
             "last_seen_notification_id": stable_cursor_id,
+            "max_seen_notification_updated_at": _iso_z(max_seen_updated_at) if max_seen_updated_at else None,
+            "max_seen_notification_id": max_seen_notification_id,
             "max_returned_notification_updated_at": _iso_z(max_returned_updated_at) if max_returned_updated_at else None,
             "max_returned_notification_id": max_returned_notification_id,
             "hit_page_limit": hit_page_limit,
@@ -340,7 +344,7 @@ class GithubCommentMentionPoller:
         output: list[dict] = []
         async with httpx.AsyncClient(timeout=20) as client:
             for page in range(1, max_pages + 1):
-                resp = await client.get(f"{base_url}/orgs/{org}/repos", params={"per_page": 100, "page": page, "type": "all", "sort": "full_name", "direction": "asc"}, headers=headers)
+                resp = await client.get(f"{base_url}/orgs/{org}/repos", params={"per_page": REPOS_PER_PAGE, "page": page, "type": "all", "sort": "full_name", "direction": "asc"}, headers=headers)
                 if resp.status_code >= 400:
                     raise ValueError(f"GitHub API error org={org} status={resp.status_code}")
                 batch = resp.json() or []
