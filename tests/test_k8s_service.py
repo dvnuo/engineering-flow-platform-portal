@@ -96,6 +96,162 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(resources.requests["memory"], "1Gi")
         self.assertIsNone(resources.limits)
 
+    def test_patch_deployment_uses_json_merge_patch_and_replaces_opencode_lists(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def patch_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="opencode",
+            mount_path="/workspace",
+            tool_repo_url=None,
+            tool_branch=None,
+            image="opencode:latest",
+            deployment_name="agent-a",
+            namespace="efp-agents",
+        )
+        self.service._patch_deployment(agent)
+        call = self.service.apps_api.calls[0]
+        self.assertEqual(call["_content_type"], "application/merge-patch+json")
+        body = call["body"]
+        self.assertEqual(body["spec"]["template"]["spec"]["initContainers"], [])
+        containers = body["spec"]["template"]["spec"]["containers"]
+        self.assertEqual(len(containers), 1)
+        container = containers[0]
+        self.assertEqual(container["name"], "agent")
+        self.assertEqual(container["workingDir"], "/workspace")
+        mount_paths = {m["mountPath"] for m in container["volumeMounts"]}
+        self.assertEqual(mount_paths, {"/workspace"})
+        self.assertNotIn("/app/src", mount_paths)
+        self.assertNotIn("/app/.git", mount_paths)
+        self.assertNotIn("/app/skills", mount_paths)
+        volumes = body["spec"]["template"]["spec"]["volumes"]
+        self.assertEqual(volumes[0]["persistentVolumeClaim"]["claimName"], "efp-agents-efs-pvc")
+
+    def test_patch_deployment_opencode_with_tools_replaces_init_containers(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def patch_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        agent = SimpleNamespace(
+            id="a2",
+            owner_user_id=1,
+            runtime_type="opencode",
+            mount_path="/workspace",
+            tool_repo_url="git@github.com:Acme/Tools.git",
+            tool_branch="tools-main",
+            image="opencode:latest",
+            deployment_name="agent-b",
+            namespace="efp-agents",
+        )
+        self.service._patch_deployment(agent)
+        init_containers = self.service.apps_api.calls[0]["body"]["spec"]["template"]["spec"]["initContainers"]
+        self.assertEqual(len(init_containers), 1)
+        self.assertEqual(init_containers[0]["name"], "tools-git-clone")
+        self.assertIn("/workspace-data/tools", init_containers[0]["args"][0])
+        env_map = {item["name"]: item.get("value") for item in init_containers[0]["env"]}
+        self.assertEqual(env_map["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
+        names = {item["name"] for item in init_containers}
+        self.assertNotIn("runtime-git-clone", names)
+        self.assertNotIn("skills-git-clone", names)
+
+    def test_patch_deployment_native_does_not_set_working_dir(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def patch_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
+        self.service.settings.default_skill_repo_url = "https://github.com/acme/skills.git"
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        agent = SimpleNamespace(
+            id="a3",
+            owner_user_id=1,
+            runtime_type="native",
+            mount_path="/root/.efp",
+            image="native:latest",
+            deployment_name="agent-c",
+            namespace="efp-agents",
+        )
+        self.service._patch_deployment(agent)
+        body = self.service.apps_api.calls[0]["body"]
+        container = body["spec"]["template"]["spec"]["containers"][0]
+        self.assertNotIn("workingDir", container)
+        mount_paths = {m["mountPath"] for m in container["volumeMounts"]}
+        self.assertIn("/app/.git", mount_paths)
+        self.assertIn("/app/src", mount_paths)
+        self.assertIn("/app/skills", mount_paths)
+        self.assertIn("/root/.efp", mount_paths)
+        init_names = {c["name"] for c in body["spec"]["template"]["spec"]["initContainers"]}
+        self.assertIn("runtime-git-clone", init_names)
+        self.assertIn("skills-git-clone", init_names)
+
+    def test_ensure_deployment_sets_opencode_working_dir(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def create_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        agent = SimpleNamespace(
+            id="a4",
+            owner_user_id=1,
+            runtime_type="opencode",
+            mount_path="/workspace",
+            image="opencode:latest",
+            deployment_name="agent-d",
+            namespace="efp-agents",
+            service_name="svc-d",
+        )
+        self.service._ensure_deployment(agent)
+        body = self.service.apps_api.calls[0]["body"]
+        self.assertEqual(body.spec.template.spec.containers[0].working_dir, "/workspace")
+
+    def test_patch_deployment_omits_resources_when_no_requests(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def patch_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        agent = SimpleNamespace(
+            id="a5",
+            owner_user_id=1,
+            runtime_type="opencode",
+            mount_path="/workspace",
+            image="opencode:latest",
+            deployment_name="agent-e",
+            namespace="efp-agents",
+            tool_repo_url=None,
+            tool_branch=None,
+            cpu=None,
+            memory=None,
+        )
+        self.service._patch_deployment(agent)
+        container = self.service.apps_api.calls[0]["body"]["spec"]["template"]["spec"]["containers"][0]
+        self.assertNotIn("resources", container)
+
 
 if __name__ == "__main__":
     unittest.main()

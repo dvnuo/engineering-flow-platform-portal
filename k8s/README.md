@@ -59,6 +59,7 @@ K8s clone uses HTTPS + `GIT_ASKPASS` + token-only auth. The askpass username res
 Provisioning notes:
 - Native runtime agents clone runtime repo and skill repo into the shared PVC and mount `/app/.git`, `/app/src`, `/app/skills`.
 - OpenCode runtime agents do not mount native runtime overlays (`/app/.git`, `/app/src`, `/app/skills`). They use the image-contained runtime and mount workspace data (default `/workspace`).
+- The OpenCode container `workingDir` is set to the effective workspace path, defaulting to `/workspace`.
 - If tools repo is configured for OpenCode agents, Portal clones it in initContainer to `/workspace-data/tools`; main container sees it at `<workspace>/tools`.
 
 `PORTAL_INTERNAL_BASE_URL` should point to Portal internal DNS (example: `http://efp-portal-service.default.svc.cluster.local`).

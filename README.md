@@ -98,6 +98,7 @@ For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth
 Kubernetes runtime provisioning behavior:
 - `native` runtime clones runtime repo + skill repo via initContainers, then mounts runtime code to `/app/.git` and `/app/src`, and skills to `/app/skills`.
 - `opencode` runtime uses the runtime already packaged in the image (no `/app/src` overlay, no `/app/.git` mount). If effective tools repo exists, Portal clones it to `<workspace>/tools` via initContainer.
+- For OpenCode agents, Portal also sets the container `workingDir` to the effective workspace path, defaulting to `/workspace`.
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
 
 Phase 5 productization closure notes (upgrade path + capability snapshot contract): `docs/PHASE5_PRODUCTIZATION.md`.

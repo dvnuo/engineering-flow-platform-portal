@@ -103,6 +103,11 @@ class K8sService:
     def _workspace_tools_dir(self, agent) -> str:
         return f"{self._effective_mount_path(agent).rstrip('/')}/tools"
 
+    def _agent_container_working_dir(self, agent) -> str | None:
+        if self._runtime_type(agent) == "opencode":
+            return self._effective_mount_path(agent)
+        return None
+
     def _build_code_and_skill_init_containers_and_mounts(self, agent):
         runtime_type = self._runtime_type(agent)
         if runtime_type == "opencode":
@@ -188,11 +193,27 @@ class K8sService:
     def _patch_deployment(self, agent) -> None:
         """Patch existing deployment with new config."""
         from kubernetes import client
+
         labels = self._agent_common_labels(agent)
         annotations = self._agent_patch_annotations(agent)
         init_containers, volume_mounts = self._build_code_and_skill_init_containers_and_mounts(agent)
-        
-        # Patch the deployment
+        resources = self._build_agent_container_resources(agent)
+        working_dir = self._agent_container_working_dir(agent)
+        api_client = client.ApiClient()
+
+        container = {
+            "name": "agent",
+            "image": agent.image,
+            "ports": [{"containerPort": 8000}],
+            "env": api_client.sanitize_for_serialization(self._build_agent_container_env(agent)),
+            "volumeMounts": api_client.sanitize_for_serialization(volume_mounts),
+        }
+        serialized_resources = api_client.sanitize_for_serialization(resources) if resources else None
+        if serialized_resources:
+            container["resources"] = serialized_resources
+        if working_dir:
+            container["workingDir"] = working_dir
+
         patch = {
             "metadata": {
                 "labels": labels,
@@ -205,34 +226,24 @@ class K8sService:
                         "annotations": annotations,
                     },
                     "spec": {
-                        "initContainers": init_containers,
+                        "initContainers": api_client.sanitize_for_serialization(init_containers),
                         "volumes": [
                             {
                                 "name": "agent-data",
                                 "persistentVolumeClaim": {"claimName": "efp-agents-efs-pvc"},
                             }
                         ],
-                        "containers": [{
-                            "name": "agent",
-                            "image": agent.image,
-                            "ports": [{"containerPort": 8000}],
-                            "env": self._build_agent_container_env(agent),
-                            "resources": self._build_agent_container_resources(agent),
-                            "volumeMounts": volume_mounts,
-                        }],
+                        "containers": [container],
                     }
                 }
             }
         }
-        
-        try:
-            self.apps_api.patch_namespaced_deployment(
-                name=agent.deployment_name,
-                namespace=agent.namespace,
-                body=patch,
-            )
-        except Exception:
-            raise
+        self.apps_api.patch_namespaced_deployment(
+            name=agent.deployment_name,
+            namespace=agent.namespace,
+            body=patch,
+            _content_type="application/merge-patch+json",
+        )
 
     def _patch_service_metadata(self, agent) -> None:
         patch = {
@@ -461,15 +472,16 @@ class K8sService:
                     spec=client.V1PodSpec(
                         init_containers=init_containers,
                         containers=[
-                            client.V1Container(
-                                name="agent",
-                                image=agent.image,
-                                ports=[client.V1ContainerPort(container_port=8000)],
-                                env=self._build_agent_container_env(agent),
-                                resources=self._build_agent_container_resources(agent),
-                                volume_mounts=volume_mounts,
-                            )
-                        ],
+                    client.V1Container(
+                        name="agent",
+                        image=agent.image,
+                        ports=[client.V1ContainerPort(container_port=8000)],
+                        env=self._build_agent_container_env(agent),
+                        resources=self._build_agent_container_resources(agent),
+                        volume_mounts=volume_mounts,
+                        working_dir=self._agent_container_working_dir(agent),
+                    )
+                ],
                         volumes=[
                             client.V1Volume(
                                 name="agent-data",
