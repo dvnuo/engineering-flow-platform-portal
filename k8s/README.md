@@ -27,7 +27,7 @@ kubectl apply -f efp-agents-secret.yaml
 
 `efp-agents-secret` should include:
 - `EFP_CONFIG_KEY`
-- (optional) `GIT_TOKEN`
+- (optional) `GIT_TOKEN` used by agent runtime/skill/tools git-clone initContainers
 
 ### Create Deployment
 ```
@@ -55,6 +55,11 @@ Optional: customize git token key name used in `efp-agents-secret`:
 - `K8S_GIT_TOKEN_KEY` (default `GIT_TOKEN`)
 
 K8s clone uses HTTPS + `GIT_ASKPASS` + token-only auth. The askpass username response is fixed to `x-access-token`, and Portal does not rewrite clone URLs to authenticated URL forms.
+
+Provisioning notes:
+- Native runtime agents clone runtime repo and skill repo into the shared PVC and mount `/app/.git`, `/app/src`, `/app/skills`.
+- OpenCode runtime agents do not mount native runtime overlays (`/app/.git`, `/app/src`, `/app/skills`). They use the image-contained runtime and mount workspace data (default `/workspace`).
+- If tools repo is configured for OpenCode agents, Portal clones it in initContainer to `/workspace-data/tools`; main container sees it at `<workspace>/tools`.
 
 `PORTAL_INTERNAL_BASE_URL` should point to Portal internal DNS (example: `http://efp-portal-service.default.svc.cluster.local`).
 

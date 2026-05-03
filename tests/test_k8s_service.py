@@ -6,58 +6,95 @@ class K8sServiceNoopTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from app.services.k8s_service import K8sService
+
         cls.K8sService = K8sService
 
     def setUp(self):
         self.service = self.K8sService()
         self.service.enabled = False
 
-    def test_repo_metadata_from_git_url(self):
-        metadata = self.service._repo_metadata("git@github.com:Acme/Portal.git", "Feature/ABC")
-        self.assertEqual(metadata["repo_slug"], "acme-portal")
-        self.assertEqual(metadata["raw_repo_url"], "https://github.com/Acme/Portal.git")
-        self.assertEqual(metadata["branch"], "feature-abc")
-        self.assertTrue(metadata["repo_hash"])
-
-    def test_build_git_clone_env(self):
-        self.service.settings.k8s_git_token_key = "GIT_TOKEN"
-        env = self.service._build_git_clone_env("https://github.com/acme/repo.git", "main")
-        names = [item.name for item in env]
-        self.assertIn("GIT_REPO_URL", names)
-        self.assertIn("GIT_BRANCH", names)
-        self.assertIn("GIT_TOKEN", names)
-        self.assertEqual(self.service._build_git_clone_env("   ", "main"), [])
-
-    def test_git_clone_shell_command(self):
-        cmd = self.service._git_clone_shell_command("/skills-code")
-        self.assertIn("GIT_ASKPASS", cmd)
-        self.assertIn("x-access-token", cmd)
-        self.assertIn('find "/skills-code" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +', cmd)
-        self.assertNotIn("/app/*", cmd)
-
-    def test_build_code_and_skill_init_containers_and_mounts(self):
+    def test_native_runtime_keeps_runtime_and_skill_mounts(self):
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
         self.service.settings.default_agent_runtime_branch = "runtime-main"
         self.service.settings.default_skill_repo_url = "https://github.com/acme/skills-default.git"
-        agent = SimpleNamespace(id="a1", owner_user_id=1, mount_path="/root/.efp", skill_repo_url="https://github.com/acme/skills.git", skill_branch="skills-main")
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="native",
+            mount_path="/root/.efp",
+            skill_repo_url="https://github.com/acme/skills.git",
+            skill_branch="skills-main",
+        )
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
         self.assertEqual({c.name for c in inits}, {"runtime-git-clone", "skills-git-clone"})
-        mount_map = {m.mount_path: m.sub_path for m in mounts}
-        self.assertTrue(mount_map["/app/.git"].endswith("runtime-code/.git"))
-        self.assertTrue(mount_map["/app/src"].endswith("runtime-code/src"))
-        self.assertTrue(mount_map["/app/skills"].endswith("skills-code"))
-        self.assertNotIn("runtime-code/skills", mount_map["/app/skills"])
+        mount_paths = {m.mount_path for m in mounts}
+        self.assertIn("/app/.git", mount_paths)
+        self.assertIn("/app/src", mount_paths)
+        self.assertIn("/app/skills", mount_paths)
+        self.assertIn("/root/.efp", mount_paths)
+        self.assertNotIn("/workspace/tools", mount_paths)
+        self.assertNotIn("tools-git-clone", {c.name for c in inits})
 
-    def test_labels_annotations_include_runtime_and_skill_fields(self):
+    def test_opencode_runtime_clones_tools_into_workspace_without_native_mounts(self):
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
-        self.service.settings.default_agent_runtime_branch = "runtime-main"
-        agent = SimpleNamespace(id="a1", owner_user_id=1, skill_repo_url="https://github.com/acme/skills.git", skill_branch="skills-main")
+        self.service.settings.default_skill_repo_url = "https://github.com/acme/skills-default.git"
+        agent = SimpleNamespace(
+            id="a2",
+            owner_user_id=1,
+            runtime_type="opencode",
+            mount_path="/workspace",
+            tool_repo_url="git@github.com:Acme/Tools.git",
+            tool_branch="tools-main",
+        )
+        inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
+        self.assertEqual([c.name for c in inits], ["tools-git-clone"])
+        clone_env = {e.name: e.value for e in inits[0].env if getattr(e, "value", None)}
+        self.assertEqual(clone_env["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
+        self.assertIn("/workspace-data/tools", inits[0].args[0])
+        mount_paths = {m.mount_path for m in mounts}
+        self.assertIn("/workspace", mount_paths)
+        self.assertNotIn("/app/src", mount_paths)
+        self.assertNotIn("/app/.git", mount_paths)
+        self.assertNotIn("/app/skills", mount_paths)
+
+    def test_labels_annotations_include_runtime_type_and_tool_fields(self):
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="opencode",
+            tool_repo_url="https://github.com/acme/tools.git",
+            tool_branch="tools-main",
+            skill_repo_url="https://github.com/acme/skills.git",
+            skill_branch="skills-main",
+        )
         labels = self.service._agent_common_labels(agent)
-        for key in ["runtime-git-repo", "runtime-git-repo-hash", "runtime-git-branch", "skill-git-repo", "skill-git-repo-hash", "skill-git-branch"]:
+        for key in ["runtime-type", "tool-git-repo", "tool-git-repo-hash", "tool-git-branch"]:
             self.assertIn(key, labels)
         annotations = self.service._agent_metadata_annotations(agent)
-        for key in ["efp/runtime-git-repo-url", "efp/runtime-git-branch", "efp/skill-git-repo-url", "efp/skill-git-branch"]:
+        for key in ["efp/runtime-type", "efp/tool-git-repo-url", "efp/tool-git-branch"]:
             self.assertIn(key, annotations)
+
+    def test_build_agent_container_env_includes_opencode_workspace_env(self):
+        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
+        env = self.service._build_agent_container_env(agent)
+        names = {item.name for item in env}
+        for key in [
+            "PORTAL_RUNTIME_TYPE",
+            "EFP_RUNTIME_TYPE",
+            "EFP_WORKSPACE_DIR",
+            "OPENCODE_WORKSPACE",
+            "EFP_TOOLS_DIR",
+            "OPENCODE_TOOLS_DIR",
+        ]:
+            self.assertIn(key, names)
+        self.assertNotIn("GIT_TOKEN", names)
+
+    def test_build_agent_container_resources_uses_requests(self):
+        agent = SimpleNamespace(cpu="500m", memory="1Gi")
+        resources = self.service._build_agent_container_resources(agent)
+        self.assertEqual(resources.requests["cpu"], "500m")
+        self.assertEqual(resources.requests["memory"], "1Gi")
+        self.assertIsNone(resources.limits)
 
 
 if __name__ == "__main__":

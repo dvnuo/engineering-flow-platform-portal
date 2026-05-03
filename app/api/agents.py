@@ -220,6 +220,30 @@ def _resolve_create_image(payload: AgentCreateRequest, runtime_type: str) -> str
     return image or _default_agent_image_for_runtime(runtime_type)
 
 
+def _default_mount_path_for_runtime(runtime_type: str) -> str:
+    if _normalize_runtime_type(runtime_type) == "opencode":
+        return "/workspace"
+    return settings.default_agent_mount_path or "/root/.efp"
+
+
+def _resolve_create_mount_path(payload: AgentCreateRequest, runtime_type: str) -> str:
+    if "mount_path" in payload.model_fields_set and (payload.mount_path or "").strip():
+        return payload.mount_path
+    return _default_mount_path_for_runtime(runtime_type)
+
+
+def _maybe_add_mount_path_switch_for_runtime_change(agent, changes: dict) -> None:
+    if "runtime_type" not in changes:
+        return
+    old_runtime_type = _normalize_runtime_type(getattr(agent, "runtime_type", None))
+    new_runtime_type = _normalize_runtime_type(changes.get("runtime_type"))
+    if old_runtime_type == new_runtime_type:
+        return
+    old_default_mount = _default_mount_path_for_runtime(old_runtime_type)
+    if getattr(agent, "mount_path", None) == old_default_mount:
+        changes["mount_path"] = _default_mount_path_for_runtime(new_runtime_type)
+
+
 def _resolve_create_tool_repo_url(payload: AgentCreateRequest) -> str | None:
     return payload.tool_repo_url or normalize_git_repo_url(settings.default_tool_repo_url)
 
@@ -259,6 +283,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
 
     effective_runtime_type = _resolve_create_runtime_type(payload)
     effective_image = _resolve_create_image(payload, effective_runtime_type)
+    effective_mount_path = _resolve_create_mount_path(payload, effective_runtime_type)
     effective_runtime_repo_url = _runtime_repo_url_from_settings()
     effective_runtime_branch = _runtime_branch_from_settings()
     effective_skill_repo_url = _resolve_create_skill_repo_url(payload)
@@ -288,7 +313,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         policy_profile_id=payload.policy_profile_id,
         runtime_profile_id=runtime_profile_id,
         disk_size_gi=payload.disk_size_gi,
-        mount_path=payload.mount_path,
+        mount_path=effective_mount_path,
         namespace=settings.agents_namespace,
         deployment_name="",
         service_name="",
@@ -348,6 +373,7 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         runtime_type_changed = changes["runtime_type"] != getattr(agent, "runtime_type", "native")
         if runtime_type_changed and "image" not in changes:
             changes["image"] = _default_agent_image_for_runtime(changes["runtime_type"])
+    _maybe_add_mount_path_switch_for_runtime_change(agent, changes)
 
     for field, value in changes.items():
         setattr(agent, field, value)
@@ -363,11 +389,24 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
                 payload_data = runtime_profile_sync_service.build_apply_payload_from_profile(profile)
         await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
 
-    # Update K8s runtime if skill repo settings changed
-    if "skill_repo_url" in changes or "skill_branch" in changes:
+    k8s_reprovision_fields = {
+        "runtime_type",
+        "image",
+        "skill_repo_url",
+        "skill_branch",
+        "tool_repo_url",
+        "tool_branch",
+        "mount_path",
+        "cpu",
+        "memory",
+    }
+    if any(field in changes for field in k8s_reprovision_fields):
         runtime = k8s_service.update_agent_runtime(agent)
         if runtime.status == "failed":
             agent.last_error = runtime.message
+            repo.save(agent)
+        else:
+            agent.last_error = None
             repo.save(agent)
 
     AuditRepository(db).create(
