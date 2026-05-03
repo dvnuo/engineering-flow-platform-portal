@@ -85,8 +85,21 @@ PYTHONPATH=. pytest -q \
 | `K8S_STORAGE_CLASS` | Storage class for PVC | `local-path` |
 | `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
+| `DEFAULT_RUNTIME_TYPE` | Default runtime type for new agents (`native`/`opencode`) | `native` |
+| `DEFAULT_NATIVE_RUNTIME_IMAGE_REPO` | Native runtime image repository override | falls back to `DEFAULT_AGENT_IMAGE_REPO` |
+| `DEFAULT_NATIVE_RUNTIME_IMAGE_TAG` | Native runtime image tag override | falls back to `DEFAULT_AGENT_IMAGE_TAG` |
+| `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
+| `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | OpenCode runtime image tag | `1.14.29` |
+| `DEFAULT_TOOL_REPO_URL` | Default tools repository for OpenCode agent provisioning | (empty) |
+| `DEFAULT_TOOL_BRANCH` | Default tools repository branch | `main` |
 
 For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite).
+
+Kubernetes runtime provisioning behavior:
+- `native` runtime clones runtime repo + skill repo via initContainers, then mounts runtime code to `/app/.git` and `/app/src`, and skills to `/app/skills`.
+- `opencode` runtime uses the runtime already packaged in the image (no `/app/src` overlay, no `/app/.git` mount). If effective tools repo exists, Portal clones it to `<workspace>/tools` via initContainer.
+- For OpenCode agents, Portal also sets the container `workingDir` to the effective workspace path, defaulting to `/workspace`.
+- `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
 
 Phase 5 productization closure notes (upgrade path + capability snapshot contract): `docs/PHASE5_PRODUCTIZATION.md`.
 
