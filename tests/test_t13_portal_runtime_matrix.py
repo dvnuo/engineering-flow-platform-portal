@@ -116,22 +116,52 @@ def test_t13_skill_and_tool_repo_changes_trigger_runtime_rollout(monkeypatch):
         db_session.close()
 
 
+def test_t13_defaults_exposes_native_and_opencode_runtime_choices(monkeypatch):
+    monkeypatch.setattr(agents_api.settings, "default_runtime_type", "native")
+    monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_repo", "ghcr.io/example/efp-native-runtime")
+    monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_tag", "test-native")
+    monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/example/efp-opencode-runtime")
+    monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.29")
+    monkeypatch.setattr(agents_api.settings, "default_tool_repo_url", "https://example.com/tools.git")
+    monkeypatch.setattr(agents_api.settings, "default_tool_branch", "main")
+
+    defaults = agents_api.get_agent_defaults(_fake_user())
+    assert defaults["default_runtime_type"] == "native"
+    values = {item["value"] for item in defaults["runtime_types"]}
+    assert values == {"native", "opencode"}
+    native_cfg = next(item for item in defaults["runtime_types"] if item["value"] == "native")
+    opencode_cfg = next(item for item in defaults["runtime_types"] if item["value"] == "opencode")
+    assert native_cfg["image_repo"] == "ghcr.io/example/efp-native-runtime"
+    assert native_cfg["image_tag"] == "test-native"
+    assert native_cfg["default_mount_path"] == "/root/.efp"
+    assert opencode_cfg["image_repo"] == "ghcr.io/example/efp-opencode-runtime"
+    assert opencode_cfg["image_tag"] == "1.14.29"
+    assert opencode_cfg["default_mount_path"] == "/workspace"
+    assert defaults["default_tool_repo_url"] == "https://example.com/tools.git"
+    assert defaults["default_tool_branch"] == "main"
+
+
 def test_t13_runtime_profile_sync_uses_internal_apply_contract_for_all_runtime_types(monkeypatch):
-    service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-    captured = {}
+    for runtime_type in ("native", "opencode"):
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        captured = {}
 
-    async def _fake_forward(**kwargs):
-        captured.update(kwargs)
-        return 200, b"{}", "application/json"
+        async def _fake_forward(**kwargs):
+            captured.update(kwargs)
+            return 200, b"{}", "application/json"
 
-    monkeypatch.setattr(service.proxy_service, "forward", _fake_forward)
-    agent = SimpleNamespace(id="a1", namespace="efp-agents", service_name="svc", runtime_type="opencode")
-    ok = asyncio.run(service.push_payload_to_agent(agent, {"x": 1}))
-
-    assert ok is True
-    assert captured["subpath"] == "api/internal/runtime-profile/apply"
-    assert "/config" not in captured["subpath"]
-    assert "/auth" not in captured["subpath"]
+        monkeypatch.setattr(service.proxy_service, "forward", _fake_forward)
+        agent = SimpleNamespace(
+            id=f"a-{runtime_type}",
+            namespace="efp-agents",
+            service_name=f"svc-{runtime_type}",
+            runtime_type=runtime_type,
+        )
+        ok = asyncio.run(service.push_payload_to_agent(agent, {"x": 1}))
+        assert ok is True
+        assert captured["subpath"] == "api/internal/runtime-profile/apply"
+        assert "/config" not in captured["subpath"]
+        assert "/auth" not in captured["subpath"]
 
 
 def test_t13_proxy_route_keeps_agent_api_prefix():

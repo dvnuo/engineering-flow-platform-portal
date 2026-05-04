@@ -12,6 +12,16 @@ class K8sServiceNoopTest(unittest.TestCase):
     def setUp(self):
         self.service = self.K8sService()
         self.service.enabled = False
+        self.service.settings.default_agent_runtime_repo_url = ""
+        self.service.settings.default_agent_runtime_branch = ""
+        self.service.settings.default_agent_repo_url = ""
+        self.service.settings.default_agent_branch = "master"
+        self.service.settings.default_skill_repo_url = ""
+        self.service.settings.default_skill_branch = "master"
+        self.service.settings.default_tool_repo_url = ""
+        self.service.settings.default_tool_branch = "main"
+        self.service.settings.default_agent_mount_path = "/root/.efp"
+        self.service.settings.agents_volume_sub_path_prefix = "efp-agents"
 
     def test_native_runtime_clones_runtime_skills_and_tools_to_app_asset_dirs(self):
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
@@ -246,6 +256,93 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.service._ensure_deployment(agent)
         body = self.service.apps_api.calls[0]["body"]
         self.assertEqual(body.spec.template.spec.containers[0].working_dir, "/workspace")
+
+    def test_ensure_service_exposes_runtime_port_8000(self):
+        class FakeCoreApi:
+            def __init__(self):
+                self.calls = []
+
+            def create_namespaced_service(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.core_api = FakeCoreApi()
+        agent = SimpleNamespace(
+            id="a-port",
+            owner_user_id=1,
+            runtime_type="opencode",
+            namespace="efp-agents",
+            service_name="agent-a-port",
+        )
+
+        self.service._ensure_service(agent)
+        body = self.service.core_api.calls[0]["body"]
+        self.assertEqual(body.spec.ports[0].port, 8000)
+        self.assertEqual(body.spec.ports[0].target_port, 8000)
+        self.assertEqual(body.spec.type, self.service.settings.k8s_agent_service_type)
+
+    def test_ensure_deployment_sets_container_port_8000_for_native_and_opencode(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def create_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        for runtime_type, mount_path, image in [
+            ("native", "/root/.efp", "native:latest"),
+            ("opencode", "/workspace", "opencode:latest"),
+        ]:
+            agent = SimpleNamespace(
+                id=f"a-{runtime_type}",
+                owner_user_id=1,
+                runtime_type=runtime_type,
+                mount_path=mount_path,
+                image=image,
+                deployment_name=f"agent-{runtime_type}",
+                namespace="efp-agents",
+                service_name=f"svc-{runtime_type}",
+                cpu=None,
+                memory=None,
+            )
+            self.service._ensure_deployment(agent)
+            body = self.service.apps_api.calls[-1]["body"]
+            container = body.spec.template.spec.containers[0]
+            self.assertEqual(container.ports[0].container_port, 8000)
+            if runtime_type == "opencode":
+                self.assertEqual(container.working_dir, "/workspace")
+            else:
+                self.assertIsNone(container.working_dir)
+
+    def test_patch_deployment_preserves_runtime_port_8000(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def patch_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        agent = SimpleNamespace(
+            id="a-patch-port",
+            owner_user_id=1,
+            runtime_type="opencode",
+            mount_path="/workspace",
+            image="opencode:latest",
+            deployment_name="agent-patch-port",
+            namespace="efp-agents",
+            tool_repo_url=None,
+            tool_branch=None,
+            cpu=None,
+            memory=None,
+        )
+        self.service._patch_deployment(agent)
+        body = self.service.apps_api.calls[0]["body"]
+        container = body["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["ports"], [{"containerPort": 8000}])
 
     def test_patch_deployment_omits_resources_when_no_requests(self):
         class FakeAppsApi:
