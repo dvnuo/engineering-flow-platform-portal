@@ -1,0 +1,35 @@
+name: Portal CI
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  portal-tests:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+      K8S_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: pip install pytest
+      - run: |
+          pytest tests/test_agent_runtime_type_schema.py \
+                 tests/test_agent_defaults_source_regression.py \
+                 tests/test_k8s_service.py \
+                 tests/test_proxy_api.py \
+                 tests/test_runtime_profile_sync_service.py \
+                 tests/test_runtime_capability_contract.py \
+                 tests/test_t13_portal_runtime_matrix.py
+
+  portal-docker-smoke:
+    runs-on: ubuntu-latest
+    needs: portal-tests
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t efp-portal-ci .

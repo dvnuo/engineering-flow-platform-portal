@@ -12,8 +12,18 @@ class K8sServiceNoopTest(unittest.TestCase):
     def setUp(self):
         self.service = self.K8sService()
         self.service.enabled = False
+        self.service.settings.default_agent_runtime_repo_url = ""
+        self.service.settings.default_agent_runtime_branch = ""
+        self.service.settings.default_agent_repo_url = ""
+        self.service.settings.default_agent_branch = "master"
+        self.service.settings.default_skill_repo_url = ""
+        self.service.settings.default_skill_branch = "master"
+        self.service.settings.default_tool_repo_url = ""
+        self.service.settings.default_tool_branch = "main"
+        self.service.settings.default_agent_mount_path = "/root/.efp"
+        self.service.settings.agents_volume_sub_path_prefix = "efp-agents"
 
-    def test_native_runtime_keeps_runtime_and_skill_mounts(self):
+    def test_native_runtime_clones_runtime_skills_and_tools_to_app_asset_dirs(self):
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
         self.service.settings.default_agent_runtime_branch = "runtime-main"
         self.service.settings.default_skill_repo_url = "https://github.com/acme/skills-default.git"
@@ -24,18 +34,21 @@ class K8sServiceNoopTest(unittest.TestCase):
             mount_path="/root/.efp",
             skill_repo_url="https://github.com/acme/skills.git",
             skill_branch="skills-main",
+            tool_repo_url="https://example.com/tools.git",
+            tool_branch="main",
         )
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
-        self.assertEqual({c.name for c in inits}, {"runtime-git-clone", "skills-git-clone"})
+        self.assertEqual({c.name for c in inits}, {"runtime-git-clone", "skills-git-clone", "tools-git-clone"})
         mount_paths = {m.mount_path for m in mounts}
         self.assertIn("/app/.git", mount_paths)
         self.assertIn("/app/src", mount_paths)
         self.assertIn("/app/skills", mount_paths)
+        self.assertIn("/app/tools", mount_paths)
         self.assertIn("/root/.efp", mount_paths)
-        self.assertNotIn("/workspace/tools", mount_paths)
-        self.assertNotIn("tools-git-clone", {c.name for c in inits})
+        tools_init = next(c for c in inits if c.name == "tools-git-clone")
+        self.assertIn("/tools-code", tools_init.args[0])
 
-    def test_opencode_runtime_clones_tools_into_workspace_without_native_mounts(self):
+    def test_opencode_runtime_clones_skills_and_tools_to_app_asset_dirs_without_native_runtime_mounts(self):
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
         self.service.settings.default_skill_repo_url = "https://github.com/acme/skills-default.git"
         agent = SimpleNamespace(
@@ -43,19 +56,25 @@ class K8sServiceNoopTest(unittest.TestCase):
             owner_user_id=1,
             runtime_type="opencode",
             mount_path="/workspace",
+            skill_repo_url="https://example.com/skills.git",
             tool_repo_url="git@github.com:Acme/Tools.git",
             tool_branch="tools-main",
         )
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
-        self.assertEqual([c.name for c in inits], ["tools-git-clone"])
-        clone_env = {e.name: e.value for e in inits[0].env if getattr(e, "value", None)}
+        self.assertEqual({c.name for c in inits}, {"skills-git-clone", "tools-git-clone"})
+        self.assertNotIn("runtime-git-clone", {c.name for c in inits})
+        clone_env = {e.name: e.value for e in next(c for c in inits if c.name == "tools-git-clone").env if getattr(e, "value", None)}
         self.assertEqual(clone_env["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
-        self.assertIn("/workspace-data/tools", inits[0].args[0])
+        self.assertIn("/tools-code", next(c for c in inits if c.name == "tools-git-clone").args[0])
+        self.assertIn("/skills-code", next(c for c in inits if c.name == "skills-git-clone").args[0])
         mount_paths = {m.mount_path for m in mounts}
         self.assertIn("/workspace", mount_paths)
         self.assertNotIn("/app/src", mount_paths)
         self.assertNotIn("/app/.git", mount_paths)
-        self.assertNotIn("/app/skills", mount_paths)
+        self.assertIn("/app/skills", mount_paths)
+        self.assertIn("/app/tools", mount_paths)
+        self.assertNotIn("/workspace/tools", mount_paths)
+        self.assertNotIn("/workspace-data", mount_paths)
 
     def test_labels_annotations_include_runtime_type_and_tool_fields(self):
         agent = SimpleNamespace(
@@ -74,20 +93,26 @@ class K8sServiceNoopTest(unittest.TestCase):
         for key in ["efp/runtime-type", "efp/tool-git-repo-url", "efp/tool-git-branch"]:
             self.assertIn(key, annotations)
 
-    def test_build_agent_container_env_includes_opencode_workspace_env(self):
+    def test_opencode_runtime_env_uses_app_asset_dirs(self):
         agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
         env = self.service._build_agent_container_env(agent)
-        names = {item.name for item in env}
-        for key in [
-            "PORTAL_RUNTIME_TYPE",
-            "EFP_RUNTIME_TYPE",
-            "EFP_WORKSPACE_DIR",
-            "OPENCODE_WORKSPACE",
-            "EFP_TOOLS_DIR",
-            "OPENCODE_TOOLS_DIR",
-        ]:
-            self.assertIn(key, names)
-        self.assertNotIn("GIT_TOKEN", names)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "opencode")
+        self.assertEqual(env_map["OPENCODE_WORKSPACE"], "/workspace")
+        self.assertEqual(env_map["EFP_SKILLS_DIR"], "/app/skills")
+        self.assertEqual(env_map["EFP_TOOLS_DIR"], "/app/tools")
+        self.assertEqual(env_map["OPENCODE_TOOLS_DIR"], "/app/tools")
+        self.assertNotEqual(env_map["OPENCODE_TOOLS_DIR"], "/workspace/tools")
+
+    def test_native_runtime_env_exposes_skills_and_tools_without_opencode_workspace(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/root/.efp")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "native")
+        self.assertEqual(env_map["EFP_SKILLS_DIR"], "/app/skills")
+        self.assertEqual(env_map["EFP_TOOLS_DIR"], "/app/tools")
+        self.assertNotIn("OPENCODE_WORKSPACE", env_map)
+        self.assertNotIn("OPENCODE_TOOLS_DIR", env_map)
 
     def test_build_agent_container_resources_uses_requests(self):
         agent = SimpleNamespace(cpu="500m", memory="1Gi")
@@ -106,6 +131,8 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         self.service.enabled = True
         self.service.apps_api = FakeAppsApi()
+        self.service.settings.default_skill_repo_url = ""
+        self.service.settings.default_tool_repo_url = ""
         agent = SimpleNamespace(
             id="a1",
             owner_user_id=1,
@@ -132,6 +159,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("/app/src", mount_paths)
         self.assertNotIn("/app/.git", mount_paths)
         self.assertNotIn("/app/skills", mount_paths)
+        self.assertNotIn("/app/tools", mount_paths)
         volumes = body["spec"]["template"]["spec"]["volumes"]
         self.assertEqual(volumes[0]["persistentVolumeClaim"]["claimName"], "efp-agents-efs-pvc")
 
@@ -145,6 +173,7 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         self.service.enabled = True
         self.service.apps_api = FakeAppsApi()
+        self.service.settings.default_skill_repo_url = ""
         agent = SimpleNamespace(
             id="a2",
             owner_user_id=1,
@@ -160,7 +189,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         init_containers = self.service.apps_api.calls[0]["body"]["spec"]["template"]["spec"]["initContainers"]
         self.assertEqual(len(init_containers), 1)
         self.assertEqual(init_containers[0]["name"], "tools-git-clone")
-        self.assertIn("/workspace-data/tools", init_containers[0]["args"][0])
+        self.assertIn("/tools-code", init_containers[0]["args"][0])
         env_map = {item["name"]: item.get("value") for item in init_containers[0]["env"]}
         self.assertEqual(env_map["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
         names = {item["name"] for item in init_containers}
@@ -177,6 +206,7 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
         self.service.settings.default_skill_repo_url = "https://github.com/acme/skills.git"
+        self.service.settings.default_tool_repo_url = "https://github.com/acme/tools.git"
         self.service.enabled = True
         self.service.apps_api = FakeAppsApi()
         agent = SimpleNamespace(
@@ -196,10 +226,12 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("/app/.git", mount_paths)
         self.assertIn("/app/src", mount_paths)
         self.assertIn("/app/skills", mount_paths)
+        self.assertIn("/app/tools", mount_paths)
         self.assertIn("/root/.efp", mount_paths)
         init_names = {c["name"] for c in body["spec"]["template"]["spec"]["initContainers"]}
         self.assertIn("runtime-git-clone", init_names)
         self.assertIn("skills-git-clone", init_names)
+        self.assertIn("tools-git-clone", init_names)
 
     def test_ensure_deployment_sets_opencode_working_dir(self):
         class FakeAppsApi:
@@ -224,6 +256,93 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.service._ensure_deployment(agent)
         body = self.service.apps_api.calls[0]["body"]
         self.assertEqual(body.spec.template.spec.containers[0].working_dir, "/workspace")
+
+    def test_ensure_service_exposes_runtime_port_8000(self):
+        class FakeCoreApi:
+            def __init__(self):
+                self.calls = []
+
+            def create_namespaced_service(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.core_api = FakeCoreApi()
+        agent = SimpleNamespace(
+            id="a-port",
+            owner_user_id=1,
+            runtime_type="opencode",
+            namespace="efp-agents",
+            service_name="agent-a-port",
+        )
+
+        self.service._ensure_service(agent)
+        body = self.service.core_api.calls[0]["body"]
+        self.assertEqual(body.spec.ports[0].port, 8000)
+        self.assertEqual(body.spec.ports[0].target_port, 8000)
+        self.assertEqual(body.spec.type, self.service.settings.k8s_agent_service_type)
+
+    def test_ensure_deployment_sets_container_port_8000_for_native_and_opencode(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def create_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        for runtime_type, mount_path, image in [
+            ("native", "/root/.efp", "native:latest"),
+            ("opencode", "/workspace", "opencode:latest"),
+        ]:
+            agent = SimpleNamespace(
+                id=f"a-{runtime_type}",
+                owner_user_id=1,
+                runtime_type=runtime_type,
+                mount_path=mount_path,
+                image=image,
+                deployment_name=f"agent-{runtime_type}",
+                namespace="efp-agents",
+                service_name=f"svc-{runtime_type}",
+                cpu=None,
+                memory=None,
+            )
+            self.service._ensure_deployment(agent)
+            body = self.service.apps_api.calls[-1]["body"]
+            container = body.spec.template.spec.containers[0]
+            self.assertEqual(container.ports[0].container_port, 8000)
+            if runtime_type == "opencode":
+                self.assertEqual(container.working_dir, "/workspace")
+            else:
+                self.assertIsNone(container.working_dir)
+
+    def test_patch_deployment_preserves_runtime_port_8000(self):
+        class FakeAppsApi:
+            def __init__(self):
+                self.calls = []
+
+            def patch_namespaced_deployment(self, **kwargs):
+                self.calls.append(kwargs)
+
+        self.service.enabled = True
+        self.service.apps_api = FakeAppsApi()
+        agent = SimpleNamespace(
+            id="a-patch-port",
+            owner_user_id=1,
+            runtime_type="opencode",
+            mount_path="/workspace",
+            image="opencode:latest",
+            deployment_name="agent-patch-port",
+            namespace="efp-agents",
+            tool_repo_url=None,
+            tool_branch=None,
+            cpu=None,
+            memory=None,
+        )
+        self.service._patch_deployment(agent)
+        body = self.service.apps_api.calls[0]["body"]
+        container = body["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["ports"], [{"containerPort": 8000}])
 
     def test_patch_deployment_omits_resources_when_no_requests(self):
         class FakeAppsApi:
