@@ -100,8 +100,11 @@ class K8sService:
             return "/workspace"
         return self.settings.default_agent_mount_path or "/root/.efp"
 
-    def _workspace_tools_dir(self, agent) -> str:
-        return f"{self._effective_mount_path(agent).rstrip('/')}/tools"
+    def _skills_assets_dir(self) -> str:
+        return "/app/skills"
+
+    def _tools_assets_dir(self) -> str:
+        return "/app/tools"
 
     def _agent_container_working_dir(self, agent) -> str | None:
         if self._runtime_type(agent) == "opencode":
@@ -125,6 +128,8 @@ class K8sService:
         runtime_branch = self._runtime_branch()
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
+        tool_repo_url = self._tool_repo_url(agent)
+        tool_branch = self._tool_branch(agent)
 
         if runtime_repo_url:
             runtime_sub_path = f"{prefix}/{agent.id}/runtime-code"
@@ -152,7 +157,20 @@ class K8sService:
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/skills-code", sub_path=skills_sub_path)],
                 )
             )
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/skills", sub_path=skills_sub_path))
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
+        if tool_repo_url:
+            tools_sub_path = f"{prefix}/{agent.id}/tools-code"
+            init_containers.append(
+                client.V1Container(
+                    name="tools-git-clone",
+                    image=git_image,
+                    command=["sh", "-c"],
+                    args=[self._git_clone_shell_command("/tools-code")],
+                    env=self._build_git_clone_env(tool_repo_url, tool_branch),
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/tools-code", sub_path=tools_sub_path)],
+                )
+            )
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._tools_assets_dir(), sub_path=tools_sub_path))
         volume_mounts.append(
             client.V1VolumeMount(
                 name="agent-data",
@@ -176,18 +194,35 @@ class K8sService:
             )
         ]
         init_containers = []
+        skill_repo_url = self._skill_repo_url(agent)
+        skill_branch = self._skill_branch(agent)
+        if skill_repo_url:
+            skills_sub_path = f"{prefix}/{agent.id}/skills-code"
+            init_containers.append(
+                client.V1Container(
+                    name="skills-git-clone",
+                    image=git_image,
+                    command=["sh", "-c"],
+                    args=[self._git_clone_shell_command("/skills-code")],
+                    env=self._build_git_clone_env(skill_repo_url, skill_branch),
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/skills-code", sub_path=skills_sub_path)],
+                )
+            )
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
         tool_repo_url = self._tool_repo_url(agent)
         if tool_repo_url:
+            tools_sub_path = f"{prefix}/{agent.id}/tools-code"
             init_containers.append(
                 client.V1Container(
                     name="tools-git-clone",
                     image=git_image,
                     command=["sh", "-c"],
-                    args=[self._git_clone_shell_command("/workspace-data/tools")],
+                    args=[self._git_clone_shell_command("/tools-code")],
                     env=self._build_git_clone_env(tool_repo_url, self._tool_branch(agent)),
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/workspace-data", sub_path=data_sub_path)],
+                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/tools-code", sub_path=tools_sub_path)],
                 )
             )
+            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._tools_assets_dir(), sub_path=tools_sub_path))
         return init_containers, volume_mounts
 
     def _patch_deployment(self, agent) -> None:
@@ -550,11 +585,11 @@ class K8sService:
             env.append(client.V1EnvVar(name="PORTAL_RUNTIME_TYPE", value=runtime_type))
             env.append(client.V1EnvVar(name="EFP_RUNTIME_TYPE", value=runtime_type))
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
+            env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
+            env.append(client.V1EnvVar(name="EFP_TOOLS_DIR", value=self._tools_assets_dir()))
             if runtime_type == "opencode":
-                tools_dir = self._workspace_tools_dir(agent)
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
-                env.append(client.V1EnvVar(name="EFP_TOOLS_DIR", value=tools_dir))
-                env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=tools_dir))
+                env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=self._tools_assets_dir()))
         return env
 
     def _build_agent_container_resources(self, agent):
