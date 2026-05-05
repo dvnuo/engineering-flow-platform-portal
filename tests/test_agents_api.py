@@ -569,6 +569,37 @@ def test_patch_skill_repo_triggers_k8s_update(monkeypatch):
         cleanup()
 
 
+def test_patch_runtime_profile_uses_agent_aware_payload_builder(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        from app.models.runtime_profile import RuntimeProfile
+
+        rp = RuntimeProfile(owner_user_id=1, name="rp-agent-aware", config_json='{"llm": {"provider": "openai"}}', revision=1, is_default=True)
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+        agent_id = client.post("/api/agents", json={"name": "sync-agent-aware", "image": "example/image:latest"}).json()["id"]
+        calls = {"apply": 0}
+
+        def _build_apply(db_arg, agent_arg, profile_arg):
+            calls["apply"] += 1
+            assert db_arg is db
+            assert profile_arg.id == rp.id
+            return {"runtime_profile_id": profile_arg.id, "revision": profile_arg.revision, "config": {"agent_id": agent_arg.id}}
+
+        async def _fake_push(_agent, _payload):
+            return True
+
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.build_apply_payload_for_agent", _build_apply)
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _fake_push)
+        resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
+        assert resp.status_code == 200
+        assert calls["apply"] == 1
+    finally:
+        cleanup()
+
+
 def test_patch_legacy_repo_branch_is_ignored_and_does_not_trigger_k8s(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:

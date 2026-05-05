@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, User
+from app.models import Agent, CapabilityProfile, PolicyProfile, User
 from app.models.runtime_profile import RuntimeProfile
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 
@@ -192,5 +192,75 @@ def test_build_apply_payload_from_profile_includes_response_flow_when_present():
         assert payload["config"]["llm"]["response_flow"]["active_skill_conflict_policy"] == "always_ask"
         assert payload["config"]["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
         assert payload["config"]["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
+    finally:
+        db.close()
+
+
+def test_build_apply_payload_for_agent_adds_skill_aliases_and_filters_broad_types():
+    db, rp, running, _stopped = _build_db()
+    try:
+        capability = CapabilityProfile(name="cp1", skill_set_json='["review-pull-request"]')
+        policy = PolicyProfile(name="pp1", permission_rules_json='{"denied_capability_types":["tool"]}')
+        db.add_all([capability, policy])
+        db.commit()
+        db.refresh(capability)
+        db.refresh(policy)
+        running.capability_profile_id = capability.id
+        running.policy_profile_id = policy.id
+        db.add(running)
+        db.commit()
+        db.refresh(running)
+
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        original_config = rp.config_json
+        payload = service.build_apply_payload_for_agent(db, running, rp)
+        assert rp.config_json == original_config
+        assert "skill:review-pull-request" in payload["config"]["allowed_capability_ids"]
+        assert "opencode.skill.review-pull-request" in payload["config"]["allowed_capability_ids"]
+        assert "skill" not in payload["config"]["allowed_capability_types"]
+        assert "review-pull-request" in payload["config"]["capability_context"]["skill_set"]
+    finally:
+        db.close()
+
+
+def test_sync_profile_to_bound_agents_builds_payload_per_running_agent(monkeypatch):
+    db, rp, running, _stopped = _build_db()
+    try:
+        running_two = Agent(
+            name="running-agent-2",
+            owner_user_id=running.owner_user_id,
+            visibility="private",
+            status="running",
+            image="example/image:latest",
+            repo_url=None,
+            branch=None,
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp-agents",
+            deployment_name="dep-running-2",
+            service_name="svc-running-2",
+            pvc_name="pvc-running-2",
+            endpoint_path="/",
+            agent_type="workspace",
+            runtime_profile_id=rp.id,
+        )
+        db.add(running_two)
+        db.commit()
+        db.refresh(running_two)
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        built_for = []
+
+        def _build(db_s, agent_s, rp_s):
+            built_for.append(agent_s.id)
+            return {"runtime_profile_id": rp_s.id, "revision": rp_s.revision, "config": {"agent_id": agent_s.id}}
+
+        async def _push(_agent, _payload):
+            return True
+
+        monkeypatch.setattr(service, "build_apply_payload_for_agent", _build)
+        monkeypatch.setattr(service, "push_payload_to_agent", _push)
+        result = asyncio.run(service.sync_profile_to_bound_agents(db, rp))
+        assert set(built_for) == {running.id, running_two.id}
+        assert result["updated_running_count"] == 2
     finally:
         db.close()
