@@ -8,7 +8,7 @@
     <input type="hidden" name="__touch_git" value="0" data-touch-flag="git" />
     <input type="hidden" name="__touch_debug" value="0" data-touch-flag="debug" />
     {% if status_message %}
-      <div id="settings-status" class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}" data-settings-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
+      <div id="settings-status" class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'warning' %}is-warning{% elif status_type == 'success' %}is-success{% endif %}" data-settings-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
     {% endif %}
 
     <section class="portal-panel-section">
