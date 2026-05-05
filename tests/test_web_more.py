@@ -1696,3 +1696,38 @@ def test_skills_panel_badges_and_command_guard_source_markers_present():
     assert 'def _normalize_permission_state(value) -> str:' in py
     assert 'def _normalize_runtime_compatibility(value) -> str:' in py
     assert 'disabled_reasons = []' in py
+
+
+def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
+    js = _chat_ui_js_source()
+    assert "function getChatStreamTextPayload(data)" in js
+    assert 'if (typeof data === "string") return data;' in js
+    assert "function normalizeChatStreamEventData(data)" in js
+    assert "Object.assign(normalized, normalized.data)" in js
+    assert "const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || \"\"" in js
+    assert "const eventData = normalizeChatStreamEventData(data)" in js
+    assert "handleAgentEventMessage(JSON.stringify({" in js
+    assert "return 'unsupported'" in js
+    assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+
+
+def test_skills_panel_template_behavior_for_disabled_and_enabled_skills():
+    from app.web import templates
+    tpl = templates.get_template("partials/skills_panel.html")
+    html = tpl.render(
+        {
+            "skills": [
+                {"name": "unsupported_skill", "description": "No opencode support", "capability_allowed": True, "permission_state": "allowed", "runtime_compatibility": "unsupported", "disabled": True, "disabled_reason": "Unsupported by this runtime", "prompt_only": False},
+                {"name": "permission_denied", "description": "Denied", "capability_allowed": True, "permission_state": "denied", "runtime_compatibility": "full", "disabled": True, "disabled_reason": "Denied by runtime permission", "prompt_only": False},
+                {"name": "prompt_only_skill", "description": "Prompt only", "capability_allowed": True, "permission_state": "ask", "runtime_compatibility": "prompt_only", "disabled": False, "disabled_reason": "", "prompt_only": True},
+                {"name": "full_skill", "description": "Full support", "capability_allowed": True, "permission_state": "allowed", "runtime_compatibility": "full", "disabled": False, "disabled_reason": "", "prompt_only": False},
+            ]
+        }
+    )
+    assert "data-skill-command=\"/unsupported_skill\"" not in html
+    assert "data-skill-command=\"/permission_denied\"" not in html
+    assert "data-skill-command=\"/prompt_only_skill\"" in html
+    assert "data-skill-command=\"/full_skill\"" in html
+    assert "Prompt-only in this runtime; Python skill.py is not executed." in html
+    assert "No opencode support" in html
+    assert "portal-status-badge" in html

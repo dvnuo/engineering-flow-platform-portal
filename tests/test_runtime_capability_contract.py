@@ -201,3 +201,52 @@ def test_runtime_capability_context_skill_details_source_marker():
     from pathlib import Path
     src = Path('app/services/capability_context_service.py').read_text(encoding='utf-8')
     assert 'skill_details' in src
+
+
+def test_skill_alias_resolves_capability_id_and_detail():
+    provider = RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+        {
+            "catalog_version": "v1",
+            "supports_snapshot_contract": True,
+            "capabilities": [
+                {
+                    "capability_id": "skill:review-pull-request",
+                    "capability_type": "skill",
+                    "logical_name": "review-pull-request",
+                    "permission_state": "allowed",
+                    "runtime_compatibility": "prompt_only",
+                    "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                    "metadata": {"description": "Review PR"},
+                }
+            ],
+        }
+    )
+    assert provider.resolve_skill_name_to_capability_id("review_pull_request") == "skill:review-pull-request"
+    detail = provider.get_skill_detail("review_pull_request")
+    assert detail["permission_state"] == "allowed"
+    assert detail["runtime_compatibility"] == "prompt_only"
+    assert detail["tool_mappings"]["github_get_pr"] == "efp_github_get_pr"
+
+
+def test_capability_context_resolves_skill_alias_and_populates_skill_details():
+    payload = {
+        "catalog_version": "v1",
+        "supports_snapshot_contract": True,
+        "capabilities": [
+            {
+                "capability_id": "skill:review-pull-request",
+                "capability_type": "skill",
+                "logical_name": "review-pull-request",
+                "permission_state": "ask",
+                "runtime_compatibility": "prompt_only",
+                "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                "metadata": {"description": "Review PR"},
+            }
+        ],
+    }
+    service = CapabilityContextService(runtime_catalog_snapshot_payload=payload)
+    resolved = service.resolve_profile(None).model_copy(update={"skill_set": ["review_pull_request"]})
+    ctx = service.build_runtime_capability_context(capability_profile_id="cap-1", resolved=resolved, db=None, agent_id=None)
+    assert "skill:review-pull-request" in ctx["allowed_capability_ids"]
+    assert ctx["unresolved_skills"] == []
+    assert ctx["skill_details"][0]["capability_id"] == "skill:review-pull-request"

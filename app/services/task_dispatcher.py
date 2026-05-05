@@ -225,7 +225,7 @@ class TaskDispatcherService:
             elif terminal_status == "stale":
                 delegation.result_summary = "Runtime reported task is stale."
             elif terminal_status == "cancel_failed":
-                delegation.result_summary = error or "Runtime failed to cancel task."
+                delegation.result_summary = f"Runtime failed to cancel task. {error}".strip()
             else:
                 delegation.result_summary = error
             delegation_repo.save(delegation)

@@ -56,9 +56,25 @@ class RuntimeCapabilityCatalogProvider:
             if capability_type == "tool" and logical_name:
                 self._tool_names_to_ids.setdefault(logical_name, []).append(capability_id)
             elif capability_type == "skill" and logical_name:
-                self._skill_names_to_ids.setdefault(logical_name, []).append(capability_id)
-                detail={"capability_id":capability_id,"logical_name":logical_name,"permission_state":entry.permission_state,"runtime_compatibility":entry.runtime_compatibility,"tool_mappings":entry.tool_mappings or {},"metadata":entry.metadata or {}}
-                for k in {logical_name, logical_name.replace("-","_"), logical_name.replace("_","-")}: self._skill_details_by_name[k]=detail
+                aliases = {
+                    logical_name,
+                    logical_name.replace("-", "_"),
+                    logical_name.replace("_", "-"),
+                }
+                for alias in aliases:
+                    if alias:
+                        self._skill_names_to_ids.setdefault(alias, []).append(capability_id)
+                detail = {
+                    "capability_id": capability_id,
+                    "logical_name": logical_name,
+                    "permission_state": entry.permission_state,
+                    "runtime_compatibility": entry.runtime_compatibility,
+                    "tool_mappings": entry.tool_mappings or {},
+                    "metadata": entry.metadata or {},
+                }
+                for alias in aliases:
+                    if alias:
+                        self._skill_details_by_name[alias] = detail
             elif capability_type == "channel_action" and logical_name:
                 self._channel_names_to_ids.setdefault(logical_name, []).append(capability_id)
             elif capability_type == "adapter_action":

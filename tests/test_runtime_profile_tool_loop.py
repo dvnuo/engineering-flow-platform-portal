@@ -1,9 +1,17 @@
+import json
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from app.db import Base
+from app.models import Agent, CapabilityProfile, PolicyProfile, RuntimeCapabilityCatalogSnapshot, RuntimeProfile, User
+from app.services.auth_service import hash_password
 from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_service import RuntimeProfileService
 
 
@@ -224,3 +232,100 @@ def test_runtime_metadata_skill_details_and_policy_defaults_source_markers():
     assert 'skill_details' in src
     assert 'external_tools_strict_mode' in src
     assert 'tool_permission_defaults' in src
+
+
+@pytest.fixture()
+def runtime_db():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    user = User(username="rp-owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    yield db, user
+    db.close()
+
+
+def test_runtime_metadata_policy_profile_rules_from_db(runtime_db):
+    db, user = runtime_db
+    policy = PolicyProfile(
+        name="policy",
+        permission_rules_json=json.dumps(
+            {
+                "external_tools_strict_mode": True,
+                "write_tool_default": "ASK",
+                "mutation_tool_default": "deny",
+                "allowed_write_tools": ["github_add_comment"],
+                "ask_write_tools": ["jira_transition_issue"],
+                "denied_write_tools": ["git_push"],
+                "allowed_mutation_tools": ["safe_mutation"],
+                "write_tool_policy": {"mode": "allowlist"},
+                "mutation_tool_policy": {"mode": "ask"},
+            }
+        ),
+    )
+    db.add(policy)
+    db.commit()
+    agent = Agent(name="a", owner_user_id=user.id, policy_profile_id=policy.id, image="img", status="running", deployment_name="dep-a", service_name="svc-a", pvc_name="pvc-a")
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    metadata = RuntimeExecutionContextService().build_runtime_metadata(db, agent)
+    assert metadata["external_tools_strict_mode"] is True
+    assert metadata["tool_permission_defaults"]["write"] == "ask"
+    assert metadata["tool_permission_defaults"]["mutation"] == "deny"
+    assert metadata["allowed_write_tools"] == ["github_add_comment"]
+    assert metadata["ask_write_tools"] == ["jira_transition_issue"]
+    assert metadata["denied_write_tools"] == ["git_push"]
+    assert metadata["allowed_mutation_tools"] == ["safe_mutation"]
+    assert metadata["write_tool_policy"] == {"mode": "allowlist"}
+    assert metadata["mutation_tool_policy"] == {"mode": "ask"}
+
+
+def test_runtime_metadata_policy_profile_invalid_defaults_ignored(runtime_db):
+    db, user = runtime_db
+    policy = PolicyProfile(name="bad", permission_rules_json=json.dumps({"write_tool_default": "invalid", "mutation_tool_default": "ALSO_BAD"}))
+    db.add(policy)
+    db.commit()
+    agent = Agent(name="b", owner_user_id=user.id, policy_profile_id=policy.id, image="img", status="running", deployment_name="dep-b", service_name="svc-b", pvc_name="pvc-b")
+    db.add(agent)
+    db.commit()
+    metadata = RuntimeExecutionContextService().build_runtime_metadata(db, agent)
+    assert metadata.get("tool_permission_defaults") in (None, {})
+
+
+def test_runtime_metadata_and_apply_payload_include_skill_details(runtime_db):
+    db, user = runtime_db
+    cap = CapabilityProfile(name="cap", skill_set_json='["review_pull_request"]')
+    rp = RuntimeProfile(name="rp", owner_user_id=user.id, config_json="{}")
+    db.add_all([cap, rp])
+    db.commit()
+    agent = Agent(
+        name="skill-agent",
+        owner_user_id=user.id,
+        capability_profile_id=cap.id,
+        runtime_profile_id=rp.id,
+        status="running",
+        image="img",
+        namespace="efp-agents",
+        deployment_name="dep-skill",
+        service_name="svc",
+        pvc_name="pvc-skill",
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    snapshot = RuntimeCapabilityCatalogSnapshot(
+        source_agent_id=agent.id,
+        catalog_version="v1",
+        catalog_source="runtime_api",
+        payload_json=json.dumps({"catalog_version": "v1", "capabilities": [{"capability_id": "skill:review-pull-request", "capability_type": "skill", "logical_name": "review-pull-request", "permission_state": "allowed", "runtime_compatibility": "prompt_only"}]}),
+    )
+    db.add(snapshot)
+    db.commit()
+    metadata = RuntimeExecutionContextService().build_runtime_metadata(db, agent)
+    assert metadata["skill_details"]
+    payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, agent, rp)
+    assert payload["config"]["skill_details"]

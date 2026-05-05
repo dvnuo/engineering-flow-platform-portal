@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentTask, User
+from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, User
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.services.auth_service import hash_password
 from app.services.task_dispatcher import TaskDispatcherService
@@ -673,3 +673,100 @@ def test_delegation_error_branch_and_cleanup_policy_source_markers_present():
     assert 'Runtime reported task is stale.' in src
     assert 'Runtime failed to cancel task.' in src
     assert 'return delegation_status in {"done", "failed", "stale", "cancelled", "cancel_failed"}' in src
+
+
+def test_sync_coordination_run_new_statuses_behavior(db_session):
+    db, agent = db_session
+    service = TaskDispatcherService()
+    run = AgentCoordinationRun(group_id="g1", leader_agent_id=agent.id, coordination_run_id="run-1", status="running")
+    db.add(run)
+    db.commit()
+    delegation = AgentDelegation(
+        group_id="g1",
+        parent_agent_id=agent.id,
+        leader_agent_id=agent.id,
+        assignee_agent_id=agent.id,
+        agent_task_id="task-1",
+        objective="obj",
+        coordination_run_id="run-1",
+        status="pending_restart",
+    )
+    db.add(delegation)
+    db.commit()
+    service._sync_coordination_run_from_delegation(db, delegation)
+    db.refresh(run)
+    assert run.status == "pending_restart"
+    assert json.loads(run.summary_json)["pending_restart"] == 1
+    assert run.completed_at is None
+
+    delegation.status = "stale"
+    db.commit()
+    service._sync_coordination_run_from_delegation(db, delegation)
+    db.refresh(run)
+    assert run.status == "stale"
+    assert json.loads(run.summary_json)["stale"] == 1
+    assert run.completed_at is not None
+
+    delegation.status = "cancelled"
+    db.commit()
+    service._sync_coordination_run_from_delegation(db, delegation)
+    db.refresh(run)
+    assert run.status == "cancelled"
+    assert json.loads(run.summary_json)["cancelled"] == 1
+
+    delegation.status = "cancel_failed"
+    db.commit()
+    service._sync_coordination_run_from_delegation(db, delegation)
+    db.refresh(run)
+    assert run.status == "failed"
+    assert json.loads(run.summary_json)["cancel_failed"] == 1
+
+
+@pytest.mark.parametrize(
+    "terminal_status,expected_status,summary_match",
+    [
+        ("pending_restart", "pending_restart", "restart"),
+        ("stale", "stale", "stale"),
+        ("cancelled", "cancelled", "cancelled"),
+        ("cancel_failed", "failed", "cancel"),
+    ],
+)
+def test_sync_delegation_from_task_result_error_branch_status_mapping(db_session, terminal_status, expected_status, summary_match):
+    db, agent = db_session
+    service = TaskDispatcherService()
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        owner_user_id=agent.owner_user_id,
+        source="test",
+        task_type="delegation_task",
+        input_payload_json='{"task_agent_cleanup_policy":"delete_on_terminal"}',
+        status="running",
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    delegation = AgentDelegation(
+        group_id="g-del",
+        parent_agent_id=agent.id,
+        leader_agent_id=agent.id,
+        assignee_agent_id=agent.id,
+        agent_task_id=task.id,
+        objective="obj",
+        status="running",
+    )
+    db.add(delegation)
+    db.commit()
+    service._sync_delegation_from_task_result(db, task, "{}", terminal_status)
+    db.refresh(delegation)
+    assert delegation.status == expected_status
+    assert summary_match in (delegation.result_summary or "").lower()
+
+
+def test_should_cleanup_task_agent_delete_on_terminal_behavior():
+    service = TaskDispatcherService()
+    assert service._should_cleanup_task_agent("delete_on_terminal", "done") is True
+    assert service._should_cleanup_task_agent("delete_on_terminal", "failed") is True
+    assert service._should_cleanup_task_agent("delete_on_terminal", "stale") is True
+    assert service._should_cleanup_task_agent("delete_on_terminal", "cancelled") is True
+    assert service._should_cleanup_task_agent("delete_on_terminal", "cancel_failed") is True
+    assert service._should_cleanup_task_agent("delete_on_terminal", "pending_restart") is False

@@ -3002,6 +3002,18 @@ function getChatStreamEventType(eventName, data) {
   if (!explicitEventName || explicitEventName === "message") return (dataType || explicitEventName || "message").toLowerCase();
   return explicitEventName.toLowerCase();
 }
+function getChatStreamTextPayload(data) {
+  if (typeof data === "string") return data;
+  if (!data || typeof data !== "object") return "";
+  return data.response || data.content || data.text || data.delta || data.response_delta || "";
+}
+function normalizeChatStreamEventData(data) {
+  if (!data || typeof data !== "object") return { message: String(data || "") };
+  const normalized = { ...data };
+  if (normalized.data && typeof normalized.data === "object") Object.assign(normalized, normalized.data);
+  delete normalized.data;
+  return normalized;
+}
 
 function updatePendingAssistantStreamContent(agentId, markdownText) {
   if (state.selectedAgentId !== agentId || !dom.messageList) return;
@@ -3014,17 +3026,18 @@ function updatePendingAssistantStreamContent(agentId, markdownText) {
 async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
   const t = getChatStreamEventType(eventName, data);
   if (["message.delta","delta"].includes(t)) {
-    const deltaText = typeof data === 'string' ? data : (data?.delta || data?.text || data?.content || data?.response_delta || '');
+    const deltaText = getChatStreamTextPayload(data);
     requestCtx.streamedText = (requestCtx.streamedText || '') + (deltaText || '');
     updatePendingAssistantStreamContent(agentIdAtSend, requestCtx.streamedText);
     return 'delta';
   }
   if (["final","done","complete","message.completed","execution.completed"].includes(t)) {
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: data?.response || data?.content || data?.text || requestCtx.streamedText || '', display_blocks: data?.display_blocks || [], session_id: data?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: data?.user_message_id || '', request_id: data?.request_id || requestCtx.clientRequestId, events: data?.events || [], runtime_events: data?.runtime_events || []});
+    const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || "";
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: data?.display_blocks || [], session_id: data?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: data?.user_message_id || '', request_id: data?.request_id || requestCtx.clientRequestId, events: data?.events || [], runtime_events: data?.runtime_events || []});
     return 'final';
   }
-  const hasDataEventType = !!(data && typeof data === "object" && (data.type || data.event_type || data.event));
-  handleAgentEventMessage(JSON.stringify(typeof data === 'object' ? { event_type: hasDataEventType ? t : String(eventName || t || "message").toLowerCase(), data } : { event_type: t, data: {message: String(data||'')}}), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || '', requestId: requestCtx.clientRequestId});
+  const eventData = normalizeChatStreamEventData(data);
+  handleAgentEventMessage(JSON.stringify({ event_type: t, data: eventData }), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || '', requestId: requestCtx.clientRequestId});
   return 'event';
 }
 
