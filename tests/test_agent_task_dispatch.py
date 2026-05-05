@@ -520,6 +520,68 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
     assert metadata["portal_task_trigger"] == "mention"
 
 
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({"ok": True, "status": "done"}, "done"),
+        ({"ok": True, "status": "completed"}, "done"),
+        ({"ok": True, "status": "stale"}, "stale"),
+        ({"ok": True, "status": "cancelled"}, "cancelled"),
+        ({"ok": True, "status": "canceled"}, "cancelled"),
+        ({"ok": True, "status": "pending_restart"}, "pending_restart"),
+        ({"ok": True, "status": "cancel_failed", "message": "stop failed"}, "cancel_failed"),
+        ({"ok": False, "status": "done"}, "failed"),
+    ],
+)
+def test_normalize_runtime_response_extended_statuses(payload, expected):
+    class Resp:
+        status_code = 200
+        text = json.dumps(payload)
+
+        @staticmethod
+        def json():
+            return payload
+
+    outcome = TaskDispatcherService._normalize_runtime_response(Resp())
+    assert outcome.terminal_status == expected
+
+
+def test_normalize_runtime_response_unsupported_status_malformed():
+    payload = {"ok": True, "status": "mystery"}
+    class Resp:
+        status_code = 200
+        text = json.dumps(payload)
+
+        @staticmethod
+        def json():
+            return payload
+
+    outcome = TaskDispatcherService._normalize_runtime_response(Resp())
+    assert outcome.is_malformed is True
+
+
+def test_dispatch_task_sets_pending_restart_summary(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "pending_restart"}'
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "pending_restart"}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "pending_restart"
+    db.refresh(task)
+    assert task.summary
+
+
 def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db_session):
     db, agent = db_session
     task = AgentTask(

@@ -98,7 +98,7 @@ class AgentTaskRepository:
                     AgentTask.source == source,
                     AgentTask.task_type == task_type,
                     AgentTask.dedupe_key == dedupe_key,
-                    AgentTask.status.in_(["queued", "running", "done", "blocked", "failed", "stale"]),
+                    AgentTask.status.in_(["queued", "running", "done", "blocked", "failed", "stale", "pending_restart"]),
                 )
             )
             .order_by(AgentTask.created_at.desc())

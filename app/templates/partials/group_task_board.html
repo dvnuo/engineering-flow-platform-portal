@@ -10,8 +10,13 @@
     <span class="portal-summary-chip">Total {{ summary.total }}</span>
     <span class="portal-summary-chip">Queued {{ summary.queued }}</span>
     <span class="portal-summary-chip">Running {{ summary.running }}</span>
+    <span class="portal-summary-chip">Blocked {{ summary.blocked }}</span>
     <span class="portal-summary-chip">Done {{ summary.done }}</span>
     <span class="portal-summary-chip">Failed {{ summary.failed }}</span>
+    <span class="portal-summary-chip">Stale {{ summary.stale }}</span>
+    <span class="portal-summary-chip">Cancelled {{ summary.cancelled }}</span>
+    <span class="portal-summary-chip">Pending restart {{ summary.pending_restart }}</span>
+    <span class="portal-summary-chip">Cancel failed {{ summary.cancel_failed }}</span>
   </div>
 
   {% if items %}

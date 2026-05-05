@@ -126,10 +126,12 @@ def _status_tone_from_value(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     if normalized in {"done", "completed", "ready", "success"}:
         return "success"
-    if normalized in {"queued", "running", "draft", "in_progress"}:
+    if normalized in {"queued", "running", "draft", "in_progress", "stale", "pending_restart"}:
         return "warning"
-    if normalized in {"failed", "blocked", "missing", "error"}:
+    if normalized in {"failed", "blocked", "missing", "error", "cancel_failed"}:
         return "error"
+    if normalized in {"cancelled", "canceled"}:
+        return "info"
     if normalized in {"", "unknown", "none", "null"}:
         return "neutral"
     return "info"
@@ -1266,7 +1268,7 @@ def my_tasks_panel(request: Request):
     try:
         group_ids = _visible_group_ids_for_user(db, user)
         tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, visible_group_ids=group_ids)
-        summary = {"queued": 0, "running": 0, "done": 0, "failed": 0}
+        summary = {"queued": 0, "running": 0, "done": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
         for task in tasks:
             if task.status in summary:
                 summary[task.status] += 1

@@ -355,6 +355,10 @@ class AgentGroupService:
             "blocked": 0,
             "done": 0,
             "failed": 0,
+            "stale": 0,
+            "cancelled": 0,
+            "pending_restart": 0,
+            "cancel_failed": 0,
         }
         for task in tasks:
             if task.status in counts:
@@ -672,13 +676,17 @@ class AgentGroupService:
                     "blocked": 0,
                     "done": 0,
                     "failed": 0,
+                    "stale": 0,
+                    "cancelled": 0,
+                    "pending_restart": 0,
+                    "cancel_failed": 0,
                     "latest_round_index": 1,
                     "deleted_task_agent_ids": [],
                 }
             bucket = run_map[run_id]
             bucket["total"] += 1
             status = delegation.status
-            if status in {"queued", "running", "blocked", "done", "failed"}:
+            if status in {"queued", "running", "blocked", "done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"}:
                 bucket[status] += 1
             round_index = getattr(delegation, "round_index", 1) or 1
             if round_index > bucket["latest_round_index"]:
@@ -725,6 +733,10 @@ class AgentGroupService:
                         "blocked": int(summary.get("blocked", fallback["blocked"])),
                         "done": int(summary.get("done", fallback["done"])),
                         "failed": int(summary.get("failed", fallback["failed"])),
+                        "stale": int(summary.get("stale", fallback["stale"])),
+                        "cancelled": int(summary.get("cancelled", fallback["cancelled"])),
+                        "pending_restart": int(summary.get("pending_restart", fallback["pending_restart"])),
+                        "cancel_failed": int(summary.get("cancel_failed", fallback["cancel_failed"])),
                         "latest_round_index": row.latest_round_index or fallback["latest_round_index"],
                     }
                 )
@@ -749,6 +761,10 @@ class AgentGroupService:
                 "blocked": counts["blocked"],
                 "done": counts["done"],
                 "failed": counts["failed"],
+                "stale": counts["stale"],
+                "cancelled": counts["cancelled"],
+                "pending_restart": counts["pending_restart"],
+                "cancel_failed": counts["cancel_failed"],
             },
             "items": delegations,
             "runs": runs,
