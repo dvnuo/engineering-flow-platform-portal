@@ -29,6 +29,7 @@ from app.schemas.runtime_profile import (
     runtime_profile_model_supports_temperature,
 )
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
+from app.services.capability_context_service import CapabilityContextService
 from app.services.task_template_registry import list_task_templates, get_task_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,

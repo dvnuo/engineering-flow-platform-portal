@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
+from app.models import Agent, CapabilityProfile, User
 from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCatalogSnapshot
+from app.services.auth_service import hash_password
 from app.services.capability_context_service import CapabilityContextService, CapabilityProfileValidationError
 from app.services.runtime_capability_catalog import RuntimeCapabilityCatalogProvider, build_default_runtime_capability_catalog_provider
 
@@ -250,3 +252,46 @@ def test_capability_context_resolves_skill_alias_and_populates_skill_details():
     assert "skill:review-pull-request" in ctx["allowed_capability_ids"]
     assert ctx["unresolved_skills"] == []
     assert ctx["skill_details"][0]["capability_id"] == "skill:review-pull-request"
+
+
+def test_skill_allowance_detail_accepts_hyphen_underscore_aliases():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        user = User(username="alias-owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+        profile = CapabilityProfile(name="cp1", skill_set_json='["review_pull_request"]')
+        db.add_all([user, profile])
+        db.commit()
+        db.refresh(user)
+        db.refresh(profile)
+        agent = Agent(
+            name="agent-alias",
+            owner_user_id=user.id,
+            capability_profile_id=profile.id,
+            status="running",
+            image="img",
+            deployment_name="dep",
+            service_name="svc",
+            pvc_name="pvc",
+        )
+        db.add(agent)
+        db.commit()
+        service = CapabilityContextService()
+        detail = service.get_skill_allowance_detail(db, agent, "review-pull-request")
+        assert detail.allowed is True
+        assert detail.reason == "allowed"
+
+        profile.skill_set_json = '["review-pull-request"]'
+        db.commit()
+        detail_reverse = service.get_skill_allowance_detail(db, agent, "review_pull_request")
+        assert detail_reverse.allowed is True
+        assert detail_reverse.reason == "allowed"
+
+        profile.skill_set_json = '["review_pull_request"]'
+        db.commit()
+        detail_miss = service.get_skill_allowance_detail(db, agent, "other_skill")
+        assert detail_miss.allowed is False
+    finally:
+        db.close()

@@ -3037,7 +3037,19 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     return 'final';
   }
   const eventData = normalizeChatStreamEventData(data);
-  handleAgentEventMessage(JSON.stringify({ event_type: t, data: eventData }), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || '', requestId: requestCtx.clientRequestId});
+  const streamEventPayload = {
+    event_type: t,
+    request_id: eventData.request_id || requestCtx.clientRequestId,
+    session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+    agent_id: eventData.agent_id || agentIdAtSend,
+    data: {
+      ...eventData,
+      request_id: eventData.request_id || requestCtx.clientRequestId,
+      session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+      agent_id: eventData.agent_id || agentIdAtSend,
+    },
+  };
+  handleAgentEventMessage(JSON.stringify(streamEventPayload), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "", requestId: requestCtx.clientRequestId});
   return 'event';
 }
 

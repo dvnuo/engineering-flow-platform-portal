@@ -1706,9 +1706,18 @@ def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
     assert "Object.assign(normalized, normalized.data)" in js
     assert "const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || \"\"" in js
     assert "const eventData = normalizeChatStreamEventData(data)" in js
-    assert "handleAgentEventMessage(JSON.stringify({" in js
+    assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
     assert "return 'unsupported'" in js
     assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+
+
+def test_chat_stream_runtime_events_include_request_session_agent_metadata():
+    js = _chat_ui_js_source()
+    assert "const streamEventPayload = {" in js
+    assert "request_id: eventData.request_id || requestCtx.clientRequestId" in js
+    assert "session_id: eventData.session_id || requestCtx.sessionIdAtSend || \"\"" in js
+    assert "agent_id: eventData.agent_id || agentIdAtSend" in js
+    assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
 
 
 def test_skills_panel_template_behavior_for_disabled_and_enabled_skills():
@@ -1731,3 +1740,54 @@ def test_skills_panel_template_behavior_for_disabled_and_enabled_skills():
     assert "Prompt-only in this runtime; Python skill.py is not executed." in html
     assert "No opencode support" in html
     assert "portal-status-badge" in html
+
+
+def test_annotate_skill_for_panel_allows_hyphen_skill_from_underscore_capability():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db import Base
+    from app.models import Agent, CapabilityProfile, User
+    from app.services.auth_service import hash_password
+    from app.web import _annotate_skill_for_panel
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        user = User(username="skill-user", password_hash=hash_password("pw"), role="admin", is_active=True)
+        profile = CapabilityProfile(name="cap", skill_set_json='["review_pull_request"]')
+        db.add_all([user, profile])
+        db.commit()
+        db.refresh(user)
+        db.refresh(profile)
+        agent = Agent(
+            name="agent",
+            owner_user_id=user.id,
+            capability_profile_id=profile.id,
+            status="running",
+            image="img",
+            deployment_name="dep",
+            service_name="svc",
+            pvc_name="pvc",
+        )
+        db.add(agent)
+        db.commit()
+        annotated = _annotate_skill_for_panel(
+            db,
+            agent,
+            {
+                "name": "review-pull-request",
+                "description": "Review PR",
+                "permission_state": "allowed",
+                "runtime_compatibility": "full",
+            },
+        )
+        assert annotated["capability_allowed"] is True
+        assert annotated["disabled"] is False
+        tpl = __import__("app.web", fromlist=["templates"]).templates.get_template("partials/skills_panel.html")
+        html = tpl.render({"skills": [annotated]})
+        assert 'data-skill-command="/review-pull-request"' in html
+    finally:
+        db.close()
