@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 from pathlib import PurePosixPath
@@ -144,6 +145,19 @@ def _select_streaming_response_headers(upstream_headers) -> dict[str, str]:
         if value:
             selected[key] = value
     return selected
+
+
+def _websocket_connect_header_kwargs(headers: dict[str, str]) -> dict[str, dict[str, str]]:
+    try:
+        params = inspect.signature(websockets.connect).parameters
+    except (TypeError, ValueError):
+        return {"additional_headers": headers}
+
+    if "additional_headers" in params:
+        return {"additional_headers": headers}
+    if "extra_headers" in params:
+        return {"extra_headers": headers}
+    return {"additional_headers": headers}
 
 
 def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
@@ -412,12 +426,13 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
             upstream_url = f"{upstream_url}?{urlencode(query_items)}"
 
         try:
+            upstream_headers = {
+                **build_runtime_trace_headers(get_log_context()),
+                **build_portal_agent_identity_headers(user, agent),
+            }
             async with websockets.connect(
                 upstream_url,
-                additional_headers={
-                    **build_runtime_trace_headers(get_log_context()),
-                    **build_portal_agent_identity_headers(user, agent),
-                },
+                **_websocket_connect_header_kwargs(upstream_headers),
             ) as upstream:
                 async def client_to_upstream():
                     while True:

@@ -1457,3 +1457,27 @@ def test_proxy_agent_server_files_content_does_not_force_attachment(monkeypatch)
     assert response.status_code == 200
     assert "content-disposition" not in response.headers
     assert response.headers["content-type"].startswith("text/markdown")
+
+
+def test_websocket_connect_header_kwargs_uses_additional_headers_for_new_websockets(monkeypatch):
+    import app.api.proxy as proxy_module
+
+    def _fake_connect(uri, *, additional_headers=None):
+        return None
+
+    monkeypatch.setattr(proxy_module.websockets, "connect", _fake_connect)
+    headers = {"X-Trace-Id": "trace-1", "X-Portal-User-Id": "55"}
+
+    assert proxy_module._websocket_connect_header_kwargs(headers) == {"additional_headers": headers}
+
+
+def test_websocket_connect_header_kwargs_uses_extra_headers_for_legacy_websockets(monkeypatch):
+    import app.api.proxy as proxy_module
+
+    def _fake_connect(uri, *, extra_headers=None):
+        return None
+
+    monkeypatch.setattr(proxy_module.websockets, "connect", _fake_connect)
+    headers = {"X-Trace-Id": "trace-1", "X-Portal-User-Id": "55"}
+
+    assert proxy_module._websocket_connect_header_kwargs(headers) == {"extra_headers": headers}
