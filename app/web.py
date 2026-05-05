@@ -2366,11 +2366,22 @@ async def app_agent_settings_save(request: Request, agent_id: str):
 
         try:
             sync_result = await runtime_profile_sync_service.sync_profile_to_bound_agents(db, runtime_profile)
-            if sync_result.get("failed_agent_ids"):
+            failed = sync_result.get("failed_agent_ids") or []
+            pending = sync_result.get("pending_restart_agent_ids") or []
+            partial = sync_result.get("partially_applied_agent_ids") or []
+            if failed:
                 status_type = "error"
                 status_message = (
                     "Runtime profile saved, but some running agents failed to sync: "
-                    + ", ".join(sync_result["failed_agent_ids"])
+                    + ", ".join(failed)
+                )
+            elif pending or partial:
+                status_type = "warning"
+                status_message = (
+                    f"Runtime profile saved with warnings. pending_restart: {', '.join(pending) or '-'}; "
+                    f"partially_applied: {', '.join(partial) or '-'}. "
+                    f"Applied agents: {sync_result.get('applied_running_count', 0)}, "
+                    f"skipped: {sync_result['skipped_not_running_count']}."
                 )
             else:
                 status_message = (
@@ -2534,7 +2545,21 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
         status_message = "Runtime profile saved."
         if config_changed:
             try:
-                await runtime_profile_sync_service.sync_profile_to_bound_agents(db, updated)
+                sync_result = await runtime_profile_sync_service.sync_profile_to_bound_agents(db, updated)
+                failed = sync_result.get("failed_agent_ids") or []
+                pending = sync_result.get("pending_restart_agent_ids") or []
+                partial = sync_result.get("partially_applied_agent_ids") or []
+                if failed:
+                    status_type = "error"
+                    status_message = "Runtime profile saved, but some running agents failed to sync: " + ", ".join(failed)
+                elif pending or partial:
+                    status_type = "warning"
+                    status_message = (
+                        f"Runtime profile saved with warnings. pending_restart: {', '.join(pending) or '-'}; "
+                        f"partially_applied: {', '.join(partial) or '-'}. "
+                        f"Applied agents: {sync_result.get('applied_running_count', 0)}, "
+                        f"skipped: {sync_result['skipped_not_running_count']}."
+                    )
             except Exception:
                 logger.exception("runtime profile fan-out sync failed after profile save profile_id=%s", updated.id)
                 status_type = "error"

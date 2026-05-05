@@ -482,8 +482,7 @@ class AgentGroupService:
         if getattr(payload, "visibility", None):
             visibility = payload.visibility
 
-        runtime_repo_url = normalize_git_repo_url(self.settings.default_agent_runtime_repo_url or self.settings.default_agent_repo_url)
-        runtime_branch = (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
+        runtime_repo_url, runtime_branch = self._runtime_source_overlay_snapshot()
         created = self.agent_repo.create(
             name=payload.name,
             description=f"ephemeral-task-agent:{payload.scope_label or group_id}",
@@ -545,6 +544,15 @@ class AgentGroupService:
             },
         )
         return created
+
+    def _runtime_source_overlay_snapshot(self) -> tuple[str | None, str | None]:
+        if not bool(getattr(self.settings, "enable_runtime_source_overlay", False)):
+            return None, None
+        repo_url = normalize_git_repo_url(self.settings.default_agent_runtime_repo_url)
+        if not repo_url:
+            return None, None
+        branch = (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
+        return repo_url, branch
 
     def delete_group_task_agent(
         self,

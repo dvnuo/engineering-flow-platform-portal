@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+import logging
 
 from app.config import get_settings
 from app.db import get_db
@@ -30,6 +31,7 @@ from app.utils.state_machine import can_transition, is_valid_status
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/defaults")
@@ -389,7 +391,11 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
                 payload_data = runtime_profile_sync_service.build_apply_payload_for_agent(db, agent, profile)
         else:
             payload_data = runtime_profile_sync_service.build_clear_payload_for_agent(db, agent)
-        await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
+        push_result = await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
+        push_ok = bool(push_result.ok) if hasattr(push_result, "ok") else bool(push_result)
+        push_status = getattr(push_result, "apply_status", "failed")
+        if not push_ok:
+            logger.warning("runtime profile sync push after update failed agent_id=%s status=%s", agent.id, push_status)
 
     k8s_reprovision_fields = {
         "runtime_type",
