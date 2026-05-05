@@ -209,6 +209,7 @@ class CapabilityContextService:
         unresolved_channels: list[str] = []
         unresolved_actions: list[str] = []
         resolved_action_mappings: dict[str, str] = {}
+        skill_details: list[dict] = []
 
         for tool_name in resolved.tool_set:
             normalized_id = self._normalize_tool_capability_id(tool_name, provider)
@@ -221,10 +222,20 @@ class CapabilityContextService:
 
         for skill_name in resolved.skill_set:
             normalized_id = self._normalize_skill_capability_id(skill_name, provider)
+            detail = provider.get_skill_detail(skill_name) or {}
             if not normalized_id:
                 unresolved_skills.append(skill_name)
-            elif normalized_id not in allowed_capability_ids:
-                allowed_capability_ids.append(normalized_id)
+            else:
+                if normalized_id not in allowed_capability_ids:
+                    allowed_capability_ids.append(normalized_id)
+            skill_details.append({
+                "name": skill_name,
+                "normalized_name": self._normalize_name(skill_name),
+                "capability_id": normalized_id,
+                "permission_state": detail.get("permission_state") or "unknown",
+                "runtime_compatibility": detail.get("runtime_compatibility") or "unknown",
+                "tool_mappings": detail.get("tool_mappings") or {},
+            })
         if resolved.skill_set:
             allowed_capability_types.append("skill")
 
@@ -266,6 +277,7 @@ class CapabilityContextService:
             "unresolved_channels": unresolved_channels,
             "unresolved_actions": unresolved_actions,
             "resolved_action_mappings": resolved_action_mappings,
+            "skill_details": skill_details,
             "runtime_capability_catalog_version": provider.get_catalog_version(),
             "runtime_capability_catalog_source": provider.get_catalog_source(),
             "catalog_validation_mode": "full_snapshot" if provider.has_full_catalog() else "seed_fallback",

@@ -81,8 +81,8 @@ def test_push_payload_to_agent_swallows_forward_exception(monkeypatch):
 
         monkeypatch.setattr(service.proxy_service, "forward", _raise_forward)
 
-        ok = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
-        assert ok is False
+        result = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
+        assert result.ok is False
     finally:
         db.close()
 
@@ -118,8 +118,8 @@ def test_push_payload_to_agent_uses_content_type_and_portal_trusted_headers(monk
 
         monkeypatch.setattr(service.proxy_service, "forward", _fake_forward)
 
-        ok = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
-        assert ok is True
+        result = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
+        assert result.ok is True
         assert captured["headers"] == {"content-type": "application/json"}
         assert captured["extra_headers"] == {"X-Portal-Author-Source": "portal"}
     finally:

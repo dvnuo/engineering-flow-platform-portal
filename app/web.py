@@ -126,10 +126,12 @@ def _status_tone_from_value(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     if normalized in {"done", "completed", "ready", "success"}:
         return "success"
-    if normalized in {"queued", "running", "draft", "in_progress"}:
+    if normalized in {"queued", "running", "draft", "in_progress", "stale", "pending_restart"}:
         return "warning"
-    if normalized in {"failed", "blocked", "missing", "error"}:
+    if normalized in {"failed", "blocked", "missing", "error", "cancel_failed"}:
         return "error"
+    if normalized in {"cancelled", "canceled"}:
+        return "info"
     if normalized in {"", "unknown", "none", "null"}:
         return "neutral"
     return "info"
@@ -2364,11 +2366,22 @@ async def app_agent_settings_save(request: Request, agent_id: str):
 
         try:
             sync_result = await runtime_profile_sync_service.sync_profile_to_bound_agents(db, runtime_profile)
+            pending = sync_result.get("pending_restart_agent_ids") or []
+            partial = sync_result.get("partially_applied_agent_ids") or []
             if sync_result.get("failed_agent_ids"):
                 status_type = "error"
                 status_message = (
                     "Runtime profile saved, but some running agents failed to sync: "
                     + ", ".join(sync_result["failed_agent_ids"])
+                )
+            elif pending or partial:
+                status_type = "warning"
+                status_message = (
+                    "Runtime profile saved with warnings. "
+                    f"Pending restart: {', '.join(pending) if pending else 'none'}. "
+                    f"Partially applied: {', '.join(partial) if partial else 'none'}. "
+                    f"Applied agents: {sync_result.get('applied_running_count', 0)}, "
+                    f"skipped: {sync_result['skipped_not_running_count']}."
                 )
             else:
                 status_message = (
@@ -2532,7 +2545,16 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
         status_message = "Runtime profile saved."
         if config_changed:
             try:
-                await runtime_profile_sync_service.sync_profile_to_bound_agents(db, updated)
+                sync_result = await runtime_profile_sync_service.sync_profile_to_bound_agents(db, updated)
+                failed = sync_result.get("failed_agent_ids") or []
+                pending = sync_result.get("pending_restart_agent_ids") or []
+                partial = sync_result.get("partially_applied_agent_ids") or []
+                if failed:
+                    status_type = "error"
+                    status_message = "Runtime profile saved, but some agents failed to sync: " + ", ".join(failed)
+                elif pending or partial:
+                    status_type = "warning"
+                    status_message = "Runtime profile saved with warnings. Pending restart: " + ", ".join(pending or ["none"])
             except Exception:
                 logger.exception("runtime profile fan-out sync failed after profile save profile_id=%s", updated.id)
                 status_type = "error"

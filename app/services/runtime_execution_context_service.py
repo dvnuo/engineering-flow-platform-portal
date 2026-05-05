@@ -77,6 +77,25 @@ class RuntimeExecutionContextService:
             denied_adapter_actions = self._as_string_list(permission_rules.get("denied_actions"))
         if denied_adapter_actions:
             derived_runtime_rules["denied_adapter_actions"] = denied_adapter_actions
+        strict_mode = permission_rules.get("external_tools_strict_mode")
+        if not isinstance(strict_mode, bool):
+            strict_mode = permission_rules.get("tools_strict_mode")
+        if isinstance(strict_mode, bool):
+            derived_runtime_rules["external_tools_strict_mode"] = strict_mode
+        defaults = {}
+        for key, label in [("write_tool_default", "write"), ("mutation_tool_default", "mutation")]:
+            value = permission_rules.get(key)
+            if isinstance(value, str) and value in {"allow", "ask", "deny"}:
+                defaults[label] = value
+        if defaults:
+            derived_runtime_rules["tool_permission_defaults"] = defaults
+        for key in [
+            "allowed_write_tools", "ask_write_tools", "denied_write_tools",
+            "allowed_mutation_tools", "ask_mutation_tools", "denied_mutation_tools",
+        ]:
+            values = self._as_string_list(permission_rules.get(key))
+            if values:
+                derived_runtime_rules[key] = values
 
         return policy_profile_id, {
             "policy_profile_id": policy_profile_id,
@@ -165,6 +184,7 @@ class RuntimeExecutionContextService:
         metadata["unresolved_channels"] = capability_context.get("unresolved_channels", [])
         metadata["unresolved_actions"] = capability_context.get("unresolved_actions", [])
         metadata["resolved_action_mappings"] = capability_context.get("resolved_action_mappings", {})
+        metadata["skill_details"] = capability_context.get("skill_details", [])
         metadata["runtime_capability_catalog_version"] = capability_context.get("runtime_capability_catalog_version")
         metadata["runtime_capability_catalog_source"] = capability_context.get("runtime_capability_catalog_source")
         metadata["catalog_validation_mode"] = capability_context.get("catalog_validation_mode")

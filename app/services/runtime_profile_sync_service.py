@@ -1,6 +1,7 @@
 import json
 import logging
 from copy import deepcopy
+from dataclasses import asdict, dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +12,18 @@ from app.services.proxy_service import ProxyService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RuntimeProfilePushResult:
+    agent_id: str
+    ok: bool
+    status_code: int | None
+    apply_status: str
+    pending_restart: bool = False
+    partially_applied: bool = False
+    message: str = ""
+    raw_body_preview: str = ""
 
 
 class RuntimeProfileSyncService:
@@ -160,25 +173,48 @@ class RuntimeProfileSyncService:
         updated_running_count = 0
         skipped_not_running_count = 0
         failed_agent_ids: list[str] = []
+        pending_restart_agent_ids: list[str] = []
+        partially_applied_agent_ids: list[str] = []
+        applied_running_count = 0
+        results: list[dict] = []
 
         for agent in agents:
             if (agent.status or "").lower() != "running":
                 skipped_not_running_count += 1
                 continue
             payload = self.build_apply_payload_for_agent(db, agent, runtime_profile)
-            ok = await self.push_payload_to_agent(agent, payload)
-            if ok:
+            result = await self.push_payload_to_agent(agent, payload)
+            if isinstance(result, bool):
+                result = RuntimeProfilePushResult(
+                    agent_id=str(agent.id),
+                    ok=result,
+                    status_code=None,
+                    apply_status="applied" if result else "failed",
+                )
+            results.append(asdict(result))
+            if result.ok:
                 updated_running_count += 1
+                if result.pending_restart:
+                    pending_restart_agent_ids.append(agent.id)
+                if result.partially_applied:
+                    partially_applied_agent_ids.append(agent.id)
+                if not result.pending_restart and not result.partially_applied:
+                    applied_running_count += 1
             else:
                 failed_agent_ids.append(agent.id)
 
         return {
             "updated_running_count": updated_running_count,
+            "applied_running_count": applied_running_count,
+            "pending_restart_agent_ids": pending_restart_agent_ids,
+            "partially_applied_agent_ids": partially_applied_agent_ids,
             "skipped_not_running_count": skipped_not_running_count,
             "failed_agent_ids": failed_agent_ids,
+            "results": results,
         }
 
-    async def push_payload_to_agent(self, agent, payload: dict) -> bool:
+    async def push_payload_to_agent(self, agent, payload: dict) -> RuntimeProfilePushResult:
+        agent_id = str(getattr(agent, "id", "-"))
         try:
             headers = {"content-type": "application/json"}
             status_code, content, _ = await self.proxy_service.forward(
@@ -196,7 +232,8 @@ class RuntimeProfileSyncService:
                 getattr(agent, "id", "-"),
                 exc,
             )
-            return False
+            return RuntimeProfilePushResult(agent_id=agent_id, ok=False, status_code=None, apply_status="error", message=str(exc))
+        body_preview = content.decode("utf-8", errors="ignore")[:400]
 
         if status_code >= 400:
             logger.warning(
@@ -205,5 +242,28 @@ class RuntimeProfileSyncService:
                 status_code,
                 content.decode("utf-8", errors="ignore"),
             )
-            return False
-        return True
+            return RuntimeProfilePushResult(
+                agent_id=agent_id, ok=False, status_code=status_code, apply_status="failed", message=body_preview, raw_body_preview=body_preview
+            )
+        parsed = {}
+        try:
+            parsed = json.loads(content.decode("utf-8", errors="ignore")) if content else {}
+        except Exception:
+            parsed = {}
+        if not isinstance(parsed, dict):
+            parsed = {}
+        apply_status = str(parsed.get("status") or parsed.get("apply_status") or ("applied" if parsed.get("ok") is not False else "failed")).strip().lower()
+        pending_restart = bool(parsed.get("pending_restart")) or apply_status == "pending_restart"
+        partially_applied = apply_status in {"partially_applied", "partial"} or bool(parsed.get("partially_applied"))
+        ok = status_code < 400 and parsed.get("ok") is not False and apply_status not in {"failed", "error"}
+        message = str(parsed.get("message") or parsed.get("detail") or "")
+        return RuntimeProfilePushResult(
+            agent_id=agent_id,
+            ok=ok,
+            status_code=status_code,
+            apply_status=apply_status or "applied",
+            pending_restart=pending_restart,
+            partially_applied=partially_applied,
+            message=message,
+            raw_body_preview=body_preview,
+        )

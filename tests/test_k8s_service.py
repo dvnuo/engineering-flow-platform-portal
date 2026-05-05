@@ -24,6 +24,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.service.settings.agents_volume_sub_path_prefix = "efp-agents"
 
     def test_native_runtime_clones_runtime_skills_and_tools_to_app_asset_dirs(self):
+        self.service.settings.enable_runtime_source_overlay = True
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
         self.service.settings.default_agent_runtime_branch = "runtime-main"
         self.service.settings.default_skill_repo_url = "https://github.com/acme/skills-default.git"
@@ -49,6 +50,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("/tools-code", tools_init.args[0])
 
     def test_opencode_runtime_clones_skills_and_tools_to_app_asset_dirs_without_native_runtime_mounts(self):
+        self.service.settings.enable_runtime_source_overlay = True
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
         self.service.settings.default_skill_repo_url = "https://github.com/acme/skills-default.git"
         agent = SimpleNamespace(
@@ -178,11 +180,10 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(container["name"], "agent")
         self.assertEqual(container["workingDir"], "/workspace")
         mount_paths = {m["mountPath"] for m in container["volumeMounts"]}
-        self.assertEqual(mount_paths, {"/workspace", "/home/opencode/.local/share/opencode", "/home/opencode/.local/share/efp-compat"})
+        self.assertEqual(mount_paths, {"/workspace", "/home/opencode/.local/share/opencode", "/home/opencode/.local/share/efp-compat", "/app/tools"})
         self.assertNotIn("/app/src", mount_paths)
         self.assertNotIn("/app/.git", mount_paths)
         self.assertNotIn("/app/skills", mount_paths)
-        self.assertNotIn("/app/tools", mount_paths)
         volumes = body["spec"]["template"]["spec"]["volumes"]
         self.assertEqual(volumes[0]["persistentVolumeClaim"]["claimName"], "efp-agents-efs-pvc")
 

@@ -415,7 +415,7 @@ class TaskDispatcherService:
             trace_context=trace_context,
             raw_response_preview=raw_response_preview,
         )
-        if outcome.terminal_status in {"done", "failed", "stale"}:
+        if outcome.terminal_status in {"done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"}:
             try:
                 return "terminal", json.loads(outcome.result_payload_json), outcome
             except Exception:
@@ -538,7 +538,7 @@ class TaskDispatcherService:
 
         normalized_payload_json = json.dumps(response_json)
         normalized_status = str(status_value).lower()
-        supported_statuses = {"success", "error", "blocked", "accepted", "running"}
+        supported_statuses = {"success", "error", "blocked", "accepted", "running", "done", "completed", "failed", "stale", "cancelled", "canceled", "pending_restart", "cancel_failed"}
         if normalized_status not in supported_statuses:
             payload = {
                 "ok": False,
@@ -583,7 +583,7 @@ class TaskDispatcherService:
                 runtime_status_code=runtime_status_code,
             )
 
-        if normalized_status in {"error", "blocked"} or ok_value is False:
+        if normalized_status in {"error", "blocked", "failed"} or ok_value is False:
             return NormalizedRuntimeOutcome(
                 terminal_status="failed",
                 result_payload_json=normalized_payload_json,

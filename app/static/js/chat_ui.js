@@ -974,7 +974,7 @@ function isTrackableThinkingEvent(type) {
     "skill_compaction", "skill_complete",
     // Active skill contract events
     "skill_runtime_applied", "skill_contract_active",
-    "skill_tool_denied", "skill_contract_cleared"
+    "skill_tool_denied", "skill_contract_cleared", "usage.updated", "message.started", "message.delta", "message.completed", "tool.started", "tool.completed", "tool.failed", "permission.requested", "permission.resolved", "skill.loaded", "task.started", "task.completed", 
   ].includes(type);
 }
 
@@ -1077,6 +1077,8 @@ function getThinkingEventDisplay(event) {
     return pieces.join(" · ") || fallback;
   };
   const byType = {
+    "tool.started": { icon: "wrench", title: "Tool Started", detail: data.tool || data.name || "Tool started" },
+    "permission.requested": { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
     "execution.started": { icon: "play-circle", title: "Execution Started", detail: data.message || "Execution started" },
     "execution.completed": { icon: "flag", title: "Execution Completed", detail: data.message || "Execution complete", response: data.response, total_iterations: data.total_iterations },
     "execution.failed": { icon: "x-circle", title: "Execution Failed", detail: data.error || data.message || "Execution failed" },
@@ -2949,6 +2951,8 @@ async function submitChatForSelectedAgent() {
   setChatSubmittingForAgent(agentIdAtSend, true);
 
   try {
+    const streamResult = await trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody);
+    if (streamResult === "handled") return;
     const resp = await fetch(`/a/${agentIdAtSend}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -7568,3 +7572,14 @@ function saveSystemPromptSection(agentId, section) {
     showToast('Failed to save: ' + e.message);
   });
 }
+
+
+async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
+  const resp = await fetch(`/a/${agentIdAtSend}/api/chat/stream`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(requestBody) });
+  if ([404,405,501].includes(resp.status) || !resp.body) return "unsupported";
+  if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+  return "unsupported";
+}
+
+function handleChatStreamEvent() { return null; }
+function updatePendingAssistantStreamContent() { return null; }

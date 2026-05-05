@@ -478,8 +478,9 @@ class AgentGroupService:
         if getattr(payload, "visibility", None):
             visibility = payload.visibility
 
-        runtime_repo_url = normalize_git_repo_url(self.settings.default_agent_runtime_repo_url or self.settings.default_agent_repo_url)
-        runtime_branch = (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
+        overlay_enabled = bool(getattr(self.settings, "enable_runtime_source_overlay", False))
+        runtime_repo_url = normalize_git_repo_url(self.settings.default_agent_runtime_repo_url) if overlay_enabled else None
+        runtime_branch = ((self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master") if runtime_repo_url else None
         created = self.agent_repo.create(
             name=payload.name,
             description=f"ephemeral-task-agent:{payload.scope_label or group_id}",
