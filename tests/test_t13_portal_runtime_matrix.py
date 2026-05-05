@@ -157,8 +157,9 @@ def test_t13_runtime_profile_sync_uses_internal_apply_contract_for_all_runtime_t
             service_name=f"svc-{runtime_type}",
             runtime_type=runtime_type,
         )
-        ok = asyncio.run(service.push_payload_to_agent(agent, {"x": 1}))
-        assert ok is True
+        result = asyncio.run(service.push_payload_to_agent(agent, {"x": 1}))
+        assert result.ok is True
+        assert result.apply_status == "applied"
         assert captured["subpath"] == "api/internal/runtime-profile/apply"
         assert "/config" not in captured["subpath"]
         assert "/auth" not in captured["subpath"]

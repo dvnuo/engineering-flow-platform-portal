@@ -1670,3 +1670,29 @@ def test_thinking_process_advanced_debug_copy_controls_are_wired():
     assert ".portal-copy-icon-btn" in css
     assert ".portal-copy-icon-btn.is-copied" in css
     assert ".portal-copyable-text-head" in css
+
+def test_chat_stream_event_type_parsing_source_markers_present():
+    js = _chat_ui_js_source()
+    assert 'function getChatStreamEventType(eventName, data)' in js
+    assert 'data.type || data.event_type || data.event' in js
+    assert 'hasExplicitEvent = false' in js
+    assert 'if (!dataLines.length && !hasExplicitEvent) return null;' in js
+    assert 'const t = getChatStreamEventType(eventName, data);' in js
+    assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+    assert '/api/chat/stream' in js
+    assert 'getReader()' in js
+    assert 'TextDecoder()' in js
+    assert '/api/chat' in js
+    assert 'message.delta' in js
+
+
+def test_skills_panel_badges_and_command_guard_source_markers_present():
+    from pathlib import Path
+    html = Path('app/templates/partials/skills_panel.html').read_text(encoding='utf-8')
+    assert 'portal-status-badge' in html
+    assert 'data-skill-command="/{{ normalized_skill_name }}"' in html
+    assert 'Prompt-only in this runtime; Python skill.py is not executed.' in html
+    py = Path('app/web.py').read_text(encoding='utf-8')
+    assert 'def _normalize_permission_state(value) -> str:' in py
+    assert 'def _normalize_runtime_compatibility(value) -> str:' in py
+    assert 'disabled_reasons = []' in py

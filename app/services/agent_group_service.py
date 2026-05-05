@@ -670,6 +670,10 @@ class AgentGroupService:
             "blocked": 0,
             "done": 0,
             "failed": 0,
+            "stale": 0,
+            "cancelled": 0,
+            "pending_restart": 0,
+            "cancel_failed": 0,
         }
         for delegation in delegations:
             if delegation.status in counts:

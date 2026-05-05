@@ -2981,19 +2981,26 @@ async function submitChatForSelectedAgent() {
 
 
 function parseSseEvent(rawEvent) {
-  const lines = String(rawEvent || '').split(/\n/);
+  const lines = String(rawEvent || '').replace(/\r\n/g, '\n').split('\n');
   let eventName = 'message';
+  let hasExplicitEvent = false;
   const dataLines = [];
   for (const line of lines) {
     if (!line || line.startsWith(':')) continue;
-    if (line.startsWith('event:')) eventName = line.slice(6).trim() || 'message';
+    if (line.startsWith('event:')) { hasExplicitEvent = true; eventName = line.slice(6).trim() || 'message'; }
     else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
   }
-  if (!dataLines.length && !eventName) return null;
+  if (!dataLines.length && !hasExplicitEvent) return null;
   const rawData = dataLines.join('\n');
   let data = rawData;
   try { data = JSON.parse(rawData); } catch {}
   return { eventName: eventName || 'message', data };
+}
+function getChatStreamEventType(eventName, data) {
+  const explicitEventName = String(eventName || "").trim();
+  const dataType = data && typeof data === "object" ? String(data.type || data.event_type || data.event || "").trim() : "";
+  if (!explicitEventName || explicitEventName === "message") return (dataType || explicitEventName || "message").toLowerCase();
+  return explicitEventName.toLowerCase();
 }
 
 function updatePendingAssistantStreamContent(agentId, markdownText) {
@@ -3005,7 +3012,7 @@ function updatePendingAssistantStreamContent(agentId, markdownText) {
 }
 
 async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
-  const t = String(eventName || data?.type || data?.event_type || '').toLowerCase();
+  const t = getChatStreamEventType(eventName, data);
   if (["message.delta","delta"].includes(t)) {
     const deltaText = typeof data === 'string' ? data : (data?.delta || data?.text || data?.content || data?.response_delta || '');
     requestCtx.streamedText = (requestCtx.streamedText || '') + (deltaText || '');
@@ -3016,7 +3023,8 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: data?.response || data?.content || data?.text || requestCtx.streamedText || '', display_blocks: data?.display_blocks || [], session_id: data?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: data?.user_message_id || '', request_id: data?.request_id || requestCtx.clientRequestId, events: data?.events || [], runtime_events: data?.runtime_events || []});
     return 'final';
   }
-  handleAgentEventMessage(JSON.stringify(typeof data === 'object' ? { event_type: t, data } : { event_type: t, data: {message: String(data||'')}}), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || '', requestId: requestCtx.clientRequestId});
+  const hasDataEventType = !!(data && typeof data === "object" && (data.type || data.event_type || data.event));
+  handleAgentEventMessage(JSON.stringify(typeof data === 'object' ? { event_type: hasDataEventType ? t : String(eventName || t || "message").toLowerCase(), data } : { event_type: t, data: {message: String(data||'')}}), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || '', requestId: requestCtx.clientRequestId});
   return 'event';
 }
 
@@ -3033,6 +3041,10 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   } catch (e) { if (sawEvent) throw e; return 'unsupported'; }
   if (sawFinal) return 'handled';
   if (requestCtx.streamedText) { await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: requestCtx.streamedText, session_id: requestCtx.sessionIdAtSend || '', request_id: requestCtx.clientRequestId, events: requestCtx.streamEvents || [], runtime_events: requestCtx.runtimeEvents || []}); return 'handled'; }
+  if (sawEvent && !sawFinal && !requestCtx.streamedText) {
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: "", session_id: requestCtx.sessionIdAtSend || "", request_id: requestCtx.clientRequestId, events: requestCtx.streamEvents || [], runtime_events: requestCtx.runtimeEvents || []});
+    return "handled";
+  }
   return sawEvent ? 'handled' : 'unsupported';
 }
 

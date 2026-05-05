@@ -802,3 +802,16 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert "source" not in public_body
     finally:
         cleanup()
+
+def test_group_task_board_template_contains_new_status_chips_source():
+    from pathlib import Path
+    html = Path('app/templates/partials/group_task_board.html').read_text(encoding='utf-8')
+    for token in ('Stale', 'Cancelled', 'Pending restart', 'Cancel failed'):
+        assert token in html
+
+
+def test_group_task_board_counts_include_new_statuses_source():
+    from pathlib import Path
+    src = Path('app/services/agent_group_service.py').read_text(encoding='utf-8')
+    for token in ('"stale": 0', '"cancelled": 0', '"pending_restart": 0', '"cancel_failed": 0'):
+        assert token in src

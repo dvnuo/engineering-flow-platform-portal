@@ -6,7 +6,12 @@
     {% if normalized_skill_name %}
     <button type="button" class="portal-panel-section" {% if skill.disabled %}disabled aria-disabled="true" title="{{ skill.disabled_reason }}"{% else %}data-skill-command="/{{ normalized_skill_name }}" title="Insert /{{ normalized_skill_name }}"{% endif %}>
       <div class="portal-bundle-title">/{{ normalized_skill_name }}</div>
-      <div class="portal-panel-note">Capability: {{ 'allowed' if skill.capability_allowed else 'denied' }} · Permission: {{ skill.permission_state }} · Runtime: {{ skill.runtime_compatibility }}</div>
+      {% if skill.description %}<div class="portal-panel-note">{{ skill.description }}</div>{% endif %}
+      <div class="portal-panel-note">
+        <span class="portal-status-badge {{ 'is-success' if skill.capability_allowed else 'is-error' }}">Capability: {{ 'allowed' if skill.capability_allowed else 'denied' }}</span>
+        <span class="portal-status-badge {{ 'is-success' if skill.permission_state == 'allowed' else ('is-error' if skill.permission_state in ['denied', 'blocked'] else 'is-warning') }}">Permission: {{ skill.permission_state }}</span>
+        <span class="portal-status-badge {{ 'is-success' if skill.runtime_compatibility == 'full' else ('is-error' if skill.runtime_compatibility == 'unsupported' else 'is-warning') }}">Runtime: {{ skill.runtime_compatibility }}</span>
+      </div>
       {% if skill.prompt_only %}<div class="portal-panel-note">Prompt-only in this runtime; Python skill.py is not executed.</div>{% endif %}
     </button>{% endif %}
   {% endfor %}</div>{% else %}<div class="portal-panel-empty">No skills available.</div>{% endif %}

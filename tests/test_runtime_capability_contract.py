@@ -196,3 +196,8 @@ def _validation_error(fn):
     except CapabilityProfileValidationError as exc:
         return exc.detail
     raise AssertionError("expected validation error")
+
+def test_runtime_capability_context_skill_details_source_marker():
+    from pathlib import Path
+    src = Path('app/services/capability_context_service.py').read_text(encoding='utf-8')
+    assert 'skill_details' in src

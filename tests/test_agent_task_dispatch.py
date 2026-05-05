@@ -653,3 +653,23 @@ def test_github_review_automation_dispatch_does_not_use_chat_endpoint():
     assert "github_review_task" in automation_sources
     assert "/api/chat" not in automation_sources
     assert "/api/chat/stream" not in automation_sources
+
+def test_coordination_run_status_priority_source_markers_present():
+    from pathlib import Path
+    src = Path('app/services/task_dispatcher.py').read_text(encoding='utf-8')
+    assert 'elif counts["pending_restart"] > 0' in src
+    assert 'elif counts["cancel_failed"] > 0 or counts["failed"] > 0' in src
+    assert 'elif counts["stale"] > 0' in src
+    assert 'counts["cancelled"] == len(delegations)' in src
+    assert '"pending_restart": counts["pending_restart"]' in src
+
+
+def test_delegation_error_branch_and_cleanup_policy_source_markers_present():
+    from pathlib import Path
+    src = Path('app/services/task_dispatcher.py').read_text(encoding='utf-8')
+    assert 'mapped_status = self._delegation_status_from_task_status(terminal_status)' in src
+    assert 'Runtime reported pending_restart; restart is required before this delegation can complete.' in src
+    assert 'Task was cancelled.' in src
+    assert 'Runtime reported task is stale.' in src
+    assert 'Runtime failed to cancel task.' in src
+    assert 'return delegation_status in {"done", "failed", "stale", "cancelled", "cancel_failed"}' in src

@@ -217,3 +217,10 @@ def test_runtime_metadata_includes_tool_permission_governance(monkeypatch):
     assert metadata["tool_permission_defaults"] == {"write": "ask", "mutation": "deny"}
     assert metadata["allowed_write_tools"] == ["git.commit"]
     assert metadata["write_tool_policy"] == {"mode": "allowlist"}
+
+def test_runtime_metadata_skill_details_and_policy_defaults_source_markers():
+    from pathlib import Path
+    src = Path('app/services/runtime_execution_context_service.py').read_text(encoding='utf-8')
+    assert 'skill_details' in src
+    assert 'external_tools_strict_mode' in src
+    assert 'tool_permission_defaults' in src
