@@ -264,3 +264,59 @@ def test_sync_profile_to_bound_agents_builds_payload_per_running_agent(monkeypat
         assert result["updated_running_count"] == 2
     finally:
         db.close()
+
+
+def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists_while_merging_context():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = (
+            '{"llm":{"provider":"openai"},'
+            '"allowed_capability_ids":["tool:runtime-only","opencode.skill.existing-skill"],'
+            '"allowed_capability_types":["adapter_action","skill","tool"],'
+            '"allowed_external_systems":["github"],'
+            '"allowed_actions":["runtime.action"],'
+            '"allowed_adapter_actions":["runtime.adapter"],'
+            '"derived_runtime_rules":{"from_runtime_profile":true}}'
+        )
+        capability = CapabilityProfile(
+            name="cp-merge",
+            skill_set_json='["review-pull-request"]',
+            allowed_external_systems_json='["jira"]',
+            allowed_actions_json='["jira.transition"]',
+        )
+        policy = PolicyProfile(
+            name="pp-merge",
+            auto_run_rules_json='{"require_explicit_allow": true}',
+            permission_rules_json="{}",
+        )
+        db.add_all([capability, policy, rp])
+        db.commit()
+        db.refresh(rp)
+        running.capability_profile_id = capability.id
+        running.policy_profile_id = policy.id
+        db.add(running)
+        db.commit()
+        db.refresh(running)
+
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        original_config = rp.config_json
+        payload = service.build_apply_payload_for_agent(db, running, rp)
+        cfg = payload["config"]
+        assert rp.config_json == original_config
+        assert "tool:runtime-only" in cfg["allowed_capability_ids"]
+        assert "opencode.skill.existing-skill" in cfg["allowed_capability_ids"]
+        assert "skill:review-pull-request" in cfg["allowed_capability_ids"]
+        assert "opencode.skill.review-pull-request" in cfg["allowed_capability_ids"]
+        assert "adapter_action" in cfg["allowed_capability_types"]
+        assert "skill" not in cfg["allowed_capability_types"]
+        assert "tool" not in cfg["allowed_capability_types"]
+        assert "github" in cfg["allowed_external_systems"]
+        assert "jira" in cfg["allowed_external_systems"]
+        assert "runtime.action" in cfg["allowed_actions"]
+        assert "runtime.adapter" in cfg["allowed_adapter_actions"]
+        assert cfg["derived_runtime_rules"]["from_runtime_profile"] is True
+        assert cfg["derived_runtime_rules"]["governance_require_explicit_allow"] is True
+        assert "review-pull-request" in cfg["capability_context"]["skill_set"]
+        assert isinstance(cfg["policy_context"], dict)
+    finally:
+        db.close()

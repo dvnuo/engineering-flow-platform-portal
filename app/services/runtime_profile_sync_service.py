@@ -46,31 +46,111 @@ class RuntimeProfileSyncService:
         hyphen = raw.replace("_", "-")
         return {raw, hyphen, f"skill:{raw}", f"skill:{hyphen}", f"opencode.skill.{raw}", f"opencode.skill.{hyphen}"}
 
+    @staticmethod
+    def _as_string_list(value) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        result: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                normalized = item.strip()
+                if normalized:
+                    result.append(normalized)
+        return result
+
+    @staticmethod
+    def _merge_string_lists(*values) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            for item in RuntimeProfileSyncService._as_string_list(value):
+                key = item.strip().lower()
+                if key and key not in seen:
+                    seen.add(key)
+                    result.append(item)
+        return result
+
+    @staticmethod
+    def _filter_broad_capability_types(values) -> list[str]:
+        return [
+            item for item in RuntimeProfileSyncService._as_string_list(values)
+            if item.strip().lower() not in {"skill", "tool"}
+        ]
+
+    @staticmethod
+    def _as_dict(value) -> dict:
+        return dict(value) if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _raw_profile_config(runtime_profile) -> dict:
+        raw = getattr(runtime_profile, "config_json", None)
+        if not isinstance(raw, str) or not raw.strip():
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
     def _merge_agent_runtime_context_into_config(self, config: dict, execution_context: dict) -> dict:
         merged = deepcopy(config) if isinstance(config, dict) else {}
         capability_context = dict((execution_context or {}).get("capability_context") or {})
         policy_context = dict((execution_context or {}).get("policy_context") or {})
 
-        allowed_ids = set(capability_context.get("allowed_capability_ids") or [])
-        for skill_name in capability_context.get("skill_set") or []:
-            allowed_ids.update(self._skill_aliases(skill_name))
-        filtered_types = [
-            item for item in (capability_context.get("allowed_capability_types") or [])
-            if str(item).strip().lower() not in {"skill", "tool"}
-        ]
+        skill_aliases: list[str] = []
+        for skill_name in self._as_string_list(capability_context.get("skill_set")):
+            skill_aliases.extend(sorted(self._skill_aliases(skill_name)))
 
         merged["capability_context"] = capability_context
         merged["policy_context"] = policy_context
-        merged["allowed_capability_ids"] = sorted(allowed_ids)
-        merged["allowed_capability_types"] = filtered_types
-        merged["allowed_external_systems"] = capability_context.get("allowed_external_systems") or []
-        merged["allowed_actions"] = capability_context.get("allowed_actions") or []
-        merged["allowed_adapter_actions"] = capability_context.get("allowed_adapter_actions") or []
-        merged["derived_runtime_rules"] = policy_context.get("derived_runtime_rules") or {}
+
+        merged["allowed_capability_ids"] = self._merge_string_lists(
+            merged.get("allowed_capability_ids"),
+            capability_context.get("allowed_capability_ids"),
+            skill_aliases,
+        )
+        merged["allowed_capability_types"] = self._filter_broad_capability_types(
+            self._merge_string_lists(
+                merged.get("allowed_capability_types"),
+                capability_context.get("allowed_capability_types"),
+            )
+        )
+        merged["allowed_external_systems"] = self._merge_string_lists(
+            merged.get("allowed_external_systems"),
+            capability_context.get("allowed_external_systems"),
+        )
+        merged["allowed_actions"] = self._merge_string_lists(
+            merged.get("allowed_actions"),
+            capability_context.get("allowed_actions"),
+        )
+        merged["allowed_adapter_actions"] = self._merge_string_lists(
+            merged.get("allowed_adapter_actions"),
+            capability_context.get("allowed_adapter_actions"),
+        )
+        existing_rules = self._as_dict(merged.get("derived_runtime_rules"))
+        policy_rules = self._as_dict(policy_context.get("derived_runtime_rules"))
+        merged["derived_runtime_rules"] = {**existing_rules, **policy_rules}
+        for key in ["unresolved_tools", "unresolved_skills", "unresolved_channels", "unresolved_actions"]:
+            merged[key] = capability_context.get(key) or []
+        merged["resolved_action_mappings"] = capability_context.get("resolved_action_mappings") or {}
+        merged["runtime_capability_catalog_version"] = capability_context.get("runtime_capability_catalog_version")
+        merged["runtime_capability_catalog_source"] = capability_context.get("runtime_capability_catalog_source")
+        merged["catalog_validation_mode"] = capability_context.get("catalog_validation_mode")
         return merged
 
     def build_apply_payload_for_agent(self, db: Session, agent, runtime_profile) -> dict:
         payload = self.build_apply_payload_from_profile(runtime_profile)
+        raw_config = self._raw_profile_config(runtime_profile)
+        for key in [
+            "allowed_capability_ids",
+            "allowed_capability_types",
+            "allowed_external_systems",
+            "allowed_actions",
+            "allowed_adapter_actions",
+            "derived_runtime_rules",
+        ]:
+            if key in raw_config and key not in payload["config"]:
+                payload["config"][key] = deepcopy(raw_config.get(key))
         execution_context = self.execution_context_service.build_for_agent(db, agent)
         payload["config"] = self._merge_agent_runtime_context_into_config(payload["config"], execution_context)
         return payload

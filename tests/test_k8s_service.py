@@ -62,6 +62,16 @@ class K8sServiceNoopTest(unittest.TestCase):
         )
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
         self.assertEqual({c.name for c in inits}, {"opencode-persistent-dirs-init", "skills-git-clone", "tools-git-clone"})
+        state_init = next(c for c in inits if c.name == "opencode-persistent-dirs-init")
+        state_env = {e.name: e.value for e in state_init.env}
+        self.assertEqual(state_env["AGENT_STATE_ROOT"], "/agent-data/efp-agents/a2")
+        self.assertEqual(state_init.volume_mounts[0].mount_path, "/agent-data")
+        self.assertIsNone(getattr(state_init.volume_mounts[0], "sub_path", None))
+        command = state_init.args[0]
+        self.assertIn("$AGENT_STATE_ROOT/data/.opencode", command)
+        self.assertIn("$AGENT_STATE_ROOT/opencode-state", command)
+        self.assertIn("$AGENT_STATE_ROOT/adapter-state", command)
+        self.assertIn("chown -R 10001:10001", command)
         self.assertNotIn("runtime-git-clone", {c.name for c in inits})
         clone_env = {e.name: e.value for e in next(c for c in inits if c.name == "tools-git-clone").env if getattr(e, "value", None)}
         self.assertEqual(clone_env["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
@@ -75,6 +85,10 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("/app/tools", mount_paths)
         self.assertIn("/home/opencode/.local/share/opencode", mount_paths)
         self.assertIn("/home/opencode/.local/share/efp-compat", mount_paths)
+        mounts_by_path = {m.mount_path: m for m in mounts}
+        self.assertEqual(mounts_by_path["/home/opencode/.local/share/opencode"].sub_path, "efp-agents/a2/opencode-state")
+        self.assertEqual(mounts_by_path["/home/opencode/.local/share/efp-compat"].sub_path, "efp-agents/a2/adapter-state")
+        self.assertEqual(mounts_by_path["/workspace"].sub_path, "efp-agents/a2/data")
         self.assertNotIn("/workspace/tools", mount_paths)
         self.assertNotIn("/workspace-data", mount_paths)
 

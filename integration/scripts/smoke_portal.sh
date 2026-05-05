@@ -8,4 +8,5 @@ pytest tests/test_agent_runtime_type_schema.py \
        tests/test_k8s_service.py \
        tests/test_proxy_api.py \
        tests/test_proxy_websocket.py \
+       tests/test_proxy_identity_headers.py \
        tests/test_runtime_profile_sync_service.py

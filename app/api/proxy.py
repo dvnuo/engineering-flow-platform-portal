@@ -280,7 +280,7 @@ async def proxy_agent(
             client = httpx.AsyncClient(timeout=None)
             try:
                 upstream_response = await client.stream(
-                    method="POST",
+                    method=request.method.upper(),
                     url=upstream_url,
                     params=_filter_proxy_query_items(request.query_params.multi_items()),
                     content=request_body,
