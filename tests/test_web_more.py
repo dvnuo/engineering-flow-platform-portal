@@ -1872,3 +1872,11 @@ def test_annotate_skill_for_panel_reads_metadata_compatibility_and_tool_mappings
         assert "Prompt-only in this runtime; Python skill.py is not executed." in html_prompt_only
     finally:
         db.close()
+
+
+def test_chat_stream_treats_message_typed_delta_payloads_as_message_delta():
+    js = _chat_ui_js_source()
+    assert "normalizedDataType" in js
+    assert 'normalizedDataType === "message"' in js
+    assert "isChatStreamDeltaPayload(data)" in js
+    assert 'return "message.delta";' in js

@@ -125,10 +125,24 @@ class RuntimeCapabilityCatalogProvider:
             enabled = item.get("enabled", True)
             action_alias = item.get("action_alias") or item.get("action")
             adapter_system = item.get("adapter_system") or item.get("external_system")
-            permission_state = item.get("permission_state")
-            runtime_compatibility = item.get("runtime_compatibility") or item.get("compatibility") or item.get("opencode_compatibility")
-            tool_mappings = item.get("tool_mappings") if isinstance(item.get("tool_mappings"), dict) else None
             metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else None
+            metadata_dict = metadata or {}
+            permission_state = item.get("permission_state") or metadata_dict.get("permission_state")
+            runtime_compatibility = (
+                item.get("runtime_compatibility")
+                or item.get("compatibility")
+                or item.get("opencode_compatibility")
+                or metadata_dict.get("runtime_compatibility")
+                or metadata_dict.get("compatibility")
+                or metadata_dict.get("opencode_compatibility")
+            )
+            tool_mappings = (
+                item.get("tool_mappings")
+                if isinstance(item.get("tool_mappings"), dict)
+                else metadata_dict.get("tool_mappings")
+                if isinstance(metadata_dict.get("tool_mappings"), dict)
+                else None
+            )
             if not isinstance(capability_id, str):
                 continue
             entries.append(
