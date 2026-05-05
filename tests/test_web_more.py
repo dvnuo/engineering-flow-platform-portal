@@ -1720,6 +1720,15 @@ def test_chat_stream_runtime_events_include_request_session_agent_metadata():
     assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
 
 
+def test_chat_stream_treats_untyped_delta_payloads_as_message_delta():
+    js = _chat_ui_js_source()
+    assert "function isChatStreamDeltaPayload(data)" in js
+    assert 'Object.prototype.hasOwnProperty.call(data, "delta")' in js
+    assert 'Object.prototype.hasOwnProperty.call(data, "response_delta")' in js
+    assert 'return "message.delta";' in js
+    assert "isChatStreamDeltaPayload(data)" in js
+
+
 def test_skills_panel_template_behavior_for_disabled_and_enabled_skills():
     from app.web import templates
     tpl = templates.get_template("partials/skills_panel.html")
@@ -1789,5 +1798,77 @@ def test_annotate_skill_for_panel_allows_hyphen_skill_from_underscore_capability
         tpl = __import__("app.web", fromlist=["templates"]).templates.get_template("partials/skills_panel.html")
         html = tpl.render({"skills": [annotated]})
         assert 'data-skill-command="/review-pull-request"' in html
+    finally:
+        db.close()
+
+
+def test_annotate_skill_for_panel_reads_metadata_compatibility_and_tool_mappings():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db import Base
+    from app.models import Agent, User
+    from app.services.auth_service import hash_password
+    from app.web import _annotate_skill_for_panel, templates
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        user = User(username="meta-skill-user", password_hash=hash_password("pw"), role="admin", is_active=True)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        agent = Agent(
+            name="meta-agent",
+            owner_user_id=user.id,
+            status="running",
+            image="img",
+            deployment_name="dep",
+            service_name="svc",
+            pvc_name="pvc",
+        )
+        db.add(agent)
+        db.commit()
+
+        unsupported = _annotate_skill_for_panel(
+            db,
+            agent,
+            {
+                "name": "metadata-unsupported",
+                "description": "Metadata only unsupported",
+                "permission_state": "allowed",
+                "metadata": {
+                    "runtime_compatibility": "unsupported",
+                    "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                },
+            },
+        )
+        assert unsupported["runtime_compatibility"] == "unsupported"
+        assert unsupported["disabled"] is True
+        assert unsupported["tool_mappings"]["github_get_pr"] == "efp_github_get_pr"
+        html_unsupported = templates.get_template("partials/skills_panel.html").render({"skills": [unsupported]})
+        assert 'data-skill-command="/metadata-unsupported"' not in html_unsupported
+
+        prompt_only = _annotate_skill_for_panel(
+            db,
+            agent,
+            {
+                "name": "metadata-prompt-only",
+                "description": "Metadata prompt-only",
+                "permission_state": "allowed",
+                "metadata": {
+                    "runtime_compatibility": "prompt-only",
+                    "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                },
+            },
+        )
+        assert prompt_only["runtime_compatibility"] == "prompt_only"
+        assert prompt_only["prompt_only"] is True
+        assert prompt_only["disabled"] is False
+        html_prompt_only = templates.get_template("partials/skills_panel.html").render({"skills": [prompt_only]})
+        assert 'data-skill-command="/metadata-prompt-only"' in html_prompt_only
+        assert "Prompt-only in this runtime; Python skill.py is not executed." in html_prompt_only
     finally:
         db.close()

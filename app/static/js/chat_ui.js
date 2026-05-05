@@ -2999,8 +2999,21 @@ function parseSseEvent(rawEvent) {
 function getChatStreamEventType(eventName, data) {
   const explicitEventName = String(eventName || "").trim();
   const dataType = data && typeof data === "object" ? String(data.type || data.event_type || data.event || "").trim() : "";
+  if ((!explicitEventName || explicitEventName === "message") && !dataType && isChatStreamDeltaPayload(data)) {
+    return "message.delta";
+  }
   if (!explicitEventName || explicitEventName === "message") return (dataType || explicitEventName || "message").toLowerCase();
   return explicitEventName.toLowerCase();
+}
+function isChatStreamDeltaPayload(data) {
+  return Boolean(
+    data
+    && typeof data === "object"
+    && (
+      Object.prototype.hasOwnProperty.call(data, "delta")
+      || Object.prototype.hasOwnProperty.call(data, "response_delta")
+    )
+  );
 }
 function getChatStreamTextPayload(data) {
   if (typeof data === "string") return data;
