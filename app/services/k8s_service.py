@@ -106,6 +106,19 @@ class K8sService:
     def _tools_assets_dir(self) -> str:
         return "/app/tools"
 
+    def _opencode_state_dir(self) -> str:
+        return "/home/opencode/.local/share/opencode"
+
+    def _opencode_adapter_state_dir(self) -> str:
+        return "/home/opencode/.local/share/efp-compat"
+
+    def _opencode_config_path(self, agent) -> str:
+        workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
+        return f"{workspace}/.opencode/opencode.json"
+
+    def _opencode_version(self) -> str:
+        return (self.settings.default_opencode_runtime_image_tag or "1.14.29").strip() or "1.14.29"
+
     def _agent_container_working_dir(self, agent) -> str | None:
         if self._runtime_type(agent) == "opencode":
             return self._effective_mount_path(agent)
@@ -191,9 +204,39 @@ class K8sService:
                 name="agent-data",
                 mount_path=self._effective_mount_path(agent),
                 sub_path=data_sub_path,
+            ),
+            client.V1VolumeMount(
+                name="agent-data",
+                mount_path=self._opencode_state_dir(),
+                sub_path=f"{prefix}/{agent.id}/opencode-state",
+            ),
+            client.V1VolumeMount(
+                name="agent-data",
+                mount_path=self._opencode_adapter_state_dir(),
+                sub_path=f"{prefix}/{agent.id}/adapter-state",
+            ),
+        ]
+        agent_state_root = f"/agent-data/{prefix}/{agent.id}"
+        init_containers = [
+            client.V1Container(
+                name="opencode-persistent-dirs-init",
+                image=git_image,
+                command=["sh", "-c"],
+                args=[
+                    "set -eu\n"
+                    "mkdir -p \\\n"
+                    "  \"$AGENT_STATE_ROOT/data/.opencode\" \\\n"
+                    "  \"$AGENT_STATE_ROOT/opencode-state\" \\\n"
+                    "  \"$AGENT_STATE_ROOT/adapter-state\"\n"
+                    "chown -R 10001:10001 \\\n"
+                    "  \"$AGENT_STATE_ROOT/data\" \\\n"
+                    "  \"$AGENT_STATE_ROOT/opencode-state\" \\\n"
+                    "  \"$AGENT_STATE_ROOT/adapter-state\" || true"
+                ],
+                env=[client.V1EnvVar(name="AGENT_STATE_ROOT", value=agent_state_root)],
+                volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/agent-data")],
             )
         ]
-        init_containers = []
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
         if skill_repo_url:
@@ -580,6 +623,8 @@ class K8sService:
             env.append(client.V1EnvVar(name="PORTAL_INTERNAL_BASE_URL", value=base_url))
         if agent is not None and getattr(agent, "id", None):
             env.append(client.V1EnvVar(name="PORTAL_AGENT_ID", value=str(agent.id)))
+            if getattr(agent, "name", None):
+                env.append(client.V1EnvVar(name="PORTAL_AGENT_NAME", value=str(agent.name)))
             runtime_type = self._runtime_type(agent)
             workspace_dir = self._effective_mount_path(agent)
             env.append(client.V1EnvVar(name="PORTAL_RUNTIME_TYPE", value=runtime_type))
@@ -588,8 +633,12 @@ class K8sService:
             env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
             env.append(client.V1EnvVar(name="EFP_TOOLS_DIR", value=self._tools_assets_dir()))
             if runtime_type == "opencode":
+                env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
                 env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=self._tools_assets_dir()))
+                env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
+                env.append(client.V1EnvVar(name="OPENCODE_VERSION", value=self._opencode_version()))
+                env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value="http://127.0.0.1:4096"))
         return env
 
     def _build_agent_container_resources(self, agent):

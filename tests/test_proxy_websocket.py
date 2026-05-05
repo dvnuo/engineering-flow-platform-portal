@@ -50,11 +50,22 @@ def test_proxy_websocket_upstream_url_contract_uses_api_events_and_filtered_quer
     assert 'upstream_url = f"{upstream_url}?{urlencode(query_items)}"' in source
 
 
-def test_proxy_websocket_uses_runtime_trace_headers_for_connect():
+def test_proxy_websocket_uses_runtime_trace_and_identity_headers_for_connect():
     source = _proxy_source()
 
     assert "websockets.connect(" in source
-    assert "additional_headers=build_runtime_trace_headers(get_log_context())" in source
+    assert "**build_runtime_trace_headers(get_log_context())" in source
+    assert "**build_portal_agent_identity_headers(user, agent)" in source
+
+
+def test_proxy_websocket_connect_uses_compat_header_kwargs_helper():
+    source = _proxy_source()
+
+    assert "def _websocket_connect_header_kwargs" in source
+    assert "**_websocket_connect_header_kwargs(upstream_headers)" in source
+    assert "upstream_headers = {" in source
+    assert "**build_runtime_trace_headers(get_log_context())" in source
+    assert "**build_portal_agent_identity_headers(user, agent)" in source
 
 
 def test_proxy_websocket_runtime_url_failure_closes_1011():

@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 from pathlib import PurePosixPath
@@ -124,6 +125,14 @@ def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
     return method.upper() == "POST" and normalized in {"api/chat", "api/chat/stream"}
 
 
+def _is_streaming_runtime_path(method: str, subpath: str) -> bool:
+    normalized = (subpath or "").strip("/").lower()
+    method_upper = method.upper()
+    return (method_upper == "POST" and normalized == "api/chat/stream") or (
+        method_upper == "GET" and normalized in {"api/events", "api/events/stream"}
+    )
+
+
 def _content_type_is_json(content_type: str | None) -> bool:
     return bool(content_type and "application/json" in content_type.lower())
 
@@ -136,6 +145,19 @@ def _select_streaming_response_headers(upstream_headers) -> dict[str, str]:
         if value:
             selected[key] = value
     return selected
+
+
+def _websocket_connect_header_kwargs(headers: dict[str, str]) -> dict[str, dict[str, str]]:
+    try:
+        params = inspect.signature(websockets.connect).parameters
+    except (TypeError, ValueError):
+        return {"additional_headers": headers}
+
+    if "additional_headers" in params:
+        return {"additional_headers": headers}
+    if "extra_headers" in params:
+        return {"extra_headers": headers}
+    return {"additional_headers": headers}
 
 
 def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
@@ -260,19 +282,19 @@ async def proxy_agent(
             parsed_payload = _enrich_chat_payload_with_runtime_metadata(parsed_payload, runtime_metadata, user)
             request_body = json.dumps(parsed_payload).encode("utf-8")
 
-        normalized_subpath = (subpath or "").strip("/").lower()
-        if request.method.upper() == "POST" and normalized_subpath == "api/chat/stream":
+        if _is_streaming_runtime_path(request.method, subpath):
             try:
                 base = proxy_service.build_agent_base_url(agent).rstrip("/")
             except ValueError as exc:
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-            upstream_url = f"{base}/api/chat/stream"
+            path = f"/{subpath.strip('/')}" if subpath else "/"
+            upstream_url = f"{base}{path}"
             outbound_headers = proxy_service._build_outbound_headers(forward_headers, extra_headers)
             client = httpx.AsyncClient(timeout=None)
             try:
                 upstream_response = await client.stream(
-                    method="POST",
+                    method=request.method.upper(),
                     url=upstream_url,
                     params=_filter_proxy_query_items(request.query_params.multi_items()),
                     content=request_body,
@@ -297,6 +319,7 @@ async def proxy_agent(
             )
 
         filtered_query_items = _filter_proxy_query_items(request.query_params.multi_items())
+        normalized_subpath = (subpath or "").strip("/").lower()
         if request.method.upper() == "GET" and normalized_subpath == "api/server-files/download":
             status_code, content, content_type, response_headers = await proxy_service.forward(
                 agent=agent,
@@ -403,9 +426,13 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
             upstream_url = f"{upstream_url}?{urlencode(query_items)}"
 
         try:
+            upstream_headers = {
+                **build_runtime_trace_headers(get_log_context()),
+                **build_portal_agent_identity_headers(user, agent),
+            }
             async with websockets.connect(
                 upstream_url,
-                additional_headers=build_runtime_trace_headers(get_log_context()),
+                **_websocket_connect_header_kwargs(upstream_headers),
             ) as upstream:
                 async def client_to_upstream():
                     while True:

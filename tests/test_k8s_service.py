@@ -61,7 +61,17 @@ class K8sServiceNoopTest(unittest.TestCase):
             tool_branch="tools-main",
         )
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
-        self.assertEqual({c.name for c in inits}, {"skills-git-clone", "tools-git-clone"})
+        self.assertEqual({c.name for c in inits}, {"opencode-persistent-dirs-init", "skills-git-clone", "tools-git-clone"})
+        state_init = next(c for c in inits if c.name == "opencode-persistent-dirs-init")
+        state_env = {e.name: e.value for e in state_init.env}
+        self.assertEqual(state_env["AGENT_STATE_ROOT"], "/agent-data/efp-agents/a2")
+        self.assertEqual(state_init.volume_mounts[0].mount_path, "/agent-data")
+        self.assertIsNone(getattr(state_init.volume_mounts[0], "sub_path", None))
+        command = state_init.args[0]
+        self.assertIn("$AGENT_STATE_ROOT/data/.opencode", command)
+        self.assertIn("$AGENT_STATE_ROOT/opencode-state", command)
+        self.assertIn("$AGENT_STATE_ROOT/adapter-state", command)
+        self.assertIn("chown -R 10001:10001", command)
         self.assertNotIn("runtime-git-clone", {c.name for c in inits})
         clone_env = {e.name: e.value for e in next(c for c in inits if c.name == "tools-git-clone").env if getattr(e, "value", None)}
         self.assertEqual(clone_env["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
@@ -73,6 +83,12 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("/app/.git", mount_paths)
         self.assertIn("/app/skills", mount_paths)
         self.assertIn("/app/tools", mount_paths)
+        self.assertIn("/home/opencode/.local/share/opencode", mount_paths)
+        self.assertIn("/home/opencode/.local/share/efp-compat", mount_paths)
+        mounts_by_path = {m.mount_path: m for m in mounts}
+        self.assertEqual(mounts_by_path["/home/opencode/.local/share/opencode"].sub_path, "efp-agents/a2/opencode-state")
+        self.assertEqual(mounts_by_path["/home/opencode/.local/share/efp-compat"].sub_path, "efp-agents/a2/adapter-state")
+        self.assertEqual(mounts_by_path["/workspace"].sub_path, "efp-agents/a2/data")
         self.assertNotIn("/workspace/tools", mount_paths)
         self.assertNotIn("/workspace-data", mount_paths)
 
@@ -94,7 +110,7 @@ class K8sServiceNoopTest(unittest.TestCase):
             self.assertIn(key, annotations)
 
     def test_opencode_runtime_env_uses_app_asset_dirs(self):
-        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
+        agent = SimpleNamespace(id="a1", name="agent-one", runtime_type="opencode", mount_path="/workspace")
         env = self.service._build_agent_container_env(agent)
         env_map = {item.name: getattr(item, "value", None) for item in env}
         self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "opencode")
@@ -102,6 +118,11 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["EFP_SKILLS_DIR"], "/app/skills")
         self.assertEqual(env_map["EFP_TOOLS_DIR"], "/app/tools")
         self.assertEqual(env_map["OPENCODE_TOOLS_DIR"], "/app/tools")
+        self.assertEqual(env_map["EFP_ADAPTER_STATE_DIR"], "/home/opencode/.local/share/efp-compat")
+        self.assertEqual(env_map["OPENCODE_CONFIG"], "/workspace/.opencode/opencode.json")
+        self.assertEqual(env_map["OPENCODE_VERSION"], "1.14.29")
+        self.assertEqual(env_map["EFP_OPENCODE_URL"], "http://127.0.0.1:4096")
+        self.assertEqual(env_map["PORTAL_AGENT_NAME"], "agent-one")
         self.assertNotEqual(env_map["OPENCODE_TOOLS_DIR"], "/workspace/tools")
 
     def test_native_runtime_env_exposes_skills_and_tools_without_opencode_workspace(self):
@@ -113,6 +134,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["EFP_TOOLS_DIR"], "/app/tools")
         self.assertNotIn("OPENCODE_WORKSPACE", env_map)
         self.assertNotIn("OPENCODE_TOOLS_DIR", env_map)
+        self.assertNotIn("EFP_ADAPTER_STATE_DIR", env_map)
+        self.assertNotIn("EFP_OPENCODE_URL", env_map)
 
     def test_build_agent_container_resources_uses_requests(self):
         agent = SimpleNamespace(cpu="500m", memory="1Gi")
@@ -148,14 +171,14 @@ class K8sServiceNoopTest(unittest.TestCase):
         call = self.service.apps_api.calls[0]
         self.assertEqual(call["_content_type"], "application/merge-patch+json")
         body = call["body"]
-        self.assertEqual(body["spec"]["template"]["spec"]["initContainers"], [])
+        self.assertEqual([c["name"] for c in body["spec"]["template"]["spec"]["initContainers"]], ["opencode-persistent-dirs-init"])
         containers = body["spec"]["template"]["spec"]["containers"]
         self.assertEqual(len(containers), 1)
         container = containers[0]
         self.assertEqual(container["name"], "agent")
         self.assertEqual(container["workingDir"], "/workspace")
         mount_paths = {m["mountPath"] for m in container["volumeMounts"]}
-        self.assertEqual(mount_paths, {"/workspace"})
+        self.assertEqual(mount_paths, {"/workspace", "/home/opencode/.local/share/opencode", "/home/opencode/.local/share/efp-compat"})
         self.assertNotIn("/app/src", mount_paths)
         self.assertNotIn("/app/.git", mount_paths)
         self.assertNotIn("/app/skills", mount_paths)
@@ -187,10 +210,11 @@ class K8sServiceNoopTest(unittest.TestCase):
         )
         self.service._patch_deployment(agent)
         init_containers = self.service.apps_api.calls[0]["body"]["spec"]["template"]["spec"]["initContainers"]
-        self.assertEqual(len(init_containers), 1)
-        self.assertEqual(init_containers[0]["name"], "tools-git-clone")
-        self.assertIn("/tools-code", init_containers[0]["args"][0])
-        env_map = {item["name"]: item.get("value") for item in init_containers[0]["env"]}
+        self.assertEqual(len(init_containers), 2)
+        self.assertEqual(init_containers[0]["name"], "opencode-persistent-dirs-init")
+        self.assertEqual(init_containers[1]["name"], "tools-git-clone")
+        self.assertIn("/tools-code", init_containers[1]["args"][0])
+        env_map = {item["name"]: item.get("value") for item in init_containers[1]["env"]}
         self.assertEqual(env_map["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
         names = {item["name"] for item in init_containers}
         self.assertNotIn("runtime-git-clone", names)

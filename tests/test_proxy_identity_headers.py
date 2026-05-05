@@ -1070,8 +1070,137 @@ def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypa
     assert response.headers["cache-control"] == "no-cache"
     assert response.headers["x-accel-buffering"] == "no"
     assert calls["forward_count"] == 0
+    assert calls["stream_request"]["method"] == "POST"
     assert calls["stream_request"]["url"] == "http://runtime.local:8000/api/chat/stream"
     assert calls["stream_request"]["params"] == [("stream", "runtime")]
+
+
+def test_proxy_events_sse_uses_get_streaming_upstream_not_buffered_forward(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=77, username="runtime-user", nickname="Runtime User", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=77, visibility="private", status="running")
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(proxy_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+        monkeypatch.setattr(proxy_module.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
+        calls = {"forward_count": 0, "stream_request": None}
+
+        async def _fake_forward(**_kwargs):
+            calls["forward_count"] += 1
+            return 200, b'{"ok": true}', "application/json"
+
+        class _FakeUpstreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream", "cache-control": "no-cache"}
+
+            async def aiter_raw(self):
+                for chunk in (b"data: one\n\n", b"data: two\n\n"):
+                    yield chunk
+
+            async def aclose(self):
+                return None
+
+        class _FakeStreamContext:
+            async def __aenter__(self):
+                return _FakeUpstreamResponse()
+
+        class _FakeAsyncClient:
+            def __init__(self, timeout=None):
+                self.timeout = timeout
+
+            def stream(self, **kwargs):
+                calls["stream_request"] = kwargs
+                return _FakeStreamContext()
+
+            async def aclose(self):
+                return None
+
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        monkeypatch.setattr(proxy_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+        client = TestClient(app)
+        with client.stream("GET", "/a/agent-1/api/events?token=secret&session_id=sess-1") as response:
+            body_chunks = list(response.iter_bytes())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert b"".join(body_chunks) == b"data: one\n\ndata: two\n\n"
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert calls["forward_count"] == 0
+    assert calls["stream_request"]["method"] == "GET"
+    assert calls["stream_request"]["url"] == "http://runtime.local:8000/api/events"
+    assert calls["stream_request"]["params"] == [("session_id", "sess-1")]
+    assert "token" not in [k for k, _ in calls["stream_request"]["params"]]
+    assert calls["stream_request"].get("content") in (None, b"")
+
+
+def test_proxy_events_stream_sse_uses_get_streaming_upstream(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=77, username="runtime-user", nickname="Runtime User", role="user")
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=77, visibility="private", status="running")
+
+    def _override_user():
+        return fake_user
+
+    def _override_db():
+        yield object()
+
+    app.dependency_overrides[proxy_module.get_current_user] = _override_user
+    app.dependency_overrides[proxy_module.get_db] = _override_db
+    try:
+        monkeypatch.setattr(proxy_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+        monkeypatch.setattr(proxy_module.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
+        calls = {"stream_request": None}
+
+        class _FakeUpstreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            async def aiter_raw(self):
+                yield b"data: stream\n\n"
+
+            async def aclose(self):
+                return None
+
+        class _FakeStreamContext:
+            async def __aenter__(self):
+                return _FakeUpstreamResponse()
+
+        class _FakeAsyncClient:
+            def __init__(self, timeout=None):
+                self.timeout = timeout
+
+            def stream(self, **kwargs):
+                calls["stream_request"] = kwargs
+                return _FakeStreamContext()
+
+            async def aclose(self):
+                return None
+
+        monkeypatch.setattr(proxy_module.httpx, "AsyncClient", _FakeAsyncClient)
+        client = TestClient(app)
+        with client.stream("GET", "/a/agent-1/api/events/stream?stream=1&token=secret") as response:
+            body_chunks = list(response.iter_bytes())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert b"".join(body_chunks) == b"data: stream\n\n"
+    assert calls["stream_request"]["method"] == "GET"
+    assert calls["stream_request"]["url"] == "http://runtime.local:8000/api/events/stream"
 
 
 def test_build_runtime_trace_headers_only_includes_non_empty_sanitized_values():
@@ -1328,3 +1457,27 @@ def test_proxy_agent_server_files_content_does_not_force_attachment(monkeypatch)
     assert response.status_code == 200
     assert "content-disposition" not in response.headers
     assert response.headers["content-type"].startswith("text/markdown")
+
+
+def test_websocket_connect_header_kwargs_uses_additional_headers_for_new_websockets(monkeypatch):
+    import app.api.proxy as proxy_module
+
+    def _fake_connect(uri, *, additional_headers=None):
+        return None
+
+    monkeypatch.setattr(proxy_module.websockets, "connect", _fake_connect)
+    headers = {"X-Trace-Id": "trace-1", "X-Portal-User-Id": "55"}
+
+    assert proxy_module._websocket_connect_header_kwargs(headers) == {"additional_headers": headers}
+
+
+def test_websocket_connect_header_kwargs_uses_extra_headers_for_legacy_websockets(monkeypatch):
+    import app.api.proxy as proxy_module
+
+    def _fake_connect(uri, *, extra_headers=None):
+        return None
+
+    monkeypatch.setattr(proxy_module.websockets, "connect", _fake_connect)
+    headers = {"X-Trace-Id": "trace-1", "X-Portal-User-Id": "55"}
+
+    assert proxy_module._websocket_connect_header_kwargs(headers) == {"extra_headers": headers}

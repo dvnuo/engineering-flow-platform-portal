@@ -17,6 +17,8 @@ def test_proxy_chat_contract_wiring_exists():
     assert '@router.api_route("/a/{agent_id}/{subpath:path}"' in source
     assert 'normalized in {"api/chat", "api/chat/stream"}' in source
     assert "proxy_service.forward(" in source
+    assert "def _is_streaming_runtime_path(method: str, subpath: str) -> bool:" in source
+    assert 'normalized in {"api/events", "api/events/stream"}' in source
 
 
 def test_proxy_events_websocket_contract_exists():
@@ -24,6 +26,7 @@ def test_proxy_events_websocket_contract_exists():
 
     assert '@router.websocket("/a/{agent_id}/api/events")' in source
     assert 'upstream_url = f"{ws_base}/api/events"' in source
+    assert "**build_portal_agent_identity_headers(user, agent)" in source
 
 
 def test_proxy_files_upload_contract_uses_multipart_forwarding_in_web_route():
