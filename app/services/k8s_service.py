@@ -661,6 +661,13 @@ class K8sService:
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
             env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
             env.append(client.V1EnvVar(name="EFP_TOOLS_DIR", value=self._tools_assets_dir()))
+            if runtime_type == "native":
+                env.append(
+                    client.V1EnvVar(
+                        name="EFP_TOOLS_STRICT_MODE",
+                        value="true" if bool(getattr(self.settings, "default_native_tools_strict_mode", False)) else "false",
+                    )
+                )
             if runtime_type == "opencode":
                 env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))

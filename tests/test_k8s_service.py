@@ -399,3 +399,22 @@ class K8sServiceNoopTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_native_runtime_env_contains_tools_strict_mode_default_false(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/root/.efp")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        assert env_map["EFP_TOOLS_STRICT_MODE"] == "false"
+
+    def test_native_runtime_env_contains_tools_strict_mode_true_when_enabled(self):
+        self.service.settings.default_native_tools_strict_mode = True
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/root/.efp")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        assert env_map["EFP_TOOLS_STRICT_MODE"] == "true"
+
+    def test_opencode_runtime_env_does_not_include_tools_strict_mode(self):
+        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        assert "EFP_TOOLS_STRICT_MODE" not in env_map

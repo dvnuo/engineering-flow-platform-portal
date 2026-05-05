@@ -173,3 +173,47 @@ def test_runtime_metadata_uses_explicit_tool_loop_override(monkeypatch):
         "parallel_tool_calls": True,
         "max_repeated_tool_signature": 3,
     }
+
+
+def test_runtime_metadata_includes_tool_permission_governance(monkeypatch):
+    service = RuntimeExecutionContextService()
+    monkeypatch.setattr(
+        service,
+        "build_for_agent",
+        lambda _db, _agent: {
+            "capability_profile_id": None,
+            "policy_profile_id": "pol-1",
+            "runtime_profile_id": None,
+            "runtime_profile_context": {},
+            "capability_context": {
+                "allowed_capability_ids": [],
+                "allowed_capability_types": [],
+                "allowed_external_systems": [],
+                "allowed_webhook_triggers": [],
+                "allowed_actions": [],
+                "allowed_adapter_actions": [],
+                "unresolved_tools": [],
+                "unresolved_skills": [],
+                "unresolved_channels": [],
+                "unresolved_actions": [],
+                "resolved_action_mappings": {},
+                "runtime_capability_catalog_version": None,
+                "runtime_capability_catalog_source": None,
+                "catalog_validation_mode": "strict",
+            },
+            "policy_context": {
+                "policy_profile_id": "pol-1",
+                "derived_runtime_rules": {
+                    "external_tools_strict_mode": True,
+                    "tool_permission_defaults": {"write": "ask", "mutation": "deny"},
+                    "allowed_write_tools": ["git.commit"],
+                    "write_tool_policy": {"mode": "allowlist"},
+                },
+            },
+        },
+    )
+    metadata = service.build_runtime_metadata(db=object(), agent=SimpleNamespace(id="a1"))
+    assert metadata["external_tools_strict_mode"] is True
+    assert metadata["tool_permission_defaults"] == {"write": "ask", "mutation": "deny"}
+    assert metadata["allowed_write_tools"] == ["git.commit"]
+    assert metadata["write_tool_policy"] == {"mode": "allowlist"}
