@@ -216,11 +216,21 @@ class TaskDispatcherService:
 
         delegation_result, error = self._extract_delegation_result(normalized_result_payload_json)
         if error:
-            delegation.status = "failed"
-            delegation.result_summary = error
+            mapped_status = self._delegation_status_from_task_status(terminal_status)
+            delegation.status = mapped_status
+            if terminal_status == "pending_restart":
+                delegation.result_summary = "Runtime reported pending_restart; restart is required before this delegation can complete."
+            elif terminal_status == "cancelled":
+                delegation.result_summary = "Task was cancelled."
+            elif terminal_status == "stale":
+                delegation.result_summary = "Runtime reported task is stale."
+            elif terminal_status == "cancel_failed":
+                delegation.result_summary = f"Runtime failed to cancel task. {error}".strip()
+            else:
+                delegation.result_summary = error
             delegation_repo.save(delegation)
             self._sync_coordination_run_from_delegation(db, delegation)
-            self._maybe_cleanup_task_agent_after_delegation(db, task, delegation, "failed")
+            self._maybe_cleanup_task_agent_after_delegation(db, task, delegation, mapped_status)
             return
 
         runtime_status = str(delegation_result.get("status") or "done").lower()
@@ -278,9 +288,15 @@ class TaskDispatcherService:
 
         if counts["running"] > 0 or counts["queued"] > 0:
             run_status = "running"
-        elif counts["failed"] > 0:
+        elif counts["pending_restart"] > 0:
+            run_status = "pending_restart"
+        elif counts["cancel_failed"] > 0 or counts["failed"] > 0:
             run_status = "failed"
-        elif has_blockers:
+        elif counts["stale"] > 0:
+            run_status = "stale"
+        elif delegations and counts["cancelled"] == len(delegations):
+            run_status = "cancelled"
+        elif has_blockers or counts["blocked"] > 0:
             run_status = "blocked"
         elif counts["done"] > 0 and counts["done"] == len(delegations):
             run_status = "done"
@@ -297,10 +313,14 @@ class TaskDispatcherService:
                 "blocked": counts["blocked"],
                 "done": counts["done"],
                 "failed": counts["failed"],
+                "stale": counts["stale"],
+                "cancelled": counts["cancelled"],
+                "pending_restart": counts["pending_restart"],
+                "cancel_failed": counts["cancel_failed"],
                 "deleted_task_agent_ids": deleted_task_agent_ids,
             }
         )
-        if run_status in {"done", "failed"}:
+        if run_status in {"done", "failed", "stale", "cancelled"}:
             run.completed_at = datetime.utcnow()
         else:
             run.completed_at = None
@@ -311,7 +331,7 @@ class TaskDispatcherService:
         if cleanup_policy == "delete_on_done":
             return delegation_status == "done"
         if cleanup_policy == "delete_on_terminal":
-            return delegation_status in {"done", "failed"}
+            return delegation_status in {"done", "failed", "stale", "cancelled", "cancel_failed"}
         return False
 
     def _maybe_cleanup_task_agent_after_delegation(self, db: Session, task, delegation, delegation_status: str) -> None:

@@ -94,6 +94,17 @@ class CapabilityContextService:
     def _normalize_name(value: str | None) -> str:
         return (value or "").strip().lower()
 
+    @staticmethod
+    def _skill_name_aliases(value: str | None) -> set[str]:
+        raw = (value or "").strip().lower()
+        if not raw:
+            return set()
+        return {
+            raw,
+            raw.replace("_", "-"),
+            raw.replace("-", "_"),
+        }
+
     def _normalize_tool_capability_id(self, name: str, provider: RuntimeCapabilityCatalogProvider | None = None) -> str | None:
         provider = provider or self.runtime_capability_provider
         resolved = provider.resolve_tool_name_to_capability_id(name)
@@ -295,8 +306,12 @@ class CapabilityContextService:
         if not resolved.skill_set:
             return SkillAllowanceDetail(allowed=False, reason="empty_skill_set", normalized_skill_name=normalized_skill_name)
 
-        normalized_skill_set = {self._normalize_name(item) for item in resolved.skill_set}
-        if normalized_skill_name in normalized_skill_set:
+        skill_aliases = self._skill_name_aliases(skill_name)
+        allowed_aliases: set[str] = set()
+        for item in resolved.skill_set:
+            allowed_aliases.update(self._skill_name_aliases(item))
+
+        if skill_aliases & allowed_aliases:
             return SkillAllowanceDetail(allowed=True, reason="allowed", normalized_skill_name=normalized_skill_name)
         return SkillAllowanceDetail(allowed=False, reason="skill_not_allowed", normalized_skill_name=normalized_skill_name)
 

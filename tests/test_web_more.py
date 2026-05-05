@@ -1670,3 +1670,213 @@ def test_thinking_process_advanced_debug_copy_controls_are_wired():
     assert ".portal-copy-icon-btn" in css
     assert ".portal-copy-icon-btn.is-copied" in css
     assert ".portal-copyable-text-head" in css
+
+def test_chat_stream_event_type_parsing_source_markers_present():
+    js = _chat_ui_js_source()
+    assert 'function getChatStreamEventType(eventName, data)' in js
+    assert 'data.type || data.event_type || data.event' in js
+    assert 'hasExplicitEvent = false' in js
+    assert 'if (!dataLines.length && !hasExplicitEvent) return null;' in js
+    assert 'const t = getChatStreamEventType(eventName, data);' in js
+    assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+    assert '/api/chat/stream' in js
+    assert 'getReader()' in js
+    assert 'TextDecoder()' in js
+    assert '/api/chat' in js
+    assert 'message.delta' in js
+
+
+def test_skills_panel_badges_and_command_guard_source_markers_present():
+    from pathlib import Path
+    html = Path('app/templates/partials/skills_panel.html').read_text(encoding='utf-8')
+    assert 'portal-status-badge' in html
+    assert 'data-skill-command="/{{ normalized_skill_name }}"' in html
+    assert 'Prompt-only in this runtime; Python skill.py is not executed.' in html
+    py = Path('app/web.py').read_text(encoding='utf-8')
+    assert 'def _normalize_permission_state(value) -> str:' in py
+    assert 'def _normalize_runtime_compatibility(value) -> str:' in py
+    assert 'disabled_reasons = []' in py
+
+
+def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
+    js = _chat_ui_js_source()
+    assert "function getChatStreamTextPayload(data)" in js
+    assert 'if (typeof data === "string") return data;' in js
+    assert "function normalizeChatStreamEventData(data)" in js
+    assert "Object.assign(normalized, normalized.data)" in js
+    assert "const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || \"\"" in js
+    assert "const eventData = normalizeChatStreamEventData(data)" in js
+    assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
+    assert "return 'unsupported'" in js
+    assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+
+
+def test_chat_stream_runtime_events_include_request_session_agent_metadata():
+    js = _chat_ui_js_source()
+    assert "const streamEventPayload = {" in js
+    assert "request_id: eventData.request_id || requestCtx.clientRequestId" in js
+    assert "session_id: eventData.session_id || requestCtx.sessionIdAtSend || \"\"" in js
+    assert "agent_id: eventData.agent_id || agentIdAtSend" in js
+    assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
+
+
+def test_chat_stream_treats_untyped_delta_payloads_as_message_delta():
+    js = _chat_ui_js_source()
+    assert "function isChatStreamDeltaPayload(data)" in js
+    assert 'Object.prototype.hasOwnProperty.call(data, "delta")' in js
+    assert 'Object.prototype.hasOwnProperty.call(data, "response_delta")' in js
+    assert 'return "message.delta";' in js
+    assert "isChatStreamDeltaPayload(data)" in js
+
+
+def test_skills_panel_template_behavior_for_disabled_and_enabled_skills():
+    from app.web import templates
+    tpl = templates.get_template("partials/skills_panel.html")
+    html = tpl.render(
+        {
+            "skills": [
+                {"name": "unsupported_skill", "description": "No opencode support", "capability_allowed": True, "permission_state": "allowed", "runtime_compatibility": "unsupported", "disabled": True, "disabled_reason": "Unsupported by this runtime", "prompt_only": False},
+                {"name": "permission_denied", "description": "Denied", "capability_allowed": True, "permission_state": "denied", "runtime_compatibility": "full", "disabled": True, "disabled_reason": "Denied by runtime permission", "prompt_only": False},
+                {"name": "prompt_only_skill", "description": "Prompt only", "capability_allowed": True, "permission_state": "ask", "runtime_compatibility": "prompt_only", "disabled": False, "disabled_reason": "", "prompt_only": True},
+                {"name": "full_skill", "description": "Full support", "capability_allowed": True, "permission_state": "allowed", "runtime_compatibility": "full", "disabled": False, "disabled_reason": "", "prompt_only": False},
+            ]
+        }
+    )
+    assert "data-skill-command=\"/unsupported_skill\"" not in html
+    assert "data-skill-command=\"/permission_denied\"" not in html
+    assert "data-skill-command=\"/prompt_only_skill\"" in html
+    assert "data-skill-command=\"/full_skill\"" in html
+    assert "Prompt-only in this runtime; Python skill.py is not executed." in html
+    assert "No opencode support" in html
+    assert "portal-status-badge" in html
+
+
+def test_annotate_skill_for_panel_allows_hyphen_skill_from_underscore_capability():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db import Base
+    from app.models import Agent, CapabilityProfile, User
+    from app.services.auth_service import hash_password
+    from app.web import _annotate_skill_for_panel
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        user = User(username="skill-user", password_hash=hash_password("pw"), role="admin", is_active=True)
+        profile = CapabilityProfile(name="cap", skill_set_json='["review_pull_request"]')
+        db.add_all([user, profile])
+        db.commit()
+        db.refresh(user)
+        db.refresh(profile)
+        agent = Agent(
+            name="agent",
+            owner_user_id=user.id,
+            capability_profile_id=profile.id,
+            status="running",
+            image="img",
+            deployment_name="dep",
+            service_name="svc",
+            pvc_name="pvc",
+        )
+        db.add(agent)
+        db.commit()
+        annotated = _annotate_skill_for_panel(
+            db,
+            agent,
+            {
+                "name": "review-pull-request",
+                "description": "Review PR",
+                "permission_state": "allowed",
+                "runtime_compatibility": "full",
+            },
+        )
+        assert annotated["capability_allowed"] is True
+        assert annotated["disabled"] is False
+        tpl = __import__("app.web", fromlist=["templates"]).templates.get_template("partials/skills_panel.html")
+        html = tpl.render({"skills": [annotated]})
+        assert 'data-skill-command="/review-pull-request"' in html
+    finally:
+        db.close()
+
+
+def test_annotate_skill_for_panel_reads_metadata_compatibility_and_tool_mappings():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db import Base
+    from app.models import Agent, User
+    from app.services.auth_service import hash_password
+    from app.web import _annotate_skill_for_panel, templates
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        user = User(username="meta-skill-user", password_hash=hash_password("pw"), role="admin", is_active=True)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        agent = Agent(
+            name="meta-agent",
+            owner_user_id=user.id,
+            status="running",
+            image="img",
+            deployment_name="dep",
+            service_name="svc",
+            pvc_name="pvc",
+        )
+        db.add(agent)
+        db.commit()
+
+        unsupported = _annotate_skill_for_panel(
+            db,
+            agent,
+            {
+                "name": "metadata-unsupported",
+                "description": "Metadata only unsupported",
+                "permission_state": "allowed",
+                "metadata": {
+                    "runtime_compatibility": "unsupported",
+                    "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                },
+            },
+        )
+        assert unsupported["runtime_compatibility"] == "unsupported"
+        assert unsupported["disabled"] is True
+        assert unsupported["tool_mappings"]["github_get_pr"] == "efp_github_get_pr"
+        html_unsupported = templates.get_template("partials/skills_panel.html").render({"skills": [unsupported]})
+        assert 'data-skill-command="/metadata-unsupported"' not in html_unsupported
+
+        prompt_only = _annotate_skill_for_panel(
+            db,
+            agent,
+            {
+                "name": "metadata-prompt-only",
+                "description": "Metadata prompt-only",
+                "permission_state": "allowed",
+                "metadata": {
+                    "runtime_compatibility": "prompt-only",
+                    "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                },
+            },
+        )
+        assert prompt_only["runtime_compatibility"] == "prompt_only"
+        assert prompt_only["prompt_only"] is True
+        assert prompt_only["disabled"] is False
+        html_prompt_only = templates.get_template("partials/skills_panel.html").render({"skills": [prompt_only]})
+        assert 'data-skill-command="/metadata-prompt-only"' in html_prompt_only
+        assert "Prompt-only in this runtime; Python skill.py is not executed." in html_prompt_only
+    finally:
+        db.close()
+
+
+def test_chat_stream_treats_message_typed_delta_payloads_as_message_delta():
+    js = _chat_ui_js_source()
+    assert "normalizedDataType" in js
+    assert 'normalizedDataType === "message"' in js
+    assert "isChatStreamDeltaPayload(data)" in js
+    assert 'return "message.delta";' in js

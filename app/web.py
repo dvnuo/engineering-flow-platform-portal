@@ -29,6 +29,7 @@ from app.schemas.runtime_profile import (
     runtime_profile_model_supports_temperature,
 )
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
+from app.services.capability_context_service import CapabilityContextService
 from app.services.task_template_registry import list_task_templates, get_task_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
@@ -1893,6 +1894,30 @@ def _skill_field(payload, *keys):
             return value
     return None
 
+def _normalize_permission_state(value) -> str:
+    normalized = str(value or "unknown").strip().lower()
+    aliases = {
+        "deny": "denied",
+        "blocked": "denied",
+        "disallowed": "denied",
+        "allow": "allowed",
+        "ask_user": "ask",
+    }
+    return aliases.get(normalized, normalized or "unknown")
+
+
+def _normalize_runtime_compatibility(value) -> str:
+    normalized = str(value or "unknown").strip().lower()
+    aliases = {
+        "not_supported": "unsupported",
+        "not-supported": "unsupported",
+        "disabled": "unsupported",
+        "prompt-only": "prompt_only",
+        "prompt": "prompt_only",
+        "full_support": "full",
+    }
+    return aliases.get(normalized, normalized or "unknown")
+
 
 def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
     payload = _normalize_skill_payload(raw_skill)
@@ -1901,13 +1926,32 @@ def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
     allowance = capability_ctx.get_skill_allowance_detail(db, agent, name)
     runtime_detail = capability_ctx.get_runtime_skill_detail(db, agent, name)
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    permission_state = str(_skill_field(payload, "permission_state") or metadata.get("permission_state") or runtime_detail.get("permission_state") or "unknown").lower()
-    runtime_compatibility = str(_skill_field(payload, "runtime_compatibility", "compatibility", "opencode_compatibility") or runtime_detail.get("runtime_compatibility") or "unknown").lower()
-    disabled_reason = None
-    if not allowance.allowed: disabled_reason = "Denied by CapabilityProfile"
-    elif permission_state == "denied": disabled_reason = "Denied by runtime permission"
-    elif runtime_compatibility == "unsupported": disabled_reason = "Unsupported by this runtime"
-    return {**payload, "name": name, "capability_allowed": allowance.allowed, "capability_reason": allowance.reason, "permission_state": permission_state, "runtime_compatibility": runtime_compatibility, "tool_mappings": payload.get("tool_mappings") or runtime_detail.get("tool_mappings") or {}, "disabled": bool(disabled_reason), "disabled_reason": disabled_reason or "", "prompt_only": runtime_compatibility == "prompt_only"}
+    permission_state = _normalize_permission_state(_skill_field(payload, "permission_state") or metadata.get("permission_state") or runtime_detail.get("permission_state") or "unknown")
+    runtime_compatibility = _normalize_runtime_compatibility(
+        _skill_field(payload, "runtime_compatibility", "compatibility", "opencode_compatibility")
+        or metadata.get("runtime_compatibility")
+        or metadata.get("compatibility")
+        or metadata.get("opencode_compatibility")
+        or runtime_detail.get("runtime_compatibility")
+        or "unknown"
+    )
+    disabled_reasons = []
+    if not allowance.allowed:
+        disabled_reasons.append("Denied by CapabilityProfile")
+    if permission_state in {"denied", "blocked"}:
+        disabled_reasons.append("Denied by runtime permission")
+    if runtime_compatibility == "unsupported":
+        disabled_reasons.append("Unsupported by this runtime")
+    description = str(_skill_field(payload, "description") or metadata.get("description") or "").strip()
+    tool_mappings = (
+        payload.get("tool_mappings")
+        if isinstance(payload.get("tool_mappings"), dict)
+        else metadata.get("tool_mappings")
+        if isinstance(metadata.get("tool_mappings"), dict)
+        else runtime_detail.get("tool_mappings")
+        or {}
+    )
+    return {**payload, "name": name, "description": description, "capability_allowed": allowance.allowed, "capability_reason": allowance.reason, "permission_state": permission_state, "runtime_compatibility": runtime_compatibility, "tool_mappings": tool_mappings, "disabled": bool(disabled_reasons), "disabled_reason": "; ".join(disabled_reasons), "prompt_only": runtime_compatibility == "prompt_only"}
 
 @router.get("/app/agents/{agent_id}/skills/panel")
 async def app_agent_skills_panel(request: Request, agent_id: str):

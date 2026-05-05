@@ -809,3 +809,9 @@ def test_create_invalid_runtime_type_returns_422(monkeypatch):
         assert resp.status_code == 422
     finally:
         cleanup()
+
+def test_agents_api_runtime_overlay_no_default_agent_repo_fallback_source_marker():
+    from pathlib import Path
+    src = Path('app/api/agents.py').read_text(encoding='utf-8')
+    assert 'default_agent_runtime_repo_url' in src
+    assert 'enable_runtime_source_overlay' in src

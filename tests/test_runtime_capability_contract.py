@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
+from app.models import Agent, CapabilityProfile, User
 from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCatalogSnapshot
+from app.services.auth_service import hash_password
 from app.services.capability_context_service import CapabilityContextService, CapabilityProfileValidationError
 from app.services.runtime_capability_catalog import RuntimeCapabilityCatalogProvider, build_default_runtime_capability_catalog_provider
 
@@ -196,3 +198,151 @@ def _validation_error(fn):
     except CapabilityProfileValidationError as exc:
         return exc.detail
     raise AssertionError("expected validation error")
+
+def test_runtime_capability_context_skill_details_source_marker():
+    from pathlib import Path
+    src = Path('app/services/capability_context_service.py').read_text(encoding='utf-8')
+    assert 'skill_details' in src
+
+
+def test_skill_alias_resolves_capability_id_and_detail():
+    provider = RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+        {
+            "catalog_version": "v1",
+            "supports_snapshot_contract": True,
+            "capabilities": [
+                {
+                    "capability_id": "skill:review-pull-request",
+                    "capability_type": "skill",
+                    "logical_name": "review-pull-request",
+                    "permission_state": "allowed",
+                    "runtime_compatibility": "prompt_only",
+                    "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                    "metadata": {"description": "Review PR"},
+                }
+            ],
+        }
+    )
+    assert provider.resolve_skill_name_to_capability_id("review_pull_request") == "skill:review-pull-request"
+    detail = provider.get_skill_detail("review_pull_request")
+    assert detail["permission_state"] == "allowed"
+    assert detail["runtime_compatibility"] == "prompt_only"
+    assert detail["tool_mappings"]["github_get_pr"] == "efp_github_get_pr"
+
+
+def test_capability_context_resolves_skill_alias_and_populates_skill_details():
+    payload = {
+        "catalog_version": "v1",
+        "supports_snapshot_contract": True,
+        "capabilities": [
+            {
+                "capability_id": "skill:review-pull-request",
+                "capability_type": "skill",
+                "logical_name": "review-pull-request",
+                "permission_state": "ask",
+                "runtime_compatibility": "prompt_only",
+                "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                "metadata": {"description": "Review PR"},
+            }
+        ],
+    }
+    service = CapabilityContextService(runtime_catalog_snapshot_payload=payload)
+    resolved = service.resolve_profile(None).model_copy(update={"skill_set": ["review_pull_request"]})
+    ctx = service.build_runtime_capability_context(capability_profile_id="cap-1", resolved=resolved, db=None, agent_id=None)
+    assert "skill:review-pull-request" in ctx["allowed_capability_ids"]
+    assert ctx["unresolved_skills"] == []
+    assert ctx["skill_details"][0]["capability_id"] == "skill:review-pull-request"
+
+
+def test_skill_allowance_detail_accepts_hyphen_underscore_aliases():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        user = User(username="alias-owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+        profile = CapabilityProfile(name="cp1", skill_set_json='["review_pull_request"]')
+        db.add_all([user, profile])
+        db.commit()
+        db.refresh(user)
+        db.refresh(profile)
+        agent = Agent(
+            name="agent-alias",
+            owner_user_id=user.id,
+            capability_profile_id=profile.id,
+            status="running",
+            image="img",
+            deployment_name="dep",
+            service_name="svc",
+            pvc_name="pvc",
+        )
+        db.add(agent)
+        db.commit()
+        service = CapabilityContextService()
+        detail = service.get_skill_allowance_detail(db, agent, "review-pull-request")
+        assert detail.allowed is True
+        assert detail.reason == "allowed"
+
+        profile.skill_set_json = '["review-pull-request"]'
+        db.commit()
+        detail_reverse = service.get_skill_allowance_detail(db, agent, "review_pull_request")
+        assert detail_reverse.allowed is True
+        assert detail_reverse.reason == "allowed"
+
+        profile.skill_set_json = '["review_pull_request"]'
+        db.commit()
+        detail_miss = service.get_skill_allowance_detail(db, agent, "other_skill")
+        assert detail_miss.allowed is False
+    finally:
+        db.close()
+
+
+def test_runtime_capability_catalog_promotes_skill_metadata_fields():
+    provider = RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+        {
+            "catalog_version": "v1",
+            "supports_snapshot_contract": True,
+            "capabilities": [
+                {
+                    "capability_id": "skill:review-pull-request",
+                    "capability_type": "skill",
+                    "logical_name": "review-pull-request",
+                    "metadata": {
+                        "permission_state": "allowed",
+                        "runtime_compatibility": "unsupported",
+                        "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                        "description": "Review PR",
+                    },
+                }
+            ],
+        }
+    )
+    detail = provider.get_skill_detail("review_pull_request")
+    assert detail["permission_state"] == "allowed"
+    assert detail["runtime_compatibility"] == "unsupported"
+    assert detail["tool_mappings"]["github_get_pr"] == "efp_github_get_pr"
+    assert detail["metadata"]["description"] == "Review PR"
+
+
+def test_capability_context_skill_details_promote_metadata_only_fields():
+    payload = {
+        "catalog_version": "v1",
+        "supports_snapshot_contract": True,
+        "capabilities": [
+            {
+                "capability_id": "skill:review-pull-request",
+                "capability_type": "skill",
+                "logical_name": "review-pull-request",
+                "metadata": {
+                    "permission_state": "allowed",
+                    "runtime_compatibility": "unsupported",
+                    "tool_mappings": {"github_get_pr": "efp_github_get_pr"},
+                },
+            }
+        ],
+    }
+    service = CapabilityContextService(runtime_catalog_snapshot_payload=payload)
+    resolved = service.resolve_profile(None).model_copy(update={"skill_set": ["review_pull_request"]})
+    ctx = service.build_runtime_capability_context(capability_profile_id="cap-1", resolved=resolved, db=None, agent_id=None)
+    assert ctx["skill_details"][0]["runtime_compatibility"] == "unsupported"
+    assert ctx["skill_details"][0]["tool_mappings"]["github_get_pr"] == "efp_github_get_pr"

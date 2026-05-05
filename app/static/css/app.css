@@ -1439,6 +1439,11 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 10px;
 }
 
+.portal-panel-section:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
 .portal-panel-grid {
   display: grid;
   gap: 10px;

@@ -56,9 +56,25 @@ class RuntimeCapabilityCatalogProvider:
             if capability_type == "tool" and logical_name:
                 self._tool_names_to_ids.setdefault(logical_name, []).append(capability_id)
             elif capability_type == "skill" and logical_name:
-                self._skill_names_to_ids.setdefault(logical_name, []).append(capability_id)
-                detail={"capability_id":capability_id,"logical_name":logical_name,"permission_state":entry.permission_state,"runtime_compatibility":entry.runtime_compatibility,"tool_mappings":entry.tool_mappings or {},"metadata":entry.metadata or {}}
-                for k in {logical_name, logical_name.replace("-","_"), logical_name.replace("_","-")}: self._skill_details_by_name[k]=detail
+                aliases = {
+                    logical_name,
+                    logical_name.replace("-", "_"),
+                    logical_name.replace("_", "-"),
+                }
+                for alias in aliases:
+                    if alias:
+                        self._skill_names_to_ids.setdefault(alias, []).append(capability_id)
+                detail = {
+                    "capability_id": capability_id,
+                    "logical_name": logical_name,
+                    "permission_state": entry.permission_state,
+                    "runtime_compatibility": entry.runtime_compatibility,
+                    "tool_mappings": entry.tool_mappings or {},
+                    "metadata": entry.metadata or {},
+                }
+                for alias in aliases:
+                    if alias:
+                        self._skill_details_by_name[alias] = detail
             elif capability_type == "channel_action" and logical_name:
                 self._channel_names_to_ids.setdefault(logical_name, []).append(capability_id)
             elif capability_type == "adapter_action":
@@ -109,10 +125,24 @@ class RuntimeCapabilityCatalogProvider:
             enabled = item.get("enabled", True)
             action_alias = item.get("action_alias") or item.get("action")
             adapter_system = item.get("adapter_system") or item.get("external_system")
-            permission_state = item.get("permission_state")
-            runtime_compatibility = item.get("runtime_compatibility") or item.get("compatibility") or item.get("opencode_compatibility")
-            tool_mappings = item.get("tool_mappings") if isinstance(item.get("tool_mappings"), dict) else None
             metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else None
+            metadata_dict = metadata or {}
+            permission_state = item.get("permission_state") or metadata_dict.get("permission_state")
+            runtime_compatibility = (
+                item.get("runtime_compatibility")
+                or item.get("compatibility")
+                or item.get("opencode_compatibility")
+                or metadata_dict.get("runtime_compatibility")
+                or metadata_dict.get("compatibility")
+                or metadata_dict.get("opencode_compatibility")
+            )
+            tool_mappings = (
+                item.get("tool_mappings")
+                if isinstance(item.get("tool_mappings"), dict)
+                else metadata_dict.get("tool_mappings")
+                if isinstance(metadata_dict.get("tool_mappings"), dict)
+                else None
+            )
             if not isinstance(capability_id, str):
                 continue
             entries.append(

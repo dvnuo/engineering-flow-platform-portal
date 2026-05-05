@@ -802,3 +802,69 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert "source" not in public_body
     finally:
         cleanup()
+
+def test_group_task_board_template_contains_new_status_chips_source():
+    from pathlib import Path
+    html = Path('app/templates/partials/group_task_board.html').read_text(encoding='utf-8')
+    for token in ('Stale', 'Cancelled', 'Pending restart', 'Cancel failed'):
+        assert token in html
+
+
+def test_group_task_board_counts_include_new_statuses_source():
+    from pathlib import Path
+    src = Path('app/services/agent_group_service.py').read_text(encoding='utf-8')
+    for token in ('"stale": 0', '"cancelled": 0', '"pending_restart": 0', '"cancel_failed": 0'):
+        assert token in src
+
+
+def test_group_task_board_status_counts_service_behavior():
+    from app.services.agent_group_service import AgentGroupService
+    from app.models import AgentDelegation, AgentGroup
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        owner = User(username="board-owner", password_hash=hash_password("pw"), role="admin", is_active=True)
+        db.add(owner)
+        db.commit()
+        db.refresh(owner)
+        agent = Agent(name="leader", owner_user_id=owner.id, status="running", image="img", deployment_name="dep-leader", service_name="svc-leader", pvc_name="pvc-leader")
+        db.add(agent)
+        db.commit()
+        db.refresh(agent)
+        group = AgentGroup(name="g1", leader_agent_id=agent.id, created_by_user_id=owner.id)
+        db.add(group)
+        db.commit()
+        db.refresh(group)
+        statuses = ["stale", "cancelled", "pending_restart", "cancel_failed"]
+        for idx, status in enumerate(statuses):
+            db.add(
+                AgentDelegation(
+                    group_id=group.id,
+                    parent_agent_id=agent.id,
+                    leader_agent_id=agent.id,
+                    assignee_agent_id=agent.id,
+                    agent_task_id=f"task-{idx}",
+                    objective=f"obj-{idx}",
+                    status=status,
+                )
+            )
+        db.commit()
+        board = AgentGroupService(db).get_group_task_board(group.id)
+        assert board["summary"]["stale"] == 1
+        assert board["summary"]["cancelled"] == 1
+        assert board["summary"]["pending_restart"] == 1
+        assert board["summary"]["cancel_failed"] == 1
+        empty_group = AgentGroup(name="g2", leader_agent_id=agent.id, created_by_user_id=owner.id)
+        db.add(empty_group)
+        db.commit()
+        db.refresh(empty_group)
+        empty_board = AgentGroupService(db).get_group_task_board(empty_group.id)
+        assert empty_board["summary"]["stale"] == 0
+        assert empty_board["summary"]["cancelled"] == 0
+        assert empty_board["summary"]["pending_restart"] == 0
+        assert empty_board["summary"]["cancel_failed"] == 0
+    finally:
+        db.close()

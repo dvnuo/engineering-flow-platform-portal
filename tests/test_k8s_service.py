@@ -396,10 +396,6 @@ class K8sServiceNoopTest(unittest.TestCase):
         container = self.service.apps_api.calls[0]["body"]["spec"]["template"]["spec"]["containers"][0]
         self.assertNotIn("resources", container)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_native_runtime_env_contains_tools_strict_mode_default_false(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/root/.efp")
         env = self.service._build_agent_container_env(agent)
@@ -418,3 +414,29 @@ if __name__ == "__main__":
         env = self.service._build_agent_container_env(agent)
         env_map = {item.name: getattr(item, "value", None) for item in env}
         assert "EFP_TOOLS_STRICT_MODE" not in env_map
+
+    def test_native_runtime_mounts_app_tools_without_tool_repo(self):
+        agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", mount_path="/root/.efp", tool_repo_url=None, tool_branch=None)
+        inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
+        self.assertIn("agent-asset-dirs-init", {c.name for c in inits})
+        self.assertNotIn("tools-git-clone", {c.name for c in inits})
+        self.assertEqual([m.mount_path for m in mounts].count("/app/tools"), 1)
+        agent_init = next(c for c in inits if c.name == "agent-asset-dirs-init")
+        self.assertIn("$AGENT_STATE_ROOT/tools-code", agent_init.args[0])
+
+    def test_opencode_runtime_mounts_app_tools_without_tool_repo(self):
+        agent = SimpleNamespace(id="a2", owner_user_id=1, runtime_type="opencode", mount_path="/workspace", tool_repo_url=None, tool_branch=None)
+        inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
+        self.assertIn("opencode-persistent-dirs-init", {c.name for c in inits})
+        self.assertNotIn("tools-git-clone", {c.name for c in inits})
+        self.assertEqual([m.mount_path for m in mounts].count("/app/tools"), 1)
+        state_init = next(c for c in inits if c.name == "opencode-persistent-dirs-init")
+        self.assertIn("$AGENT_STATE_ROOT/tools-code", state_init.args[0])
+        self.assertIn("$AGENT_STATE_ROOT/data/.opencode", state_init.args[0])
+        self.assertIn("$AGENT_STATE_ROOT/opencode-state", state_init.args[0])
+        self.assertIn("$AGENT_STATE_ROOT/adapter-state", state_init.args[0])
+        self.assertIn("chown -R 10001:10001", state_init.args[0])
+
+
+if __name__ == "__main__":
+    unittest.main()
