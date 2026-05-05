@@ -392,6 +392,7 @@ def test_manage_specialist_pool_and_task_agent_lifecycle(monkeypatch):
         from app.config import get_settings
 
         settings = get_settings()
+        monkeypatch.setattr(settings, "enable_runtime_source_overlay", True)
         monkeypatch.setattr(settings, "default_agent_runtime_repo_url", "https://github.com/acme/runtime.git")
         monkeypatch.setattr(settings, "default_agent_runtime_branch", "runtime-main")
 
@@ -596,6 +597,7 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
         runtime_repo = "https://github.com/config/runtime.git"
         runtime_branch = "runtime-default"
+        group_service_module.get_settings().enable_runtime_source_overlay = True
         group_service_module.get_settings().default_agent_runtime_repo_url = runtime_repo
         group_service_module.get_settings().default_agent_runtime_branch = runtime_branch
 

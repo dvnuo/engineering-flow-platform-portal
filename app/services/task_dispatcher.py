@@ -182,12 +182,29 @@ class TaskDispatcherService:
         parsed["cleanup"] = cleanup
         delegation.audit_trace_json = json.dumps(parsed)
 
+    def _delegation_status_from_task_status(self, terminal_status: str, runtime_status: str | None = None) -> str:
+        normalized_runtime = str(runtime_status or "").lower()
+        if terminal_status == "done":
+            if normalized_runtime in {"", "done", "success", "completed"}:
+                return "done"
+            if normalized_runtime in {"failed", "error", "blocked", "stale", "cancelled", "pending_restart", "cancel_failed"}:
+                return normalized_runtime
+            return "failed"
+        mapping = {
+            "failed": "failed",
+            "stale": "stale",
+            "cancelled": "cancelled",
+            "pending_restart": "pending_restart",
+            "cancel_failed": "failed",
+        }
+        return mapping.get(terminal_status, "failed")
+
     def _sync_delegation_from_task_result(
         self,
         db: Session,
         task,
         normalized_result_payload_json: str | None,
-        task_execution_succeeded: bool,
+        terminal_status: str,
     ) -> None:
         if task.task_type != "delegation_task":
             return
@@ -207,9 +224,7 @@ class TaskDispatcherService:
             return
 
         runtime_status = str(delegation_result.get("status") or "done").lower()
-        computed_status = "done" if runtime_status in {"done", "success", "completed"} else "failed"
-        if not task_execution_succeeded:
-            computed_status = "failed"
+        computed_status = self._delegation_status_from_task_status(terminal_status, runtime_status if terminal_status == "done" else None)
         delegation.status = computed_status
 
         summary = delegation_result.get("summary")
@@ -240,7 +255,7 @@ class TaskDispatcherService:
             return
 
         delegations = AgentDelegationRepository(db).list_by_coordination_run_id(run_id)
-        counts = {"queued": 0, "running": 0, "blocked": 0, "done": 0, "failed": 0}
+        counts = {"queued": 0, "running": 0, "blocked": 0, "done": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
         latest_round_index = 1
         has_blockers = False
         deleted_task_agent_ids: list[str] = []
@@ -1006,7 +1021,7 @@ class TaskDispatcherService:
                     fresh_task.finished_at = datetime.utcnow()
                     task_repo.save(fresh_task)
                     if outcome.terminal_status in {"done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"}:
-                        self._sync_delegation_from_task_result(db, fresh_task, outcome.result_payload_json, outcome.terminal_status == "done")
+                        self._sync_delegation_from_task_result(db, fresh_task, outcome.result_payload_json, outcome.terminal_status)
                     logger.info(
                         "Dispatch normalization outcome task_id=%s runtime_status_code=%s task_status=%s message=%s",
                         fresh_task.id,
@@ -1063,7 +1078,7 @@ class TaskDispatcherService:
                         result_payload_json=failure_payload,
                         error_message=f"Runtime dispatch request failed: {error_message}",
                     )
-                    self._sync_delegation_from_task_result(db, fresh_task, fresh_task.result_payload_json, False)
+                    self._sync_delegation_from_task_result(db, fresh_task, fresh_task.result_payload_json, "failed")
                     return AgentTaskDispatchResult(
                         True,
                         fresh_task.id,

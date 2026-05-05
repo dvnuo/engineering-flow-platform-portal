@@ -183,6 +183,7 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         monkeypatch.setattr(agents_api.settings, "default_agent_image_repo", "ghcr.io/acme/portal-agent")
         monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "v2.4.1")
         monkeypatch.setattr(agents_api.settings, "default_agent_repo_url", "git@github.com:Acme/Portal.git")
+        monkeypatch.setattr(agents_api.settings, "enable_runtime_source_overlay", False)
         monkeypatch.setattr(agents_api.settings, "default_agent_branch", "release/default")
         monkeypatch.setattr(agents_api.settings, "default_agent_runtime_repo_url", "")
         monkeypatch.setattr(agents_api.settings, "default_agent_runtime_branch", "")
@@ -196,8 +197,8 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         body = response.json()
         assert body["runtime_type"] == "native"
         assert body["image"] == "ghcr.io/acme/portal-agent:v2.4.1"
-        assert body["branch"] == "release/default"
-        assert body["repo_url"] == "https://github.com/Acme/Portal.git"
+        assert body["branch"] is None
+        assert body["repo_url"] is None
     finally:
         cleanup()
 
@@ -236,6 +237,7 @@ def test_create_agent_uses_config_runtime_and_payload_skill_repo(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
         import app.api.agents as agents_api
+        monkeypatch.setattr(agents_api.settings, "enable_runtime_source_overlay", True)
         monkeypatch.setattr(agents_api.settings, "default_agent_runtime_repo_url", "https://github.com/acme/runtime.git")
         monkeypatch.setattr(agents_api.settings, "default_agent_runtime_branch", "runtime-branch")
         monkeypatch.setattr(agents_api.settings, "default_skill_repo_url", "https://github.com/acme/default-skills.git")

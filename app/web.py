@@ -1878,6 +1878,37 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
 
 
 
+
+def _normalize_skill_payload(raw_skill) -> dict:
+    if isinstance(raw_skill, dict):
+        return dict(raw_skill)
+    name = str(raw_skill or "").strip()
+    return {"name": name}
+
+
+def _skill_field(payload, *keys):
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
+    payload = _normalize_skill_payload(raw_skill)
+    name = str(_skill_field(payload, "name", "id") or "").strip().lstrip('/')
+    capability_ctx = CapabilityContextService()
+    allowance = capability_ctx.get_skill_allowance_detail(db, agent, name)
+    runtime_detail = capability_ctx.get_runtime_skill_detail(db, agent, name)
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    permission_state = str(_skill_field(payload, "permission_state") or metadata.get("permission_state") or runtime_detail.get("permission_state") or "unknown").lower()
+    runtime_compatibility = str(_skill_field(payload, "runtime_compatibility", "compatibility", "opencode_compatibility") or runtime_detail.get("runtime_compatibility") or "unknown").lower()
+    disabled_reason = None
+    if not allowance.allowed: disabled_reason = "Denied by CapabilityProfile"
+    elif permission_state == "denied": disabled_reason = "Denied by runtime permission"
+    elif runtime_compatibility == "unsupported": disabled_reason = "Unsupported by this runtime"
+    return {**payload, "name": name, "capability_allowed": allowance.allowed, "capability_reason": allowance.reason, "permission_state": permission_state, "runtime_compatibility": runtime_compatibility, "tool_mappings": payload.get("tool_mappings") or runtime_detail.get("tool_mappings") or {}, "disabled": bool(disabled_reason), "disabled_reason": disabled_reason or "", "prompt_only": runtime_compatibility == "prompt_only"}
+
 @router.get("/app/agents/{agent_id}/skills/panel")
 async def app_agent_skills_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
@@ -1916,7 +1947,7 @@ async def app_agent_skills_panel(request: Request, agent_id: str):
             "partials/skills_panel.html",
             {
                 "request": request,
-                "skills": payload.get("skills") or [],
+                "skills": [_annotate_skill_for_panel(db, agent, skill) for skill in (payload.get("skills") or [])],
             },
         )
     finally:

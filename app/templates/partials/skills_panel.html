@@ -1,31 +1,13 @@
 <div class="portal-panel-stack">
-  <div class="portal-panel-header">
-    <h5 class="portal-panel-title">Skills</h5>
-    <span class="portal-panel-subtitle">{{ skills|length }} available</span>
-  </div>
-
-  {% if skills %}
-    <div class="portal-panel-stack" id="skills-list">
-      {% for skill in skills %}
-        {% set skill_name = ((skill.name if skill is mapping else skill) or '')|trim %}
-        {% set normalized_skill_name = skill_name.lstrip('/') %}
-        {% set skill_desc = (skill.description if skill is mapping else '') or '' %}
-        {% if normalized_skill_name %}
-        <button
-          type="button"
-          class="portal-panel-section"
-          data-skill-command="/{{ normalized_skill_name }}"
-          title="Insert /{{ normalized_skill_name }}"
-        >
-          <div class="portal-bundle-title">/{{ normalized_skill_name }}</div>
-          {% if skill_desc %}
-            <div class="portal-panel-note">{{ skill_desc }}</div>
-          {% endif %}
-        </button>
-        {% endif %}
-      {% endfor %}
-    </div>
-  {% else %}
-    <div class="portal-panel-empty">No skills available.</div>
-  {% endif %}
+  <div class="portal-panel-header"><h5 class="portal-panel-title">Skills</h5><span class="portal-panel-subtitle">{{ skills|length }} available</span></div>
+  {% if skills %}<div class="portal-panel-stack" id="skills-list">
+  {% for skill in skills %}
+    {% set normalized_skill_name = (skill.name or '')|trim|replace('/', '', 1) %}
+    {% if normalized_skill_name %}
+    <button type="button" class="portal-panel-section" {% if skill.disabled %}disabled aria-disabled="true" title="{{ skill.disabled_reason }}"{% else %}data-skill-command="/{{ normalized_skill_name }}" title="Insert /{{ normalized_skill_name }}"{% endif %}>
+      <div class="portal-bundle-title">/{{ normalized_skill_name }}</div>
+      <div class="portal-panel-note">Capability: {{ 'allowed' if skill.capability_allowed else 'denied' }} · Permission: {{ skill.permission_state }} · Runtime: {{ skill.runtime_compatibility }}</div>
+      {% if skill.prompt_only %}<div class="portal-panel-note">Prompt-only in this runtime; Python skill.py is not executed.</div>{% endif %}
+    </button>{% endif %}
+  {% endfor %}</div>{% else %}<div class="portal-panel-empty">No skills available.</div>{% endif %}
 </div>

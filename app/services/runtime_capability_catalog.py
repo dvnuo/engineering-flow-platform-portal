@@ -16,6 +16,10 @@ class RuntimeCapabilityCatalogEntry:
     enabled: bool = True
     action_alias: str | None = None
     adapter_system: str | None = None
+    permission_state: str | None = None
+    runtime_compatibility: str | None = None
+    tool_mappings: dict | None = None
+    metadata: dict | None = None
 
 
 class RuntimeCapabilityCatalogProvider:
@@ -35,6 +39,8 @@ class RuntimeCapabilityCatalogProvider:
         self._channel_names_to_ids: dict[str, list[str]] = {}
         self._action_aliases_to_ids: dict[str, list[str]] = {}
         self._known_adapter_capability_ids: set[str] = set()
+        self._entries_by_id: dict[str, RuntimeCapabilityCatalogEntry] = {}
+        self._skill_details_by_name: dict[str, dict] = {}
 
         for entry in entries:
             if not entry.enabled:
@@ -46,10 +52,13 @@ class RuntimeCapabilityCatalogProvider:
             if not capability_id:
                 continue
 
+            self._entries_by_id[capability_id] = entry
             if capability_type == "tool" and logical_name:
                 self._tool_names_to_ids.setdefault(logical_name, []).append(capability_id)
             elif capability_type == "skill" and logical_name:
                 self._skill_names_to_ids.setdefault(logical_name, []).append(capability_id)
+                detail={"capability_id":capability_id,"logical_name":logical_name,"permission_state":entry.permission_state,"runtime_compatibility":entry.runtime_compatibility,"tool_mappings":entry.tool_mappings or {},"metadata":entry.metadata or {}}
+                for k in {logical_name, logical_name.replace("-","_"), logical_name.replace("_","-")}: self._skill_details_by_name[k]=detail
             elif capability_type == "channel_action" and logical_name:
                 self._channel_names_to_ids.setdefault(logical_name, []).append(capability_id)
             elif capability_type == "adapter_action":
@@ -100,6 +109,10 @@ class RuntimeCapabilityCatalogProvider:
             enabled = item.get("enabled", True)
             action_alias = item.get("action_alias") or item.get("action")
             adapter_system = item.get("adapter_system") or item.get("external_system")
+            permission_state = item.get("permission_state")
+            runtime_compatibility = item.get("runtime_compatibility") or item.get("compatibility") or item.get("opencode_compatibility")
+            tool_mappings = item.get("tool_mappings") if isinstance(item.get("tool_mappings"), dict) else None
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else None
             if not isinstance(capability_id, str):
                 continue
             entries.append(
@@ -110,6 +123,10 @@ class RuntimeCapabilityCatalogProvider:
                     enabled=bool(enabled),
                     action_alias=action_alias if isinstance(action_alias, str) else None,
                     adapter_system=adapter_system if isinstance(adapter_system, str) else None,
+                    permission_state=permission_state if isinstance(permission_state, str) else None,
+                    runtime_compatibility=runtime_compatibility if isinstance(runtime_compatibility, str) else None,
+                    tool_mappings=tool_mappings,
+                    metadata=metadata,
                 )
             )
 
@@ -146,6 +163,16 @@ class RuntimeCapabilityCatalogProvider:
                 return normalized
             return None
         return self._resolve_from_index(self._action_aliases_to_ids, normalized)
+
+
+    def get_skill_detail(self, name: str | None) -> dict | None:
+        normalized = normalize_action_name(name)
+        if not normalized:
+            return None
+        for key in (normalized, normalized.replace("_","-"), normalized.replace("-","_")):
+            if key in self._skill_details_by_name:
+                return dict(self._skill_details_by_name[key])
+        return None
 
     def get_catalog_version(self) -> str:
         return self._catalog_version

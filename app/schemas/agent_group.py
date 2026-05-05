@@ -71,8 +71,13 @@ class AgentGroupTaskSummaryResponse(BaseModel):
     total: int
     queued: int
     running: int
+    blocked: int = 0
     done: int
     failed: int
+    stale: int = 0
+    cancelled: int = 0
+    pending_restart: int = 0
+    cancel_failed: int = 0
 
 
 class AgentGroupSpecialistPoolResponse(BaseModel):
