@@ -4,7 +4,7 @@
     {% if status_message %}
       <div
         id="settings-status"
-        class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
+        class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'warning' %}is-warning{% elif status_type == 'success' %}is-success{% endif %}"
         data-settings-status="{{ status_type }}"
         tabindex="-1"
       >
@@ -41,7 +41,7 @@
     {% if status_message %}
       <div
         id="settings-status"
-        class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
+        class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'warning' %}is-warning{% elif status_type == 'success' %}is-success{% endif %}"
         data-settings-status="{{ status_type }}"
         tabindex="-1"
       >

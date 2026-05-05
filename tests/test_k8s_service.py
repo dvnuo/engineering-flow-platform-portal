@@ -22,8 +22,11 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.service.settings.default_tool_branch = "main"
         self.service.settings.default_agent_mount_path = "/root/.efp"
         self.service.settings.agents_volume_sub_path_prefix = "efp-agents"
+        self.service.settings.enable_runtime_source_overlay = False
+        self.service.settings.default_native_tools_strict_mode = False
 
     def test_native_runtime_clones_runtime_skills_and_tools_to_app_asset_dirs(self):
+        self.service.settings.enable_runtime_source_overlay = True
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
         self.service.settings.default_agent_runtime_branch = "runtime-main"
         self.service.settings.default_skill_repo_url = "https://github.com/acme/skills-default.git"
@@ -38,7 +41,7 @@ class K8sServiceNoopTest(unittest.TestCase):
             tool_branch="main",
         )
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
-        self.assertEqual({c.name for c in inits}, {"runtime-git-clone", "skills-git-clone", "tools-git-clone"})
+        self.assertEqual({c.name for c in inits}, {"agent-asset-dirs-init", "runtime-git-clone", "skills-git-clone", "tools-git-clone"})
         mount_paths = {m.mount_path for m in mounts}
         self.assertIn("/app/.git", mount_paths)
         self.assertIn("/app/src", mount_paths)
@@ -178,11 +181,10 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(container["name"], "agent")
         self.assertEqual(container["workingDir"], "/workspace")
         mount_paths = {m["mountPath"] for m in container["volumeMounts"]}
-        self.assertEqual(mount_paths, {"/workspace", "/home/opencode/.local/share/opencode", "/home/opencode/.local/share/efp-compat"})
+        self.assertEqual(mount_paths, {"/workspace", "/home/opencode/.local/share/opencode", "/home/opencode/.local/share/efp-compat", "/app/tools"})
         self.assertNotIn("/app/src", mount_paths)
         self.assertNotIn("/app/.git", mount_paths)
         self.assertNotIn("/app/skills", mount_paths)
-        self.assertNotIn("/app/tools", mount_paths)
         volumes = body["spec"]["template"]["spec"]["volumes"]
         self.assertEqual(volumes[0]["persistentVolumeClaim"]["claimName"], "efp-agents-efs-pvc")
 
@@ -220,7 +222,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("runtime-git-clone", names)
         self.assertNotIn("skills-git-clone", names)
 
-    def test_patch_deployment_native_does_not_set_working_dir(self):
+    def test_patch_deployment_native_defaults_without_source_overlay(self):
         class FakeAppsApi:
             def __init__(self):
                 self.calls = []
@@ -228,7 +230,6 @@ class K8sServiceNoopTest(unittest.TestCase):
             def patch_namespaced_deployment(self, **kwargs):
                 self.calls.append(kwargs)
 
-        self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
         self.service.settings.default_skill_repo_url = "https://github.com/acme/skills.git"
         self.service.settings.default_tool_repo_url = "https://github.com/acme/tools.git"
         self.service.enabled = True
@@ -247,13 +248,13 @@ class K8sServiceNoopTest(unittest.TestCase):
         container = body["spec"]["template"]["spec"]["containers"][0]
         self.assertNotIn("workingDir", container)
         mount_paths = {m["mountPath"] for m in container["volumeMounts"]}
-        self.assertIn("/app/.git", mount_paths)
-        self.assertIn("/app/src", mount_paths)
+        self.assertNotIn("/app/.git", mount_paths)
+        self.assertNotIn("/app/src", mount_paths)
         self.assertIn("/app/skills", mount_paths)
         self.assertIn("/app/tools", mount_paths)
         self.assertIn("/root/.efp", mount_paths)
         init_names = {c["name"] for c in body["spec"]["template"]["spec"]["initContainers"]}
-        self.assertIn("runtime-git-clone", init_names)
+        self.assertNotIn("runtime-git-clone", init_names)
         self.assertIn("skills-git-clone", init_names)
         self.assertIn("tools-git-clone", init_names)
 
@@ -398,3 +399,22 @@ class K8sServiceNoopTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_native_runtime_env_contains_tools_strict_mode_default_false(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/root/.efp")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        assert env_map["EFP_TOOLS_STRICT_MODE"] == "false"
+
+    def test_native_runtime_env_contains_tools_strict_mode_true_when_enabled(self):
+        self.service.settings.default_native_tools_strict_mode = True
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/root/.efp")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        assert env_map["EFP_TOOLS_STRICT_MODE"] == "true"
+
+    def test_opencode_runtime_env_does_not_include_tools_strict_mode(self):
+        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        assert "EFP_TOOLS_STRICT_MODE" not in env_map

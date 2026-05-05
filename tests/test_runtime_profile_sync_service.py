@@ -81,8 +81,8 @@ def test_push_payload_to_agent_swallows_forward_exception(monkeypatch):
 
         monkeypatch.setattr(service.proxy_service, "forward", _raise_forward)
 
-        ok = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
-        assert ok is False
+        result = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
+        assert result.ok is False
     finally:
         db.close()
 
@@ -118,10 +118,40 @@ def test_push_payload_to_agent_uses_content_type_and_portal_trusted_headers(monk
 
         monkeypatch.setattr(service.proxy_service, "forward", _fake_forward)
 
-        ok = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
-        assert ok is True
+        result = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
+        assert result.ok is True
         assert captured["headers"] == {"content-type": "application/json"}
         assert captured["extra_headers"] == {"X-Portal-Author-Source": "portal"}
+    finally:
+        db.close()
+
+
+def test_push_payload_to_agent_pending_restart_is_not_failure(monkeypatch):
+    db, rp, running, _stopped = _build_db()
+    try:
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        async def _fake_forward(**_kwargs):
+            return 200, b'{"ok": true, "status": "pending_restart", "pending_restart": true}', "application/json"
+        monkeypatch.setattr(service.proxy_service, "forward", _fake_forward)
+        result = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
+        assert result.ok is True
+        assert result.pending_restart is True
+    finally:
+        db.close()
+
+
+def test_sync_profile_to_bound_agents_collects_pending_and_partial(monkeypatch):
+    db, rp, running, _stopped = _build_db()
+    try:
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        async def _fake_push(_agent, _payload):
+            from app.services.runtime_profile_sync_service import RuntimeProfilePushResult
+            return RuntimeProfilePushResult(agent_id=running.id, ok=True, status_code=200, apply_status="partially_applied", partially_applied=True)
+        monkeypatch.setattr(service, "push_payload_to_agent", _fake_push)
+        result = asyncio.run(service.sync_profile_to_bound_agents(db, rp))
+        assert result["failed_agent_ids"] == []
+        assert result["partially_applied_agent_ids"] == [running.id]
+        assert result["updated_running_count"] == 1
     finally:
         db.close()
 

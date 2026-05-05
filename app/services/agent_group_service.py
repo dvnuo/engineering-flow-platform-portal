@@ -355,6 +355,10 @@ class AgentGroupService:
             "blocked": 0,
             "done": 0,
             "failed": 0,
+            "stale": 0,
+            "cancelled": 0,
+            "pending_restart": 0,
+            "cancel_failed": 0,
         }
         for task in tasks:
             if task.status in counts:
@@ -478,8 +482,7 @@ class AgentGroupService:
         if getattr(payload, "visibility", None):
             visibility = payload.visibility
 
-        runtime_repo_url = normalize_git_repo_url(self.settings.default_agent_runtime_repo_url or self.settings.default_agent_repo_url)
-        runtime_branch = (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
+        runtime_repo_url, runtime_branch = self._runtime_source_overlay_snapshot()
         created = self.agent_repo.create(
             name=payload.name,
             description=f"ephemeral-task-agent:{payload.scope_label or group_id}",
@@ -541,6 +544,15 @@ class AgentGroupService:
             },
         )
         return created
+
+    def _runtime_source_overlay_snapshot(self) -> tuple[str | None, str | None]:
+        if not bool(getattr(self.settings, "enable_runtime_source_overlay", False)):
+            return None, None
+        repo_url = normalize_git_repo_url(self.settings.default_agent_runtime_repo_url)
+        if not repo_url:
+            return None, None
+        branch = (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
+        return repo_url, branch
 
     def delete_group_task_agent(
         self,
@@ -672,13 +684,17 @@ class AgentGroupService:
                     "blocked": 0,
                     "done": 0,
                     "failed": 0,
+                    "stale": 0,
+                    "cancelled": 0,
+                    "pending_restart": 0,
+                    "cancel_failed": 0,
                     "latest_round_index": 1,
                     "deleted_task_agent_ids": [],
                 }
             bucket = run_map[run_id]
             bucket["total"] += 1
             status = delegation.status
-            if status in {"queued", "running", "blocked", "done", "failed"}:
+            if status in {"queued", "running", "blocked", "done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"}:
                 bucket[status] += 1
             round_index = getattr(delegation, "round_index", 1) or 1
             if round_index > bucket["latest_round_index"]:
@@ -725,6 +741,10 @@ class AgentGroupService:
                         "blocked": int(summary.get("blocked", fallback["blocked"])),
                         "done": int(summary.get("done", fallback["done"])),
                         "failed": int(summary.get("failed", fallback["failed"])),
+                        "stale": int(summary.get("stale", fallback["stale"])),
+                        "cancelled": int(summary.get("cancelled", fallback["cancelled"])),
+                        "pending_restart": int(summary.get("pending_restart", fallback["pending_restart"])),
+                        "cancel_failed": int(summary.get("cancel_failed", fallback["cancel_failed"])),
                         "latest_round_index": row.latest_round_index or fallback["latest_round_index"],
                     }
                 )
@@ -749,6 +769,10 @@ class AgentGroupService:
                 "blocked": counts["blocked"],
                 "done": counts["done"],
                 "failed": counts["failed"],
+                "stale": counts["stale"],
+                "cancelled": counts["cancelled"],
+                "pending_restart": counts["pending_restart"],
+                "cancel_failed": counts["cancel_failed"],
             },
             "items": delegations,
             "runs": runs,

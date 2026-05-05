@@ -69,7 +69,9 @@ class K8sService:
 
 
     def _runtime_repo_url(self) -> str | None:
-        return normalize_git_repo_url(self.settings.default_agent_runtime_repo_url or self.settings.default_agent_repo_url)
+        if not bool(getattr(self.settings, "enable_runtime_source_overlay", False)):
+            return None
+        return normalize_git_repo_url(self.settings.default_agent_runtime_repo_url)
 
     def _runtime_branch(self) -> str:
         return (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
@@ -106,6 +108,37 @@ class K8sService:
     def _tools_assets_dir(self) -> str:
         return "/app/tools"
 
+    def _agent_state_root(self, agent) -> str:
+        prefix = self.settings.agents_volume_sub_path_prefix
+        return f"/agent-data/{prefix}/{agent.id}"
+
+    def _tools_assets_sub_path(self, agent) -> str:
+        prefix = self.settings.agents_volume_sub_path_prefix
+        return f"{prefix}/{agent.id}/tools-code"
+
+    def _build_asset_dirs_init_container(self, agent, *, include_opencode_state: bool = False):
+        from kubernetes import client
+
+        git_image = getattr(agent, "git_image", None) or self.settings.default_agent_git_image or "alpine/git:latest"
+        commands = [
+            "set -eu",
+            'mkdir -p "$AGENT_STATE_ROOT/data" "$AGENT_STATE_ROOT/tools-code"',
+        ]
+        name = "agent-asset-dirs-init"
+        if include_opencode_state:
+            name = "opencode-persistent-dirs-init"
+            commands.append('mkdir -p "$AGENT_STATE_ROOT/data/.opencode" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state"')
+            commands.append('chown -R 10001:10001 "$AGENT_STATE_ROOT/data" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state" "$AGENT_STATE_ROOT/tools-code" || true')
+
+        return client.V1Container(
+            name=name,
+            image=git_image,
+            command=["sh", "-c"],
+            args=["\n".join(commands)],
+            env=[client.V1EnvVar(name="AGENT_STATE_ROOT", value=self._agent_state_root(agent))],
+            volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/agent-data")],
+        )
+
     def _opencode_state_dir(self) -> str:
         return "/home/opencode/.local/share/opencode"
 
@@ -133,7 +166,7 @@ class K8sService:
     def _build_native_init_containers_and_mounts(self, agent):
         from kubernetes import client
 
-        init_containers = []
+        init_containers = [self._build_asset_dirs_init_container(agent)]
         volume_mounts = []
         git_image = getattr(agent, "git_image", None) or self.settings.default_agent_git_image or "alpine/git:latest"
         prefix = self.settings.agents_volume_sub_path_prefix
@@ -172,7 +205,7 @@ class K8sService:
             )
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
         if tool_repo_url:
-            tools_sub_path = f"{prefix}/{agent.id}/tools-code"
+            tools_sub_path = self._tools_assets_sub_path(agent)
             init_containers.append(
                 client.V1Container(
                     name="tools-git-clone",
@@ -184,6 +217,14 @@ class K8sService:
                 )
             )
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._tools_assets_dir(), sub_path=tools_sub_path))
+        if self._tools_assets_dir() not in {mount.mount_path for mount in volume_mounts}:
+            volume_mounts.append(
+                client.V1VolumeMount(
+                    name="agent-data",
+                    mount_path=self._tools_assets_dir(),
+                    sub_path=self._tools_assets_sub_path(agent),
+                )
+            )
         volume_mounts.append(
             client.V1VolumeMount(
                 name="agent-data",
@@ -216,27 +257,7 @@ class K8sService:
                 sub_path=f"{prefix}/{agent.id}/adapter-state",
             ),
         ]
-        agent_state_root = f"/agent-data/{prefix}/{agent.id}"
-        init_containers = [
-            client.V1Container(
-                name="opencode-persistent-dirs-init",
-                image=git_image,
-                command=["sh", "-c"],
-                args=[
-                    "set -eu\n"
-                    "mkdir -p \\\n"
-                    "  \"$AGENT_STATE_ROOT/data/.opencode\" \\\n"
-                    "  \"$AGENT_STATE_ROOT/opencode-state\" \\\n"
-                    "  \"$AGENT_STATE_ROOT/adapter-state\"\n"
-                    "chown -R 10001:10001 \\\n"
-                    "  \"$AGENT_STATE_ROOT/data\" \\\n"
-                    "  \"$AGENT_STATE_ROOT/opencode-state\" \\\n"
-                    "  \"$AGENT_STATE_ROOT/adapter-state\" || true"
-                ],
-                env=[client.V1EnvVar(name="AGENT_STATE_ROOT", value=agent_state_root)],
-                volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/agent-data")],
-            )
-        ]
+        init_containers = [self._build_asset_dirs_init_container(agent, include_opencode_state=True)]
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
         if skill_repo_url:
@@ -254,7 +275,7 @@ class K8sService:
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
         tool_repo_url = self._tool_repo_url(agent)
         if tool_repo_url:
-            tools_sub_path = f"{prefix}/{agent.id}/tools-code"
+            tools_sub_path = self._tools_assets_sub_path(agent)
             init_containers.append(
                 client.V1Container(
                     name="tools-git-clone",
@@ -266,6 +287,14 @@ class K8sService:
                 )
             )
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._tools_assets_dir(), sub_path=tools_sub_path))
+        if self._tools_assets_dir() not in {mount.mount_path for mount in volume_mounts}:
+            volume_mounts.append(
+                client.V1VolumeMount(
+                    name="agent-data",
+                    mount_path=self._tools_assets_dir(),
+                    sub_path=self._tools_assets_sub_path(agent),
+                )
+            )
         return init_containers, volume_mounts
 
     def _patch_deployment(self, agent) -> None:
@@ -632,6 +661,13 @@ class K8sService:
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
             env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
             env.append(client.V1EnvVar(name="EFP_TOOLS_DIR", value=self._tools_assets_dir()))
+            if runtime_type == "native":
+                env.append(
+                    client.V1EnvVar(
+                        name="EFP_TOOLS_STRICT_MODE",
+                        value="true" if bool(getattr(self.settings, "default_native_tools_strict_mode", False)) else "false",
+                    )
+                )
             if runtime_type == "opencode":
                 env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))

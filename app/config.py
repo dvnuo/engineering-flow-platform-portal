@@ -56,6 +56,7 @@ class Settings(BaseSettings):
         default="",
         validation_alias="DEFAULT_AGENT_RUNTIME_REPO_URL",
     )
+    enable_runtime_source_overlay: bool = Field(default=False, validation_alias="ENABLE_RUNTIME_SOURCE_OVERLAY")
     default_agent_runtime_branch: str = Field(
         default="",
         validation_alias="DEFAULT_AGENT_RUNTIME_BRANCH",
@@ -70,6 +71,7 @@ class Settings(BaseSettings):
     )
     default_tool_repo_url: str = Field(default="", validation_alias="DEFAULT_TOOL_REPO_URL")
     default_tool_branch: str = Field(default="main", validation_alias="DEFAULT_TOOL_BRANCH")
+    default_native_tools_strict_mode: bool = Field(default=False, validation_alias="DEFAULT_NATIVE_TOOLS_STRICT_MODE")
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"

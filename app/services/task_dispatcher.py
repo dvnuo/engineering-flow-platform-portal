@@ -45,7 +45,7 @@ class AgentTaskDispatchResult:
 
 @dataclass
 class NormalizedRuntimeOutcome:
-    terminal_status: str  # done | failed | stale
+    terminal_status: str  # done | failed | stale | cancelled | pending_restart | cancel_failed | running
     result_payload_json: str
     message: str
     runtime_status_code: int | None
@@ -415,7 +415,7 @@ class TaskDispatcherService:
             trace_context=trace_context,
             raw_response_preview=raw_response_preview,
         )
-        if outcome.terminal_status in {"done", "failed", "stale"}:
+        if outcome.terminal_status in {"done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"}:
             try:
                 return "terminal", json.loads(outcome.result_payload_json), outcome
             except Exception:
@@ -538,7 +538,15 @@ class TaskDispatcherService:
 
         normalized_payload_json = json.dumps(response_json)
         normalized_status = str(status_value).lower()
-        supported_statuses = {"success", "error", "blocked", "accepted", "running"}
+        supported_statuses = {
+            "success", "done", "completed",
+            "error", "failed", "blocked",
+            "accepted", "running",
+            "stale",
+            "cancelled", "canceled",
+            "pending_restart",
+            "cancel_failed",
+        }
         if normalized_status not in supported_statuses:
             payload = {
                 "ok": False,
@@ -575,7 +583,7 @@ class TaskDispatcherService:
                 runtime_status_code=runtime_status_code,
             )
 
-        if normalized_status == "success" and ok_value is not False:
+        if normalized_status in {"success", "done", "completed"} and ok_value is not False:
             return NormalizedRuntimeOutcome(
                 terminal_status="done",
                 result_payload_json=normalized_payload_json,
@@ -583,7 +591,39 @@ class TaskDispatcherService:
                 runtime_status_code=runtime_status_code,
             )
 
-        if normalized_status in {"error", "blocked"} or ok_value is False:
+        if normalized_status == "stale":
+            return NormalizedRuntimeOutcome(
+                terminal_status="stale",
+                result_payload_json=normalized_payload_json,
+                message="Runtime reported task is stale",
+                runtime_status_code=runtime_status_code,
+            )
+
+        if normalized_status in {"cancelled", "canceled"}:
+            return NormalizedRuntimeOutcome(
+                terminal_status="cancelled",
+                result_payload_json=normalized_payload_json,
+                message="Task was cancelled",
+                runtime_status_code=runtime_status_code,
+            )
+
+        if normalized_status == "pending_restart":
+            return NormalizedRuntimeOutcome(
+                terminal_status="pending_restart",
+                result_payload_json=normalized_payload_json,
+                message="Runtime reported pending_restart",
+                runtime_status_code=runtime_status_code,
+            )
+
+        if normalized_status == "cancel_failed":
+            return NormalizedRuntimeOutcome(
+                terminal_status="cancel_failed",
+                result_payload_json=normalized_payload_json,
+                message="Runtime failed to cancel task",
+                runtime_status_code=runtime_status_code,
+            )
+
+        if normalized_status in {"error", "blocked", "failed"} or ok_value is False:
             return NormalizedRuntimeOutcome(
                 terminal_status="failed",
                 result_payload_json=normalized_payload_json,
@@ -954,14 +994,18 @@ class TaskDispatcherService:
                     fresh_task.status = outcome.terminal_status
                     fresh_task.result_payload_json = outcome.result_payload_json
                     fresh_task.summary = self._derive_summary_from_runtime_payload(parsed_outcome_payload)
-                    fresh_task.error_message = (
-                        self._derive_error_message_from_runtime_payload(parsed_outcome_payload)
-                        if outcome.terminal_status in {"failed", "stale"}
-                        else None
-                    )
+                    fresh_task.error_message = None
+                    if outcome.terminal_status in {"failed", "stale", "cancel_failed"}:
+                        fresh_task.error_message = self._derive_error_message_from_runtime_payload(parsed_outcome_payload)
+                        if outcome.terminal_status == "cancel_failed" and not fresh_task.error_message:
+                            fresh_task.error_message = outcome.message or "Runtime failed to cancel task."
+                    if outcome.terminal_status == "pending_restart" and not fresh_task.summary:
+                        fresh_task.summary = "Runtime reported pending_restart; restart is required before this task can complete."
+                    if outcome.terminal_status == "cancelled" and not fresh_task.summary:
+                        fresh_task.summary = "Task was cancelled."
                     fresh_task.finished_at = datetime.utcnow()
                     task_repo.save(fresh_task)
-                    if outcome.terminal_status in {"done", "failed"}:
+                    if outcome.terminal_status in {"done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"}:
                         self._sync_delegation_from_task_result(db, fresh_task, outcome.result_payload_json, outcome.terminal_status == "done")
                     logger.info(
                         "Dispatch normalization outcome task_id=%s runtime_status_code=%s task_status=%s message=%s",

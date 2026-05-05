@@ -40,6 +40,11 @@ class RuntimeExecutionContextService:
                 result.append(normalized)
         return result
 
+    @staticmethod
+    def _normalize_policy_default(value) -> str | None:
+        normalized = str(value or "").strip().lower()
+        return normalized if normalized in {"allow", "ask", "deny"} else None
+
     def _build_policy_context(self, db: Session, agent: Agent | None) -> tuple[str | None, dict]:
         policy_profile_id = agent.policy_profile_id if agent else None
         profile = PolicyProfileRepository(db).get_by_id(policy_profile_id) if policy_profile_id else None
@@ -77,6 +82,37 @@ class RuntimeExecutionContextService:
             denied_adapter_actions = self._as_string_list(permission_rules.get("denied_actions"))
         if denied_adapter_actions:
             derived_runtime_rules["denied_adapter_actions"] = denied_adapter_actions
+
+        strict_value = permission_rules.get("external_tools_strict_mode")
+        if not isinstance(strict_value, bool):
+            strict_value = permission_rules.get("tools_strict_mode")
+        if isinstance(strict_value, bool):
+            derived_runtime_rules["external_tools_strict_mode"] = strict_value
+
+        defaults = {}
+        write_default = self._normalize_policy_default(permission_rules.get("write_tool_default"))
+        mutation_default = self._normalize_policy_default(permission_rules.get("mutation_tool_default"))
+        if write_default:
+            defaults["write"] = write_default
+        if mutation_default:
+            defaults["mutation"] = mutation_default
+        if defaults:
+            derived_runtime_rules["tool_permission_defaults"] = defaults
+
+        for key in [
+            "allowed_write_tools", "ask_write_tools", "denied_write_tools",
+            "allowed_mutation_tools", "ask_mutation_tools", "denied_mutation_tools",
+        ]:
+            values = self._as_string_list(permission_rules.get(key))
+            if values:
+                derived_runtime_rules[key] = values
+
+        write_policy = permission_rules.get("write_tool_policy")
+        mutation_policy = permission_rules.get("mutation_tool_policy")
+        if isinstance(write_policy, dict):
+            derived_runtime_rules["write_tool_policy"] = dict(write_policy)
+        if isinstance(mutation_policy, dict):
+            derived_runtime_rules["mutation_tool_policy"] = dict(mutation_policy)
 
         return policy_profile_id, {
             "policy_profile_id": policy_profile_id,
