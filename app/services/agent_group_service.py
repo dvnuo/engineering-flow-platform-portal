@@ -368,8 +368,13 @@ class AgentGroupService:
             total=len(tasks),
             queued=counts["queued"],
             running=counts["running"],
+            blocked=counts["blocked"],
             done=counts["done"],
             failed=counts["failed"],
+            stale=counts["stale"],
+            cancelled=counts["cancelled"],
+            pending_restart=counts["pending_restart"],
+            cancel_failed=counts["cancel_failed"],
         )
 
     def create_group_task(self, group_id: str, payload: AgentGroupTaskCreateRequest, user=None):

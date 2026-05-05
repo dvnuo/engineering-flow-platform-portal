@@ -149,6 +149,7 @@ class RuntimeProfileSyncService:
         merged["runtime_capability_catalog_version"] = capability_context.get("runtime_capability_catalog_version")
         merged["runtime_capability_catalog_source"] = capability_context.get("runtime_capability_catalog_source")
         merged["catalog_validation_mode"] = capability_context.get("catalog_validation_mode")
+        merged["skill_details"] = capability_context.get("skill_details") or []
         return merged
 
     def build_apply_payload_for_agent(self, db: Session, agent, runtime_profile) -> dict:

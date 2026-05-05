@@ -974,7 +974,11 @@ function isTrackableThinkingEvent(type) {
     "skill_compaction", "skill_complete",
     // Active skill contract events
     "skill_runtime_applied", "skill_contract_active",
-    "skill_tool_denied", "skill_contract_cleared"
+    "skill_tool_denied", "skill_contract_cleared",
+    "message.started", "message.delta", "message.completed",
+    "tool.started", "tool.completed", "tool.failed",
+    "permission.requested", "permission.resolved", "skill.loaded",
+    "task.started", "task.completed", "usage.updated"
   ].includes(type);
 }
 
@@ -1124,6 +1128,17 @@ function getThinkingEventDisplay(event) {
       title: "Skill Tool Denied",
       detail: data.tool ? `${data.tool} denied by ${data.skill || "active skill"}` : "Tool denied by active skill",
     },
+    "tool.started": { icon: "wrench", title: "Tool Started", detail: data.message || "Tool started" },
+    "tool.completed": { icon: "check-circle-2", title: "Tool Completed", detail: data.message || "Tool completed" },
+    "tool.failed": { icon: "x-circle", title: "Tool Failed", detail: data.error || data.message || "Tool failed" },
+    "permission.requested": { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
+    "permission.resolved": { icon: "shield-check", title: "Permission Resolved", detail: data.message || "Permission resolved" },
+    "skill.loaded": { icon: "zap", title: "Skill Loaded", detail: data.skill || data.message || "Skill loaded" },
+    "task.started": { icon: "list-start", title: "Task Started", detail: data.message || "Task started" },
+    "task.completed": { icon: "list-checks", title: "Task Completed", detail: data.message || "Task completed" },
+    "usage.updated": { icon: "gauge", title: "Usage Updated", detail: data.message || "Usage updated" },
+    "message.delta": { icon: "message-square", title: "Message Streaming", detail: data.message || "Streaming" },
+    "message.completed": { icon: "message-square-check", title: "Message Completed", detail: data.message || "Completed" },
     skill_contract_cleared: {
       icon: "x-circle",
       title: "Active Skill Cleared",
@@ -2949,6 +2964,8 @@ async function submitChatForSelectedAgent() {
   setChatSubmittingForAgent(agentIdAtSend, true);
 
   try {
+    const streamResult = await trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody);
+    if (streamResult === "handled") return;
     const resp = await fetch(`/a/${agentIdAtSend}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2960,6 +2977,63 @@ async function submitChatForSelectedAgent() {
   } catch (error) {
     handleAgentChatFailure(agentIdAtSend, requestCtx, error);
   }
+}
+
+
+function parseSseEvent(rawEvent) {
+  const lines = String(rawEvent || '').split(/\n/);
+  let eventName = 'message';
+  const dataLines = [];
+  for (const line of lines) {
+    if (!line || line.startsWith(':')) continue;
+    if (line.startsWith('event:')) eventName = line.slice(6).trim() || 'message';
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+  }
+  if (!dataLines.length && !eventName) return null;
+  const rawData = dataLines.join('\n');
+  let data = rawData;
+  try { data = JSON.parse(rawData); } catch {}
+  return { eventName: eventName || 'message', data };
+}
+
+function updatePendingAssistantStreamContent(agentId, markdownText) {
+  if (state.selectedAgentId !== agentId || !dom.messageList) return;
+  const article = dom.messageList.querySelector('article[data-pending-assistant="1"]');
+  if (!article) return;
+  article.innerHTML = `<div class="message-markdown md-render max-w-none text-sm" data-md="${escapeHtmlAttr(markdownText || '')}"></div>`;
+  renderMarkdown(article); decorateToolMessages(article); renderIcons(); scrollToBottom();
+}
+
+async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
+  const t = String(eventName || data?.type || data?.event_type || '').toLowerCase();
+  if (["message.delta","delta"].includes(t)) {
+    const deltaText = typeof data === 'string' ? data : (data?.delta || data?.text || data?.content || data?.response_delta || '');
+    requestCtx.streamedText = (requestCtx.streamedText || '') + (deltaText || '');
+    updatePendingAssistantStreamContent(agentIdAtSend, requestCtx.streamedText);
+    return 'delta';
+  }
+  if (["final","done","complete","message.completed","execution.completed"].includes(t)) {
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: data?.response || data?.content || data?.text || requestCtx.streamedText || '', display_blocks: data?.display_blocks || [], session_id: data?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: data?.user_message_id || '', request_id: data?.request_id || requestCtx.clientRequestId, events: data?.events || [], runtime_events: data?.runtime_events || []});
+    return 'final';
+  }
+  handleAgentEventMessage(JSON.stringify(typeof data === 'object' ? { event_type: t, data } : { event_type: t, data: {message: String(data||'')}}), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || '', requestId: requestCtx.clientRequestId});
+  return 'event';
+}
+
+async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
+  const resp = await fetch(`/a/${agentIdAtSend}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+  if ([404,405,501].includes(resp.status) || !resp.body) return 'unsupported';
+  if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+  const reader = resp.body.getReader(); const decoder = new TextDecoder();
+  let buffer=''; let sawEvent=false; let sawFinal=false;
+  const flush = async (rawEvent)=>{ const parsed=parseSseEvent(rawEvent); if(!parsed) return; sawEvent=true; const r=await handleChatStreamEvent(agentIdAtSend, requestCtx, parsed.eventName, parsed.data); if(r==='final') sawFinal=true; };
+  try {
+    while(true){ const {value,done}=await reader.read(); if(done) break; buffer += decoder.decode(value,{stream:true}).replace(/\r\n/g,'\n'); let i; while((i=buffer.indexOf('\n\n'))>=0){ await flush(buffer.slice(0,i)); buffer=buffer.slice(i+2);} }
+    buffer += decoder.decode(); if(buffer.trim()) await flush(buffer);
+  } catch (e) { if (sawEvent) throw e; return 'unsupported'; }
+  if (sawFinal) return 'handled';
+  if (requestCtx.streamedText) { await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: requestCtx.streamedText, session_id: requestCtx.sessionIdAtSend || '', request_id: requestCtx.clientRequestId, events: requestCtx.streamEvents || [], runtime_events: requestCtx.runtimeEvents || []}); return 'handled'; }
+  return sawEvent ? 'handled' : 'unsupported';
 }
 
 async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {

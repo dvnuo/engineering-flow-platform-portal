@@ -200,6 +200,7 @@ class RuntimeExecutionContextService:
         metadata["unresolved_skills"] = capability_context.get("unresolved_skills", [])
         metadata["unresolved_channels"] = capability_context.get("unresolved_channels", [])
         metadata["unresolved_actions"] = capability_context.get("unresolved_actions", [])
+        metadata["skill_details"] = capability_context.get("skill_details", [])
         metadata["resolved_action_mappings"] = capability_context.get("resolved_action_mappings", {})
         metadata["runtime_capability_catalog_version"] = capability_context.get("runtime_capability_catalog_version")
         metadata["runtime_capability_catalog_source"] = capability_context.get("runtime_capability_catalog_source")

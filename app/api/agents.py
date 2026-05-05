@@ -70,6 +70,7 @@ def get_agent_defaults(user=Depends(get_current_user)):
                 "default_mount_path": "/workspace",
             },
         ],
+        "enable_runtime_source_overlay": settings.enable_runtime_source_overlay,
         "default_tool_repo_url": normalize_git_repo_url(settings.default_tool_repo_url),
         "default_tool_branch": settings.default_tool_branch or "main",
     }
@@ -193,10 +194,17 @@ def _default_agent_image_for_runtime(runtime_type: str) -> str:
 
 
 def _runtime_repo_url_from_settings() -> str | None:
-    return normalize_git_repo_url(settings.default_agent_runtime_repo_url or settings.default_agent_repo_url)
+    if not bool(getattr(settings, "enable_runtime_source_overlay", False)):
+        return None
+    return normalize_git_repo_url(settings.default_agent_runtime_repo_url)
 
 
-def _runtime_branch_from_settings() -> str:
+def _runtime_branch_from_settings() -> str | None:
+    if not bool(getattr(settings, "enable_runtime_source_overlay", False)):
+        return None
+    repo_url = normalize_git_repo_url(settings.default_agent_runtime_repo_url)
+    if not repo_url:
+        return None
     return (settings.default_agent_runtime_branch or settings.default_agent_branch or "master").strip() or "master"
 
 
