@@ -27,8 +27,8 @@
 
 ## 5) State contract
 - opencode state dirs:
-  - `/home/opencode/.local/share/opencode`
-  - `/home/opencode/.local/share/efp-compat`
+  - `/root/.local/share/opencode`
+  - `/root/.local/share/efp-compat`
 - Portal K8s provisioning owns mount/env wiring; runtime owns actual recovery behavior.
 
 ## 6) Trace / observability contract

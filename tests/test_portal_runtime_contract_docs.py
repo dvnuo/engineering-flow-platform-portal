@@ -11,6 +11,9 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "ENABLE_RUNTIME_SOURCE_OVERLAY" in text
     assert "X-Trace-Id" in text
     assert "runtime_type" in text
+    assert "/root/.local/share/opencode" in text
+    assert "/root/.local/share/efp-compat" in text
+    assert "/home/opencode" not in text
 
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "docs/PORTAL_RUNTIME_CONTRACT.md" in readme
