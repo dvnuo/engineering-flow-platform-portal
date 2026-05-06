@@ -3054,8 +3054,9 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     return 'delta';
   }
   if (["final","done","complete","message.completed","execution.completed"].includes(t)) {
-    const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || "";
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: data?.display_blocks || [], session_id: data?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: data?.user_message_id || '', assistant_message_id: data?.assistant_message_id || "", request_id: data?.request_id || requestCtx.clientRequestId, events: data?.events || [], runtime_events: data?.runtime_events || []});
+    const eventData = normalizeChatStreamEventData(data);
+    const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
     return 'final';
   }
   const eventData = normalizeChatStreamEventData(data);

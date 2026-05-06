@@ -265,7 +265,9 @@ def test_chat_stream_final_payload_preserves_assistant_message_id():
         pytest.skip("node is not installed; skipping JS helper behavior test")
 
     js_source = _chat_ui_js_source()
-    assert 'assistant_message_id: data?.assistant_message_id || ""' in js_source
+    assert "const eventData = normalizeChatStreamEventData(data);" in js_source
+    assert 'assistant_message_id: eventData?.assistant_message_id || ""' in js_source
+    assert "user_message_id: eventData?.user_message_id || ''" in js_source
 
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
     event_type = _extract_js_function(js_source, "getChatStreamEventType")
@@ -286,7 +288,7 @@ function handleAgentEventMessage() {{}}
 {normalize_data}
 {handle_stream}
 (async () => {{
-  const result = await handleChatStreamEvent(
+  const resultTopLevel = await handleChatStreamEvent(
     "agent-1",
     {{ sessionIdAtSend: "s1", clientRequestId: "r1", streamedText: "" }},
     "final",
@@ -300,14 +302,36 @@ function handleAgentEventMessage() {{}}
       runtime_events: []
     }}
   );
-  console.log(JSON.stringify({{ result, captured }}));
+  const capturedTopLevel = captured;
+  captured = null;
+  const resultNested = await handleChatStreamEvent(
+    "agent-1",
+    {{ sessionIdAtSend: "s1", clientRequestId: "r1", streamedText: "" }},
+    "final",
+    {{
+      data: {{
+        response: "done nested",
+        session_id: "s1",
+        request_id: "r1",
+        user_message_id: "u-nested",
+        assistant_message_id: "a-nested",
+        events: [],
+        runtime_events: []
+      }}
+    }}
+  );
+  console.log(JSON.stringify({{ resultTopLevel, capturedTopLevel, resultNested, capturedNested: captured }}));
 }})();
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     payload = json.loads(completed.stdout)
-    assert payload["result"] == "final"
-    assert payload["captured"]["user_message_id"] == "u-1"
-    assert payload["captured"]["assistant_message_id"] == "a-1"
+    assert payload["resultTopLevel"] == "final"
+    assert payload["capturedTopLevel"]["user_message_id"] == "u-1"
+    assert payload["capturedTopLevel"]["assistant_message_id"] == "a-1"
+    assert payload["resultNested"] == "final"
+    assert payload["capturedNested"]["response"] == "done nested"
+    assert payload["capturedNested"]["user_message_id"] == "u-nested"
+    assert payload["capturedNested"]["assistant_message_id"] == "a-nested"
 
 
 def test_get_runtime_mutation_error_message_behavior():
