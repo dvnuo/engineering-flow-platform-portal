@@ -919,11 +919,12 @@ function buildPendingAssistantArticle() {
   return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
-function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant") {
+function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant", messageId = "") {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const encodedMd = escapeHtmlAttr(content || "");
   const encodedBlocks = escapeHtmlAttr(JSON.stringify(displayBlocks || []));
-  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
+  const messageIdAttr = messageId ? ` data-message-id="${escapeHtmlAttr(messageId)}"` : "";
+  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message"${messageIdAttr}><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
 
 function removeTemporaryAssistantRows() {
@@ -3053,8 +3054,9 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     return 'delta';
   }
   if (["final","done","complete","message.completed","execution.completed"].includes(t)) {
-    const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || "";
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: data?.display_blocks || [], session_id: data?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: data?.user_message_id || '', request_id: data?.request_id || requestCtx.clientRequestId, events: data?.events || [], runtime_events: data?.runtime_events || []});
+    const eventData = normalizeChatStreamEventData(data);
+    const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
     return 'final';
   }
   const eventData = normalizeChatStreamEventData(data);
@@ -3242,6 +3244,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     payload.response || "",
     payload.display_blocks || [],
     getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+    payload.assistant_message_id || "",
   );
   dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
   if (canRenderThinkingPanel) {
@@ -4341,6 +4344,7 @@ function renderChatHistory(messages, metadata = {}) {
         article.appendChild(attachmentDiv);
       }
     } else {
+      if (message.id) article.dataset.messageId = message.id;
       const content = document.createElement("div");
       content.className = "message-markdown md-render max-w-none text-sm";
       if (Array.isArray(message.display_blocks) && message.display_blocks.length) {
@@ -6310,6 +6314,15 @@ function truncateDomFromUserArticle(userArticle) {
 
 }
 
+function getRuntimeMutationErrorMessage(response, result, fallbackMessage = "Failed to update message") {
+  const error = String(result?.error || result?.detail || "").trim();
+  if (response?.status === 501 || error === "unsupported_by_opencode_adapter_mvp") {
+    return "This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat.";
+  }
+  if (error) return error;
+  return fallbackMessage;
+}
+
 async function retryAssistantMessage(row) {
   const agentId = state.selectedAgentId;
   const sessionId = document.getElementById("chat-session-id")?.value || currentSessionIdForAgent(agentId);
@@ -6355,12 +6368,12 @@ async function retryAssistantMessage(row) {
     try {
       result = await response.json();
     } catch (_error) {
-      showToast("Failed to delete message");
+      showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"));
       return;
     }
 
     if (!response.ok || !result.success) {
-      showToast(result.error || "Failed to delete message");
+      showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"));
       return;
     }
 
@@ -6558,14 +6571,13 @@ function bindEvents() {
       let result = {};
       try {
         result = await response.json();
-      } catch (e) {
-        // Non-JSON response
-        showToast("Failed to delete message");
+      } catch (_error) {
+        showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"));
         return;
       }
       
       if (!response.ok || !result.success) {
-        showToast(result.error || "Failed to delete message");
+        showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"));
         return;
       }
       
@@ -6573,31 +6585,27 @@ function bindEvents() {
       closeEditMessageModal();
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
-      if (result.success) {
-        let targetUserArticle = null;
-        if (dom.messageList) {
-          const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
-          targetUserArticle = userArticles.find((article) => article.dataset.messageId === messageId) || null;
-        }
-        if (targetUserArticle) {
-          truncateDomFromUserArticle(targetUserArticle);
-        } else {
-          clearMessageListToWelcome();
-          const selectedChatState = getChatState();
-              }
-        
-        // Now send the edited message to LLM for processing
-        setChatStatus("Sending edited message to AI...");
-        
-        // Set the chat input to the edited content
-        if (dom.chatInput) {
-          dom.chatInput.value = newContent;
-        }
-        
-        await submitChatForSelectedAgent();
-      } else {
-        showToast(result.error || "Failed to delete message");
+      let targetUserArticle = null;
+      if (dom.messageList) {
+        const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
+        targetUserArticle = userArticles.find((article) => article.dataset.messageId === messageId) || null;
       }
+      if (targetUserArticle) {
+        truncateDomFromUserArticle(targetUserArticle);
+      } else {
+        clearMessageListToWelcome();
+        const selectedChatState = getChatState();
+      }
+      
+      // Now send the edited message to LLM for processing
+      setChatStatus("Sending edited message to AI...");
+      
+      // Set the chat input to the edited content
+      if (dom.chatInput) {
+        dom.chatInput.value = newContent;
+      }
+      
+      await submitChatForSelectedAgent();
     } catch (err) {
       showToast("Error editing message: " + err.message);
     }
