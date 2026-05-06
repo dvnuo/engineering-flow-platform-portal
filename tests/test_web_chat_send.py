@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 
-def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
+def test_app_chat_send_forwards_identity_and_trace_headers(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -81,7 +81,7 @@ def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
     assert captured["headers"] == {"content-type": "application/json"}
 
 
-def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
+def test_app_chat_send_drops_form_identity_and_uses_portal_identity_and_trace_headers(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -147,6 +147,9 @@ def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
     assert captured["extra_headers"]["X-Portal-User-Id"] == "456"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Bob"
     assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
+    assert captured["extra_headers"]["X-Trace-Id"]
+    assert captured["extra_headers"]["X-Span-Id"]
+    assert "spoofed" not in captured["extra_headers"].values()
 
 
 def test_app_chat_send_succeeds_with_standard_portal_identity_headers_only(monkeypatch):
@@ -1397,3 +1400,4 @@ def test_app_chat_send_does_not_forward_browser_spoofed_trace_header(monkeypatch
     assert captured["extra_headers"]["X-Trace-Id"] != "browser-spoof"
     assert captured["extra_headers"]["X-Trace-Id"] != "browser-request-spoof"
     assert response.headers["X-Trace-Id"] != "browser-spoof"
+    assert response.headers["X-Trace-Id"] != "browser-request-spoof"

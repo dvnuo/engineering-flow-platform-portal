@@ -90,3 +90,44 @@ def test_mount_path_switch_rejects_invalid_new_runtime_type():
     agent = SimpleNamespace(runtime_type="native", mount_path="/root/.efp")
     with pytest.raises(ValueError):
         agents_api._maybe_add_mount_path_switch_for_runtime_change(agent, {"runtime_type": "bad"})
+
+
+def test_update_runtime_type_change_detection_defaults_missing_old_runtime_type_to_native():
+    import app.api.agents as agents_api
+    from types import SimpleNamespace
+
+    agent = SimpleNamespace(runtime_type=None)
+    changes = {"runtime_type": "native"}
+    changed = agents_api._normalize_runtime_type_update_change(agent, changes)
+
+    assert changed is False
+    assert changes["runtime_type"] == "native"
+    assert "image" not in changes
+
+
+def test_update_runtime_type_change_detection_treats_missing_old_native_to_opencode_as_changed():
+    import app.api.agents as agents_api
+    from types import SimpleNamespace
+
+    agent = SimpleNamespace(runtime_type=None)
+    changes = {"runtime_type": "opencode"}
+    assert agents_api._normalize_runtime_type_update_change(agent, changes) is True
+    assert changes["runtime_type"] == "opencode"
+
+
+def test_update_runtime_type_change_detection_rejects_invalid_old_runtime_type():
+    import app.api.agents as agents_api
+    from types import SimpleNamespace
+
+    agent = SimpleNamespace(runtime_type="bad")
+    with pytest.raises(ValueError):
+        agents_api._normalize_runtime_type_update_change(agent, {"runtime_type": "native"})
+
+
+def test_update_runtime_type_change_detection_rejects_invalid_new_runtime_type():
+    import app.api.agents as agents_api
+    from types import SimpleNamespace
+
+    agent = SimpleNamespace(runtime_type="native")
+    with pytest.raises(ValueError):
+        agents_api._normalize_runtime_type_update_change(agent, {"runtime_type": "bad"})

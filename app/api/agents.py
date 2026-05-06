@@ -245,6 +245,18 @@ def _resolve_create_mount_path(payload: AgentCreateRequest, runtime_type: str) -
     return _default_mount_path_for_runtime(runtime_type)
 
 
+
+
+def _normalize_runtime_type_update_change(agent, changes: dict) -> bool:
+    if "runtime_type" not in changes:
+        return False
+    if changes["runtime_type"] is None:
+        raise ValueError("runtime_type cannot be null")
+    old_runtime_type = _normalize_runtime_type(getattr(agent, "runtime_type", None), allow_default=True)
+    new_runtime_type = _normalize_runtime_type(changes["runtime_type"])
+    changes["runtime_type"] = new_runtime_type
+    return new_runtime_type != old_runtime_type
+
 def _maybe_add_mount_path_switch_for_runtime_change(agent, changes: dict) -> None:
     if "runtime_type" not in changes:
         return
@@ -383,7 +395,7 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         if changes["runtime_type"] is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="runtime_type cannot be null")
         _validate_runtime_type_or_422(changes["runtime_type"])
-        runtime_type_changed = changes["runtime_type"] != getattr(agent, "runtime_type", "native")
+        runtime_type_changed = _normalize_runtime_type_update_change(agent, changes)
         if runtime_type_changed and "image" not in changes:
             changes["image"] = _default_agent_image_for_runtime(changes["runtime_type"])
     _maybe_add_mount_path_switch_for_runtime_change(agent, changes)
