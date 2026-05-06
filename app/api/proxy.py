@@ -295,26 +295,42 @@ async def proxy_agent(
             upstream_url = f"{base}{path}"
             outbound_headers = proxy_service._build_outbound_headers(forward_headers, extra_headers)
             client = httpx.AsyncClient(timeout=None)
+            stream_cm = client.stream(
+                method=request.method.upper(),
+                url=upstream_url,
+                params=_filter_proxy_query_items(request.query_params.multi_items()),
+                content=request_body,
+                headers=outbound_headers,
+            )
             try:
-                upstream_response = await client.stream(
-                    method=request.method.upper(),
-                    url=upstream_url,
-                    params=_filter_proxy_query_items(request.query_params.multi_items()),
-                    content=request_body,
-                    headers=outbound_headers,
-                ).__aenter__()
+                upstream_response = await stream_cm.__aenter__()
             except Exception:
                 await client.aclose()
                 raise
 
+            closed = False
+
             async def _close_stream_resources() -> None:
-                await upstream_response.aclose()
-                await client.aclose()
+                nonlocal closed
+                if closed:
+                    return
+                closed = True
+                try:
+                    await stream_cm.__aexit__(None, None, None)
+                finally:
+                    await client.aclose()
+
+            async def _iter_upstream_response():
+                try:
+                    async for chunk in upstream_response.aiter_raw():
+                        yield chunk
+                finally:
+                    await _close_stream_resources()
 
             stream_headers = _select_streaming_response_headers(upstream_response.headers)
             media_type = upstream_response.headers.get("content-type")
             return StreamingResponse(
-                upstream_response.aiter_raw(),
+                _iter_upstream_response(),
                 status_code=upstream_response.status_code,
                 media_type=media_type,
                 headers=stream_headers,
