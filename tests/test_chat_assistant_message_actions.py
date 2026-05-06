@@ -256,6 +256,58 @@ def test_message_mutation_failure_uses_friendly_runtime_error_helper():
 
     assert "showToast(getRuntimeMutationErrorMessage(response, result, \"Failed to delete message\"));" in retry_block
     assert "showToast(getRuntimeMutationErrorMessage(response, result, \"Failed to delete message\"));" in edit_block
+    assert js_source.count('showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"));') >= 2
+
+
+def test_chat_stream_final_payload_preserves_assistant_message_id():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    assert 'assistant_message_id: data?.assistant_message_id || ""' in js_source
+
+    is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    event_type = _extract_js_function(js_source, "getChatStreamEventType")
+    text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
+    normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
+    handle_stream = _extract_js_function(js_source, "handleChatStreamEvent")
+
+    script = f"""
+let captured = null;
+const state = {{ selectedAgentId: "agent-1" }};
+const dom = {{ messageList: null }};
+function updatePendingAssistantStreamContent() {{}}
+async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ captured = payload; }}
+function handleAgentEventMessage() {{}}
+{is_delta}
+{event_type}
+{text_payload}
+{normalize_data}
+{handle_stream}
+(async () => {{
+  const result = await handleChatStreamEvent(
+    "agent-1",
+    {{ sessionIdAtSend: "s1", clientRequestId: "r1", streamedText: "" }},
+    "final",
+    {{
+      response: "done",
+      session_id: "s1",
+      request_id: "r1",
+      user_message_id: "u-1",
+      assistant_message_id: "a-1",
+      events: [],
+      runtime_events: []
+    }}
+  );
+  console.log(JSON.stringify({{ result, captured }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["result"] == "final"
+    assert payload["captured"]["user_message_id"] == "u-1"
+    assert payload["captured"]["assistant_message_id"] == "a-1"
 
 
 def test_get_runtime_mutation_error_message_behavior():
@@ -283,7 +335,12 @@ const fallback = getRuntimeMutationErrorMessage(
   {{}},
   "Failed to delete message",
 );
-console.log(JSON.stringify({{ unsupported, passthrough, fallback }}));
+const friendly = getRuntimeMutationErrorMessage(
+  {{ status: 501 }},
+  {{}},
+  "Failed to delete message",
+);
+console.log(JSON.stringify({{ unsupported, passthrough, fallback, friendly }}));
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     payload = json.loads(completed.stdout)
@@ -294,6 +351,7 @@ console.log(JSON.stringify({{ unsupported, passthrough, fallback }}));
     assert payload["unsupported"] != "unsupported_by_opencode_adapter_mvp"
     assert payload["passthrough"] == "message_not_found"
     assert payload["fallback"] == "Failed to delete message"
+    assert "does not support retry/edit yet" in payload["friendly"]
 
 
 def test_build_assistant_message_article_adds_optional_message_id_attribute():

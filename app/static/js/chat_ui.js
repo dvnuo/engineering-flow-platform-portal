@@ -3055,7 +3055,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
   if (["final","done","complete","message.completed","execution.completed"].includes(t)) {
     const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || "";
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: data?.display_blocks || [], session_id: data?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: data?.user_message_id || '', request_id: data?.request_id || requestCtx.clientRequestId, events: data?.events || [], runtime_events: data?.runtime_events || []});
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: data?.display_blocks || [], session_id: data?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: data?.user_message_id || '', assistant_message_id: data?.assistant_message_id || "", request_id: data?.request_id || requestCtx.clientRequestId, events: data?.events || [], runtime_events: data?.runtime_events || []});
     return 'final';
   }
   const eventData = normalizeChatStreamEventData(data);
@@ -6367,7 +6367,7 @@ async function retryAssistantMessage(row) {
     try {
       result = await response.json();
     } catch (_error) {
-      showToast("Failed to delete message");
+      showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"));
       return;
     }
 
@@ -6570,9 +6570,8 @@ function bindEvents() {
       let result = {};
       try {
         result = await response.json();
-      } catch (e) {
-        // Non-JSON response
-        showToast("Failed to delete message");
+      } catch (_error) {
+        showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"));
         return;
       }
       
@@ -6585,31 +6584,27 @@ function bindEvents() {
       closeEditMessageModal();
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
       
-      if (result.success) {
-        let targetUserArticle = null;
-        if (dom.messageList) {
-          const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
-          targetUserArticle = userArticles.find((article) => article.dataset.messageId === messageId) || null;
-        }
-        if (targetUserArticle) {
-          truncateDomFromUserArticle(targetUserArticle);
-        } else {
-          clearMessageListToWelcome();
-          const selectedChatState = getChatState();
-              }
-        
-        // Now send the edited message to LLM for processing
-        setChatStatus("Sending edited message to AI...");
-        
-        // Set the chat input to the edited content
-        if (dom.chatInput) {
-          dom.chatInput.value = newContent;
-        }
-        
-        await submitChatForSelectedAgent();
-      } else {
-        showToast(result.error || "Failed to delete message");
+      let targetUserArticle = null;
+      if (dom.messageList) {
+        const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
+        targetUserArticle = userArticles.find((article) => article.dataset.messageId === messageId) || null;
       }
+      if (targetUserArticle) {
+        truncateDomFromUserArticle(targetUserArticle);
+      } else {
+        clearMessageListToWelcome();
+        const selectedChatState = getChatState();
+      }
+      
+      // Now send the edited message to LLM for processing
+      setChatStatus("Sending edited message to AI...");
+      
+      // Set the chat input to the edited content
+      if (dom.chatInput) {
+        dom.chatInput.value = newContent;
+      }
+      
+      await submitChatForSelectedAgent();
     } catch (err) {
       showToast("Error editing message: " + err.message);
     }
