@@ -437,14 +437,13 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("$AGENT_STATE_ROOT/adapter-state", state_init.args[0])
         self.assertIn("chown -R 10001:10001", state_init.args[0])
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_runtime_type_helper_defaults_missing_value_to_native(self):
         self.assertEqual(self.service._runtime_type(SimpleNamespace(runtime_type=None)), "native")
 
     def test_runtime_type_helper_rejects_invalid_non_empty_value(self):
         with self.assertRaises(ValueError):
             self.service._runtime_type(SimpleNamespace(id="a-bad", runtime_type="bad"))
+
+
+if __name__ == "__main__":
+    unittest.main()
