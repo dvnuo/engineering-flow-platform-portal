@@ -90,7 +90,7 @@ PYTHONPATH=. pytest -q \
 | `DEFAULT_NATIVE_RUNTIME_IMAGE_REPO` | Native runtime image repository override | falls back to `DEFAULT_AGENT_IMAGE_REPO` |
 | `DEFAULT_NATIVE_RUNTIME_IMAGE_TAG` | Native runtime image tag override | falls back to `DEFAULT_AGENT_IMAGE_TAG` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
-| `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | OpenCode runtime image tag | `1.14.29` |
+| `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | EFP OpenCode runtime image tag. This is not injected as `OPENCODE_VERSION` and is not used for OpenCode CLI version gating. | `1.14.29` |
 | `DEFAULT_TOOL_REPO_URL` | Default tools repository for native/opencode runtime asset provisioning | (empty) |
 | `DEFAULT_TOOL_BRANCH` | Default tools repository branch | `main` |
 | `ENABLE_RUNTIME_SOURCE_OVERLAY` | Enable native runtime source overlay clone/mount (`/app/src`, `/app/.git`) | `false` |

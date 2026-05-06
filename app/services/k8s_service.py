@@ -152,8 +152,6 @@ class K8sService:
         workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
         return f"{workspace}/.opencode/opencode.json"
 
-    def _opencode_version(self) -> str:
-        return (self.settings.default_opencode_runtime_image_tag or "1.14.29").strip() or "1.14.29"
 
     def _agent_container_working_dir(self, agent) -> str | None:
         if self._runtime_type(agent) == "opencode":
@@ -678,7 +676,6 @@ class K8sService:
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
                 env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=self._tools_assets_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
-                env.append(client.V1EnvVar(name="OPENCODE_VERSION", value=self._opencode_version()))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value="http://127.0.0.1:4096"))
         return env
 
