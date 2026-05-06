@@ -126,7 +126,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["OPENCODE_DATA_DIR"], "/root/.local/share/opencode")
         self.assertEqual(env_map["EFP_ADAPTER_STATE_DIR"], "/root/.local/share/efp-compat")
         self.assertEqual(env_map["OPENCODE_CONFIG"], "/workspace/.opencode/opencode.json")
-        self.assertEqual(env_map["OPENCODE_VERSION"], "1.14.29")
+        self.assertNotIn("OPENCODE_VERSION", env_map)
         self.assertEqual(env_map["EFP_OPENCODE_URL"], "http://127.0.0.1:4096")
         self.assertEqual(env_map["PORTAL_AGENT_NAME"], "agent-one")
         self.assertNotEqual(env_map["OPENCODE_TOOLS_DIR"], "/workspace/tools")
