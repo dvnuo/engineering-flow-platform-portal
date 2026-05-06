@@ -59,6 +59,8 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
                 "x-forwarded-for": "1.2.3.4",
                 "authorization": "Bearer browser-token",
                 "x-portal-user-id": "spoofed",
+                "x-trace-id": "browser-spoof-trace",
+                "x-request-id": "browser-spoof-request",
             },
         )
     finally:
@@ -73,6 +75,10 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
     assert captured["extra_headers"]["X-Trace-Id"]
     assert captured["extra_headers"]["X-Span-Id"]
+    assert captured["extra_headers"]["X-Trace-Id"] != "browser-spoof-trace"
+    assert captured["extra_headers"]["X-Trace-Id"] != "browser-spoof-request"
+    assert response.headers["X-Trace-Id"] != "browser-spoof-trace"
+    assert response.headers["X-Trace-Id"] != "browser-spoof-request"
     assert "spoofed" not in captured["extra_headers"].values()
 
 
@@ -675,6 +681,10 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
     assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
     assert captured["extra_headers"]["X-Trace-Id"]
     assert captured["extra_headers"]["X-Span-Id"]
+    assert captured["extra_headers"]["X-Trace-Id"] != "browser-spoof-trace"
+    assert captured["extra_headers"]["X-Trace-Id"] != "browser-spoof-request"
+    assert response.headers["X-Trace-Id"] != "browser-spoof-trace"
+    assert response.headers["X-Trace-Id"] != "browser-spoof-request"
     assert "spoofed" not in captured["extra_headers"].values()
 
 

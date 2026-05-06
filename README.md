@@ -83,6 +83,7 @@ PYTHONPATH=. pytest -q \
 | `K8S_NODE_IP` | Node IP for NodePort proxy (auto-detected if not set) | (auto-detect) |
 | `AGENTS_NAMESPACE` | Agents namespace | `efp-agents` |
 | `K8S_STORAGE_CLASS` | Storage class for PVC | `local-path` |
+| `K8S_PVC_ACCESS_MODES` | PVC access modes | `["ReadWriteOnce"]` |
 | `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
 | `DEFAULT_RUNTIME_TYPE` | Default runtime type for new agents (`native`/`opencode`) | `native` |

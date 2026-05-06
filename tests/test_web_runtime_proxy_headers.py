@@ -15,6 +15,12 @@ def _proxy_api_source() -> str:
     return Path("app/api/proxy.py").read_text(encoding="utf-8")
 
 
+def _extract_between(source: str, start_marker: str, end_marker: str) -> str:
+    start = source.index(start_marker)
+    end = source.index(end_marker, start)
+    return source[start:end]
+
+
 def test_runtime_panel_wiring_uses_proxy_forward_with_identity_headers():
     web_source = _web_source()
 
@@ -81,3 +87,15 @@ def test_web_portal_extra_headers_include_runtime_trace_headers_source_contract(
 def test_direct_chat_route_uses_portal_extra_headers_helper_contract():
     web_source = _web_source()
     assert "extra_headers=_portal_extra_headers(user, agent)" in web_source
+
+
+def test_app_chat_send_route_uses_portal_extra_headers_not_identity_only():
+    web_source = _web_source()
+    route_source = _extract_between(
+        web_source,
+        '@router.post("/app/chat/send")',
+        "\n\n@router.",
+    )
+    assert "extra_headers=_portal_extra_headers(user, agent)" in route_source
+    assert "extra_headers = _portal_extra_headers(user, agent)" in route_source or "extra_headers=_portal_extra_headers(user, agent)" in route_source
+    assert "extra_headers = build_portal_agent_identity_headers(user, agent)" not in route_source

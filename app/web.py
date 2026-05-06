@@ -2700,8 +2700,6 @@ async def app_chat_send(request: Request):
         if attachments:
             payload["attachments"] = attachments
 
-        extra_headers = build_portal_agent_identity_headers(user, agent)
-
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
             method="POST",
@@ -2709,7 +2707,7 @@ async def app_chat_send(request: Request):
             query_items=[],
             body=json.dumps(payload).encode("utf-8"),
             headers={"content-type": "application/json"},
-            extra_headers=extra_headers,
+            extra_headers=_portal_extra_headers(user, agent),
         )
 
         if status_code >= 400:

@@ -25,6 +25,10 @@ jobs:
                  tests/test_agent_defaults_source_regression.py \
                  tests/test_k8s_service.py \
                  tests/test_proxy_api.py \
+                 tests/test_proxy_service.py \
+                 tests/test_web_chat_send.py \
+                 tests/test_legacy_master_db_upgrade.py \
+                 tests/test_trace_context.py \
                  tests/test_proxy_identity_headers.py \
                  tests/test_proxy_websocket.py \
                  tests/test_web_runtime_proxy_headers.py \

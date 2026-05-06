@@ -44,6 +44,9 @@
   - `X-Portal-Agent-Name`
 - Runtime logs should consume these headers for cross-service correlation.
 - Portal sanitizes header values and does not trust browser-spoofed identity/trace headers.
+- For user-facing HTTP and WebSocket requests, Portal generates a fresh trace id.
+- Browser-supplied `X-Trace-Id` / `X-Request-Id` are not forwarded to runtime as trusted trace ids.
+- Runtime receives only Portal-generated trace headers from current log context.
 
 ## 7) Migrations / startup
 - `alembic upgrade head` is required.

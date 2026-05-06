@@ -248,7 +248,7 @@ def _resolve_create_mount_path(payload: AgentCreateRequest, runtime_type: str) -
 def _maybe_add_mount_path_switch_for_runtime_change(agent, changes: dict) -> None:
     if "runtime_type" not in changes:
         return
-    old_runtime_type = _normalize_runtime_type(getattr(agent, "runtime_type", None))
+    old_runtime_type = _normalize_runtime_type(getattr(agent, "runtime_type", None), allow_default=True)
     new_runtime_type = _normalize_runtime_type(changes.get("runtime_type"))
     if old_runtime_type == new_runtime_type:
         return

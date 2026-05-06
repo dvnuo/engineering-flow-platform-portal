@@ -62,3 +62,31 @@ def test_default_mount_path_rejects_invalid_runtime_type():
     import app.api.agents as agents_api
     with pytest.raises(ValueError):
         agents_api._default_mount_path_for_runtime("bad")
+
+
+def test_mount_path_switch_defaults_missing_old_runtime_type_to_native():
+    import app.api.agents as agents_api
+    from types import SimpleNamespace
+
+    agent = SimpleNamespace(runtime_type=None, mount_path="/root/.efp")
+    changes = {"runtime_type": "opencode"}
+    agents_api._maybe_add_mount_path_switch_for_runtime_change(agent, changes)
+    assert changes["mount_path"] == "/workspace"
+
+
+def test_mount_path_switch_rejects_invalid_old_runtime_type():
+    import app.api.agents as agents_api
+    from types import SimpleNamespace
+
+    agent = SimpleNamespace(runtime_type="bad", mount_path="/root/.efp")
+    with pytest.raises(ValueError):
+        agents_api._maybe_add_mount_path_switch_for_runtime_change(agent, {"runtime_type": "opencode"})
+
+
+def test_mount_path_switch_rejects_invalid_new_runtime_type():
+    import app.api.agents as agents_api
+    from types import SimpleNamespace
+
+    agent = SimpleNamespace(runtime_type="native", mount_path="/root/.efp")
+    with pytest.raises(ValueError):
+        agents_api._maybe_add_mount_path_switch_for_runtime_change(agent, {"runtime_type": "bad"})
