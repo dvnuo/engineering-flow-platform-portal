@@ -925,21 +925,6 @@ def test_non_allowlisted_portal_prefixed_arbitrary_header_is_not_forwarded_in_br
     assert "X-Portal-Arbitrary-Header" not in outbound
 
 
-def test_build_portal_execution_headers_returns_identity_headers_only():
-    from app.services.proxy_service import build_portal_execution_headers
-
-    user = SimpleNamespace(id=" 55 ", username="user", nickname=" Name\n")
-    headers = build_portal_execution_headers(user)
-    assert headers["X-Portal-Author-Source"] == "portal"
-    assert headers["X-Portal-User-Id"] == "55"
-    assert headers["X-Portal-User-Name"] == "Name"
-    assert set(headers.keys()) == {
-        "X-Portal-Author-Source",
-        "X-Portal-User-Id",
-        "X-Portal-User-Name",
-    }
-
-
 def test_proxy_direct_chat_succeeds_with_standard_browser_request_headers(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module

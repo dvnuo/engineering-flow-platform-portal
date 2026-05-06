@@ -61,10 +61,6 @@ def build_portal_identity_headers(user) -> dict[str, str]:
 
 
 
-def build_portal_execution_headers(user) -> dict[str, str]:
-    return build_portal_identity_headers(user)
-
-
 def build_portal_agent_identity_headers(user, agent) -> dict[str, str]:
     headers = build_portal_identity_headers(user)
     sanitized_name = sanitize_header_value(getattr(agent, "name", None))

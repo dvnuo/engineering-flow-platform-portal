@@ -152,7 +152,7 @@ def test_app_chat_send_drops_form_identity_and_uses_portal_identity_and_trace_he
     assert "spoofed" not in captured["extra_headers"].values()
 
 
-def test_app_chat_send_succeeds_with_standard_portal_identity_headers_only(monkeypatch):
+def test_app_chat_send_succeeds_with_standard_form_fields(monkeypatch):
     from app.main import app
     import app.web as web_module
 
