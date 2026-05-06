@@ -36,7 +36,7 @@ from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubServiceError,
 )
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_agent_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_agent_identity_headers, build_runtime_trace_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
@@ -97,7 +97,10 @@ def _can_write(agent, user) -> bool:
 
 
 def _portal_extra_headers(user, agent) -> dict[str, str]:
-    return build_portal_agent_identity_headers(user, agent)
+    return {
+        **build_runtime_trace_headers(get_log_context()),
+        **build_portal_agent_identity_headers(user, agent),
+    }
 
 
 def _list_writable_agents(db, user) -> list:
@@ -2697,8 +2700,6 @@ async def app_chat_send(request: Request):
         if attachments:
             payload["attachments"] = attachments
 
-        extra_headers = build_portal_agent_identity_headers(user, agent)
-
         status_code, content, _ = await proxy_service.forward(
             agent=agent,
             method="POST",
@@ -2706,7 +2707,7 @@ async def app_chat_send(request: Request):
             query_items=[],
             body=json.dumps(payload).encode("utf-8"),
             headers={"content-type": "application/json"},
-            extra_headers=extra_headers,
+            extra_headers=_portal_extra_headers(user, agent),
         )
 
         if status_code >= 400:

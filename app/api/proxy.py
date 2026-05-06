@@ -259,7 +259,10 @@ async def proxy_agent(
 
         request_body = (await request.body()) or None
         is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
-        extra_headers = build_portal_agent_identity_headers(user, agent)
+        extra_headers = {
+            **build_runtime_trace_headers(get_log_context()),
+            **build_portal_agent_identity_headers(user, agent),
+        }
 
         if is_direct_chat_execution and request_body:
             if not _content_type_is_json(content_type):
@@ -357,9 +360,7 @@ async def proxy_agent(
 
 @router.websocket("/a/{agent_id}/api/events")
 async def proxy_agent_events(agent_id: str, websocket: WebSocket):
-    trace_id = (websocket.headers.get("X-Trace-Id") or websocket.headers.get("X-Request-Id") or "").strip()
-    if not trace_id:
-        trace_id = generate_trace_id()
+    trace_id = generate_trace_id()
     context_token = bind_log_context(
         trace_id=trace_id,
         span_id=generate_span_id(),

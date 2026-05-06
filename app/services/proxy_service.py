@@ -61,10 +61,6 @@ def build_portal_identity_headers(user) -> dict[str, str]:
 
 
 
-def build_portal_execution_headers(user) -> dict[str, str]:
-    return build_portal_identity_headers(user)
-
-
 def build_portal_agent_identity_headers(user, agent) -> dict[str, str]:
     headers = build_portal_identity_headers(user)
     sanitized_name = sanitize_header_value(getattr(agent, "name", None))
@@ -301,6 +297,11 @@ class ProxyService:
             "x-portal-user-id": "X-Portal-User-Id",
             "x-portal-user-name": "X-Portal-User-Name",
             "x-portal-agent-name": "X-Portal-Agent-Name",
+            "x-trace-id": "X-Trace-Id",
+            "x-span-id": "X-Span-Id",
+            "x-parent-span-id": "X-Parent-Span-Id",
+            "x-portal-task-id": "X-Portal-Task-Id",
+            "x-portal-dispatch-id": "X-Portal-Dispatch-Id",
         }
         forbidden_extra_headers = {
             "content-type",

@@ -47,9 +47,7 @@ app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 @app.middleware("http")
 async def bind_request_log_context(request, call_next):
-    trace_id = (request.headers.get("X-Trace-Id") or request.headers.get("X-Request-Id") or "").strip()
-    if not trace_id:
-        trace_id = generate_trace_id()
+    trace_id = generate_trace_id()
     token = bind_log_context(
         trace_id=trace_id,
         span_id=generate_span_id(),

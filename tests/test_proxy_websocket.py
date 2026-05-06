@@ -7,7 +7,9 @@ def _proxy_source() -> str:
 
 def _extract_function(source: str, signature: str, next_marker: str) -> str:
     start = source.index(signature)
-    end = source.index(next_marker, start)
+    end = source.find(next_marker, start)
+    if end == -1:
+        end = len(source)
     return source[start:end]
 
 
@@ -80,3 +82,15 @@ def test_proxy_websocket_error_fallback_closes_1011():
 
     assert "except Exception:" in source
     assert "await websocket.close(code=1011)" in source
+
+
+def test_proxy_websocket_generates_portal_trace_id_instead_of_trusting_browser_header():
+    source = _proxy_source()
+    fn_source = _extract_function(
+        source,
+        "async def proxy_agent_events(agent_id: str, websocket: WebSocket):",
+        "\n\n    finally:\n        reset_log_context(context_token)",
+    )
+    assert "trace_id = generate_trace_id()" in fn_source
+    assert "websocket.headers.get(\"X-Trace-Id\")" not in fn_source
+    assert "websocket.headers.get(\"X-Request-Id\")" not in fn_source

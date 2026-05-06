@@ -7,6 +7,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from app.config import get_settings
+from app.contracts.runtime_types import InvalidRuntimeType, normalize_runtime_type_or_default
 from app.redaction import sanitize_exception_message
 from app.utils.git_urls import normalize_git_repo_url
 
@@ -83,10 +84,12 @@ class K8sService:
         return (getattr(agent, "skill_branch", None) or self.settings.default_skill_branch or "master").strip() or "master"
 
     def _runtime_type(self, agent) -> str:
-        runtime_type = (getattr(agent, "runtime_type", None) or "").strip().lower()
-        if runtime_type in {"native", "opencode"}:
-            return runtime_type
-        return "native"
+        raw = getattr(agent, "runtime_type", None)
+        try:
+            return normalize_runtime_type_or_default(raw)
+        except InvalidRuntimeType as exc:
+            agent_id = getattr(agent, "id", "-")
+            raise ValueError(f"Invalid runtime_type for agent {agent_id}: {exc}") from exc
 
     def _tool_repo_url(self, agent) -> str | None:
         return normalize_git_repo_url(getattr(agent, "tool_repo_url", None)) or normalize_git_repo_url(self.settings.default_tool_repo_url)

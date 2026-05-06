@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 
-def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
+def test_app_chat_send_forwards_identity_and_trace_headers(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -75,10 +75,13 @@ def test_app_chat_send_forwards_identity_only_in_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-User-Id"] == "123"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Alice"
     assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
+    assert captured["extra_headers"]["X-Trace-Id"]
+    assert captured["extra_headers"]["X-Span-Id"]
+    assert "spoofed" not in captured["extra_headers"].values()
     assert captured["headers"] == {"content-type": "application/json"}
 
 
-def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
+def test_app_chat_send_drops_form_identity_and_uses_portal_identity_and_trace_headers(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -144,9 +147,12 @@ def test_app_chat_send_drops_form_identity_and_uses_headers_only(monkeypatch):
     assert captured["extra_headers"]["X-Portal-User-Id"] == "456"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Bob"
     assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
+    assert captured["extra_headers"]["X-Trace-Id"]
+    assert captured["extra_headers"]["X-Span-Id"]
+    assert "spoofed" not in captured["extra_headers"].values()
 
 
-def test_app_chat_send_succeeds_with_standard_portal_identity_headers_only(monkeypatch):
+def test_app_chat_send_succeeds_with_standard_form_fields(monkeypatch):
     from app.main import app
     import app.web as web_module
 
@@ -1342,3 +1348,56 @@ def test_app_chat_send_runtime_error_includes_only_safe_model_limit_scalars(monk
     assert "SECRET_CONTEXT" not in detail
     assert "ctx://" not in detail
     assert "raw_output=" not in detail
+
+
+def test_app_chat_send_does_not_forward_browser_spoofed_trace_header(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    fake_user = SimpleNamespace(id=123, username="alice", nickname="Alice", role="user")
+    fake_agent = SimpleNamespace(
+        id="agent-1",
+        owner_user_id=123,
+        visibility="private",
+        status="running",
+        name="Agent One",
+    )
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: fake_user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(
+        web_module,
+        "AgentRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
+    )
+    monkeypatch.setattr(
+        web_module.runtime_execution_context_service,
+        "build_runtime_metadata",
+        lambda _db, _agent: {},
+    )
+
+    captured = {}
+
+    async def _fake_forward(**kwargs):
+        captured.update(kwargs)
+        return 200, json.dumps({"response": "ok", "session_id": "s-1", "events": []}).encode("utf-8"), "application/json"
+
+    monkeypatch.setattr(web_module.proxy_service, "forward", _fake_forward)
+
+    client = TestClient(app)
+    response = client.post(
+        "/app/chat/send",
+        data={"agent_id": "agent-1", "message": "hi"},
+        headers={"X-Trace-Id": "browser-spoof", "X-Request-Id": "browser-request-spoof"},
+    )
+
+    assert response.status_code == 200
+    assert captured["extra_headers"]["X-Trace-Id"]
+    assert captured["extra_headers"]["X-Trace-Id"] != "browser-spoof"
+    assert captured["extra_headers"]["X-Trace-Id"] != "browser-request-spoof"
+    assert response.headers["X-Trace-Id"] != "browser-spoof"
+    assert response.headers["X-Trace-Id"] != "browser-request-spoof"
