@@ -1118,9 +1118,11 @@ def test_proxy_chat_stream_keeps_httpx_stream_context_alive_until_body_drained(m
             "forward_count": 0,
             "stream_request": None,
             "stream_context_exited": False,
+            "stream_context_exit_count": 0,
             "exited_during_yield_1": None,
             "exited_during_yield_2": None,
             "client_closed": False,
+            "client_close_count": 0,
         }
 
         async def _fake_forward(**_kwargs):
@@ -1143,6 +1145,7 @@ def test_proxy_chat_stream_keeps_httpx_stream_context_alive_until_body_drained(m
 
             async def __aexit__(self, exc_type, exc, tb):
                 calls["stream_context_exited"] = True
+                calls["stream_context_exit_count"] += 1
                 return False
 
         class _FakeAsyncClient:
@@ -1155,6 +1158,7 @@ def test_proxy_chat_stream_keeps_httpx_stream_context_alive_until_body_drained(m
 
             async def aclose(self):
                 calls["client_closed"] = True
+                calls["client_close_count"] += 1
 
         monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
         monkeypatch.setattr(proxy_module.httpx, "AsyncClient", _FakeAsyncClient)
@@ -1176,6 +1180,8 @@ def test_proxy_chat_stream_keeps_httpx_stream_context_alive_until_body_drained(m
     assert calls["exited_during_yield_2"] is False
     assert calls["stream_context_exited"] is True
     assert calls["client_closed"] is True
+    assert calls["stream_context_exit_count"] == 1
+    assert calls["client_close_count"] == 1
     assert calls["forward_count"] == 0
     assert calls["stream_request"]["url"] == "http://runtime.local:8000/api/chat/stream"
     assert calls["stream_request"]["params"] == [("stream", "runtime")]
@@ -1200,7 +1206,14 @@ def test_proxy_events_sse_uses_get_streaming_upstream_not_buffered_forward(monke
     try:
         monkeypatch.setattr(proxy_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
         monkeypatch.setattr(proxy_module.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
-        calls = {"forward_count": 0, "stream_request": None}
+        calls = {
+            "forward_count": 0,
+            "stream_request": None,
+            "stream_context_exited": False,
+            "exited_during_yield_1": None,
+            "exited_during_yield_2": None,
+            "client_closed": False,
+        }
 
         async def _fake_forward(**_kwargs):
             calls["forward_count"] += 1
@@ -1211,8 +1224,10 @@ def test_proxy_events_sse_uses_get_streaming_upstream_not_buffered_forward(monke
             headers = {"content-type": "text/event-stream", "cache-control": "no-cache"}
 
             async def aiter_raw(self):
-                for chunk in (b"data: one\n\n", b"data: two\n\n"):
-                    yield chunk
+                calls["exited_during_yield_1"] = calls["stream_context_exited"]
+                yield b"data: one\n\n"
+                calls["exited_during_yield_2"] = calls["stream_context_exited"]
+                yield b"data: two\n\n"
 
             async def aclose(self):
                 return None
@@ -1222,6 +1237,7 @@ def test_proxy_events_sse_uses_get_streaming_upstream_not_buffered_forward(monke
                 return _FakeUpstreamResponse()
 
             async def __aexit__(self, exc_type, exc, tb):
+                calls["stream_context_exited"] = True
                 return False
 
         class _FakeAsyncClient:
@@ -1233,6 +1249,7 @@ def test_proxy_events_sse_uses_get_streaming_upstream_not_buffered_forward(monke
                 return _FakeStreamContext()
 
             async def aclose(self):
+                calls["client_closed"] = True
                 return None
 
         monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
@@ -1253,6 +1270,10 @@ def test_proxy_events_sse_uses_get_streaming_upstream_not_buffered_forward(monke
     assert calls["stream_request"]["params"] == [("session_id", "sess-1")]
     assert "token" not in [k for k, _ in calls["stream_request"]["params"]]
     assert calls["stream_request"].get("content") in (None, b"")
+    assert calls["exited_during_yield_1"] is False
+    assert calls["exited_during_yield_2"] is False
+    assert calls["stream_context_exited"] is True
+    assert calls["client_closed"] is True
 
 
 def test_proxy_events_stream_sse_uses_get_streaming_upstream(monkeypatch):
@@ -1273,13 +1294,19 @@ def test_proxy_events_stream_sse_uses_get_streaming_upstream(monkeypatch):
     try:
         monkeypatch.setattr(proxy_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
         monkeypatch.setattr(proxy_module.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
-        calls = {"stream_request": None}
+        calls = {
+            "stream_request": None,
+            "stream_context_exited": False,
+            "exited_during_yield_1": None,
+            "client_closed": False,
+        }
 
         class _FakeUpstreamResponse:
             status_code = 200
             headers = {"content-type": "text/event-stream"}
 
             async def aiter_raw(self):
+                calls["exited_during_yield_1"] = calls["stream_context_exited"]
                 yield b"data: stream\n\n"
 
             async def aclose(self):
@@ -1290,6 +1317,7 @@ def test_proxy_events_stream_sse_uses_get_streaming_upstream(monkeypatch):
                 return _FakeUpstreamResponse()
 
             async def __aexit__(self, exc_type, exc, tb):
+                calls["stream_context_exited"] = True
                 return False
 
         class _FakeAsyncClient:
@@ -1301,6 +1329,7 @@ def test_proxy_events_stream_sse_uses_get_streaming_upstream(monkeypatch):
                 return _FakeStreamContext()
 
             async def aclose(self):
+                calls["client_closed"] = True
                 return None
 
         monkeypatch.setattr(proxy_module.httpx, "AsyncClient", _FakeAsyncClient)
@@ -1312,8 +1341,13 @@ def test_proxy_events_stream_sse_uses_get_streaming_upstream(monkeypatch):
 
     assert response.status_code == 200
     assert b"".join(body_chunks) == b"data: stream\n\n"
+    assert response.headers["content-type"].startswith("text/event-stream")
     assert calls["stream_request"]["method"] == "GET"
     assert calls["stream_request"]["url"] == "http://runtime.local:8000/api/events/stream"
+    assert "token" not in [k for k, _ in calls["stream_request"]["params"]]
+    assert calls["exited_during_yield_1"] is False
+    assert calls["stream_context_exited"] is True
+    assert calls["client_closed"] is True
 
 
 def test_build_runtime_trace_headers_only_includes_non_empty_sanitized_values():
