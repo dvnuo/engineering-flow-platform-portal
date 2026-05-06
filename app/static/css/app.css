@@ -2094,7 +2094,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .toolbar-btn { width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text-secondary); display: grid; place-items: center; }
 
 .modal { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .5); z-index: 60; }
-.modal-card { width: min(400px, calc(100vw - 2rem)); background: var(--portal-surface); border: 1px solid var(--portal-border); border-radius: var(--portal-radius-lg); padding: 1.5rem; color: var(--portal-text); box-shadow: var(--portal-shadow-lg); }
+.modal-card { width: min(600px, calc(100vw - 2rem)); background: var(--portal-surface); border: 1px solid var(--portal-border); border-radius: var(--portal-radius-lg); padding: 1.5rem; color: var(--portal-text); box-shadow: var(--portal-shadow-lg); }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
 .stack { display: grid; gap: 1rem; }
 .stack label:not(.toggle-switch) { display: block; font-size: .875rem; color: var(--portal-text-secondary); margin-bottom: .35rem; }
