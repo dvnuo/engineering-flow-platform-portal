@@ -131,7 +131,7 @@ class K8sService:
         if include_opencode_state:
             name = "opencode-persistent-dirs-init"
             commands.append('mkdir -p "$AGENT_STATE_ROOT/data/.opencode" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state"')
-            commands.append('chown -R 10001:10001 "$AGENT_STATE_ROOT/data" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state" "$AGENT_STATE_ROOT/tools-code" || true')
+            commands.append('chown -R 0:0 "$AGENT_STATE_ROOT/data" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state" "$AGENT_STATE_ROOT/tools-code" || true')
 
         return client.V1Container(
             name=name,
@@ -143,10 +143,10 @@ class K8sService:
         )
 
     def _opencode_state_dir(self) -> str:
-        return "/home/opencode/.local/share/opencode"
+        return "/root/.local/share/opencode"
 
     def _opencode_adapter_state_dir(self) -> str:
-        return "/home/opencode/.local/share/efp-compat"
+        return "/root/.local/share/efp-compat"
 
     def _opencode_config_path(self, agent) -> str:
         workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
@@ -672,6 +672,8 @@ class K8sService:
                     )
                 )
             if runtime_type == "opencode":
+                env.append(client.V1EnvVar(name="HOME", value="/root"))
+                env.append(client.V1EnvVar(name="OPENCODE_DATA_DIR", value=self._opencode_state_dir()))
                 env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
                 env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=self._tools_assets_dir()))
