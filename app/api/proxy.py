@@ -259,7 +259,10 @@ async def proxy_agent(
 
         request_body = (await request.body()) or None
         is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
-        extra_headers = build_portal_agent_identity_headers(user, agent)
+        extra_headers = {
+            **build_runtime_trace_headers(get_log_context()),
+            **build_portal_agent_identity_headers(user, agent),
+        }
 
         if is_direct_chat_execution and request_body:
             if not _content_type_is_json(content_type):

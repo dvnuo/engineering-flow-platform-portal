@@ -1,10 +1,13 @@
 # Portal T13 Smoke
 
-This smoke suite validates Portal-side T13 contracts only, without starting real runtime services.
+This smoke suite validates Portal-side contracts only, without starting real runtime services.
 
-It covers create/edit/proxy/k8s spec contract checks from Portal tests, including
-opencode state persistence mounts/env, runtime events proxy streaming routes, websocket
-event proxy headers, and runtime-profile sync payload shaping.
+It covers:
+- runtime_type strict helper tests
+- runtime trace header propagation
+- alembic runtime_type server_default cleanup
+- config/docs default consistency
+- k8s source overlay contract
 
 Live runtime contract validation is owned by runtime repo or multi-repo integration workspaces.
 

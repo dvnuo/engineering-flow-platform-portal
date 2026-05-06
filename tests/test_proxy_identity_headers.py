@@ -71,6 +71,9 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
     assert captured["extra_headers"]["X-Portal-User-Id"] == "55"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
     assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
+    assert captured["extra_headers"]["X-Trace-Id"]
+    assert captured["extra_headers"]["X-Span-Id"]
+    assert "spoofed" not in captured["extra_headers"].values()
 
 
 def test_proxy_agent_restricts_config_save_for_non_owner(monkeypatch):
@@ -670,6 +673,9 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
     assert captured["extra_headers"]["X-Portal-User-Id"] == "77"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
     assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
+    assert captured["extra_headers"]["X-Trace-Id"]
+    assert captured["extra_headers"]["X-Span-Id"]
+    assert "spoofed" not in captured["extra_headers"].values()
 
 
 def test_proxy_direct_chat_rejects_malformed_json_without_forwarding(monkeypatch):
@@ -1481,3 +1487,20 @@ def test_websocket_connect_header_kwargs_uses_extra_headers_for_legacy_websocket
     headers = {"X-Trace-Id": "trace-1", "X-Portal-User-Id": "55"}
 
     assert proxy_module._websocket_connect_header_kwargs(headers) == {"extra_headers": headers}
+
+
+def test_proxy_service_outbound_headers_allows_runtime_trace_headers():
+    from app.services.proxy_service import ProxyService
+
+    headers = ProxyService._build_outbound_headers({}, extra_headers={
+        "X-Trace-Id": "trace\r\n",
+        "X-Span-Id": "span\n",
+        "X-Parent-Span-Id": "parent",
+        "X-Portal-Task-Id": "task",
+        "X-Portal-Dispatch-Id": "dispatch",
+    })
+    assert headers["X-Trace-Id"] == "trace"
+    assert headers["X-Span-Id"] == "span"
+    assert headers["X-Parent-Span-Id"] == "parent"
+    assert headers["X-Portal-Task-Id"] == "task"
+    assert headers["X-Portal-Dispatch-Id"] == "dispatch"

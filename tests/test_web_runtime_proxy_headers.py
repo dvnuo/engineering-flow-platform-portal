@@ -71,3 +71,13 @@ def test_non_execution_proxy_path_contract_does_not_enrich_payload():
     assert "if is_direct_chat_execution and request_body:" in proxy_source
     assert "parsed_payload = _enrich_chat_payload_with_runtime_metadata" in proxy_source
     assert "filtered_query_items = _filter_proxy_query_items(request.query_params.multi_items())" in proxy_source
+
+
+def test_web_portal_extra_headers_include_runtime_trace_headers_source_contract():
+    web_source = _web_source()
+    assert "build_runtime_trace_headers(get_log_context())" in web_source
+
+
+def test_direct_chat_route_uses_portal_extra_headers_helper_contract():
+    web_source = _web_source()
+    assert "extra_headers=_portal_extra_headers(user, agent)" in web_source

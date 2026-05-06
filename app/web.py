@@ -36,7 +36,7 @@ from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubServiceError,
 )
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_agent_identity_headers
+from app.services.proxy_service import ProxyService, build_portal_agent_identity_headers, build_runtime_trace_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
@@ -97,7 +97,10 @@ def _can_write(agent, user) -> bool:
 
 
 def _portal_extra_headers(user, agent) -> dict[str, str]:
-    return build_portal_agent_identity_headers(user, agent)
+    return {
+        **build_runtime_trace_headers(get_log_context()),
+        **build_portal_agent_identity_headers(user, agent),
+    }
 
 
 def _list_writable_agents(db, user) -> list:

@@ -301,6 +301,11 @@ class ProxyService:
             "x-portal-user-id": "X-Portal-User-Id",
             "x-portal-user-name": "X-Portal-User-Name",
             "x-portal-agent-name": "X-Portal-Agent-Name",
+            "x-trace-id": "X-Trace-Id",
+            "x-span-id": "X-Span-Id",
+            "x-parent-span-id": "X-Parent-Span-Id",
+            "x-portal-task-id": "X-Portal-Task-Id",
+            "x-portal-dispatch-id": "X-Portal-Dispatch-Id",
         }
         forbidden_extra_headers = {
             "content-type",

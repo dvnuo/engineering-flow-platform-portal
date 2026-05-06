@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from app.config import get_settings
+from app.contracts.runtime_types import InvalidRuntimeType, normalize_runtime_type, normalize_runtime_type_or_default
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
@@ -154,15 +155,17 @@ def _default_agent_image() -> str:
     return _default_agent_image_for_runtime("native")
 
 
-def _normalize_runtime_type(value: str | None) -> str:
-    normalized = (value or "").strip().lower()
-    if normalized in ALLOWED_RUNTIME_TYPES:
-        return normalized
-    return "native"
+def _normalize_runtime_type(value: str | None, *, allow_default: bool = False) -> str:
+    try:
+        if allow_default:
+            return normalize_runtime_type_or_default(value)
+        return normalize_runtime_type(value)
+    except InvalidRuntimeType as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _default_runtime_type_from_settings() -> str:
-    return _normalize_runtime_type(settings.default_runtime_type)
+    return _normalize_runtime_type(settings.default_runtime_type, allow_default=True)
 
 
 def _native_runtime_image_repo() -> str:

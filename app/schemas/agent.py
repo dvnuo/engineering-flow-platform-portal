@@ -3,10 +3,10 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
+from app.contracts.runtime_types import ALLOWED_RUNTIME_TYPES, normalize_runtime_type, normalize_runtime_type_or_default
 from app.utils.git_urls import normalize_git_repo_url
 
 ALLOWED_AGENT_TYPES = {"workspace", "specialist", "task"}
-ALLOWED_RUNTIME_TYPES = {"native", "opencode"}
 
 
 class AgentCreateRequest(BaseModel):
@@ -44,10 +44,7 @@ class AgentCreateRequest(BaseModel):
     @field_validator("runtime_type")
     @classmethod
     def validate_runtime_type(cls, value: Optional[str]) -> str:
-        normalized = (value or "").strip().lower() or "native"
-        if normalized not in ALLOWED_RUNTIME_TYPES:
-            raise ValueError("runtime_type must be one of: native, opencode")
-        return normalized
+        return normalize_runtime_type_or_default(value)
     @field_validator("tool_branch")
     @classmethod
     def normalize_tool_branch(cls, value: Optional[str]) -> Optional[str]:
@@ -95,10 +92,7 @@ class AgentUpdateRequest(BaseModel):
     def validate_runtime_type(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
-        normalized = value.strip().lower()
-        if normalized not in ALLOWED_RUNTIME_TYPES:
-            raise ValueError("runtime_type must be one of: native, opencode")
-        return normalized
+        return normalize_runtime_type(value)
     @field_validator("tool_branch")
     @classmethod
     def normalize_tool_branch(cls, value: Optional[str]) -> Optional[str]:
@@ -163,10 +157,7 @@ class AgentResponse(BaseModel):
     @field_validator("runtime_type", mode="before")
     @classmethod
     def validate_response_runtime_type(cls, value: Optional[str]) -> str:
-        normalized = (value or "").strip().lower() or "native"
-        if normalized not in ALLOWED_RUNTIME_TYPES:
-            raise ValueError("runtime_type must be one of: native, opencode")
-        return normalized
+        return normalize_runtime_type_or_default(value)
 
     class Config:
         from_attributes = True
