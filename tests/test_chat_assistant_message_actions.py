@@ -237,3 +237,87 @@ async function fetch(url) {{
     assert payload["deletedUrls"], "expected retryAssistantMessage to call delete-from-here"
     assert "/messages/u2/delete-from-here" in payload["deletedUrls"][0]
     assert "assistant-should-not-be-used" not in payload["deletedUrls"][0]
+
+
+def test_message_mutation_failure_uses_friendly_runtime_error_helper():
+    js_source = _chat_ui_js_source()
+
+    assert "function getRuntimeMutationErrorMessage" in js_source
+    assert "unsupported_by_opencode_adapter_mvp" in js_source
+    assert "This runtime does not support retry/edit yet" in js_source
+
+    retry_start = js_source.find("async function retryAssistantMessage")
+    edit_start = js_source.find("document.getElementById(\"message-edit-form\")?.addEventListener(\"submit\"")
+    assert retry_start != -1
+    assert edit_start != -1
+
+    retry_block = js_source[retry_start:js_source.find("function getAssistantCopyText", retry_start)]
+    edit_block = js_source[edit_start:js_source.find("if (closeBtn)", edit_start)]
+
+    assert "showToast(getRuntimeMutationErrorMessage(response, result, \"Failed to delete message\"));" in retry_block
+    assert "showToast(getRuntimeMutationErrorMessage(response, result, \"Failed to delete message\"));" in edit_block
+
+
+def test_get_runtime_mutation_error_message_behavior():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    helper = _extract_js_function(js_source, "getRuntimeMutationErrorMessage")
+
+    script = f"""
+{helper}
+const unsupported = getRuntimeMutationErrorMessage(
+  {{ status: 501 }},
+  {{ error: "unsupported_by_opencode_adapter_mvp" }},
+  "Failed to delete message",
+);
+const passthrough = getRuntimeMutationErrorMessage(
+  {{ status: 400 }},
+  {{ error: "message_not_found" }},
+  "Failed to delete message",
+);
+const fallback = getRuntimeMutationErrorMessage(
+  {{ status: 500 }},
+  {{}},
+  "Failed to delete message",
+);
+console.log(JSON.stringify({{ unsupported, passthrough, fallback }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+
+    assert payload["unsupported"] == (
+        "This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat."
+    )
+    assert payload["unsupported"] != "unsupported_by_opencode_adapter_mvp"
+    assert payload["passthrough"] == "message_not_found"
+    assert payload["fallback"] == "Failed to delete message"
+
+
+def test_build_assistant_message_article_adds_optional_message_id_attribute():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    build_assistant = _extract_js_function(js_source, "buildAssistantMessageArticle")
+
+    script = f"""
+function escapeHtmlAttr(value) {{ return String(value); }}
+function escapeHtml(value) {{ return String(value || ""); }}
+function safe(value) {{ return String(value || ""); }}
+function parseDisplayBlocks(value) {{ return Array.isArray(value) ? value : []; }}
+function renderDisplayBlocks() {{ return ""; }}
+function markedParse(value) {{ return String(value || ""); }}
+{build_assistant}
+const withId = buildAssistantMessageArticle("hello", [], "Assistant", "a-123");
+const withoutId = buildAssistantMessageArticle("hello", [], "Assistant");
+console.log(JSON.stringify({{ withId, withoutId }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+
+    assert 'data-message-id="a-123"' in payload["withId"]
+    assert 'data-message-id=""' not in payload["withoutId"]

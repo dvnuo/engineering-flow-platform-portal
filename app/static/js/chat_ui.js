@@ -919,11 +919,12 @@ function buildPendingAssistantArticle() {
   return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
 }
 
-function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant") {
+function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant", messageId = "") {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const encodedMd = escapeHtmlAttr(content || "");
   const encodedBlocks = escapeHtmlAttr(JSON.stringify(displayBlocks || []));
-  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
+  const messageIdAttr = messageId ? ` data-message-id="${escapeHtmlAttr(messageId)}"` : "";
+  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message"${messageIdAttr}><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
 
 function removeTemporaryAssistantRows() {
@@ -3242,6 +3243,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     payload.response || "",
     payload.display_blocks || [],
     getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+    payload.assistant_message_id || "",
   );
   dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
   if (canRenderThinkingPanel) {
@@ -4341,6 +4343,7 @@ function renderChatHistory(messages, metadata = {}) {
         article.appendChild(attachmentDiv);
       }
     } else {
+      if (message.id) article.dataset.messageId = message.id;
       const content = document.createElement("div");
       content.className = "message-markdown md-render max-w-none text-sm";
       if (Array.isArray(message.display_blocks) && message.display_blocks.length) {
@@ -6310,6 +6313,15 @@ function truncateDomFromUserArticle(userArticle) {
 
 }
 
+function getRuntimeMutationErrorMessage(response, result, fallbackMessage = "Failed to update message") {
+  const error = String(result?.error || result?.detail || "").trim();
+  if (response?.status === 501 || error === "unsupported_by_opencode_adapter_mvp") {
+    return "This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat.";
+  }
+  if (error) return error;
+  return fallbackMessage;
+}
+
 async function retryAssistantMessage(row) {
   const agentId = state.selectedAgentId;
   const sessionId = document.getElementById("chat-session-id")?.value || currentSessionIdForAgent(agentId);
@@ -6360,7 +6372,7 @@ async function retryAssistantMessage(row) {
     }
 
     if (!response.ok || !result.success) {
-      showToast(result.error || "Failed to delete message");
+      showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"));
       return;
     }
 
@@ -6565,7 +6577,7 @@ function bindEvents() {
       }
       
       if (!response.ok || !result.success) {
-        showToast(result.error || "Failed to delete message");
+        showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"));
         return;
       }
       
