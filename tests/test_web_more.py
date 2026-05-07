@@ -1675,10 +1675,11 @@ def test_chat_stream_event_type_parsing_source_markers_present():
     js = _chat_ui_js_source()
     assert 'function getChatStreamEventType(eventName, data)' in js
     assert 'data.type || data.event_type || data.event' in js
+    assert 'function isChatStreamWrapperEventName(name)' in js
     assert 'hasExplicitEvent = false' in js
     assert 'if (!dataLines.length && !hasExplicitEvent) return null;' in js
     assert 'const t = getChatStreamEventType(eventName, data);' in js
-    assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+    assert "if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate))" in js
     assert '/api/chat/stream' in js
     assert 'getReader()' in js
     assert 'TextDecoder()' in js
@@ -1704,11 +1705,12 @@ def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
     assert 'if (typeof data === "string") return data;' in js
     assert "function normalizeChatStreamEventData(data)" in js
     assert "Object.assign(normalized, normalized.data)" in js
-    assert "const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || \"\"" in js
+    assert "const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || \"\"" in js
     assert "const eventData = normalizeChatStreamEventData(data)" in js
+    assert "function hasChatStreamFinalPayload(data)" in js
     assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
     assert "return 'unsupported'" in js
-    assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+    assert "Response finished without a final payload; refresh or reload the session to view the persisted answer." in js
 
 
 def test_chat_stream_runtime_events_include_request_session_agent_metadata():
