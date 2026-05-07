@@ -5306,6 +5306,23 @@ function stopCopilotPolling(root) {
 function getManagedCopilotAuthBase(root) {
   return (root?.dataset?.copilotAuthBase || "").trim() || "/api/copilot/auth";
 }
+function clearCopilotOAuthFields(root) {
+  ["llm_oauth_type","llm_oauth_access","llm_oauth_refresh","llm_oauth_expires","llm_oauth_enterprise_url","llm_oauth_account_id"].forEach((name) => {
+    const el = root?.querySelector(`input[name="${name}"]`);
+    if (el) el.value = "";
+  });
+}
+function setCopilotOAuthFields(root, oauth) {
+  const access = oauth?.access || oauth?.refresh || "";
+  const refresh = oauth?.refresh || oauth?.access || "";
+  const setVal = (name, value) => { const el = root?.querySelector(`input[name="${name}"]`); if (el) el.value = value; };
+  setVal("llm_oauth_type", "oauth");
+  setVal("llm_oauth_access", access);
+  setVal("llm_oauth_refresh", refresh);
+  setVal("llm_oauth_expires", String(oauth?.expires ?? 0));
+  setVal("llm_oauth_enterprise_url", oauth?.enterpriseUrl || "");
+  setVal("llm_oauth_account_id", oauth?.accountId || "");
+}
 
 function getManagedGithubBaseUrl(root) {
   const input = root?.querySelector('input[name="github_base_url"]');
@@ -5365,7 +5382,10 @@ function updateModelOptions(root) {
   const isCopilot = provider === "github_copilot";
   if (copilotBtn) copilotBtn.classList.toggle("hidden", !isCopilot);
   if (authStatus && !isCopilot) authStatus.classList.add("hidden");
-  if (!isCopilot) stopCopilotPolling(root);
+  if (!isCopilot) {
+    stopCopilotPolling(root);
+    clearCopilotOAuthFields(root);
+  }
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
 
@@ -5503,14 +5523,19 @@ async function startCopilotAuth(root) {
 
       if (check.status === "authorized") {
         stopCopilotPolling(root);
-        if (statusText) statusText.textContent = "Authorized successfully!";
+        if (statusText) statusText.textContent = "GitHub Copilot OAuth authorized";
         if (instructions) instructions.classList.add("hidden");
         const apiInput = root.querySelector('input[name="llm_api_key"]');
-        if (apiInput && check.token) {
+        if (check.oauth) {
+          setCopilotOAuthFields(root, check.oauth);
+          if (apiInput) apiInput.value = "";
+          markManagedSectionTouched(root, "llm");
+          showToast("GitHub Copilot OAuth authorized. Save to persist.");
+        } else if (apiInput && check.token) {
           apiInput.value = check.token;
           markManagedSectionTouched(root, "llm");
+          showToast("Legacy Copilot token inserted into API Key field. Re-authorize if OpenCode requires OAuth.");
         }
-        showToast("Copilot token inserted into API Key field. Save to persist.");
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
         finishCopilotAuthWithMessage(root, check.message || check.error || "Authorization failed");
       } else {

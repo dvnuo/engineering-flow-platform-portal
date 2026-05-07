@@ -867,6 +867,8 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
 
     def is_section_touched(section: str) -> bool:
         return str(form.get(f"__touch_{section}") or "0").strip() == "1"
+    def is_github_copilot_provider(provider_value: str) -> bool:
+        return (provider_value or "").strip().lower() in {"github_copilot", "github-copilot", "copilot", "github"}
 
     config_payload = config_payload if isinstance(config_payload, dict) else {}
     config_payload.pop("ssh", None)
@@ -902,10 +904,40 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             llm["model"] = model_value
         else:
             llm.pop("model", None)
-        if api_key_value:
-            llm["api_key"] = api_key_value
+        if is_github_copilot_provider(provider_value):
+            oauth_access_raw = (form.get("llm_oauth_access") or "").strip()
+            oauth_refresh_raw = (form.get("llm_oauth_refresh") or "").strip()
+            oauth_type = (form.get("llm_oauth_type") or "").strip() or "oauth"
+            refresh_value = oauth_refresh_raw or oauth_access_raw
+            access_value = oauth_access_raw or oauth_refresh_raw
+            if access_value or refresh_value:
+                try:
+                    expires = int((form.get("llm_oauth_expires") or "").strip() or "0")
+                except ValueError:
+                    expires = 0
+                if expires < 0:
+                    expires = 0
+                oauth_payload = {"type": oauth_type if oauth_type == "oauth" else "oauth", "access": access_value, "refresh": refresh_value, "expires": expires}
+                enterprise_url = (form.get("llm_oauth_enterprise_url") or "").strip()
+                account_id = (form.get("llm_oauth_account_id") or "").strip()
+                if enterprise_url:
+                    oauth_payload["enterpriseUrl"] = enterprise_url
+                if account_id:
+                    oauth_payload["accountId"] = account_id
+                llm["oauth"] = oauth_payload
+                llm.pop("api_key", None)
+            elif "llm_oauth_access" in form and not api_key_value:
+                llm.pop("oauth", None)
+                llm.pop("api_key", None)
+            elif api_key_value:
+                llm["api_key"] = api_key_value
+                llm.pop("oauth", None)
         else:
-            llm.pop("api_key", None)
+            llm.pop("oauth", None)
+            if api_key_value:
+                llm["api_key"] = api_key_value
+            else:
+                llm.pop("api_key", None)
 
         temperature_allowed = runtime_profile_model_supports_temperature(llm.get("model"))
         temperature_text = (form.get("llm_temperature") or "").strip()

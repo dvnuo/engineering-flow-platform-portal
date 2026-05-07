@@ -493,3 +493,14 @@ def test_settings_save_rejects_invalid_temperature(monkeypatch):
         assert cfg["llm"]["temperature"] == 0.4
     finally:
         cleanup()
+
+
+def test_templates_and_js_include_copilot_oauth_fields_and_helpers():
+    from pathlib import Path
+    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text()
+    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text()
+    js = Path("app/static/js/chat_ui.js").read_text()
+    assert 'name="llm_oauth_access"' in runtime_tpl
+    assert 'name="llm_oauth_access"' in settings_tpl
+    assert 'setCopilotOAuthFields' in js
+    assert 'clearCopilotOAuthFields' in js

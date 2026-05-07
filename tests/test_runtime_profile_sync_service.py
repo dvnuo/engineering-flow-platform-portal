@@ -350,3 +350,16 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists_whil
         assert isinstance(cfg["policy_context"], dict)
     finally:
         db.close()
+
+
+def test_build_apply_payload_for_agent_keeps_llm_oauth_for_opencode():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = '{"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":0}}}'
+        running.runtime_type = "opencode"
+        db.add_all([rp, running]); db.commit(); db.refresh(running)
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        assert payload["config"]["llm"]["oauth"]["access"] == "gho_A"
+        assert payload["config"]["llm"]["provider"] in {"github-copilot", "github_copilot"}
+    finally:
+        db.close()
