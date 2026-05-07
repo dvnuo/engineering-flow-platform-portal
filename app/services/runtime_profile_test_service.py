@@ -8,6 +8,13 @@ from app.schemas.runtime_profile import runtime_profile_model_supports_temperatu
 
 
 class RuntimeProfileTestService:
+    @staticmethod
+    def _llm_base_url(llm_cfg: dict, default: str) -> str:
+        for key in ("base_url", "api_base", "baseURL", "endpoint"):
+            value = str(llm_cfg.get(key) or "").strip()
+            if value:
+                return value.rstrip("/")
+        return default
     async def run_test(self, target: str, config: dict) -> tuple[bool, str]:
         if target == "proxy":
             return await self._test_proxy(config)
@@ -130,7 +137,7 @@ class RuntimeProfileTestService:
             return False, "LLM API key is required."
 
         if provider == "openai":
-            api_base = str(llm_cfg.get("api_base") or "https://api.openai.com/v1").strip().rstrip("/")
+            api_base = self._llm_base_url(llm_cfg, "https://api.openai.com/v1")
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
@@ -146,7 +153,7 @@ class RuntimeProfileTestService:
             return await self._provider_request(provider, model, f"{api_base}/chat/completions", headers, payload)
 
         if provider == "anthropic":
-            api_base = str(llm_cfg.get("api_base") or "https://api.anthropic.com").strip().rstrip("/")
+            api_base = self._llm_base_url(llm_cfg, "https://api.anthropic.com")
             headers = {
                 "x-api-key": api_key,
                 "Content-Type": "application/json",
@@ -159,7 +166,7 @@ class RuntimeProfileTestService:
             }
             return await self._provider_request(provider, model, f"{api_base}/messages", headers, payload)
 
-        api_base = str(llm_cfg.get("api_base") or "https://api.githubcopilot.com").strip().rstrip("/")
+        api_base = self._llm_base_url(llm_cfg, "https://api.githubcopilot.com")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",

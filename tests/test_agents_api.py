@@ -656,7 +656,7 @@ def test_create_opencode_agent_uses_opencode_default_image_and_tool_defaults(mon
     try:
         import app.api.agents as agents_api
         monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode")
-        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.29-test")
+        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39-test")
         monkeypatch.setattr(agents_api.settings, "default_tool_repo_url", "git@github.com:Acme/Tools.git")
         monkeypatch.setattr(agents_api.settings, "default_tool_branch", "tools-main")
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -664,7 +664,7 @@ def test_create_opencode_agent_uses_opencode_default_image_and_tool_defaults(mon
         assert response.status_code == 200
         body = response.json()
         assert body["runtime_type"] == "opencode"
-        assert body["image"] == "ghcr.io/acme/opencode:1.14.29-test"
+        assert body["image"] == "ghcr.io/acme/opencode:1.14.39-test"
         assert body["tool_repo_url"] == "https://github.com/Acme/Tools.git"
         assert body["tool_branch"] == "tools-main"
     finally:
@@ -675,7 +675,7 @@ def test_patch_runtime_type_switches_default_image_and_triggers_k8s_update(monke
     try:
         import app.api.agents as agents_api
         monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode")
-        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.29-test")
+        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39-test")
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         calls = {"n": 0}
         monkeypatch.setattr(
@@ -687,7 +687,7 @@ def test_patch_runtime_type_switches_default_image_and_triggers_k8s_update(monke
         assert resp.status_code == 200
         body = resp.json()
         assert body["runtime_type"] == "opencode"
-        assert body["image"] == "ghcr.io/acme/opencode:1.14.29-test"
+        assert body["image"] == "ghcr.io/acme/opencode:1.14.39-test"
         assert calls["n"] == 1
     finally:
         cleanup()

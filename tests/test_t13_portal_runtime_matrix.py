@@ -37,7 +37,7 @@ def test_t13_create_native_and_opencode_agents_select_correct_defaults(monkeypat
     monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_repo", "ghcr.io/example/efp-native-runtime")
     monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_tag", "test-native")
     monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/example/efp-opencode-runtime")
-    monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.29")
+    monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39")
     monkeypatch.setattr(agents_api.settings, "default_skill_repo_url", "https://example.com/skills.git")
     monkeypatch.setattr(agents_api.settings, "default_tool_repo_url", "https://example.com/tools.git")
 
@@ -55,7 +55,7 @@ def test_t13_create_native_and_opencode_agents_select_correct_defaults(monkeypat
         assert native_db.mount_path == "/root/.efp"
         assert native_db.service_name.startswith("agent-")
         assert opencode.runtime_type == "opencode"
-        assert "ghcr.io/example/efp-opencode-runtime:1.14.29" in opencode.image
+        assert "ghcr.io/example/efp-opencode-runtime:1.14.39" in opencode.image
         assert opencode_db.mount_path == "/workspace"
         assert opencode_db.service_name.startswith("agent-")
         assert len(calls) == 2
@@ -68,7 +68,7 @@ def test_t13_edit_runtime_type_both_directions_switches_image_mount_and_reprovis
     monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_repo", "ghcr.io/example/efp-native-runtime")
     monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_tag", "test-native")
     monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/example/efp-opencode-runtime")
-    monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.29")
+    monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39")
     monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
     updates = []
     monkeypatch.setattr(agents_api.k8s_service, "update_agent_runtime", lambda agent: updates.append((agent.runtime_type, agent.mount_path, agent.image)) or SimpleNamespace(status="running", message=None))
@@ -82,7 +82,7 @@ def test_t13_edit_runtime_type_both_directions_switches_image_mount_and_reprovis
         assert updated_to_opencode.runtime_type == "opencode"
         assert first_update[0] == "opencode"
         assert first_update[1] == "/workspace"
-        assert "ghcr.io/example/efp-opencode-runtime:1.14.29" in updated_to_opencode.image
+        assert "ghcr.io/example/efp-opencode-runtime:1.14.39" in updated_to_opencode.image
         assert updated_to_native.runtime_type == "native"
         native_db = db_session.query(Agent).filter(Agent.id == created.id).one()
         assert native_db.mount_path == "/root/.efp"
@@ -121,7 +121,7 @@ def test_t13_defaults_exposes_native_and_opencode_runtime_choices(monkeypatch):
     monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_repo", "ghcr.io/example/efp-native-runtime")
     monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_tag", "test-native")
     monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/example/efp-opencode-runtime")
-    monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.29")
+    monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39")
     monkeypatch.setattr(agents_api.settings, "default_tool_repo_url", "https://example.com/tools.git")
     monkeypatch.setattr(agents_api.settings, "default_tool_branch", "main")
 
@@ -135,7 +135,7 @@ def test_t13_defaults_exposes_native_and_opencode_runtime_choices(monkeypatch):
     assert native_cfg["image_tag"] == "test-native"
     assert native_cfg["default_mount_path"] == "/root/.efp"
     assert opencode_cfg["image_repo"] == "ghcr.io/example/efp-opencode-runtime"
-    assert opencode_cfg["image_tag"] == "1.14.29"
+    assert opencode_cfg["image_tag"] == "1.14.39"
     assert opencode_cfg["default_mount_path"] == "/workspace"
     assert defaults["default_tool_repo_url"] == "https://example.com/tools.git"
     assert defaults["default_tool_branch"] == "main"

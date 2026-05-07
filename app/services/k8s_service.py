@@ -670,6 +670,7 @@ class K8sService:
                     )
                 )
             if runtime_type == "opencode":
+                env.append(client.V1EnvVar(name="EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT", value="true"))
                 env.append(client.V1EnvVar(name="HOME", value="/root"))
                 env.append(client.V1EnvVar(name="OPENCODE_DATA_DIR", value=self._opencode_state_dir()))
                 env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
@@ -677,6 +678,8 @@ class K8sService:
                 env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=self._tools_assets_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value="http://127.0.0.1:4096"))
+                env.append(client.V1EnvVar(name="EFP_OPENCODE_TOOL_REGISTRY_TIMEOUT_SECONDS", value=str(getattr(self.settings, "opencode_tool_registry_timeout_seconds", 600))))
+                env.append(client.V1EnvVar(name="EFP_OPENCODE_TOOL_REGISTRY_REQUEST_TIMEOUT_SECONDS", value=str(getattr(self.settings, "opencode_tool_registry_request_timeout_seconds", 600))))
         return env
 
     def _build_agent_container_resources(self, agent):

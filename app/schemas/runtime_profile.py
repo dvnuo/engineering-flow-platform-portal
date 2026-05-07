@@ -21,6 +21,14 @@ PORTAL_MANAGED_FIELD_TREE = {
         "provider": True,
         "model": True,
         "api_key": True,
+        "base_url": True,
+        "api_base": True,
+        "baseURL": True,
+        "endpoint": True,
+        "timeout": True,
+        "timeout_ms": True,
+        "chunk_timeout_ms": True,
+        "chunkTimeout": True,
         "temperature": True,
         "max_tokens": True,
         "tools": True,
@@ -268,6 +276,28 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
 
     if isinstance(llm, dict):
         llm_copy = llm.copy()
+        for key in ("base_url", "api_base", "baseURL", "endpoint"):
+            if key in llm_copy:
+                cleaned = str(llm_copy.get(key) or "").strip()
+                if cleaned:
+                    llm_copy[key] = cleaned
+                else:
+                    llm_copy.pop(key, None)
+        for key in ("timeout", "timeout_ms", "chunk_timeout_ms", "chunkTimeout"):
+            if key in llm_copy:
+                raw_value = llm_copy.get(key)
+                if isinstance(raw_value, bool):
+                    llm_copy.pop(key, None)
+                    continue
+                try:
+                    parsed = int(raw_value)
+                except (TypeError, ValueError):
+                    llm_copy.pop(key, None)
+                    continue
+                if parsed > 0:
+                    llm_copy[key] = parsed
+                else:
+                    llm_copy.pop(key, None)
         if runtime_profile_model_supports_temperature(llm_copy.get("model")):
             if "temperature" in llm_copy:
                 llm_copy["temperature"] = normalize_runtime_profile_temperature(llm_copy.get("temperature"))

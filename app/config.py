@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         default="ghcr.io/dvnuo/efp-opencode-runtime",
         validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO",
     )
-    default_opencode_runtime_image_tag: str = Field(default="1.14.29", validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG")
+    default_opencode_runtime_image_tag: str = Field(default="1.14.39", validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG")
     default_agent_git_image: str = "alpine/git:latest"
     default_agent_repo_url: str = "https://github.com/dvnuo/engineering-flow-platform"
     default_agent_branch: str = "master"
