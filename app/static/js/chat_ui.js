@@ -1024,6 +1024,11 @@ function normalizeRuntimeEvent(payload) {
 
   let lifecycleType = "";
   let normalizedType = rawType;
+  if (rawType === "provider.retry" || (rawType === "session.status" && String(candidate?.status?.type || "").toLowerCase() === "retry")) {
+    normalizedType = "provider.retry";
+    mergedData.attempt = mergedData.attempt ?? candidate?.status?.attempt;
+    mergedData.message = mergedData.message || candidate?.status?.message || "Provider API retrying";
+  }
   if (failedByState || failedByType || failedByResult) {
     lifecycleType = "execution.failed";
     if (failedByType) normalizedType = "execution.failed";
@@ -7708,3 +7713,5 @@ function saveSystemPromptSection(agentId, section) {
     showToast('Failed to save: ' + e.message);
   });
 }
+
+// provider.retry UX copy: Provider API retrying. Check Runtime Profile LLM API key/base URL/proxy.

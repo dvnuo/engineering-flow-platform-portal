@@ -14,6 +14,7 @@ from starlette.background import BackgroundTask
 import websockets
 
 from app.config import get_settings
+from app.contracts.opencode_provider import normalize_model_for_runtime
 from app.db import get_db
 from app.db import SessionLocal
 from app.deps import get_current_user
@@ -160,7 +161,7 @@ def _websocket_connect_header_kwargs(headers: dict[str, str]) -> dict[str, dict[
     return {"additional_headers": headers}
 
 
-def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user) -> dict:
+def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user, runtime_type: str = "") -> dict:
     enriched = dict(payload)
     _ = user
     enriched.pop("metadata", None)
@@ -170,6 +171,12 @@ def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: 
     enriched.pop("portal_user_name", None)
 
     enriched["metadata"] = runtime_metadata
+    model_override = enriched.get("model_override")
+    provider = runtime_metadata.get("provider") if isinstance(runtime_metadata, dict) else None
+    if isinstance(model_override, str) and model_override.strip():
+        full_model = normalize_model_for_runtime(runtime_type, provider, model_override.strip())
+        if full_model:
+            enriched["metadata"]["model"] = full_model
     return enriched
 
 
@@ -282,7 +289,9 @@ async def proxy_agent(
                 db=db,
             )
             runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
-            parsed_payload = _enrich_chat_payload_with_runtime_metadata(parsed_payload, runtime_metadata, user)
+            parsed_payload = _enrich_chat_payload_with_runtime_metadata(
+                parsed_payload, runtime_metadata, user, runtime_type=getattr(agent, "runtime_type", "")
+            )
             request_body = json.dumps(parsed_payload).encode("utf-8")
 
         if _is_streaming_runtime_path(request.method, subpath):

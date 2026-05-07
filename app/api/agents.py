@@ -181,7 +181,31 @@ def _opencode_runtime_image_repo() -> str:
 
 
 def _opencode_runtime_image_tag() -> str:
-    return (settings.default_opencode_runtime_image_tag or "1.14.29").strip() or "1.14.29"
+    return (settings.default_opencode_runtime_image_tag or "1.14.39").strip() or "1.14.39"
+
+
+async def _sync_runtime_profile_to_running_agent_or_record_warning(db: Session, agent) -> None:
+    if (agent.status or "").lower() != "running" or not agent.runtime_profile_id:
+        return
+    repo = AgentRepository(db)
+    profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
+    if not profile:
+        agent.last_error = "runtime profile not found"
+        repo.save(agent)
+        return
+    payload = runtime_profile_sync_service.build_apply_payload_for_agent(db, agent, profile)
+    result = await runtime_profile_sync_service.push_payload_to_agent_with_retry(
+        agent, payload, timeout_seconds=180, interval_seconds=3
+    )
+    if not result.ok:
+        agent.last_error = f"runtime profile sync failed: {result.apply_status or result.message}"
+    elif result.pending_restart:
+        agent.last_error = "runtime profile applied but runtime restart required"
+    elif result.partially_applied:
+        agent.last_error = "runtime profile partially applied"
+    else:
+        agent.last_error = None
+    repo.save(agent)
 
 
 def _runtime_image_parts(runtime_type: str) -> tuple[str, str]:
@@ -299,7 +323,7 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=AgentResponse)
-def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _validate_profile_references(db, payload.capability_profile_id, payload.policy_profile_id, payload.runtime_profile_id, current_user_id=user.id)
     _validate_agent_type_or_422(payload.agent_type)
     runtime_profile_id = payload.runtime_profile_id
@@ -361,6 +385,7 @@ def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db
         user_id=user.id,
         details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch, "runtime_type": effective_runtime_type, "tool_repo_url": effective_tool_repo_url, "tool_branch": effective_tool_branch},
     )
+    await _sync_runtime_profile_to_running_agent_or_record_warning(db, agent)
     return build_agent_response(agent)
 
 
@@ -492,7 +517,7 @@ def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), 
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)
-def start_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, agent = _load_writable_agent(agent_id, user, db)
 
     if not can_transition(agent.status, "running"):
@@ -502,6 +527,7 @@ def start_agent(agent_id: str, user=Depends(get_current_user), db: Session = Dep
     agent.status = runtime.status
     agent.last_error = runtime.message
     repo.save(agent)
+    await _sync_runtime_profile_to_running_agent_or_record_warning(db, agent)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -522,7 +548,7 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
 
 
 @router.post("/{agent_id}/restart", response_model=AgentResponse)
-def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, agent = _load_writable_agent(agent_id, user, db)
 
     # Restart = stop then start, with same state-machine checks as /stop and /start
@@ -547,6 +573,7 @@ def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = D
     agent.status = runtime.status
     agent.last_error = runtime.message
     repo.save(agent)
+    await _sync_runtime_profile_to_running_agent_or_record_warning(db, agent)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 

@@ -3,6 +3,7 @@ import json
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
+from app.contracts.opencode_provider import normalize_model_for_runtime, normalize_provider_for_runtime
 from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
@@ -154,7 +155,20 @@ class RuntimeExecutionContextService:
         except ValueError:
             return runtime_profile_id, {}
 
-        return runtime_profile_id, dict(tool_loop)
+        runtime_type = getattr(agent, "runtime_type", "") if agent else ""
+        provider = normalize_provider_for_runtime(runtime_type, llm.get("provider") if isinstance(llm, dict) else None)
+        model = str(llm.get("model") or "").strip() if isinstance(llm, dict) else ""
+        base_url = ""
+        if isinstance(llm, dict):
+            base_url = str(llm.get("base_url") or llm.get("api_base") or llm.get("baseURL") or llm.get("endpoint") or "").strip()
+        runtime_cfg = {"llm": {"tool_loop": dict(tool_loop)}}
+        if provider:
+            runtime_cfg["llm"]["provider"] = provider
+        if model:
+            runtime_cfg["llm"]["model"] = model
+        if base_url:
+            runtime_cfg["llm"]["base_url"] = base_url
+        return runtime_profile_id, {"runtime_profile_id": runtime_profile_id, "revision": getattr(profile, "revision", None), "config": runtime_cfg}
 
     def build_for_agent(self, db: Session, agent: Agent | None) -> dict:
         capability_profile_id, resolved_profile = self.capability_context_service.resolve_for_agent(db, agent)
@@ -188,7 +202,19 @@ class RuntimeExecutionContextService:
         metadata["runtime_profile_id"] = context.get("runtime_profile_id")
         runtime_profile_context = context.get("runtime_profile_context") or {}
         if isinstance(runtime_profile_context, dict) and runtime_profile_context:
-            metadata["llm_tool_loop"] = runtime_profile_context
+            metadata["runtime_profile"] = runtime_profile_context
+            llm_cfg = ((runtime_profile_context.get("config") or {}).get("llm") or {})
+            if isinstance(llm_cfg, dict):
+                provider = llm_cfg.get("provider")
+                model = llm_cfg.get("model")
+                if provider:
+                    metadata["provider"] = provider
+                full_model = normalize_model_for_runtime(getattr(agent, "runtime_type", "") if agent else "", provider, model)
+                if full_model:
+                    metadata["model"] = full_model
+                tool_loop = llm_cfg.get("tool_loop")
+                if isinstance(tool_loop, dict) and tool_loop:
+                    metadata["llm_tool_loop"] = tool_loop
 
         metadata["allowed_capability_ids"] = capability_context.get("allowed_capability_ids", [])
         metadata["allowed_capability_types"] = capability_context.get("allowed_capability_types", [])

@@ -1,5 +1,7 @@
 import json
 import logging
+import asyncio
+import time
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 
@@ -7,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
+from app.contracts.opencode_provider import normalize_provider_for_runtime
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.proxy_service import ProxyService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
@@ -154,6 +157,11 @@ class RuntimeProfileSyncService:
 
     def build_apply_payload_for_agent(self, db: Session, agent, runtime_profile) -> dict:
         payload = self.build_apply_payload_from_profile(runtime_profile)
+        llm = payload.get("config", {}).get("llm")
+        if isinstance(llm, dict):
+            provider = llm.get("provider")
+            if provider:
+                llm["provider"] = normalize_provider_for_runtime(getattr(agent, "runtime_type", ""), provider)
         raw_config = self._raw_profile_config(runtime_profile)
         for key in [
             "allowed_capability_ids",
@@ -168,6 +176,21 @@ class RuntimeProfileSyncService:
         execution_context = self.execution_context_service.build_for_agent(db, agent)
         payload["config"] = self._merge_agent_runtime_context_into_config(payload["config"], execution_context)
         return payload
+
+    async def push_payload_to_agent_with_retry(self, agent, payload: dict, timeout_seconds: int = 180, interval_seconds: float = 3.0) -> RuntimeProfilePushResult:
+        deadline = time.monotonic() + timeout_seconds
+        last_result = None
+        attempt = 0
+        while time.monotonic() < deadline:
+            attempt += 1
+            result = await self.push_payload_to_agent(agent, payload)
+            if result.ok:
+                return RuntimeProfilePushResult(**{**asdict(result), "message": f"{result.message or 'ok'}; attempts={attempt}"})
+            last_result = result
+            await asyncio.sleep(interval_seconds)
+        if last_result:
+            return RuntimeProfilePushResult(**{**asdict(last_result), "message": f"{last_result.message or 'failed'}; attempts={attempt}"})
+        return RuntimeProfilePushResult(agent_id=getattr(agent, "id", "-"), ok=False, status_code=None, apply_status="failed", message=f"runtime profile push failed; attempts={attempt}")
 
     async def sync_profile_to_bound_agents(self, db: Session, runtime_profile) -> dict:
         agents = list(db.scalars(select(Agent).where(Agent.runtime_profile_id == runtime_profile.id)).all())
