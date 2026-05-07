@@ -1674,11 +1674,12 @@ def test_thinking_process_advanced_debug_copy_controls_are_wired():
 def test_chat_stream_event_type_parsing_source_markers_present():
     js = _chat_ui_js_source()
     assert 'function getChatStreamEventType(eventName, data)' in js
+    assert "function isChatStreamWrapperEventName(name)" in js
     assert 'data.type || data.event_type || data.event' in js
     assert 'hasExplicitEvent = false' in js
     assert 'if (!dataLines.length && !hasExplicitEvent) return null;' in js
     assert 'const t = getChatStreamEventType(eventName, data);' in js
-    assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+    assert "if (sawEvent) {" in js
     assert '/api/chat/stream' in js
     assert 'getReader()' in js
     assert 'TextDecoder()' in js
@@ -1704,11 +1705,21 @@ def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
     assert 'if (typeof data === "string") return data;' in js
     assert "function normalizeChatStreamEventData(data)" in js
     assert "Object.assign(normalized, normalized.data)" in js
-    assert "const responseText = getChatStreamTextPayload(data) || requestCtx.streamedText || \"\"" in js
+    assert "const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || \"\"" in js
     assert "const eventData = normalizeChatStreamEventData(data)" in js
     assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
     assert "return 'unsupported'" in js
-    assert "if (sawEvent && !sawFinal && !requestCtx.streamedText)" in js
+    assert "if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate))" in js
+
+
+def test_chat_stream_missing_final_branch_clears_active_request_source_marker():
+    js = _chat_ui_js_source()
+    assert "async function handleChatStreamMissingFinal" in js
+    assert "chatState.activeRequest = null" in js
+    assert "setChatSubmittingForAgent(agentIdAtSend, false)" in js
+    assert "removeTemporaryAssistantRows()" in js
+    assert "await loadSessionForAgent(agentIdAtSend, finalSessionId" in js
+    assert "await handleChatStreamMissingFinal(agentIdAtSend, requestCtx)" in js
 
 
 def test_chat_stream_runtime_events_include_request_session_agent_metadata():
