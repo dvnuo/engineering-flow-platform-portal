@@ -1721,13 +1721,52 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .portal-form-input,
 .portal-form-select,
-.portal-form-textarea {
+.portal-form-textarea,
+.stack select,
+.portal-tool-panel-body select {
   width: 100%;
   border-radius: 14px;
   border: 1px solid var(--portal-border);
   background: var(--portal-surface);
   color: var(--portal-text);
   padding: 10px 12px;
+}
+
+.portal-form-select,
+.stack select,
+.portal-tool-panel-body select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  min-height: 40px;
+  padding: 10px 38px 10px 12px;
+  cursor: pointer;
+  background-color: var(--portal-surface);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--portal-text-muted) 50%),
+    linear-gradient(135deg, var(--portal-text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition:
+    border-color var(--portal-transition),
+    background-color var(--portal-transition),
+    box-shadow var(--portal-transition);
+}
+
+.portal-form-select::-ms-expand,
+.stack select::-ms-expand,
+.portal-tool-panel-body select::-ms-expand {
+  display: none;
+}
+
+.portal-form-select:hover:not(:disabled),
+.stack select:hover:not(:disabled),
+.portal-tool-panel-body select:hover:not(:disabled) {
+  border-color: var(--portal-border-strong);
+  background-color: var(--portal-surface-soft);
 }
 
 .portal-form-textarea {
@@ -1737,10 +1776,27 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .portal-form-input:focus,
 .portal-form-select:focus,
-.portal-form-textarea:focus {
+.portal-form-textarea:focus,
+.stack select:focus,
+.portal-tool-panel-body select:focus {
   outline: none;
   border-color: var(--portal-accent);
   box-shadow: 0 0 0 3px var(--portal-accent-soft);
+}
+
+.portal-form-select:disabled,
+.stack select:disabled,
+.portal-tool-panel-body select:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  background-color: var(--portal-surface-muted);
+}
+
+.portal-form-select option,
+.stack select option,
+.portal-tool-panel-body select option {
+  background: var(--portal-surface);
+  color: var(--portal-text);
 }
 
 .portal-checkbox-row {

@@ -282,6 +282,36 @@ def test_frontend_assets_include_phase_b_fixups():
     assert '"timestamp": datetime.now().strftime("%H:%M")' in web_source
 
 
+
+def test_select_controls_have_visible_dropdown_affordance_styles():
+    css_source = (_repo_root() / "app/static/css/app.css").read_text(encoding="utf-8")
+
+    assert ".portal-form-select,\n.stack select,\n.portal-tool-panel-body select" in css_source
+    select_rule_start = css_source.index(
+        ".portal-form-select,\n.stack select,\n.portal-tool-panel-body select"
+    )
+    select_rule = css_source[select_rule_start : css_source.index("}", select_rule_start) + 1]
+
+    assert "appearance: none" in select_rule
+    assert "-webkit-appearance: none" in select_rule
+    assert "padding: 10px 38px 10px 12px" in select_rule
+    assert "cursor: pointer" in select_rule
+    assert "background-image:" in select_rule
+    assert "linear-gradient(45deg" in select_rule
+    assert "linear-gradient(135deg" in select_rule
+    assert "background-position:" in select_rule
+    assert "background-repeat: no-repeat" in select_rule
+
+    assert ".stack select:focus" in css_source
+    assert ".portal-tool-panel-body select:focus" in css_source
+    assert ".portal-form-select:hover:not(:disabled)" in css_source
+    assert ".stack select:hover:not(:disabled)" in css_source
+    assert ".portal-form-select option" in css_source
+
+    # Guard against accidentally breaking the existing composer-specific model selector.
+    assert ".composer-model-wrap::after" in css_source
+    assert ".composer-model-select" in css_source
+
 def test_templates_portalized_for_panel_visual_consistency():
     js_source = _chat_ui_js_source()
     app_html = Path("app/templates/app.html").read_text(encoding="utf-8")
