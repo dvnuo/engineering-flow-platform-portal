@@ -3015,9 +3015,7 @@ function getChatStreamEventType(eventName, data) {
     return "message.delta";
   }
 
-  if (isChatStreamWrapperEventName(explicitEventName) && normalizedDataType) {
-    return normalizedDataType;
-  }
+  if (isChatStreamWrapperEventName(explicitEventName) && normalizedDataType) return normalizedDataType;
   if (!explicitEventName || normalizedExplicit === "message") return (dataType || explicitEventName || "message").toLowerCase();
   return normalizedExplicit;
 }
@@ -3043,12 +3041,11 @@ function normalizeChatStreamEventData(data) {
   delete normalized.data;
   return normalized;
 }
-function hasChatStreamFinalPayload(data) {
+function hasChatStreamFinalPayload(data, streamedText = "") {
   const eventData = normalizeChatStreamEventData(data);
   if (getChatStreamTextPayload(eventData)) return true;
+  if (String(streamedText || "").trim()) return true;
   if (Array.isArray(eventData.display_blocks) && eventData.display_blocks.length) return true;
-  if (eventData.assistant_message_id || eventData.user_message_id) return true;
-  if (eventData.context_state && typeof eventData.context_state === "object") return true;
   return false;
 }
 
@@ -3062,16 +3059,17 @@ function updatePendingAssistantStreamContent(agentId, markdownText) {
 
 async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
   const t = getChatStreamEventType(eventName, data);
+  const eventData = normalizeChatStreamEventData(data);
+  const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
+  const hasFinalPayload = hasChatStreamFinalPayload(eventData, requestCtx.streamedText || "");
   if (["message.delta","delta"].includes(t)) {
     const deltaText = getChatStreamTextPayload(data);
     requestCtx.streamedText = (requestCtx.streamedText || '') + (deltaText || '');
     updatePendingAssistantStreamContent(agentIdAtSend, requestCtx.streamedText);
     return 'delta';
   }
-  const eventData = normalizeChatStreamEventData(data);
-  const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
-  const hasFinalPayload = hasChatStreamFinalPayload(eventData);
-  if (["final","message.completed"].includes(t) || (t === "execution.completed" && hasFinalPayload)) {
+  if (["final", "message.completed", "execution.completed"].includes(t)) {
+    if (!hasFinalPayload) return "empty_final";
     await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
     return 'final';
   }
@@ -3080,16 +3078,16 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
     return "final";
   }
-  if (t === "complete" && isChatStreamWrapperEventName(eventName) && getChatStreamTextPayload(eventData)) {
+  if (t === "complete" && isChatStreamWrapperEventName(eventName) && responseText) {
     requestCtx.streamFinalCandidate = {
       response: responseText,
-      display_blocks: eventData.display_blocks || [],
-      session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
-      user_message_id: eventData.user_message_id || "",
-      assistant_message_id: eventData.assistant_message_id || "",
-      request_id: eventData.request_id || requestCtx.clientRequestId,
-      events: eventData.events || [],
-      runtime_events: eventData.runtime_events || [],
+      display_blocks: eventData?.display_blocks || [],
+      session_id: eventData?.session_id || requestCtx.sessionIdAtSend || "",
+      user_message_id: eventData?.user_message_id || "",
+      assistant_message_id: eventData?.assistant_message_id || "",
+      request_id: eventData?.request_id || requestCtx.clientRequestId,
+      events: eventData?.events || [],
+      runtime_events: eventData?.runtime_events || [],
     };
     return "candidate_final";
   }
@@ -3107,6 +3105,42 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   };
   handleAgentEventMessage(JSON.stringify(streamEventPayload), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "", requestId: requestCtx.clientRequestId});
   return 'event';
+}
+
+async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  const finalSessionId = requestCtx.sessionIdAtSend || chatState.sessionId || "";
+  const finalRequestId = requestCtx.clientRequestId;
+  if (chatState.inflightThinking) {
+    chatState.lastThinkingSnapshot = {
+      ...chatState.inflightThinking,
+      completed: true,
+      completedAt: Date.now(),
+      requestId: finalRequestId,
+      sessionId: finalSessionId,
+    };
+  }
+  chatState.activeRequest = null;
+  chatState.inflightThinking = null;
+  chatState.pendingThinkingEvents = null;
+  chatState.needsReload = true;
+  setChatSubmittingForAgent(agentIdAtSend, false);
+  if (state.selectedAgentId === agentIdAtSend) {
+    removeTemporaryAssistantRows();
+    setChatStatus("Response stream ended without a final payload; reloading the persisted session.", true);
+    try {
+      if (finalSessionId) await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
+    } catch (e) {
+      setChatStatus("Response stream ended without a final payload; refresh or reload the session to view the persisted answer.", true);
+    }
+    addEditButtonsToMessages();
+    renderIcons();
+    scrollToBottom();
+  } else {
+    markAgentUnread(agentIdAtSend, "completed");
+    renderAgentList();
+  }
 }
 
 async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
@@ -3127,9 +3161,7 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     return "handled";
   }
   if (sawEvent) {
-    const chatState = ensureChatState(agentIdAtSend);
-    if (chatState) chatState.needsReload = true;
-    setChatStatus("Response finished without a final payload; refresh or reload the session to view the persisted answer.", true);
+    await handleChatStreamMissingFinal(agentIdAtSend, requestCtx);
     return "handled";
   }
   return 'unsupported';
