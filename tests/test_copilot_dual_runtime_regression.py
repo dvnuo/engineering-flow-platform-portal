@@ -68,6 +68,9 @@ def test_redaction_drops_unknown_oauth_by_runtime_key():
     assert "access" not in red["llm"]["oauth_by_runtime"]["native"]
 
 
-def test_update_model_options_non_copilot_uses_mark_clear_false_static_assert():
+def test_update_model_options_non_copilot_does_not_clear_unsaved_copilot_values_static_assert():
     js = open("app/static/js/chat_ui.js", encoding="utf-8").read()
-    assert "clearCopilotOAuthFields(root, null, { markClear: false })" in js
+    assert "function clearCopilotOAuthFields(root, runtimeType = null, options = {})" in js
+    assert "const clearValues = options.clearValues !== false;" in js
+    assert "clearCopilotOAuthFields(root, null, { markClear: false, clearValues: false })" in js
+    assert "stopCopilotPolling(root);" in js

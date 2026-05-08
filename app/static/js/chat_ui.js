@@ -5323,12 +5323,15 @@ function copilotCard(root, runtimeType) {
 }
 function clearCopilotOAuthFields(root, runtimeType = null, options = {}) {
   const markClear = options.markClear !== false;
+  const clearValues = options.clearValues !== false;
   const keys = runtimeType ? [normalizeCopilotRuntimeType(runtimeType)] : ["native", "opencode"];
   for (const key of keys) {
-    [`llm_oauth_${key}_access`,`llm_oauth_${key}_refresh`].forEach((name) => {
-      const el = root?.querySelector(`input[name="${name}"]`);
-      if (el) el.value = "";
-    });
+    if (clearValues) {
+      [`llm_oauth_${key}_access`,`llm_oauth_${key}_refresh`].forEach((name) => {
+        const el = root?.querySelector(`input[name="${name}"]`);
+        if (el) el.value = "";
+      });
+    }
     const clearEl = root?.querySelector(`input[name="llm_oauth_${key}_clear"]`);
     if (clearEl) clearEl.value = markClear ? "1" : "";
   }
@@ -5427,7 +5430,7 @@ function updateModelOptions(root) {
   updateCopilotAuthCardsVisibility(root, isCopilot);
   if (!isCopilot) {
     stopCopilotPolling(root);
-    clearCopilotOAuthFields(root, null, { markClear: false });
+    clearCopilotOAuthFields(root, null, { markClear: false, clearValues: false });
   }
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
