@@ -73,3 +73,35 @@ def test_check_declined(monkeypatch):
 
 def test_regression_source_does_not_use_token_verification():
     assert "copilot/token_verification" not in Path("app/services/copilot_auth_service.py").read_text()
+
+
+def test_start_handles_non_json_error_response(monkeypatch):
+    calls=[]
+    class _RespErr(_Resp):
+        def __init__(self):
+            self.status_code=500; self.text="<html>boom</html>"; self.content=b"<html>boom</html>"
+        def json(self):
+            raise ValueError("not json")
+    monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_RespErr()))
+    status, payload = asyncio.run(CopilotAuthService().start_authorization("u", ""))
+    assert status == 502
+    assert "details" in payload
+    assert "gho_" not in str(payload)
+
+def test_check_handles_non_json_error_response(monkeypatch):
+    calls=[]
+    class _RespErr(_Resp):
+        def __init__(self):
+            self.status_code=500; self.text="<html>boom</html>"; self.content=b"<html>boom</html>"
+        def json(self):
+            raise ValueError("not json")
+    def factory(_u,_h,j):
+        if j.get("scope"):
+            return _Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})
+        return _RespErr()
+    monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,factory))
+    svc = CopilotAuthService(); _, st = asyncio.run(svc.start_authorization("u", ""))
+    status, payload = asyncio.run(svc.check_authorization("u", st["auth_id"], st["device_code"]))
+    assert status == 200
+    assert payload["status"] == "failed"
+    assert isinstance(payload.get("message"), str)

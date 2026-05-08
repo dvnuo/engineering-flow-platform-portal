@@ -5307,10 +5307,12 @@ function getManagedCopilotAuthBase(root) {
   return (root?.dataset?.copilotAuthBase || "").trim() || "/api/copilot/auth";
 }
 function clearCopilotOAuthFields(root) {
-  ["llm_oauth_type","llm_oauth_access","llm_oauth_refresh","llm_oauth_expires","llm_oauth_enterprise_url","llm_oauth_account_id"].forEach((name) => {
+  ["llm_oauth_type","llm_oauth_access","llm_oauth_refresh","llm_oauth_expires","llm_oauth_enterprise_url","llm_oauth_account_id","llm_oauth_present"].forEach((name) => {
     const el = root?.querySelector(`input[name="${name}"]`);
     if (el) el.value = "";
   });
+  const clearEl = root?.querySelector('input[name="llm_oauth_clear"]');
+  if (clearEl) clearEl.value = "1";
 }
 function setCopilotOAuthFields(root, oauth) {
   const access = oauth?.access || oauth?.refresh || "";
@@ -5322,6 +5324,8 @@ function setCopilotOAuthFields(root, oauth) {
   setVal("llm_oauth_expires", String(oauth?.expires ?? 0));
   setVal("llm_oauth_enterprise_url", oauth?.enterpriseUrl || "");
   setVal("llm_oauth_account_id", oauth?.accountId || "");
+  setVal("llm_oauth_present", "1");
+  setVal("llm_oauth_clear", "");
 }
 
 function getManagedGithubBaseUrl(root) {

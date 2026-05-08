@@ -129,6 +129,8 @@
       <input type="hidden" name="llm_oauth_type" value="{{ raw_llm.get('oauth', {}).get('type', '') if raw_llm.get('oauth') is mapping else '' }}" />
       <input type="hidden" name="llm_oauth_access" value="" />
       <input type="hidden" name="llm_oauth_refresh" value="" />
+      <input type="hidden" name="llm_oauth_present" value="{{ '1' if raw_llm.get('oauth') is mapping else '' }}" />
+      <input type="hidden" name="llm_oauth_clear" value="" />
       <input type="hidden" name="llm_oauth_expires" value="{{ raw_llm.get('oauth', {}).get('expires', '') if raw_llm.get('oauth') is mapping else '' }}" />
       <input type="hidden" name="llm_oauth_enterprise_url" value="{{ raw_llm.get('oauth', {}).get('enterpriseUrl', '') if raw_llm.get('oauth') is mapping else '' }}" />
       <input type="hidden" name="llm_oauth_account_id" value="{{ raw_llm.get('oauth', {}).get('accountId', '') if raw_llm.get('oauth') is mapping else '' }}" />

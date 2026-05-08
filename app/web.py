@@ -905,12 +905,15 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         else:
             llm.pop("model", None)
         if is_github_copilot_provider(provider_value):
+            existing_oauth = llm.get("oauth") if isinstance(llm.get("oauth"), dict) else None
             oauth_access_raw = (form.get("llm_oauth_access") or "").strip()
             oauth_refresh_raw = (form.get("llm_oauth_refresh") or "").strip()
             oauth_type = (form.get("llm_oauth_type") or "").strip() or "oauth"
+            explicit_oauth_clear = as_bool(form.get("llm_oauth_clear"))
             refresh_value = oauth_refresh_raw or oauth_access_raw
             access_value = oauth_access_raw or oauth_refresh_raw
-            if access_value or refresh_value:
+            has_new_oauth = bool(access_value or refresh_value)
+            if has_new_oauth:
                 try:
                     expires = int((form.get("llm_oauth_expires") or "").strip() or "0")
                 except ValueError:
@@ -926,12 +929,16 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                     oauth_payload["accountId"] = account_id
                 llm["oauth"] = oauth_payload
                 llm.pop("api_key", None)
-            elif "llm_oauth_access" in form and not api_key_value:
-                llm.pop("oauth", None)
-                llm.pop("api_key", None)
             elif api_key_value:
                 llm["api_key"] = api_key_value
                 llm.pop("oauth", None)
+            elif explicit_oauth_clear:
+                llm.pop("oauth", None)
+                llm.pop("api_key", None)
+            else:
+                if existing_oauth:
+                    llm["oauth"] = existing_oauth
+                llm.pop("api_key", None)
         else:
             llm.pop("oauth", None)
             if api_key_value:

@@ -379,6 +379,27 @@ def dump_runtime_profile_config_json(data: dict) -> str:
     return json.dumps(sanitize_runtime_profile_config_dict(data))
 
 
+def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
+    redacted = deepcopy(config) if isinstance(config, dict) else {}
+    llm = redacted.get("llm")
+    if isinstance(llm, dict):
+        llm.pop("api_key", None)
+        oauth = llm.get("oauth")
+        if isinstance(oauth, dict):
+            oauth_copy = oauth.copy()
+            oauth_copy.pop("access", None)
+            oauth_copy.pop("refresh", None)
+            oauth_copy["present"] = True
+            llm["oauth"] = oauth_copy
+    github = redacted.get("github")
+    if isinstance(github, dict):
+        github.pop("api_token", None)
+    proxy = redacted.get("proxy")
+    if isinstance(proxy, dict):
+        proxy.pop("password", None)
+    return redacted
+
+
 def validate_runtime_profile_config_json(value: str | None) -> str:
     raw = (value or "{}").strip() or "{}"
     try:

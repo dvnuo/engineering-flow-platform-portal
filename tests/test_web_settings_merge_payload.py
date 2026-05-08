@@ -255,3 +255,21 @@ def test_github_copilot_without_hidden_oauth_can_keep_legacy_api_key():
     assert error is None
     assert merged["llm"]["api_key"] == "gho_LEGACY"
     assert "oauth" not in merged["llm"]
+
+
+def test_github_copilot_preserves_existing_oauth_when_hidden_fields_blank():
+    merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","model":"gpt-5.4-mini","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":0}}}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_model":"gpt-5.4-mini","llm_api_key":"","llm_oauth_type":"oauth","llm_oauth_access":"","llm_oauth_refresh":"","llm_oauth_expires":"0"})
+    assert error is None
+    assert merged["llm"]["oauth"]["access"] == "gho_A"
+    assert merged["llm"]["oauth"]["refresh"] == "gho_R"
+    assert "api_key" not in merged["llm"]
+
+def test_github_copilot_new_oauth_overrides_existing_oauth():
+    merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_OLD","refresh":"gho_OLD","expires":0}}}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_oauth_access":"gho_NEW","llm_oauth_refresh":"","llm_oauth_expires":"0","llm_api_key":""})
+    assert error is None
+    assert merged["llm"]["oauth"]["access"] == "gho_NEW"
+
+def test_github_copilot_explicit_oauth_clear_removes_oauth():
+    merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_OLD","refresh":"gho_OLD","expires":0}}}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_api_key":"","llm_oauth_access":"","llm_oauth_refresh":"","llm_oauth_clear":"1"})
+    assert error is None
+    assert "oauth" not in merged["llm"]

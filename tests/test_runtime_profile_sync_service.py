@@ -363,3 +363,10 @@ def test_build_apply_payload_for_agent_keeps_llm_oauth_for_opencode():
         assert payload["config"]["llm"]["provider"] in {"github-copilot", "github_copilot"}
     finally:
         db.close()
+
+
+def test_safe_body_preview_redacts_github_oauth_tokens():
+    preview = RuntimeProfileSyncService._safe_body_preview(b'{"error":"bad","access":"gho_SECRET","refresh":"ghu_SECRET"}')
+    assert "gho_SECRET" not in preview
+    assert "ghu_SECRET" not in preview
+    assert "[REDACTED]" in preview

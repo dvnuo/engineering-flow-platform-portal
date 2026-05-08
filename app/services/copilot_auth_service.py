@@ -27,6 +27,16 @@ class CopilotAuthService:
     def _utc_now(self) -> datetime:
         return datetime.now(timezone.utc)
 
+    @staticmethod
+    def _safe_response_json(response: httpx.Response) -> dict:
+        if not response.content:
+            return {}
+        try:
+            payload = response.json()
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
     def _cleanup_expired(self, exclude_auth_id: str | None = None) -> None:
         now = self._utc_now()
         expired_ids = [k for k, v in _pending_authorizations.items() if k != exclude_auth_id and isinstance(v.get("expires_at"), datetime) and v["expires_at"] <= now]
@@ -47,7 +57,7 @@ class CopilotAuthService:
 
         if response.status_code not in (200, 201):
             return 502, {"error": "GitHub authorization start failed", "details": sanitize_exception_message(response.text)}
-        data = response.json() if response.content else {}
+        data = self._safe_response_json(response)
         missing = [f for f in ["device_code", "user_code", "verification_uri"] if not data.get(f)]
         if missing:
             return 502, {"error": "GitHub authorization start failed", "details": f"Missing fields in GitHub response: {', '.join(missing)}"}
@@ -90,7 +100,7 @@ class CopilotAuthService:
             logger.exception("Copilot verify failed auth_id=%s", auth_id)
             return 500, {"status": "failed", "message": sanitize_exception_message(exc)}
 
-        body = response.json() if response.content else {}
+        body = self._safe_response_json(response)
         error = body.get("error") if isinstance(body, dict) else None
         if error == "authorization_pending":
             return 200, {"status": "pending"}

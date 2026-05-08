@@ -216,3 +216,33 @@ def test_runtime_profile_list_sanitizes_legacy_provider_automation_fields(monkey
         assert cfg["confluence"] == {"enabled": True}
     finally:
         cleanup()
+
+
+def test_runtime_profile_api_redacts_llm_oauth_secrets_in_response(monkeypatch):
+    client, db, u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        profile = RuntimeProfile(owner_user_id=u1.id, name="OAuth Redact", config_json=json.dumps({"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":0}}}), revision=1, is_default=False)
+        db.add(profile); db.commit(); db.refresh(profile)
+        resp = client.get(f"/api/runtime-profiles/{profile.id}")
+        assert resp.status_code == 200
+        assert "gho_A" not in resp.text and "gho_R" not in resp.text
+        cfg = json.loads(resp.json()["config_json"])
+        assert cfg["llm"]["oauth"].get("present") is True
+        assert "access" not in cfg["llm"]["oauth"]
+        assert "refresh" not in cfg["llm"]["oauth"]
+    finally:
+        cleanup()
+
+def test_runtime_profile_api_redaction_does_not_remove_persisted_oauth(monkeypatch):
+    client, db, u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        payload = {"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":0}}}
+        profile = RuntimeProfile(owner_user_id=u1.id, name="OAuth Persist", config_json=json.dumps(payload), revision=1, is_default=False)
+        db.add(profile); db.commit(); db.refresh(profile)
+        _ = client.get(f"/api/runtime-profiles/{profile.id}")
+        db.refresh(profile)
+        saved = json.loads(profile.config_json)
+        assert saved["llm"]["oauth"]["access"] == "gho_A"
+        assert saved["llm"]["oauth"]["refresh"] == "gho_R"
+    finally:
+        cleanup()
