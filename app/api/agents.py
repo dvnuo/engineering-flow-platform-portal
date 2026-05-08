@@ -385,7 +385,12 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         user_id=user.id,
         details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch, "runtime_type": effective_runtime_type, "tool_repo_url": effective_tool_repo_url, "tool_branch": effective_tool_branch},
     )
-    await _sync_runtime_profile_to_running_agent_or_record_warning(db, agent)
+
+    # Do not push runtime profile synchronously during agent creation.
+    # Creating K8s resources does not mean the runtime HTTP endpoint is ready,
+    # especially for OpenCode runtime cold starts. POST /api/agents must return
+    # after Portal has persisted the agent and submitted K8s resources. Runtime
+    # readiness is reflected by /api/agents/{agent_id}/status.
     return build_agent_response(agent)
 
 

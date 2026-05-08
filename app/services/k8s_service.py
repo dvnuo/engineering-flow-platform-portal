@@ -50,7 +50,10 @@ class K8sService:
             self._ensure_pvc(agent)
             self._ensure_deployment(agent)
             self._ensure_service(agent)
-            return RuntimeStatus(status="running")
+            # Resource creation is accepted, but the Deployment/Pod may still be
+            # pulling images, running init containers, or starting OpenCode. The
+            # status endpoint is the source of truth for readiness.
+            return RuntimeStatus(status="creating")
         except Exception as exc:
             logger.exception("Failed to start agent")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))

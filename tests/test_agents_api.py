@@ -203,6 +203,38 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         cleanup()
 
 
+def test_create_agent_does_not_wait_for_runtime_profile_sync(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="running", message=None),
+        )
+
+        async def _unexpected_create_sync(*_args, **_kwargs):
+            raise AssertionError("POST /api/agents must not wait for runtime profile sync")
+
+        monkeypatch.setattr(
+            agents_api,
+            "_sync_runtime_profile_to_running_agent_or_record_warning",
+            _unexpected_create_sync,
+        )
+
+        response = client.post(
+            "/api/agents",
+            json={"name": "fast-opencode-create", "runtime_type": "opencode"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "fast-opencode-create"
+        assert body["runtime_type"] == "opencode"
+    finally:
+        cleanup()
+
+
 def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
