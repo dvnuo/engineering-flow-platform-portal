@@ -41,6 +41,19 @@ def test_start_uses_enterprise_oauth_device_endpoint(monkeypatch):
     monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://ghe/login/device","expires_in":900,"interval":5})))
     asyncio.run(CopilotAuthService().start_authorization("u","https://github.company.com/api/v3")); assert calls[0]["url"]=="https://github.company.com/login/device/code"
 
+def test_start_runtime_specific_client_ids(monkeypatch):
+    calls=[]
+    monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})))
+    svc=CopilotAuthService()
+    asyncio.run(svc.start_authorization("u","",runtime_type="native"))
+    asyncio.run(svc.start_authorization("u","",runtime_type="efp"))
+    asyncio.run(svc.start_authorization("u","",runtime_type="opencode"))
+    asyncio.run(svc.start_authorization("u","",runtime_type=None))
+    assert calls[0]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_IDS["native"]
+    assert calls[1]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_IDS["native"]
+    assert calls[2]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_IDS["opencode"]
+    assert calls[3]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_IDS["opencode"]
+
 def test_check_authorization_authorized_returns_oauth(monkeypatch):
     calls=[]
     def factory(_u,_h,j):

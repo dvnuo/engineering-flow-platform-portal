@@ -881,19 +881,31 @@ def _settings_parse_oauth_for_runtime(form, runtime_key: str, existing: dict | N
         return str(value or "").lower() in {"1", "true", "on", "yes"}
     access_raw = (form.get(f"llm_oauth_{runtime_key}_access") or "").strip()
     refresh_raw = (form.get(f"llm_oauth_{runtime_key}_refresh") or "").strip()
-    clear = as_bool(form.get(f"llm_oauth_{runtime_key}_clear"))
+    clear_raw = form.get(f"llm_oauth_{runtime_key}_clear")
+    expires_raw = (form.get(f"llm_oauth_{runtime_key}_expires") or "").strip()
+    enterprise = (form.get(f"llm_oauth_{runtime_key}_enterprise_url") or "").strip()
+    account = (form.get(f"llm_oauth_{runtime_key}_account_id") or "").strip()
+    if runtime_key == "opencode" and not access_raw and not refresh_raw:
+        access_raw = (form.get("llm_oauth_access") or "").strip()
+        refresh_raw = (form.get("llm_oauth_refresh") or "").strip()
+        clear_raw = clear_raw or form.get("llm_oauth_clear")
+        if not expires_raw:
+            expires_raw = (form.get("llm_oauth_expires") or "").strip()
+        if not enterprise:
+            enterprise = (form.get("llm_oauth_enterprise_url") or "").strip()
+        if not account:
+            account = (form.get("llm_oauth_account_id") or "").strip()
+    clear = as_bool(clear_raw)
     access = access_raw or refresh_raw
     refresh = refresh_raw or access_raw
     if clear:
         return None, True
     if access or refresh:
         try:
-            expires = int((form.get(f"llm_oauth_{runtime_key}_expires") or "").strip() or "0")
+            expires = int(expires_raw or "0")
         except ValueError:
             expires = 0
         oauth = {"type": "oauth", "access": access, "refresh": refresh, "expires": max(0, expires)}
-        enterprise = (form.get(f"llm_oauth_{runtime_key}_enterprise_url") or "").strip()
-        account = (form.get(f"llm_oauth_{runtime_key}_account_id") or "").strip()
         if enterprise:
             oauth["enterpriseUrl"] = enterprise
         if account:
