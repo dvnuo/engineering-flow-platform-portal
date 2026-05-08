@@ -83,6 +83,7 @@ class CopilotAuthService:
             "auth_id": auth_id, "user_id": str(user_id), "device_code": data.get("device_code", ""), "user_code": data.get("user_code", ""),
             "verification_uri": data.get("verification_uri", ""), "oauth_base_url": oauth_base_url, "access_token_url": access_token_url, "runtime_type": runtime_type_normalized, "client_id": selected_client_id,
             "expires_at": created_at + timedelta(seconds=expires_in), "interval": interval, "status": "pending", "oauth": None, "created_at": created_at,
+            "latest_check": datetime.utcnow().timestamp(),
         }
         return 200, {"auth_id": auth_id, "device_code": data.get("device_code", ""), "user_code": data.get("user_code", ""),
                      "verification_url": data.get("verification_uri", ""), "verification_complete_url": data.get("verification_uri_complete") or data.get("verification_uri") or "",
@@ -95,6 +96,9 @@ class CopilotAuthService:
         if not auth_id or not device_code:
             return 400, {"error": "auth_id and device_code required"}
         record = _pending_authorizations.get(auth_id)
+        now = datetime.utcnow().timestamp()
+        if now - record['latest_check'] <= int(record['interval']):
+            return 200, {"status": "pending"}
         if not record or str(record.get("user_id")) != str(user_id):
             return 404, {"error": "Authorization not found or expired"}
         if isinstance(record.get("expires_at"), datetime) and record["expires_at"] <= self._utc_now():
@@ -116,6 +120,8 @@ class CopilotAuthService:
         body = self._safe_response_json(response)
         error = body.get("error") if isinstance(body, dict) else None
         if error == "authorization_pending":
+            record['latest_check'] = now
+            _pending_authorizations[auth_id] = record
             return 200, {"status": "pending"}
         if error == "slow_down":
             record["interval"] = int(record.get("interval") or 5) + 5
