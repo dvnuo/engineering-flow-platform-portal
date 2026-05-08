@@ -5598,13 +5598,8 @@ function updateModelOptions(root) {
   const isCopilot = provider === "github_copilot";
   updateCopilotAuthCardsVisibility(root, isCopilot);
   if (!isCopilot) {
-<<<<<<< codex/add-independent-github-copilot-authorization
-    stopCopilotPolling(root);
-    clearCopilotOAuthFields(root, null, { markClear: false, clearValues: false });
-=======
     if (typeof stopCopilotPolling === "function") stopCopilotPolling(root);
     if (typeof clearCopilotOAuthFields === "function") clearCopilotOAuthFields(root);
->>>>>>> master
   }
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
