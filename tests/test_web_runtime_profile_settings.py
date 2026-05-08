@@ -126,6 +126,17 @@ def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
         cleanup()
 
 
+def test_settings_view_payload_normalizes_copilot_provider_alias():
+    from app.web import _settings_view_payload
+
+    payload = _settings_view_payload(
+        {"llm": {"provider": "github-copilot", "model": "gpt-5.4-mini"}},
+        {"llm": {"provider": "github-copilot", "model": "gpt-5.4-mini"}},
+    )
+    assert payload["raw_llm"]["provider"] == "github_copilot"
+    assert payload["llm"]["provider"] == "github_copilot"
+
+
 def test_settings_save_ignores_legacy_automation_fields(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
@@ -503,8 +514,14 @@ def test_templates_and_js_include_copilot_oauth_fields_and_helpers():
     runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text()
     settings_tpl = Path("app/templates/partials/settings_panel.html").read_text()
     js = Path("app/static/js/chat_ui.js").read_text()
-    assert 'name="llm_oauth_access"' in runtime_tpl
-    assert 'name="llm_oauth_access"' in settings_tpl
+    assert 'name="llm_oauth_native_access"' in runtime_tpl
+    assert 'name="llm_oauth_opencode_access"' in runtime_tpl
+    assert 'name="llm_oauth_native_access"' in settings_tpl
+    assert 'name="llm_oauth_opencode_access"' in settings_tpl
+    assert 'name="llm_oauth_access"' not in runtime_tpl
+    assert 'name="llm_oauth_access"' not in settings_tpl
+    assert 'data-copilot-auth-button="native"' in runtime_tpl
+    assert 'data-copilot-auth-button="opencode"' in runtime_tpl
     assert 'setCopilotOAuthFields' in js
     assert 'clearCopilotOAuthFields' in js
 
@@ -534,7 +551,9 @@ def test_runtime_profile_panel_save_preserves_existing_oauth_when_hidden_fields_
         assert save_resp.status_code == 200
         db.refresh(rp)
         saved = json.loads(rp.config_json)
-        assert saved["llm"]["oauth"]["access"] == "gho_A"
-        assert saved["llm"]["oauth"]["refresh"] == "gho_R"
+        assert saved["llm"]["oauth_by_runtime"]["opencode"]["access"] == "gho_A"
+        assert saved["llm"]["oauth_by_runtime"]["opencode"]["refresh"] == "gho_R"
+        assert "oauth" not in saved["llm"]
+        assert "native" not in saved["llm"]["oauth_by_runtime"]
     finally:
         cleanup()

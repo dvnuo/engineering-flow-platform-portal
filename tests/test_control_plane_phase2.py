@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -880,9 +881,117 @@ def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
         assert body["runtime_profile_context"]["managed_sections"] == ["llm", "proxy", "jira", "confluence", "github", "git", "debug"]
         assert body["runtime_profile_context"]["source"] == "portal.runtime_profile"
         assert "config" in body["runtime_profile_context"]
-        assert body["runtime_profile_context"]["config"] == {"llm": {"provider": "openai", "model": "gpt-4", "temperature": 0.4}}
-        assert "ssh" not in body["runtime_profile_context"]["config"]
+        config = body["runtime_profile_context"]["config"]
+        assert config["llm"] == {"provider": "openai", "model": "gpt-4", "temperature": 0.4}
+        assert "ssh" not in config
+        assert "capability_context" in config
+        assert "policy_context" in config
+        assert "allowed_capability_ids" in config
+        assert "allowed_adapter_actions" in config
+        assert "derived_runtime_rules" in config
+        assert config["capability_context"]["capability_profile_id"] is None
+        assert config["policy_context"]["policy_profile_id"] is None
+        assert config["allowed_capability_ids"] == []
+        assert config["allowed_adapter_actions"] == []
+        assert config["derived_runtime_rules"] == {}
         assert "capability_context" in body
         assert "policy_context" in body
+    finally:
+        cleanup()
+
+
+def test_internal_runtime_context_projects_copilot_oauth_for_native_runtime(monkeypatch):
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        from app.main import app
+        import app.api.internal_agents as internal_agents_api
+        from app.models.runtime_profile import RuntimeProfile
+
+        db_gen = app.dependency_overrides[internal_agents_api.get_db]()
+        db = next(db_gen)
+        agent.runtime_type = "native"
+        rp = RuntimeProfile(
+            owner_user_id=agent.owner_user_id,
+            name="rp-copilot-native",
+            config_json=json.dumps(
+                {
+                    "llm": {
+                        "provider": "github_copilot",
+                        "model": "gpt-5",
+                        "oauth_by_runtime": {
+                            "native": {"type": "oauth", "access": "NATIVE_SECRET", "refresh": "NATIVE_SECRET", "expires": 0},
+                            "opencode": {"type": "oauth", "access": "OPENCODE_SECRET", "refresh": "OPENCODE_SECRET", "expires": 0},
+                        },
+                    }
+                }
+            ),
+            revision=3,
+            is_default=True,
+        )
+        db.add(rp); db.commit(); db.refresh(rp)
+        agent.runtime_profile_id = rp.id
+        db.add(agent); db.commit()
+
+        resp = client.get(f"/api/internal/agents/{agent.id}/runtime-context")
+        assert resp.status_code == 200
+        ctx = resp.json()["runtime_profile_context"]["config"]
+        llm = ctx["llm"]
+        assert llm["provider"] == "github_copilot"
+        assert llm["model"] == "gpt-5"
+        assert llm["api_key"] == "NATIVE_SECRET"
+        assert "oauth" not in llm
+        assert "oauth_by_runtime" not in llm
+        dumped = json.dumps(ctx)
+        assert "OPENCODE_SECRET" not in dumped
+        assert "NATIVE_SECRET" in dumped
+    finally:
+        cleanup()
+
+
+def test_internal_runtime_context_projects_copilot_oauth_for_opencode_runtime(monkeypatch):
+    client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
+    try:
+        from app.main import app
+        import app.api.internal_agents as internal_agents_api
+        from app.models.runtime_profile import RuntimeProfile
+
+        db_gen = app.dependency_overrides[internal_agents_api.get_db]()
+        db = next(db_gen)
+        agent.runtime_type = "opencode"
+        rp = RuntimeProfile(
+            owner_user_id=agent.owner_user_id,
+            name="rp-copilot-opencode",
+            config_json=json.dumps(
+                {
+                    "llm": {
+                        "provider": "github_copilot",
+                        "model": "gpt-5",
+                        "oauth_by_runtime": {
+                            "native": {"type": "oauth", "access": "NATIVE_SECRET", "refresh": "NATIVE_SECRET", "expires": 0},
+                            "opencode": {"type": "oauth", "access": "OPENCODE_SECRET", "refresh": "OPENCODE_SECRET", "expires": 0},
+                        },
+                    }
+                }
+            ),
+            revision=3,
+            is_default=True,
+        )
+        db.add(rp); db.commit(); db.refresh(rp)
+        agent.runtime_profile_id = rp.id
+        db.add(agent); db.commit()
+
+        resp = client.get(f"/api/internal/agents/{agent.id}/runtime-context")
+        assert resp.status_code == 200
+        ctx = resp.json()["runtime_profile_context"]["config"]
+        llm = ctx["llm"]
+        assert llm["provider"] == "github-copilot"
+        assert llm["model"] == "gpt-5"
+        assert llm["oauth"]["access"] == "OPENCODE_SECRET"
+        assert llm["oauth"]["refresh"] == "OPENCODE_SECRET"
+        assert "api_key" not in llm
+        assert "oauth_by_runtime" not in llm
+        dumped = json.dumps(ctx)
+        assert "NATIVE_SECRET" not in dumped
+        assert "OPENCODE_SECRET" in dumped
     finally:
         cleanup()

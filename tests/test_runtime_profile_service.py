@@ -268,7 +268,7 @@ def test_create_for_user_persists_raw_snapshot_without_hidden_default_injection(
     assert "jira" not in saved
 
 
-def test_normalize_persisted_config_json_prunes_unmanaged_nested_fields():
+def test_normalize_persisted_config_json_prunes_unmanaged_nested_fields_but_keeps_managed_endpoint_fields():
     raw = json.dumps(
         {
             "llm": {
@@ -281,7 +281,12 @@ def test_normalize_persisted_config_json_prunes_unmanaged_nested_fields():
     )
     normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
     saved = json.loads(normalized)
-    assert saved == {"llm": {"provider": "openai"}}
+    assert saved == {
+        "llm": {
+            "provider": "openai",
+            "api_base": "https://example.invalid",
+        }
+    }
 
 
 def test_normalize_persisted_config_json_strips_legacy_provider_automation_fields():

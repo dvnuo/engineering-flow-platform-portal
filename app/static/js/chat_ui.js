@@ -5333,42 +5333,65 @@ window.initPasswordToggles = function(root = document) {
   });
 };
 
-function getManagedCopilotState(root) {
-  if (!root.__managedCopilotState) root.__managedCopilotState = { authInterval: null, timerInterval: null };
-  return root.__managedCopilotState;
+function normalizeCopilotRuntimeType(runtimeType) {
+  const raw = String(runtimeType || "").trim().toLowerCase();
+  if (raw === "opencode") return "opencode";
+  return "native";
 }
 
-function stopCopilotPolling(root) {
-  const st = getManagedCopilotState(root);
-  if (st.authInterval) clearInterval(st.authInterval);
-  if (st.timerInterval) clearInterval(st.timerInterval);
-  st.authInterval = null;
-  st.timerInterval = null;
+function getManagedCopilotState(root, runtimeType) {
+  if (!root.__managedCopilotState) root.__managedCopilotState = { byRuntime: {} };
+  const key = normalizeCopilotRuntimeType(runtimeType);
+  if (!root.__managedCopilotState.byRuntime[key]) root.__managedCopilotState.byRuntime[key] = { authInterval: null, timerInterval: null };
+  return root.__managedCopilotState.byRuntime[key];
+}
+
+function stopCopilotPolling(root, runtimeType = null) {
+  const keys = runtimeType ? [normalizeCopilotRuntimeType(runtimeType)] : ["native", "opencode"];
+  for (const key of keys) {
+    const st = getManagedCopilotState(root, key);
+    if (st.authInterval) clearInterval(st.authInterval);
+    if (st.timerInterval) clearInterval(st.timerInterval);
+    st.authInterval = null;
+    st.timerInterval = null;
+  }
 }
 
 function getManagedCopilotAuthBase(root) {
   return (root?.dataset?.copilotAuthBase || "").trim() || "/api/copilot/auth";
 }
-function clearCopilotOAuthFields(root) {
-  ["llm_oauth_type","llm_oauth_access","llm_oauth_refresh","llm_oauth_expires","llm_oauth_enterprise_url","llm_oauth_account_id","llm_oauth_present"].forEach((name) => {
-    const el = root?.querySelector(`input[name="${name}"]`);
-    if (el) el.value = "";
-  });
-  const clearEl = root?.querySelector('input[name="llm_oauth_clear"]');
-  if (clearEl) clearEl.value = "1";
+function copilotCard(root, runtimeType) {
+  const key = normalizeCopilotRuntimeType(runtimeType);
+  return root?.querySelector(`[data-copilot-auth-card="${key}"]`);
 }
-function setCopilotOAuthFields(root, oauth) {
+function clearCopilotOAuthFields(root, runtimeType = null, options = {}) {
+  const markClear = options.markClear !== false;
+  const clearValues = options.clearValues !== false;
+  const keys = runtimeType ? [normalizeCopilotRuntimeType(runtimeType)] : ["native", "opencode"];
+  for (const key of keys) {
+    if (clearValues) {
+      [`llm_oauth_${key}_access`,`llm_oauth_${key}_refresh`].forEach((name) => {
+        const el = root?.querySelector(`input[name="${name}"]`);
+        if (el) el.value = "";
+      });
+    }
+    const clearEl = root?.querySelector(`input[name="llm_oauth_${key}_clear"]`);
+    if (clearEl) clearEl.value = markClear ? "1" : "";
+  }
+}
+function setCopilotOAuthFields(root, runtimeType, oauth) {
+  const key = normalizeCopilotRuntimeType(runtimeType);
   const access = oauth?.access || oauth?.refresh || "";
   const refresh = oauth?.refresh || oauth?.access || "";
   const setVal = (name, value) => { const el = root?.querySelector(`input[name="${name}"]`); if (el) el.value = value; };
-  setVal("llm_oauth_type", "oauth");
-  setVal("llm_oauth_access", access);
-  setVal("llm_oauth_refresh", refresh);
-  setVal("llm_oauth_expires", String(oauth?.expires ?? 0));
-  setVal("llm_oauth_enterprise_url", oauth?.enterpriseUrl || "");
-  setVal("llm_oauth_account_id", oauth?.accountId || "");
-  setVal("llm_oauth_present", "1");
-  setVal("llm_oauth_clear", "");
+  setVal(`llm_oauth_${key}_type`, "oauth");
+  setVal(`llm_oauth_${key}_access`, access);
+  setVal(`llm_oauth_${key}_refresh`, refresh);
+  setVal(`llm_oauth_${key}_expires`, String(oauth?.expires ?? 0));
+  setVal(`llm_oauth_${key}_enterprise_url`, oauth?.enterpriseUrl || "");
+  setVal(`llm_oauth_${key}_account_id`, oauth?.accountId || "");
+  setVal(`llm_oauth_${key}_present`, "1");
+  setVal(`llm_oauth_${key}_clear`, "");
 }
 
 function getManagedGithubBaseUrl(root) {
@@ -5376,10 +5399,32 @@ function getManagedGithubBaseUrl(root) {
   return (input?.value || "").trim();
 }
 
-function finishCopilotAuthWithMessage(root, message) {
-  stopCopilotPolling(root);
-  const statusText = root?.querySelector("#copilot_status_text");
+function finishCopilotAuthWithMessage(root, runtimeType, message) {
+  stopCopilotPolling(root, runtimeType);
+  const statusText = copilotCard(root, runtimeType)?.querySelector("[data-copilot-status-text]");
   if (statusText) statusText.textContent = message || "Authorization failed";
+}
+
+function updateCopilotAuthCardsVisibility(root, isCopilot) {
+  ["native", "opencode"].forEach((key) => {
+    const card = copilotCard(root, key);
+    const button = card?.querySelector("[data-copilot-auth-button]");
+    const status = card?.querySelector("[data-copilot-auth-status]");
+    const instructions = card?.querySelector("[data-copilot-instructions]");
+    const statusText = card?.querySelector("[data-copilot-status-text]");
+    button?.classList.toggle("hidden", !isCopilot);
+    if (!isCopilot) {
+      status?.classList.add("hidden");
+      instructions?.classList.add("hidden");
+      return;
+    }
+    status?.classList.remove("hidden");
+    const st = getManagedCopilotState(root, key);
+    if (!st.authInterval && statusText) {
+      const present = (root.querySelector(`input[name="llm_oauth_${key}_present"]`)?.value || "") === "1";
+      statusText.textContent = present ? "Authorized" : "Not authorized";
+    }
+  });
 }
 
 function updateModelOptions(root) {
@@ -5424,14 +5469,16 @@ function updateModelOptions(root) {
   modelSelect.dataset.currentValue = modelSelect.value || "";
   modelSelect.dataset.lastProvider = provider;
 
-  const copilotBtn = root.querySelector("#copilot_auth_btn");
-  const authStatus = root.querySelector("#copilot_auth_status");
   const isCopilot = provider === "github_copilot";
-  if (copilotBtn) copilotBtn.classList.toggle("hidden", !isCopilot);
-  if (authStatus && !isCopilot) authStatus.classList.add("hidden");
+  updateCopilotAuthCardsVisibility(root, isCopilot);
   if (!isCopilot) {
+<<<<<<< codex/add-independent-github-copilot-authorization
+    stopCopilotPolling(root);
+    clearCopilotOAuthFields(root, null, { markClear: false, clearValues: false });
+=======
     if (typeof stopCopilotPolling === "function") stopCopilotPolling(root);
     if (typeof clearCopilotOAuthFields === "function") clearCopilotOAuthFields(root);
+>>>>>>> master
   }
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
@@ -5466,16 +5513,18 @@ async function runManagedSettingsTest(root, target, button) {
   }
 }
 
-async function startCopilotAuth(root) {
-  const authStatus = root.querySelector("#copilot_auth_status");
-  const instructions = root.querySelector("#copilot_instructions");
-  const statusText = root.querySelector("#copilot_status_text");
-  const verifyLink = root.querySelector("#copilot_verify_link");
-  const deviceLink = root.querySelector("#copilot_device_link");
-  const userCode = root.querySelector("#copilot_user_code");
-  const timer = root.querySelector("#copilot_timer");
+async function startCopilotAuth(root, runtimeType) {
+  const key = normalizeCopilotRuntimeType(runtimeType);
+  const card = copilotCard(root, key);
+  const authStatus = card?.querySelector("[data-copilot-auth-status]");
+  const instructions = card?.querySelector("[data-copilot-instructions]");
+  const statusText = card?.querySelector("[data-copilot-status-text]");
+  const verifyLink = card?.querySelector("[data-copilot-verify-link]");
+  const deviceLink = card?.querySelector("[data-copilot-device-link]");
+  const userCode = card?.querySelector("[data-copilot-user-code]");
+  const timer = card?.querySelector("[data-copilot-timer]");
 
-  stopCopilotPolling(root);
+  stopCopilotPolling(root, key);
   const authBase = getManagedCopilotAuthBase(root);
   const githubBaseUrl = getManagedGithubBaseUrl(root);
 
@@ -5483,7 +5532,7 @@ async function startCopilotAuth(root) {
     const response = await fetch(`${authBase}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ github_base_url: githubBaseUrl }),
+      body: JSON.stringify({ github_base_url: githubBaseUrl, runtime_type: key }),
     });
     let data = null;
     try {
@@ -5518,12 +5567,12 @@ async function startCopilotAuth(root) {
 
     let remaining = Number(data.expires_in || 600);
     if (timer) timer.textContent = `${remaining}s`;
-    const st = getManagedCopilotState(root);
+    const st = getManagedCopilotState(root, key);
     st.timerInterval = setInterval(() => {
       remaining -= 1;
       if (timer) timer.textContent = `${Math.max(remaining, 0)}s`;
       if (remaining <= 0) {
-        finishCopilotAuthWithMessage(root, "Authorization timed out. Please start again.");
+        finishCopilotAuthWithMessage(root, key, "Authorization timed out. Please start again.");
       }
     }, 1000);
 
@@ -5536,7 +5585,7 @@ async function startCopilotAuth(root) {
           body: JSON.stringify({ auth_id: data.auth_id, device_code: data.device_code }),
         });
       } catch (error) {
-        finishCopilotAuthWithMessage(root, `Authorization check failed: ${safe(error.message)}`);
+        finishCopilotAuthWithMessage(root, key, `Authorization check failed: ${safe(error.message)}`);
         return;
       }
 
@@ -5544,54 +5593,55 @@ async function startCopilotAuth(root) {
       try {
         check = await checkResp.json();
       } catch (_error) {
-        finishCopilotAuthWithMessage(root, "Authorization check failed: invalid response");
+        finishCopilotAuthWithMessage(root, key, "Authorization check failed: invalid response");
         return;
       }
 
       if (!checkResp.ok) {
         finishCopilotAuthWithMessage(
           root,
+          key,
           check?.message || check?.details || check?.error || `Authorization check failed (HTTP ${checkResp.status})`,
         );
         return;
       }
 
       if (check?.error && !check?.status) {
-        finishCopilotAuthWithMessage(root, check.message || check.details || check.error);
+        finishCopilotAuthWithMessage(root, key, check.message || check.details || check.error);
         return;
       }
 
       if (!check?.status) {
-        finishCopilotAuthWithMessage(root, "Authorization check failed: missing status");
+        finishCopilotAuthWithMessage(root, key, "Authorization check failed: missing status");
         return;
       }
 
       if (check.status === "pending") return;
 
       if (check.status === "authorized") {
-        stopCopilotPolling(root);
-        if (statusText) statusText.textContent = "GitHub Copilot OAuth authorized";
+        stopCopilotPolling(root, key);
+        if (statusText) statusText.textContent = "Authorized";
         if (instructions) instructions.classList.add("hidden");
         const apiInput = root.querySelector('input[name="llm_api_key"]');
         if (check.oauth) {
-          setCopilotOAuthFields(root, check.oauth);
+          setCopilotOAuthFields(root, key, check.oauth);
           if (apiInput) apiInput.value = "";
           markManagedSectionTouched(root, "llm");
-          showToast("GitHub Copilot OAuth authorized. Save to persist.");
+          showToast(key === "opencode" ? "GitHub Copilot OAuth authorized for OpenCode Runtime. Save to persist." : "GitHub Copilot OAuth authorized for EFP Runtime. Save to persist.");
         } else if (apiInput && check.token) {
           apiInput.value = check.token;
           markManagedSectionTouched(root, "llm");
           showToast("Legacy Copilot token inserted into API Key field. Re-authorize if OpenCode requires OAuth.");
         }
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
-        finishCopilotAuthWithMessage(root, check.message || check.error || "Authorization failed");
+        finishCopilotAuthWithMessage(root, key, check.message || check.error || "Authorization failed");
       } else {
-        finishCopilotAuthWithMessage(root, `Authorization check failed: unknown status ${safe(check.status)}`);
+        finishCopilotAuthWithMessage(root, key, `Authorization check failed: unknown status ${safe(check.status)}`);
       }
     }, (Number(data.interval) || 5) * 1000);
   } catch (error) {
     showToast(`Copilot authorization failed: ${safe(error.message)}`);
-    finishCopilotAuthWithMessage(root, `Copilot authorization failed: ${safe(error.message)}`);
+    finishCopilotAuthWithMessage(root, key, `Copilot authorization failed: ${safe(error.message)}`);
   }
 }
 
@@ -5673,14 +5723,17 @@ function initializeManagedSettingsRoot(root) {
       await runManagedSettingsTest(root, testBtn.dataset.testTarget, testBtn);
       return;
     }
-    if (event.target.closest("#copilot_auth_btn")) {
+    const btn = event.target.closest("[data-copilot-auth-button]");
+    if (btn) {
       event.preventDefault();
-      await startCopilotAuth(root);
+      await startCopilotAuth(root, btn.dataset.copilotAuthButton);
       return;
     }
-    if (event.target.closest("#copilot_copy_btn")) {
+    const copyBtn = event.target.closest("[data-copilot-copy-button]");
+    if (copyBtn) {
       event.preventDefault();
-      const code = root.querySelector("#copilot_user_code")?.textContent || "";
+      const card = copyBtn.closest("[data-copilot-auth-card]");
+      const code = card?.querySelector("[data-copilot-user-code]")?.textContent || "";
       if (code && navigator.clipboard) {
         await navigator.clipboard.writeText(code);
         showToast("Code copied!");

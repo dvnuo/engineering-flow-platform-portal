@@ -235,19 +235,21 @@ def test_settings_merge_llm_response_flow_invalid_min_tokens_returns_error():
     assert error == "Response flow complexity minimum tokens must be a positive integer."
 
 
-def test_github_copilot_oauth_hidden_fields_saved_as_llm_oauth():
+def test_github_copilot_legacy_oauth_hidden_fields_saved_as_opencode_oauth_by_runtime():
     merged, error = _settings_merge_payload({}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_model":"gpt-5.4-mini","llm_api_key":"","llm_oauth_type":"oauth","llm_oauth_access":"gho_A","llm_oauth_refresh":"gho_R","llm_oauth_expires":"0"})
     assert error is None
     assert merged["llm"]["provider"] == "github_copilot"
-    assert merged["llm"]["oauth"]["access"] == "gho_A"
-    assert merged["llm"]["oauth"]["refresh"] == "gho_R"
-    assert merged["llm"]["oauth"]["expires"] == 0
+    assert merged["llm"]["oauth_by_runtime"]["opencode"]["access"] == "gho_A"
+    assert merged["llm"]["oauth_by_runtime"]["opencode"]["refresh"] == "gho_R"
+    assert "native" not in merged["llm"]["oauth_by_runtime"]
+    assert "oauth" not in merged["llm"]
     assert "api_key" not in merged["llm"]
 
 def test_switching_from_copilot_to_openai_clears_oauth_and_uses_api_key():
     merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_A","expires":0}}}, {"__touch_llm":"1","llm_provider":"openai","llm_api_key":"sk_TEST"})
     assert error is None
     assert "oauth" not in merged["llm"]
+    assert "oauth_by_runtime" not in merged["llm"]
     assert merged["llm"]["api_key"] == "sk_TEST"
 
 def test_github_copilot_without_hidden_oauth_can_keep_legacy_api_key():
@@ -260,16 +262,44 @@ def test_github_copilot_without_hidden_oauth_can_keep_legacy_api_key():
 def test_github_copilot_preserves_existing_oauth_when_hidden_fields_blank():
     merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","model":"gpt-5.4-mini","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":0}}}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_model":"gpt-5.4-mini","llm_api_key":"","llm_oauth_type":"oauth","llm_oauth_access":"","llm_oauth_refresh":"","llm_oauth_expires":"0"})
     assert error is None
-    assert merged["llm"]["oauth"]["access"] == "gho_A"
-    assert merged["llm"]["oauth"]["refresh"] == "gho_R"
+    assert merged["llm"]["oauth_by_runtime"]["opencode"]["access"] == "gho_A"
+    assert merged["llm"]["oauth_by_runtime"]["opencode"]["refresh"] == "gho_R"
+    assert "oauth" not in merged["llm"]
     assert "api_key" not in merged["llm"]
 
 def test_github_copilot_new_oauth_overrides_existing_oauth():
     merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_OLD","refresh":"gho_OLD","expires":0}}}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_oauth_access":"gho_NEW","llm_oauth_refresh":"","llm_oauth_expires":"0","llm_api_key":""})
     assert error is None
-    assert merged["llm"]["oauth"]["access"] == "gho_NEW"
+    assert merged["llm"]["oauth_by_runtime"]["opencode"]["access"] == "gho_NEW"
+    assert "native" not in merged["llm"]["oauth_by_runtime"]
 
 def test_github_copilot_explicit_oauth_clear_removes_oauth():
     merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_OLD","refresh":"gho_OLD","expires":0}}}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_api_key":"","llm_oauth_access":"","llm_oauth_refresh":"","llm_oauth_clear":"1"})
     assert error is None
     assert "oauth" not in merged["llm"]
+    assert "oauth_by_runtime" not in merged["llm"]
+
+def test_github_copilot_native_oauth_new_fields_saved():
+    merged, error = _settings_merge_payload({}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_model":"gpt-5.4-mini","llm_api_key":"","llm_oauth_native_type":"oauth","llm_oauth_native_access":"NATIVE_SECRET","llm_oauth_native_refresh":"NATIVE_SECRET","llm_oauth_native_expires":"0"})
+    assert error is None
+    assert merged["llm"]["oauth_by_runtime"]["native"]["access"] == "NATIVE_SECRET"
+    assert "opencode" not in merged["llm"]["oauth_by_runtime"]
+    assert "oauth" not in merged["llm"]
+    assert "api_key" not in merged["llm"]
+
+def test_github_copilot_opencode_oauth_new_fields_saved():
+    merged, error = _settings_merge_payload({}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_model":"gpt-5.4-mini","llm_api_key":"","llm_oauth_opencode_access":"OPENCODE_SECRET"})
+    assert error is None
+    assert merged["llm"]["oauth_by_runtime"]["opencode"]["access"] == "OPENCODE_SECRET"
+
+def test_github_copilot_clear_native_only_preserves_opencode():
+    merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","oauth_by_runtime":{"native":{"type":"oauth","access":"N","refresh":"N","expires":0},"opencode":{"type":"oauth","access":"O","refresh":"O","expires":0}}}}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_oauth_native_clear":"1"})
+    assert error is None
+    assert "native" not in merged["llm"]["oauth_by_runtime"]
+    assert merged["llm"]["oauth_by_runtime"]["opencode"]["access"] == "O"
+
+def test_github_copilot_clear_opencode_only_preserves_native():
+    merged, error = _settings_merge_payload({"llm":{"provider":"github_copilot","oauth_by_runtime":{"native":{"type":"oauth","access":"N","refresh":"N","expires":0},"opencode":{"type":"oauth","access":"O","refresh":"O","expires":0}}}}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_oauth_opencode_clear":"1"})
+    assert error is None
+    assert "opencode" not in merged["llm"]["oauth_by_runtime"]
+    assert merged["llm"]["oauth_by_runtime"]["native"]["access"] == "N"
