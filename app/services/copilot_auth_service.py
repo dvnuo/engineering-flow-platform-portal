@@ -58,7 +58,7 @@ class CopilotAuthService:
         self._cleanup_expired()
         runtime_type_normalized = normalize_copilot_runtime_type(runtime_type)
         selected_client_id = COPILOT_OAUTH_CLIENT_IDS[runtime_type_normalized]
-        oauth_base_url = normalize_github_oauth_base_url(github_base_url)
+        oauth_base_url = normalize_github_oauth_base_url()
         device_url = f"{oauth_base_url}/login/device/code"
         access_token_url = f"{oauth_base_url}/login/oauth/access_token"
         try:
