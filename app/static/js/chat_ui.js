@@ -3055,6 +3055,125 @@ function getChatStreamTextPayload(data) {
   if (!data || typeof data !== "object") return "";
   return data.response || data.content || data.text || data.delta || data.response_delta || "";
 }
+
+function getChatStreamRoleMarker(eventData) {
+  return String(
+    eventData?.role
+    || eventData?.message_role
+    || eventData?.messageRole
+    || eventData?.source_role
+    || eventData?.sourceRole
+    || eventData?.author_role
+    || eventData?.authorRole
+    || ""
+  ).trim().toLowerCase();
+}
+function getChatStreamRawType(eventData) {
+  return String(eventData?.raw_type || eventData?.rawType || "").trim().toLowerCase();
+}
+function isChatStreamSnapshotPayload(eventData) {
+  return Boolean(
+    eventData?.snapshot === true
+    || eventData?.is_snapshot === true
+    || eventData?.isSnapshot === true
+  );
+}
+function rememberAssociatedRuntimeDeltaEvent(requestCtx, eventData, embeddedType) {
+  const eventType = normalizeChatStreamEventName(
+    embeddedType
+    || eventData?.type
+    || eventData?.event_type
+    || eventData?.event
+    || ""
+  );
+  const deltaText = getChatStreamTextPayload(eventData);
+  const rawType = getChatStreamRawType(eventData);
+  const role = getChatStreamRoleMarker(eventData);
+
+  if (
+    eventType === "message.delta"
+    || eventType === "assistant_delta"
+    || rawType === "message.part.updated"
+    || rawType === "message.part.delta"
+    || deltaText
+  ) {
+    requestCtx.lastRuntimeDeltaEvent = {
+      ...eventData,
+      observedAt: Date.now(),
+      deltaText: deltaText || "",
+      raw_type: eventData?.raw_type || eventData?.rawType || rawType || "",
+      message_role: eventData?.message_role || eventData?.messageRole || role || "",
+    };
+  }
+}
+function getAssociatedRuntimeDeltaEvent(requestCtx, deltaText) {
+  const candidate = requestCtx?.lastRuntimeDeltaEvent;
+  if (!candidate || typeof candidate !== "object") return null;
+  const observedAt = Number(candidate.observedAt || 0);
+  if (observedAt && Date.now() - observedAt > 3000) return null;
+
+  const candidateText = String(
+    candidate.deltaText
+    || candidate.delta
+    || candidate.response_delta
+    || candidate.message
+    || candidate.text
+    || candidate.content
+    || ""
+  );
+
+  if (candidateText && String(deltaText || "") && candidateText !== String(deltaText || "")) {
+    return null;
+  }
+  return candidate;
+}
+function buildAssistantStreamDeltaGuardSource(eventData, associatedEvent = null) {
+  const hasAssociated = associatedEvent && typeof associatedEvent === "object";
+  if (!hasAssociated) return eventData || {};
+
+  const source = {
+    ...associatedEvent,
+    ...eventData,
+  };
+
+  const currentRole = getChatStreamRoleMarker(eventData);
+  const associatedRole = getChatStreamRoleMarker(associatedEvent);
+  const currentRawType = getChatStreamRawType(eventData);
+  const associatedRawType = getChatStreamRawType(associatedEvent);
+
+  source.message_role = currentRole || associatedRole || "";
+  source.raw_type = currentRawType || associatedRawType || "";
+
+  const currentOrigin = String(eventData?.source || eventData?.origin || "").trim().toLowerCase();
+  const associatedOrigin = String(associatedEvent?.source || associatedEvent?.origin || "").trim().toLowerCase();
+  if (!currentOrigin && associatedOrigin) {
+    source.source = associatedOrigin;
+  }
+
+  if (isChatStreamSnapshotPayload(eventData) || isChatStreamSnapshotPayload(associatedEvent)) {
+    source.snapshot = true;
+  }
+
+  return source;
+}
+function shouldIgnoreAssistantStreamDelta(eventData, requestCtx, associatedEvent = null) {
+  const source = buildAssistantStreamDeltaGuardSource(eventData, associatedEvent);
+
+  const role = getChatStreamRoleMarker(source);
+  if (role === "user") return true;
+
+  const rawType = getChatStreamRawType(source);
+  if (rawType === "message.part.updated") return true;
+
+  const origin = String(source?.source || source?.origin || "").trim().toLowerCase();
+  if (origin === "user" || origin === "client_user") return true;
+
+  if (isChatStreamSnapshotPayload(source)) {
+    return true;
+  }
+
+  return false;
+}
 function normalizeChatStreamEventData(data) {
   if (!data || typeof data !== "object") return { message: String(data || "") };
   const normalized = { ...data };
@@ -3099,6 +3218,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       },
     };
     handleAgentEventMessage(JSON.stringify(streamEventPayload), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "", requestId: requestCtx.clientRequestId});
+    rememberAssociatedRuntimeDeltaEvent(requestCtx, eventData, embeddedType);
     if (isDirectCompletionEventName(embeddedType)) {
       const candidateText = getChatStreamTextPayload(eventData);
       if (candidateText && !requestCtx.streamFinalCandidate) {
@@ -3120,6 +3240,12 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
 
   if (isChatStreamDeltaEventName(outerType)) {
     const deltaText = getChatStreamTextPayload(eventData);
+    const associatedEvent = getAssociatedRuntimeDeltaEvent(requestCtx, deltaText);
+
+    if (shouldIgnoreAssistantStreamDelta(eventData, requestCtx, associatedEvent)) {
+      return "event";
+    }
+
     requestCtx.streamedText = (requestCtx.streamedText || '') + (deltaText || '');
     updatePendingAssistantStreamContent(agentIdAtSend, requestCtx.streamedText);
     return 'delta';

@@ -379,6 +379,227 @@ console.log(JSON.stringify(normalized));
     assert payload["outer_event_type"] == "runtime_event"
 
 
+
+
+def test_chat_stream_ignores_user_snapshot_delta_after_runtime_event_marker():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    names = [
+        "isChatStreamDeltaPayload", "normalizeChatStreamEventName", "isChatStreamWrapperEventName",
+        "isChatStreamFinalEventName", "isDirectCompletionEventName", "isChatStreamDeltaEventName",
+        "getChatStreamEventType", "getChatStreamTextPayload", "normalizeChatStreamEventData",
+        "hasChatStreamFinalPayload", "getChatStreamRoleMarker", "getChatStreamRawType",
+        "isChatStreamSnapshotPayload", "rememberAssociatedRuntimeDeltaEvent",
+        "getAssociatedRuntimeDeltaEvent", "buildAssistantStreamDeltaGuardSource",
+        "shouldIgnoreAssistantStreamDelta", "handleChatStreamEvent",
+    ]
+    extracted = "\n".join(_extract_js_function(js_source, name) for name in names)
+
+    script = f"""
+let updates = [];
+const state = {{ selectedAgentId: "agent-1" }};
+const dom = {{ messageList: null }};
+function updatePendingAssistantStreamContent(agentId, text) {{ updates.push(text); }}
+function handleAgentEventMessage() {{}}
+async function handleAgentChatSuccess() {{}}
+{extracted}
+(async () => {{
+  const requestCtx = {{ sessionIdAtSend: "s1", clientRequestId: "r1", message: "hi", backupMessage: "hi", streamedText: "" }};
+  await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {{
+    type: "message.delta", raw_type: "message.part.updated", session_id: "s1", request_id: "raw-message-id",
+    data: {{ delta: "hi", raw_type: "message.part.updated", message_role: "user" }}
+  }});
+  const result = await handleChatStreamEvent("agent-1", requestCtx, "delta", {{ delta: "hi", session_id: "s1", request_id: "r1" }});
+  console.log(JSON.stringify({{ result, streamedText: requestCtx.streamedText, updatesLen: updates.length }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["result"] == "event"
+    assert payload["streamedText"] == ""
+    assert payload["updatesLen"] == 0
+
+
+def test_chat_stream_repeated_bad_delta_does_not_accumulate_hihi():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    names = [
+        "isChatStreamDeltaPayload", "normalizeChatStreamEventName", "isChatStreamWrapperEventName",
+        "isChatStreamFinalEventName", "isDirectCompletionEventName", "isChatStreamDeltaEventName",
+        "getChatStreamEventType", "getChatStreamTextPayload", "normalizeChatStreamEventData",
+        "hasChatStreamFinalPayload", "getChatStreamRoleMarker", "getChatStreamRawType",
+        "isChatStreamSnapshotPayload", "rememberAssociatedRuntimeDeltaEvent",
+        "getAssociatedRuntimeDeltaEvent", "buildAssistantStreamDeltaGuardSource",
+        "shouldIgnoreAssistantStreamDelta", "handleChatStreamEvent",
+    ]
+    extracted = "\n".join(_extract_js_function(js_source, name) for name in names)
+    script = f"""
+let updates = [];
+const state = {{ selectedAgentId: "agent-1" }};
+const dom = {{ messageList: null }};
+function updatePendingAssistantStreamContent(agentId, text) {{ updates.push(text); }}
+function handleAgentEventMessage() {{}}
+async function handleAgentChatSuccess() {{}}
+{extracted}
+(async () => {{
+  const requestCtx = {{ sessionIdAtSend: "s1", clientRequestId: "r1", message: "hi", backupMessage: "hi", streamedText: "" }};
+  await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {{ type: "message.delta", raw_type: "message.part.updated", data: {{ delta: "hi", raw_type: "message.part.updated", message_role: "user" }} }});
+  await handleChatStreamEvent("agent-1", requestCtx, "delta", {{ delta: "hi", session_id: "s1", request_id: "r1" }});
+  await handleChatStreamEvent("agent-1", requestCtx, "delta", {{ delta: "hi", session_id: "s1", request_id: "r1" }});
+  console.log(JSON.stringify({{ streamedText: requestCtx.streamedText, updates, updatesLen: updates.length }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["streamedText"] == ""
+    assert payload["updatesLen"] == 0
+    assert "hihi" not in "".join(payload["updates"])
+
+
+def test_chat_stream_valid_assistant_delta_still_streams_normally():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    names = [
+        "isChatStreamDeltaPayload", "normalizeChatStreamEventName", "isChatStreamWrapperEventName",
+        "isChatStreamFinalEventName", "isDirectCompletionEventName", "isChatStreamDeltaEventName",
+        "getChatStreamEventType", "getChatStreamTextPayload", "normalizeChatStreamEventData",
+        "hasChatStreamFinalPayload", "getChatStreamRoleMarker", "getChatStreamRawType",
+        "isChatStreamSnapshotPayload", "rememberAssociatedRuntimeDeltaEvent",
+        "getAssociatedRuntimeDeltaEvent", "buildAssistantStreamDeltaGuardSource",
+        "shouldIgnoreAssistantStreamDelta", "handleChatStreamEvent",
+    ]
+    extracted = "\n".join(_extract_js_function(js_source, name) for name in names)
+    script = f"""
+let updates = [];
+const state = {{ selectedAgentId: "agent-1" }};
+const dom = {{ messageList: null }};
+function updatePendingAssistantStreamContent(agentId, text) {{ updates.push(text); }}
+function handleAgentEventMessage() {{}}
+async function handleAgentChatSuccess() {{}}
+{extracted}
+(async () => {{
+  const requestCtx = {{ sessionIdAtSend: "s1", clientRequestId: "r1", streamedText: "" }};
+  await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {{
+    type: "message.delta", raw_type: "message.part.delta", session_id: "s1", request_id: "raw-message-id",
+    data: {{ delta: "Hel", raw_type: "message.part.delta", message_role: "assistant", part_type: "text" }}
+  }});
+  await handleChatStreamEvent("agent-1", requestCtx, "delta", {{ delta: "Hel", raw_type: "message.part.delta", message_role: "assistant" }});
+  await handleChatStreamEvent("agent-1", requestCtx, "delta", {{ delta: "lo", raw_type: "message.part.delta", message_role: "assistant" }});
+  console.log(JSON.stringify({{ streamedText: requestCtx.streamedText, lastUpdate: updates[updates.length - 1] }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["streamedText"] == "Hello"
+    assert payload["lastUpdate"] == "Hello"
+
+
+def test_chat_stream_ignores_bad_delta_even_when_delta_metadata_is_empty_strings():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    names = [
+        "isChatStreamDeltaPayload", "normalizeChatStreamEventName", "isChatStreamWrapperEventName",
+        "isChatStreamFinalEventName", "isDirectCompletionEventName", "isChatStreamDeltaEventName",
+        "getChatStreamEventType", "getChatStreamTextPayload", "normalizeChatStreamEventData",
+        "hasChatStreamFinalPayload", "getChatStreamRoleMarker", "getChatStreamRawType",
+        "isChatStreamSnapshotPayload", "rememberAssociatedRuntimeDeltaEvent",
+        "getAssociatedRuntimeDeltaEvent", "buildAssistantStreamDeltaGuardSource",
+        "shouldIgnoreAssistantStreamDelta", "handleChatStreamEvent",
+    ]
+    extracted = "\n".join(_extract_js_function(js_source, name) for name in names)
+
+    script = f"""
+let updates = [];
+const state = {{ selectedAgentId: "agent-1" }};
+const dom = {{ messageList: null }};
+function updatePendingAssistantStreamContent(agentId, text) {{ updates.push(text); }}
+function handleAgentEventMessage() {{}}
+async function handleAgentChatSuccess() {{}}
+{extracted}
+(async () => {{
+  const requestCtx = {{ sessionIdAtSend: "s1", clientRequestId: "r1", message: "hi", backupMessage: "hi", streamedText: "" }};
+  await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {{
+    type: "message.delta",
+    raw_type: "message.part.updated",
+    data: {{ delta: "hi", raw_type: "message.part.updated", message_role: "user" }}
+  }});
+  const result = await handleChatStreamEvent("agent-1", requestCtx, "delta", {{
+    delta: "hi",
+    raw_type: "",
+    message_role: "",
+    session_id: "s1",
+    request_id: "r1"
+  }});
+  console.log(JSON.stringify({{ result, streamedText: requestCtx.streamedText, updatesLen: updates.length }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["result"] == "event"
+    assert payload["streamedText"] == ""
+    assert payload["updatesLen"] == 0
+
+
+def test_chat_stream_current_assistant_metadata_overrides_stale_associated_bad_metadata():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    names = [
+        "isChatStreamDeltaPayload", "normalizeChatStreamEventName", "isChatStreamWrapperEventName",
+        "isChatStreamFinalEventName", "isDirectCompletionEventName", "isChatStreamDeltaEventName",
+        "getChatStreamEventType", "getChatStreamTextPayload", "normalizeChatStreamEventData",
+        "hasChatStreamFinalPayload", "getChatStreamRoleMarker", "getChatStreamRawType",
+        "isChatStreamSnapshotPayload", "rememberAssociatedRuntimeDeltaEvent",
+        "getAssociatedRuntimeDeltaEvent", "buildAssistantStreamDeltaGuardSource",
+        "shouldIgnoreAssistantStreamDelta", "handleChatStreamEvent",
+    ]
+    extracted = "\n".join(_extract_js_function(js_source, name) for name in names)
+
+    script = f"""
+let updates = [];
+const state = {{ selectedAgentId: "agent-1" }};
+const dom = {{ messageList: null }};
+function updatePendingAssistantStreamContent(agentId, text) {{ updates.push(text); }}
+function handleAgentEventMessage() {{}}
+async function handleAgentChatSuccess() {{}}
+{extracted}
+(async () => {{
+  const requestCtx = {{ sessionIdAtSend: "s1", clientRequestId: "r1", streamedText: "" }};
+  await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {{
+    type: "message.delta",
+    raw_type: "message.part.updated",
+    data: {{ delta: "hi", raw_type: "message.part.updated", message_role: "user" }}
+  }});
+  const result = await handleChatStreamEvent("agent-1", requestCtx, "delta", {{
+    delta: "hi",
+    raw_type: "message.part.delta",
+    message_role: "assistant",
+    session_id: "s1",
+    request_id: "r1"
+  }});
+  console.log(JSON.stringify({{ result, streamedText: requestCtx.streamedText, updatesLen: updates.length, lastUpdate: updates[updates.length - 1] }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["result"] == "delta"
+    assert payload["streamedText"] == "hi"
+    assert payload["updatesLen"] == 1
+    assert payload["lastUpdate"] == "hi"
 def test_runtime_event_completed_is_forwarded_to_panel_and_final_wins_once():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -395,6 +616,13 @@ def test_runtime_event_completed_is_forwarded_to_panel_and_final_wins_once():
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
     has_final_payload = _extract_js_function(js_source, "hasChatStreamFinalPayload")
+    role_marker = _extract_js_function(js_source, "getChatStreamRoleMarker")
+    raw_type = _extract_js_function(js_source, "getChatStreamRawType")
+    snapshot_payload = _extract_js_function(js_source, "isChatStreamSnapshotPayload")
+    remember_delta = _extract_js_function(js_source, "rememberAssociatedRuntimeDeltaEvent")
+    associated_delta = _extract_js_function(js_source, "getAssociatedRuntimeDeltaEvent")
+    build_guard_source = _extract_js_function(js_source, "buildAssistantStreamDeltaGuardSource")
+    ignore_delta = _extract_js_function(js_source, "shouldIgnoreAssistantStreamDelta")
     completion_state = _extract_js_function(js_source, "isCompletionRuntimeState")
     normalize_runtime_event = _extract_js_function(js_source, "normalizeRuntimeEvent")
     handle_stream = _extract_js_function(js_source, "handleChatStreamEvent")
@@ -421,6 +649,13 @@ const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "fin
 {text_payload}
 {normalize_data}
 {has_final_payload}
+{role_marker}
+{raw_type}
+{snapshot_payload}
+{remember_delta}
+{associated_delta}
+{build_guard_source}
+{ignore_delta}
 {completion_state}
 {normalize_runtime_event}
 {handle_stream}
@@ -459,6 +694,13 @@ def test_chat_stream_done_without_payload_does_not_finalize_empty_response():
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
     has_final_payload = _extract_js_function(js_source, "hasChatStreamFinalPayload")
+    role_marker = _extract_js_function(js_source, "getChatStreamRoleMarker")
+    raw_type = _extract_js_function(js_source, "getChatStreamRawType")
+    snapshot_payload = _extract_js_function(js_source, "isChatStreamSnapshotPayload")
+    remember_delta = _extract_js_function(js_source, "rememberAssociatedRuntimeDeltaEvent")
+    associated_delta = _extract_js_function(js_source, "getAssociatedRuntimeDeltaEvent")
+    build_guard_source = _extract_js_function(js_source, "buildAssistantStreamDeltaGuardSource")
+    ignore_delta = _extract_js_function(js_source, "shouldIgnoreAssistantStreamDelta")
     handle_stream = _extract_js_function(js_source, "handleChatStreamEvent")
     script = f"""
 let captured = null;
@@ -554,6 +796,13 @@ def test_chat_stream_progress_complete_is_candidate_not_immediate_final():
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
     has_final_payload = _extract_js_function(js_source, "hasChatStreamFinalPayload")
+    role_marker = _extract_js_function(js_source, "getChatStreamRoleMarker")
+    raw_type = _extract_js_function(js_source, "getChatStreamRawType")
+    snapshot_payload = _extract_js_function(js_source, "isChatStreamSnapshotPayload")
+    remember_delta = _extract_js_function(js_source, "rememberAssociatedRuntimeDeltaEvent")
+    associated_delta = _extract_js_function(js_source, "getAssociatedRuntimeDeltaEvent")
+    build_guard_source = _extract_js_function(js_source, "buildAssistantStreamDeltaGuardSource")
+    ignore_delta = _extract_js_function(js_source, "shouldIgnoreAssistantStreamDelta")
     handle_stream = _extract_js_function(js_source, "handleChatStreamEvent")
     script = f"""
 let captured = null;
@@ -572,6 +821,13 @@ function handleAgentEventMessage() {{}}
 {text_payload}
 {normalize_data}
 {has_final_payload}
+{role_marker}
+{raw_type}
+{snapshot_payload}
+{remember_delta}
+{associated_delta}
+{build_guard_source}
+{ignore_delta}
 {handle_stream}
 (async () => {{
   const requestCtx = {{ sessionIdAtSend: "s1", clientRequestId: "r1", streamedText: "" }};
