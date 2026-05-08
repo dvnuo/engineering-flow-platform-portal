@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.workflow_transition_rule import WorkflowTransitionRule
 from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCatalogSnapshot
 from app.models.automation_rule import AutomationRule, AutomationRuleRun, AutomationRuleEvent
+from app.models.runtime_profile_sync_job import RuntimeProfileSyncJob
 
 __all__ = [
     "User",
@@ -36,4 +37,5 @@ __all__ = [
     "AutomationRule",
     "AutomationRuleRun",
     "AutomationRuleEvent",
+    "RuntimeProfileSyncJob",
 ]

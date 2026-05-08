@@ -1780,7 +1780,7 @@ def test_chat_stream_event_type_parsing_source_markers_present():
     assert 'function isChatStreamWrapperEventName(name)' in js
     assert 'hasExplicitEvent = false' in js
     assert 'if (!dataLines.length && !hasExplicitEvent) return null;' in js
-    assert 'const t = getChatStreamEventType(eventName, data);' in js
+    assert 'const outerType = normalizeChatStreamEventName(eventName);' in js
     assert "if (sawEvent) {" in js
     assert '/api/chat/stream' in js
     assert 'getReader()' in js
@@ -1810,7 +1810,10 @@ def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
     assert "const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || \"\"" in js
     assert "const eventData = normalizeChatStreamEventData(data)" in js
     assert 'function hasChatStreamFinalPayload(data, streamedText = "")' in js
+<<<<<<< codex/add-independent-github-copilot-authorization
     assert 'String(streamedText || "").trim()' in js
+=======
+>>>>>>> master
     assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
     assert "return 'unsupported'" in js
     assert "if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate))" in js
@@ -1990,8 +1993,26 @@ def test_annotate_skill_for_panel_reads_metadata_compatibility_and_tool_mappings
 
 
 def test_chat_stream_treats_message_typed_delta_payloads_as_message_delta():
-    js = _chat_ui_js_source()
-    assert "normalizedDataType" in js
-    assert 'normalizedDataType === "message"' in js
-    assert "isChatStreamDeltaPayload(data)" in js
-    assert 'return "message.delta";' in js
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
+    is_delta_payload = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    get_event_type = _extract_js_function(js_source, "getChatStreamEventType")
+
+    script = f"""
+{normalize_event_name}
+{is_delta_payload}
+{get_event_type}
+const typedMessageDelta = getChatStreamEventType("message", {{ type: "message", delta: "hello" }});
+const plainDelta = getChatStreamEventType("message", {{ delta: "hello" }});
+const explicitRuntimeEvent = getChatStreamEventType("runtime_event", {{ type: "message.delta", delta: "bad" }});
+console.log(JSON.stringify({{ typedMessageDelta, plainDelta, explicitRuntimeEvent }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["typedMessageDelta"] == "message.delta"
+    assert payload["plainDelta"] == "message.delta"
+    assert payload["explicitRuntimeEvent"] == "runtime_event"

@@ -15,10 +15,10 @@ from app.schemas.runtime_profile import (
     RuntimeProfileUpdateRequest,
 )
 from app.services.runtime_profile_service import RuntimeProfileService
-from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
+from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 
 router = APIRouter(prefix="/api/runtime-profiles", tags=["runtime-profiles"])
-runtime_profile_sync_service = RuntimeProfileSyncService()
+runtime_profile_sync_queue_service = RuntimeProfileSyncQueueService()
 logger = logging.getLogger(__name__)
 
 
@@ -82,8 +82,9 @@ async def update_runtime_profile(profile_id: str, payload: RuntimeProfileUpdateR
 
     if config_changed:
         try:
-            await runtime_profile_sync_service.sync_profile_to_bound_agents(db, profile)
+            runtime_profile_sync_queue_service.enqueue_profile_to_bound_agents(db, profile, reason="runtime_profile_update")
         except Exception:
+            db.rollback()
             logger.exception("runtime profile fan-out sync failed profile_id=%s", profile.id)
 
     return _runtime_profile_response(service, profile)
