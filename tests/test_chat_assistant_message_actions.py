@@ -346,6 +346,104 @@ function handleAgentEventMessage() {{}}
     assert payload["capturedNested"]["assistant_message_id"] == "a-nested"
 
 
+def test_normalize_runtime_event_prefers_embedded_type_for_wrapper_envelope():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    completion_state = _extract_js_function(js_source, "isCompletionRuntimeState")
+    normalize_runtime_event = _extract_js_function(js_source, "normalizeRuntimeEvent")
+
+    script = f"""
+const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+{completion_state}
+{normalize_runtime_event}
+const normalized = normalizeRuntimeEvent({{
+  event_type: "runtime_event",
+  request_id: "r1",
+  session_id: "s1",
+  data: {{
+    type: "llm_thinking",
+    message: "thinking text",
+    request_id: "r1",
+    session_id: "s1"
+  }}
+}});
+console.log(JSON.stringify(normalized));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["type"] == "llm_thinking"
+    assert payload["data"]["message"] == "thinking text"
+    assert payload["outer_event_type"] == "runtime_event"
+
+
+def test_runtime_event_completed_is_forwarded_to_panel_and_final_wins_once():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
+    wrapper_event_name = _extract_js_function(js_source, "isChatStreamWrapperEventName")
+    is_final_event_name = _extract_js_function(js_source, "isChatStreamFinalEventName")
+    is_direct_completion_event_name = _extract_js_function(js_source, "isDirectCompletionEventName")
+    is_delta_event_name = _extract_js_function(js_source, "isChatStreamDeltaEventName")
+    event_type = _extract_js_function(js_source, "getChatStreamEventType")
+    text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
+    normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
+    has_final_payload = _extract_js_function(js_source, "hasChatStreamFinalPayload")
+    completion_state = _extract_js_function(js_source, "isCompletionRuntimeState")
+    normalize_runtime_event = _extract_js_function(js_source, "normalizeRuntimeEvent")
+    handle_stream = _extract_js_function(js_source, "handleChatStreamEvent")
+
+    script = f"""
+let captured = [];
+let seenTypes = [];
+const state = {{ selectedAgentId: "agent-1" }};
+const dom = {{ messageList: null }};
+function updatePendingAssistantStreamContent() {{}}
+async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ captured.push(payload); }}
+function handleAgentEventMessage(raw) {{
+  const event = normalizeRuntimeEvent(JSON.parse(raw));
+  if (event) seenTypes.push(event.type);
+}}
+const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+{is_delta}
+{normalize_event_name}
+{wrapper_event_name}
+{is_final_event_name}
+{is_direct_completion_event_name}
+{is_delta_event_name}
+{event_type}
+{text_payload}
+{normalize_data}
+{has_final_payload}
+{completion_state}
+{normalize_runtime_event}
+{handle_stream}
+(async () => {{
+  const requestCtx = {{ sessionIdAtSend: "s1", clientRequestId: "r1", streamedText: "" }};
+  await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {{
+    type: "execution.completed",
+    data: {{ message: "bad candidate" }},
+    session_id: "s1",
+    request_id: "r1"
+  }});
+  await handleChatStreamEvent("agent-1", requestCtx, "final", {{ response: "good final", session_id: "s1", request_id: "r1" }});
+  console.log(JSON.stringify({{ captured, seenTypes }}));
+}})();
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert len(payload["captured"]) == 1
+    assert payload["captured"][0]["response"] == "good final"
+    assert "bad candidate" not in payload["captured"][0]["response"]
+    assert "execution.completed" in payload["seenTypes"]
+
+
 def test_chat_stream_done_without_payload_does_not_finalize_empty_response():
     node_bin = shutil.which("node")
     if not node_bin:

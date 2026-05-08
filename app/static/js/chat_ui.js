@@ -989,10 +989,15 @@ function normalizeRuntimeEvent(payload) {
 
   // Runtime may wrap the event or send the event at top-level.
   const candidate = payload.event || payload.payload || payload;
-  const rawType = candidate?.event_type || candidate?.type || "";
+  const wrapperTypes = new Set(["runtime_event", "event", "progress"]);
+  const outerType = String(candidate?.event_type || candidate?.type || "").toLowerCase();
+  const baseData = (candidate?.data && typeof candidate.data === "object") ? candidate.data : {};
+  const embeddedType = String(baseData.event_type || baseData.type || baseData.event || "").toLowerCase();
+  const rawType = (wrapperTypes.has(outerType) && embeddedType)
+    ? embeddedType
+    : (candidate?.event_type || candidate?.type || "");
   if (!rawType) return null;
 
-  const baseData = (candidate?.data && typeof candidate.data === "object") ? candidate.data : {};
   const detailPayload = (candidate?.detail_payload && typeof candidate.detail_payload === "object")
     ? candidate.detail_payload
     : {};
@@ -1007,6 +1012,7 @@ function normalizeRuntimeEvent(payload) {
   if (candidate?.request_id && !mergedData.request_id) mergedData.request_id = candidate.request_id;
   if (candidate?.session_id && !mergedData.session_id) mergedData.session_id = candidate.session_id;
   if (candidate?.agent_id && !mergedData.agent_id) mergedData.agent_id = candidate.agent_id;
+  if (outerType && !mergedData.outer_event_type) mergedData.outer_event_type = outerType;
 
   let ts = candidate?.ts;
   if (ts == null && candidate?.created_at) {
@@ -1045,6 +1051,7 @@ function normalizeRuntimeEvent(payload) {
     raw_type: rawType,
     lifecycle_type: lifecycleType,
     data: mergedData,
+    outer_event_type: outerType,
     session_id: candidate?.session_id || mergedData.session_id || "",
     request_id: candidate?.request_id || mergedData.request_id || "",
     agent_id: candidate?.agent_id || mergedData.agent_id || "",
