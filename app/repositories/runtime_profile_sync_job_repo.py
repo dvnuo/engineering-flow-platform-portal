@@ -13,6 +13,25 @@ class RuntimeProfileSyncJobRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    def _unlocked_or_expired(self, now: datetime):
+        return or_(
+            RuntimeProfileSyncJob.locked_until.is_(None),
+            RuntimeProfileSyncJob.locked_until < now,
+        )
+
+    def _due_or_expired_running_filter(self, now: datetime):
+        return or_(
+            and_(
+                RuntimeProfileSyncJob.status.in_(("pending", "retrying")),
+                RuntimeProfileSyncJob.next_run_at <= now,
+                self._unlocked_or_expired(now),
+            ),
+            and_(
+                RuntimeProfileSyncJob.status == "running",
+                self._unlocked_or_expired(now),
+            ),
+        )
+
     def get(self, job_id: str) -> RuntimeProfileSyncJob | None:
         return self.db.get(RuntimeProfileSyncJob, job_id)
 
@@ -50,10 +69,8 @@ class RuntimeProfileSyncJobRepository:
     def list_due_jobs(self, *, now: datetime, limit: int) -> list[RuntimeProfileSyncJob]:
         q = (
             select(RuntimeProfileSyncJob)
-            .where(RuntimeProfileSyncJob.status.in_(("pending", "retrying")))
-            .where(RuntimeProfileSyncJob.next_run_at <= now)
-            .where(or_(RuntimeProfileSyncJob.locked_until.is_(None), RuntimeProfileSyncJob.locked_until < now))
-            .order_by(RuntimeProfileSyncJob.next_run_at.asc())
+            .where(self._due_or_expired_running_filter(now))
+            .order_by(RuntimeProfileSyncJob.next_run_at.asc(), RuntimeProfileSyncJob.updated_at.asc())
             .limit(limit)
         )
         return list(self.db.scalars(q).all())
@@ -62,9 +79,7 @@ class RuntimeProfileSyncJobRepository:
         stmt = (
             update(RuntimeProfileSyncJob)
             .where(RuntimeProfileSyncJob.id == job_id)
-            .where(RuntimeProfileSyncJob.status.in_(("pending", "retrying")))
-            .where(RuntimeProfileSyncJob.next_run_at <= now)
-            .where(or_(RuntimeProfileSyncJob.locked_until.is_(None), RuntimeProfileSyncJob.locked_until < now))
+            .where(self._due_or_expired_running_filter(now))
             .values(
                 status="running",
                 locked_until=now + timedelta(seconds=max(1, int(lease_seconds))),

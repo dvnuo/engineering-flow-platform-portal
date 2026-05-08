@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -122,3 +122,43 @@ def test_run_job_skips_stale_or_missing(monkeypatch):
     asyncio.run(svc.run_job(db, locked3))
     assert repo.get(job3.id).status == "skipped"
     db.close()
+
+
+def test_expired_running_job_is_due_and_can_be_reacquired():
+    db, agent, _rp = _db()
+    try:
+        svc = RuntimeProfileSyncQueueService()
+        repo = RuntimeProfileSyncJobRepository(db)
+        job = svc.enqueue_agent_runtime_profile_sync(db, agent, reason="x")
+        first_locked = repo.acquire_lock(job.id, now=datetime.utcnow(), lease_seconds=60)
+        assert first_locked is not None
+        assert first_locked.status == "running"
+        assert first_locked.attempts == 1
+        first_locked.locked_until = datetime.utcnow() - timedelta(seconds=1)
+        db.add(first_locked)
+        db.commit()
+        due = repo.list_due_jobs(now=datetime.utcnow(), limit=10)
+        assert any(item.id == job.id for item in due)
+        second_locked = repo.acquire_lock(job.id, now=datetime.utcnow(), lease_seconds=60)
+        assert second_locked is not None
+        assert second_locked.status == "running"
+        assert second_locked.attempts == 2
+    finally:
+        db.close()
+
+
+def test_non_expired_running_job_is_not_due():
+    db, agent, _rp = _db()
+    try:
+        svc = RuntimeProfileSyncQueueService()
+        repo = RuntimeProfileSyncJobRepository(db)
+        job = svc.enqueue_agent_runtime_profile_sync(db, agent, reason="x")
+        locked = repo.acquire_lock(job.id, now=datetime.utcnow(), lease_seconds=60)
+        assert locked is not None
+        locked.locked_until = datetime.utcnow() + timedelta(seconds=60)
+        db.add(locked)
+        db.commit()
+        due = repo.list_due_jobs(now=datetime.utcnow(), limit=10)
+        assert all(item.id != job.id for item in due)
+    finally:
+        db.close()

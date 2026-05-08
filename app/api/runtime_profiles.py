@@ -84,6 +84,7 @@ async def update_runtime_profile(profile_id: str, payload: RuntimeProfileUpdateR
         try:
             runtime_profile_sync_queue_service.enqueue_profile_to_bound_agents(db, profile, reason="runtime_profile_update")
         except Exception:
+            db.rollback()
             logger.exception("runtime profile fan-out sync failed profile_id=%s", profile.id)
 
     return _runtime_profile_response(service, profile)

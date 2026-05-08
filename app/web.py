@@ -2491,6 +2491,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "Running agents will apply soon; starting agents will apply after they become running."
             )
         except Exception:
+            db.rollback()
             logger.exception("runtime profile fan-out sync failed after settings save profile_id=%s", runtime_profile.id)
             status_type = "error"
             status_message = (
@@ -2652,6 +2653,7 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
                     "Running agents will apply soon; starting agents will apply after they become running."
                 )
             except Exception:
+                db.rollback()
                 logger.exception("runtime profile fan-out sync failed after profile save profile_id=%s", updated.id)
                 status_type = "error"
                 status_message = "Runtime profile saved, but sync enqueue failed."

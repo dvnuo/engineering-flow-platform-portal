@@ -50,10 +50,10 @@ def _build_client(monkeypatch):
         lambda _request: SimpleNamespace(id=state["user"].id, role="user", username=state["user"].username, nickname=state["user"].username),
     )
 
-    async def _fake_sync(*_args, **_kwargs):
+    def _fake_sync(*_args, **_kwargs):
         return {"updated_running_count": 0, "skipped_not_running_count": 0, "failed_agent_ids": []}
 
-    monkeypatch.setattr("app.web.runtime_profile_sync_service.sync_profile_to_bound_agents", _fake_sync)
+    monkeypatch.setattr("app.web.runtime_profile_sync_queue_service.enqueue_profile_to_bound_agents", _fake_sync)
 
     def _set_user(u):
         state["user"] = u

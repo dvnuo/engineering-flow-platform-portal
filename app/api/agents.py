@@ -396,6 +396,7 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
     try:
         runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_create")
     except Exception:
+        db.rollback()
         logger.exception("failed to enqueue runtime profile sync after agent create agent_id=%s", agent.id)
     return build_agent_response(agent)
 
@@ -449,6 +450,7 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
                 reason="agent_runtime_profile_update",
             )
         except Exception:
+            db.rollback()
             logger.exception("failed to enqueue runtime profile sync after agent update agent_id=%s", agent.id)
 
     k8s_reprovision_fields = {
@@ -536,6 +538,7 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     try:
         runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_start")
     except Exception:
+        db.rollback()
         logger.exception("failed to enqueue runtime profile sync after agent start agent_id=%s", agent.id)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
@@ -585,6 +588,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
     try:
         runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_restart")
     except Exception:
+        db.rollback()
         logger.exception("failed to enqueue runtime profile sync after agent restart agent_id=%s", agent.id)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)

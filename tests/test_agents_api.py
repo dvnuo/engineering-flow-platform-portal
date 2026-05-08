@@ -262,6 +262,35 @@ def test_create_agent_enqueues_runtime_profile_sync_without_runtime_push(monkeyp
         cleanup()
 
 
+def test_create_agent_enqueue_failure_still_returns_created_agent(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="creating", message=None),
+        )
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("queue insert failed")
+
+        monkeypatch.setattr(
+            "app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync",
+            _boom,
+        )
+
+        response = client.post(
+            "/api/agents",
+            json={"name": "enqueue-failure-create", "runtime_type": "opencode"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "enqueue-failure-create"
+        assert body["status"] == "creating"
+    finally:
+        cleanup()
+
+
 def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
