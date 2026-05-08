@@ -591,8 +591,12 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     effective_config = dict(effective_config_data or RuntimeProfileService.merge_with_managed_defaults(raw_config))
     effective_config.pop("ssh", None)
 
-    llm = effective_config.get("llm") if isinstance(effective_config.get("llm"), dict) else {}
-    raw_llm = raw_config.get("llm") if isinstance(raw_config.get("llm"), dict) else {}
+    llm = dict(effective_config.get("llm")) if isinstance(effective_config.get("llm"), dict) else {}
+    raw_llm = dict(raw_config.get("llm")) if isinstance(raw_config.get("llm"), dict) else {}
+    if raw_llm.get("provider"):
+        raw_llm["provider"] = RuntimeProfileService.normalize_managed_llm_provider(raw_llm.get("provider"))
+    if llm.get("provider"):
+        llm["provider"] = RuntimeProfileService.normalize_managed_llm_provider(llm.get("provider"))
     jira = effective_config.get("jira") if isinstance(effective_config.get("jira"), dict) else {}
     confluence = effective_config.get("confluence") if isinstance(effective_config.get("confluence"), dict) else {}
     jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []

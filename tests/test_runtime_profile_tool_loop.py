@@ -82,9 +82,19 @@ def test_runtime_metadata_includes_runtime_profile_and_tool_loop(monkeypatch):
             "policy_profile_id": "pol-1",
             "runtime_profile_id": agent.runtime_profile_id,
             "runtime_profile_context": {
-                "one_tool_per_turn": True,
-                "parallel_tool_calls": False,
-                "max_repeated_tool_signature": 2,
+                "runtime_profile_id": "rp-1",
+                "revision": 7,
+                "config": {
+                    "llm": {
+                        "provider": "github_copilot",
+                        "model": "gpt-5.4-mini",
+                        "tool_loop": {
+                            "one_tool_per_turn": True,
+                            "parallel_tool_calls": False,
+                            "max_repeated_tool_signature": 2,
+                        },
+                    }
+                },
             },
             "capability_context": {
                 "allowed_capability_ids": ["cap.a"],
@@ -113,6 +123,9 @@ def test_runtime_metadata_includes_runtime_profile_and_tool_loop(monkeypatch):
     metadata = service.build_runtime_metadata(db=object(), agent=agent)
 
     assert metadata["runtime_profile_id"] == "rp-1"
+    assert metadata["runtime_profile"]["runtime_profile_id"] == "rp-1"
+    assert metadata["runtime_profile"]["revision"] == 7
+    assert metadata["runtime_profile"]["config"]["llm"]["tool_loop"]["one_tool_per_turn"] is True
     assert metadata["llm_tool_loop"]["one_tool_per_turn"] is True
     assert metadata["llm_tool_loop"]["parallel_tool_calls"] is False
     assert metadata["allowed_capability_ids"] == ["cap.a"]
@@ -143,7 +156,11 @@ def test_runtime_metadata_materializes_default_tool_loop_for_sparse_profile(monk
     )
 
     assert runtime_profile_id == "rp-1"
-    assert runtime_context == {
+    assert runtime_context["runtime_profile_id"] == "rp-1"
+    assert runtime_context["revision"] is None
+    assert runtime_context["config"]["llm"]["provider"] == "github_copilot"
+    assert runtime_context["config"]["llm"]["model"] == "gpt-5.4-mini"
+    assert runtime_context["config"]["llm"]["tool_loop"] == {
         "one_tool_per_turn": True,
         "parallel_tool_calls": False,
         "max_repeated_tool_signature": 2,
@@ -176,7 +193,9 @@ def test_runtime_metadata_uses_explicit_tool_loop_override(monkeypatch):
     )
 
     assert runtime_profile_id == "rp-1"
-    assert runtime_context == {
+    assert runtime_context["config"]["llm"]["provider"] == "github_copilot"
+    assert runtime_context["config"]["llm"]["model"] == "gpt-5.4-mini"
+    assert runtime_context["config"]["llm"]["tool_loop"] == {
         "one_tool_per_turn": False,
         "parallel_tool_calls": True,
         "max_repeated_tool_signature": 3,

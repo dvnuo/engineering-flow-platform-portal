@@ -123,6 +123,17 @@ def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
         cleanup()
 
 
+def test_settings_view_payload_normalizes_copilot_provider_alias():
+    from app.web import _settings_view_payload
+
+    payload = _settings_view_payload(
+        {"llm": {"provider": "github-copilot", "model": "gpt-5.4-mini"}},
+        {"llm": {"provider": "github-copilot", "model": "gpt-5.4-mini"}},
+    )
+    assert payload["raw_llm"]["provider"] == "github_copilot"
+    assert payload["llm"]["provider"] == "github_copilot"
+
+
 def test_settings_save_ignores_legacy_automation_fields(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
