@@ -25,6 +25,7 @@ from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.k8s_service import K8sService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
+from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 from app.utils.git_urls import normalize_git_repo_url
 from app.utils.agent_responses import build_agent_response
 from app.utils.naming import runtime_names
@@ -79,6 +80,7 @@ def get_agent_defaults(user=Depends(get_current_user)):
 
 k8s_service = K8sService()
 runtime_profile_sync_service = RuntimeProfileSyncService()
+runtime_profile_sync_queue_service = RuntimeProfileSyncQueueService()
 
 
 def _can_read(agent, user) -> bool:
@@ -391,6 +393,10 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
     # especially for OpenCode runtime cold starts. POST /api/agents must return
     # after Portal has persisted the agent and submitted K8s resources. Runtime
     # readiness is reflected by /api/agents/{agent_id}/status.
+    try:
+        runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_create")
+    except Exception:
+        logger.exception("failed to enqueue runtime profile sync after agent create agent_id=%s", agent.id)
     return build_agent_response(agent)
 
 
@@ -435,20 +441,15 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
 
     repo.save(agent)
 
-    if "runtime_profile_id" in changes and (agent.status or "").lower() == "running":
-        runtime_profile_id = changes.get("runtime_profile_id")
-        if runtime_profile_id:
-            profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
-            payload_data = runtime_profile_sync_service.build_clear_payload_for_agent(db, agent)
-            if profile:
-                payload_data = runtime_profile_sync_service.build_apply_payload_for_agent(db, agent, profile)
-        else:
-            payload_data = runtime_profile_sync_service.build_clear_payload_for_agent(db, agent)
-        push_result = await runtime_profile_sync_service.push_payload_to_agent(agent, payload_data)
-        push_ok = bool(push_result.ok) if hasattr(push_result, "ok") else bool(push_result)
-        push_status = getattr(push_result, "apply_status", "failed")
-        if not push_ok:
-            logger.warning("runtime profile sync push after update failed agent_id=%s status=%s", agent.id, push_status)
+    if "runtime_profile_id" in changes:
+        try:
+            runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(
+                db,
+                agent,
+                reason="agent_runtime_profile_update",
+            )
+        except Exception:
+            logger.exception("failed to enqueue runtime profile sync after agent update agent_id=%s", agent.id)
 
     k8s_reprovision_fields = {
         "runtime_type",
@@ -532,7 +533,10 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     agent.status = runtime.status
     agent.last_error = runtime.message
     repo.save(agent)
-    await _sync_runtime_profile_to_running_agent_or_record_warning(db, agent)
+    try:
+        runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_start")
+    except Exception:
+        logger.exception("failed to enqueue runtime profile sync after agent start agent_id=%s", agent.id)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -578,7 +582,10 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
     agent.status = runtime.status
     agent.last_error = runtime.message
     repo.save(agent)
-    await _sync_runtime_profile_to_running_agent_or_record_warning(db, agent)
+    try:
+        runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_restart")
+    except Exception:
+        logger.exception("failed to enqueue runtime profile sync after agent restart agent_id=%s", agent.id)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
