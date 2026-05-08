@@ -5430,8 +5430,8 @@ function updateModelOptions(root) {
   if (copilotBtn) copilotBtn.classList.toggle("hidden", !isCopilot);
   if (authStatus && !isCopilot) authStatus.classList.add("hidden");
   if (!isCopilot) {
-    stopCopilotPolling(root);
-    clearCopilotOAuthFields(root);
+    if (typeof stopCopilotPolling === "function") stopCopilotPolling(root);
+    if (typeof clearCopilotOAuthFields === "function") clearCopilotOAuthFields(root);
   }
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }

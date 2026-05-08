@@ -1888,8 +1888,26 @@ def test_annotate_skill_for_panel_reads_metadata_compatibility_and_tool_mappings
 
 
 def test_chat_stream_treats_message_typed_delta_payloads_as_message_delta():
-    js = _chat_ui_js_source()
-    assert "normalizedDataType" in js
-    assert 'normalizedDataType === "message"' in js
-    assert "isChatStreamDeltaPayload(data)" in js
-    assert 'return "message.delta";' in js
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_source = _chat_ui_js_source()
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
+    is_delta_payload = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    get_event_type = _extract_js_function(js_source, "getChatStreamEventType")
+
+    script = f"""
+{normalize_event_name}
+{is_delta_payload}
+{get_event_type}
+const typedMessageDelta = getChatStreamEventType("message", {{ type: "message", delta: "hello" }});
+const plainDelta = getChatStreamEventType("message", {{ delta: "hello" }});
+const explicitRuntimeEvent = getChatStreamEventType("runtime_event", {{ type: "message.delta", delta: "bad" }});
+console.log(JSON.stringify({{ typedMessageDelta, plainDelta, explicitRuntimeEvent }}));
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(completed.stdout)
+    assert payload["typedMessageDelta"] == "message.delta"
+    assert payload["plainDelta"] == "message.delta"
+    assert payload["explicitRuntimeEvent"] == "runtime_event"
