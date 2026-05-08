@@ -1810,10 +1810,7 @@ def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
     assert "const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || \"\"" in js
     assert "const eventData = normalizeChatStreamEventData(data)" in js
     assert 'function hasChatStreamFinalPayload(data, streamedText = "")' in js
-<<<<<<< codex/add-independent-github-copilot-authorization
     assert 'String(streamedText || "").trim()' in js
-=======
->>>>>>> master
     assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
     assert "return 'unsupported'" in js
     assert "if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate))" in js
