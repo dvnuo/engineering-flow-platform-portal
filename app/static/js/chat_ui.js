@@ -3127,10 +3127,37 @@ function getAssociatedRuntimeDeltaEvent(requestCtx, deltaText) {
   }
   return candidate;
 }
+function buildAssistantStreamDeltaGuardSource(eventData, associatedEvent = null) {
+  const hasAssociated = associatedEvent && typeof associatedEvent === "object";
+  if (!hasAssociated) return eventData || {};
+
+  const source = {
+    ...associatedEvent,
+    ...eventData,
+  };
+
+  const currentRole = getChatStreamRoleMarker(eventData);
+  const associatedRole = getChatStreamRoleMarker(associatedEvent);
+  const currentRawType = getChatStreamRawType(eventData);
+  const associatedRawType = getChatStreamRawType(associatedEvent);
+
+  source.message_role = currentRole || associatedRole || "";
+  source.raw_type = currentRawType || associatedRawType || "";
+
+  const currentOrigin = String(eventData?.source || eventData?.origin || "").trim().toLowerCase();
+  const associatedOrigin = String(associatedEvent?.source || associatedEvent?.origin || "").trim().toLowerCase();
+  if (!currentOrigin && associatedOrigin) {
+    source.source = associatedOrigin;
+  }
+
+  if (isChatStreamSnapshotPayload(eventData) || isChatStreamSnapshotPayload(associatedEvent)) {
+    source.snapshot = true;
+  }
+
+  return source;
+}
 function shouldIgnoreAssistantStreamDelta(eventData, requestCtx, associatedEvent = null) {
-  const source = associatedEvent && typeof associatedEvent === "object"
-    ? { ...associatedEvent, ...eventData }
-    : eventData;
+  const source = buildAssistantStreamDeltaGuardSource(eventData, associatedEvent);
 
   const role = getChatStreamRoleMarker(source);
   if (role === "user") return true;
