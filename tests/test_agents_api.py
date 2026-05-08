@@ -148,7 +148,7 @@ def _build_agents_client_with_overrides():
 def test_invalid_agent_type_on_create_returns_422(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
-        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="stopped", message=None))
         response = client.post(
             "/api/agents",
             json={"name": "bad-agent", "image": "example/image:latest", "agent_type": "invalid"},
@@ -199,6 +199,94 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         assert body["image"] == "ghcr.io/acme/portal-agent:v2.4.1"
         assert body["branch"] is None
         assert body["repo_url"] is None
+    finally:
+        cleanup()
+
+
+def test_create_agent_does_not_wait_for_runtime_profile_sync(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="running", message=None),
+        )
+
+        async def _unexpected_create_sync(*_args, **_kwargs):
+            raise AssertionError("POST /api/agents must not wait for runtime profile sync")
+
+        monkeypatch.setattr(
+            agents_api,
+            "_sync_runtime_profile_to_running_agent_or_record_warning",
+            _unexpected_create_sync,
+        )
+
+        response = client.post(
+            "/api/agents",
+            json={"name": "fast-opencode-create", "runtime_type": "opencode"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "fast-opencode-create"
+        assert body["runtime_type"] == "opencode"
+    finally:
+        cleanup()
+
+
+
+
+def test_create_agent_enqueues_runtime_profile_sync_without_runtime_push(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        calls = {"enqueue": 0}
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+
+        def _enqueue(_db, _agent, *, reason):
+            calls["enqueue"] += 1
+            return None
+
+        async def _unexpected(*_args, **_kwargs):
+            raise AssertionError("should not push in create")
+
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
+        monkeypatch.setattr("app.api.agents._sync_runtime_profile_to_running_agent_or_record_warning", _unexpected)
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _unexpected)
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent_with_retry", _unexpected)
+
+        response = client.post("/api/agents", json={"name": "enqueue-create", "runtime_type": "opencode"})
+        assert response.status_code == 200
+        assert calls["enqueue"] == 1
+    finally:
+        cleanup()
+
+
+def test_create_agent_enqueue_failure_still_returns_created_agent(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="creating", message=None),
+        )
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("queue insert failed")
+
+        monkeypatch.setattr(
+            "app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync",
+            _boom,
+        )
+
+        response = client.post(
+            "/api/agents",
+            json={"name": "enqueue-failure-create", "runtime_type": "opencode"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "enqueue-failure-create"
+        assert body["status"] == "creating"
     finally:
         cleanup()
 
@@ -478,7 +566,7 @@ def test_agent_chat_model_profile_does_not_infer_provider_model_from_defaults(mo
         cleanup()
 
 
-def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch):
+def test_update_runtime_profile_id_enqueues_sync_job_without_direct_push(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -497,59 +585,55 @@ def test_update_running_agent_runtime_profile_pushes_apply_and_clear(monkeypatch
         assert create_ok.status_code == 200
         agent_id = create_ok.json()["id"]
 
-        pushed = []
+        calls = {"enqueue": 0}
 
-        async def _fake_push(agent, payload):
-            pushed.append(payload)
-            return True
+        def _enqueue(_db, _agent, *, reason):
+            calls["enqueue"] += 1
+            return None
 
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _fake_push)
+        async def _unexpected_push(*_args, **_kwargs):
+            raise AssertionError("update should not push directly")
+
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _unexpected_push)
 
         apply_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
         assert apply_resp.status_code == 200
-        assert pushed[-1]["runtime_profile_id"] == rp.id
-        assert pushed[-1]["revision"] == 3
+        assert calls["enqueue"] >= 1
 
         clear_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": None})
         assert clear_resp.status_code == 422
         assert "runtime_profile_id cannot be null" in clear_resp.json()["detail"]
-        assert pushed[-1]["runtime_profile_id"] == rp.id
     finally:
         cleanup()
 
 
-def test_update_running_agent_runtime_profile_push_failure_still_returns_200(monkeypatch):
-    client, db, cleanup = _build_agents_client_with_overrides()
+def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.start_agent", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.stop_agent", lambda _agent: SimpleNamespace(status="stopped", message=None))
+        calls = {"enqueue": 0}
 
-        from app.models.runtime_profile import RuntimeProfile
+        def _enqueue(_db, _agent, *, reason):
+            calls["enqueue"] += 1
+            return None
 
-        rp = RuntimeProfile(owner_user_id=1, name="rp-sync-fail", config_json='{"llm": {"provider": "openai"}}', revision=3, is_default=True)
-        db.add(rp)
-        db.commit()
-        db.refresh(rp)
+        async def _unexpected(*_args, **_kwargs):
+            raise AssertionError("start/restart should not use sync helper")
 
-        create_ok = client.post(
-            "/api/agents",
-            json={"name": "sync-fail-agent", "image": "example/image:latest"},
-        )
-        assert create_ok.status_code == 200
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
+        monkeypatch.setattr("app.api.agents._sync_runtime_profile_to_running_agent_or_record_warning", _unexpected)
+
+        create_ok = client.post("/api/agents", json={"name": "sync-fail-agent", "image": "example/image:latest"})
         agent_id = create_ok.json()["id"]
-
-        pushed = []
-
-        async def _fake_push(agent, payload):
-            pushed.append((agent.id, payload))
-            return False
-
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _fake_push)
-
-        patch_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
-        assert patch_resp.status_code == 200
-        assert pushed
+        restart_resp = client.post(f"/api/agents/{agent_id}/restart")
+        assert restart_resp.status_code == 200
+        assert calls["enqueue"] >= 1
     finally:
         cleanup()
+
 
 def test_patch_skill_repo_triggers_k8s_update(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
@@ -571,7 +655,7 @@ def test_patch_skill_repo_triggers_k8s_update(monkeypatch):
         cleanup()
 
 
-def test_patch_runtime_profile_uses_agent_aware_payload_builder(monkeypatch):
+def test_patch_runtime_profile_update_enqueues_sync_job(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -582,22 +666,20 @@ def test_patch_runtime_profile_uses_agent_aware_payload_builder(monkeypatch):
         db.commit()
         db.refresh(rp)
         agent_id = client.post("/api/agents", json={"name": "sync-agent-aware", "image": "example/image:latest"}).json()["id"]
-        calls = {"apply": 0}
 
-        def _build_apply(db_arg, agent_arg, profile_arg):
-            calls["apply"] += 1
-            assert db_arg is db
-            assert profile_arg.id == rp.id
-            return {"runtime_profile_id": profile_arg.id, "revision": profile_arg.revision, "config": {"agent_id": agent_arg.id}}
+        calls = {"enqueue": 0}
+        def _enqueue(_db, _agent, *, reason):
+            calls["enqueue"] += 1
+            return None
 
-        async def _fake_push(_agent, _payload):
-            return True
+        async def _unexpected_push(*_args, **_kwargs):
+            raise AssertionError("update should not push directly")
 
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.build_apply_payload_for_agent", _build_apply)
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _fake_push)
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _unexpected_push)
         resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
         assert resp.status_code == 200
-        assert calls["apply"] == 1
+        assert calls["enqueue"] == 1
     finally:
         cleanup()
 

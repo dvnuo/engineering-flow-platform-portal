@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     automation_rules_worker_enabled: bool = Field(default=True, validation_alias="AUTOMATION_RULES_WORKER_ENABLED")
     automation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="AUTOMATION_RULES_WORKER_INTERVAL_SECONDS")
     automation_rule_lock_lease_seconds: int = Field(default=120, validation_alias="AUTOMATION_RULE_LOCK_LEASE_SECONDS")
+    runtime_profile_sync_worker_enabled: bool = Field(default=True, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_ENABLED")
+    runtime_profile_sync_worker_interval_seconds: int = Field(default=5, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_INTERVAL_SECONDS")
+    runtime_profile_sync_worker_batch_size: int = Field(default=20, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_BATCH_SIZE")
+    runtime_profile_sync_job_lock_lease_seconds: int = Field(default=60, validation_alias="RUNTIME_PROFILE_SYNC_JOB_LOCK_LEASE_SECONDS")
+    runtime_profile_sync_push_timeout_seconds: int = Field(default=10, validation_alias="RUNTIME_PROFILE_SYNC_PUSH_TIMEOUT_SECONDS")
+    runtime_profile_sync_job_max_attempts: int = Field(default=40, validation_alias="RUNTIME_PROFILE_SYNC_JOB_MAX_ATTEMPTS")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

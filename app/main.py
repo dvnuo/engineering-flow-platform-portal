@@ -40,6 +40,7 @@ from app.services.schema_guard import (
 )
 from app.web import router as web_router
 from app.services.automation_worker import worker_singleton
+from app.services.runtime_profile_sync_worker import runtime_profile_sync_worker_singleton
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -91,11 +92,14 @@ def on_startup() -> None:
 
     if settings.automation_rules_worker_enabled:
         worker_singleton.start()
+    if settings.runtime_profile_sync_worker_enabled:
+        runtime_profile_sync_worker_singleton.start()
 
 
 @app.on_event("shutdown")
 def shutdown_automation_worker() -> None:
     worker_singleton.stop()
+    runtime_profile_sync_worker_singleton.stop()
 
 
 @app.get("/health")
