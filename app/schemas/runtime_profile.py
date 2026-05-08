@@ -43,6 +43,10 @@ PORTAL_MANAGED_FIELD_TREE = {
             "enterpriseUrl": True,
             "accountId": True,
         },
+        "oauth_by_runtime": {
+            "native": {"type": True, "refresh": True, "access": True, "expires": True, "enterpriseUrl": True, "accountId": True},
+            "opencode": {"type": True, "refresh": True, "access": True, "expires": True, "enterpriseUrl": True, "accountId": True},
+        },
         "tool_loop": {
             "one_tool_per_turn": True,
             "parallel_tool_calls": True,
@@ -282,6 +286,18 @@ def sanitize_runtime_profile_llm_oauth(value) -> dict:
         sanitized["accountId"] = account_id
     return sanitized
 
+
+
+def sanitize_runtime_profile_llm_oauth_by_runtime(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out = {}
+    for runtime_key in ("native", "opencode"):
+        oauth = sanitize_runtime_profile_llm_oauth(value.get(runtime_key))
+        if oauth:
+            out[runtime_key] = oauth
+    return out
+
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
@@ -346,6 +362,11 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
                 llm_copy["oauth"] = oauth
             else:
                 llm_copy.pop("oauth", None)
+        oauth_by_runtime = sanitize_runtime_profile_llm_oauth_by_runtime(llm_copy.get("oauth_by_runtime"))
+        if oauth_by_runtime:
+            llm_copy["oauth_by_runtime"] = oauth_by_runtime
+        else:
+            llm_copy.pop("oauth_by_runtime", None)
         llm = llm_copy
 
     if isinstance(llm, dict):
@@ -391,6 +412,16 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
             oauth_copy.pop("refresh", None)
             oauth_copy["present"] = True
             llm["oauth"] = oauth_copy
+        by_runtime = llm.get("oauth_by_runtime")
+        if isinstance(by_runtime, dict):
+            for key in ("native", "opencode"):
+                oauth_entry = by_runtime.get(key)
+                if isinstance(oauth_entry, dict):
+                    cp = oauth_entry.copy()
+                    cp.pop("access", None)
+                    cp.pop("refresh", None)
+                    cp["present"] = True
+                    by_runtime[key] = cp
     github = redacted.get("github")
     if isinstance(github, dict):
         github.pop("api_token", None)

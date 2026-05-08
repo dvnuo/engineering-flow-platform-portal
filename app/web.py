@@ -861,6 +861,47 @@ def _settings_parse_response_flow_min_tokens(form, field_name: str) -> tuple[int
         return None, "Response flow complexity minimum tokens must be a positive integer."
     return parsed, None
 
+
+
+def _settings_existing_oauth_by_runtime(llm: dict) -> dict:
+    out = {}
+    existing = llm.get("oauth_by_runtime")
+    if isinstance(existing, dict):
+        for key in ("native", "opencode"):
+            val = existing.get(key)
+            if isinstance(val, dict):
+                out[key] = val.copy()
+    if "opencode" not in out and isinstance(llm.get("oauth"), dict):
+        out["opencode"] = llm["oauth"].copy()
+    return out
+
+
+def _settings_parse_oauth_for_runtime(form, runtime_key: str, existing: dict | None):
+    def as_bool(value) -> bool:
+        return str(value or "").lower() in {"1", "true", "on", "yes"}
+    access_raw = (form.get(f"llm_oauth_{runtime_key}_access") or "").strip()
+    refresh_raw = (form.get(f"llm_oauth_{runtime_key}_refresh") or "").strip()
+    clear = as_bool(form.get(f"llm_oauth_{runtime_key}_clear"))
+    access = access_raw or refresh_raw
+    refresh = refresh_raw or access_raw
+    if clear:
+        return None, True
+    if access or refresh:
+        try:
+            expires = int((form.get(f"llm_oauth_{runtime_key}_expires") or "").strip() or "0")
+        except ValueError:
+            expires = 0
+        oauth = {"type": "oauth", "access": access, "refresh": refresh, "expires": max(0, expires)}
+        enterprise = (form.get(f"llm_oauth_{runtime_key}_enterprise_url") or "").strip()
+        account = (form.get(f"llm_oauth_{runtime_key}_account_id") or "").strip()
+        if enterprise:
+            oauth["enterpriseUrl"] = enterprise
+        if account:
+            oauth["accountId"] = account
+        return oauth, False
+    if isinstance(existing, dict):
+        return existing.copy(), False
+    return None, False
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
@@ -905,42 +946,27 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         else:
             llm.pop("model", None)
         if is_github_copilot_provider(provider_value):
-            existing_oauth = llm.get("oauth") if isinstance(llm.get("oauth"), dict) else None
-            oauth_access_raw = (form.get("llm_oauth_access") or "").strip()
-            oauth_refresh_raw = (form.get("llm_oauth_refresh") or "").strip()
-            oauth_type = (form.get("llm_oauth_type") or "").strip() or "oauth"
-            explicit_oauth_clear = as_bool(form.get("llm_oauth_clear"))
-            refresh_value = oauth_refresh_raw or oauth_access_raw
-            access_value = oauth_access_raw or oauth_refresh_raw
-            has_new_oauth = bool(access_value or refresh_value)
-            if has_new_oauth:
-                try:
-                    expires = int((form.get("llm_oauth_expires") or "").strip() or "0")
-                except ValueError:
-                    expires = 0
-                if expires < 0:
-                    expires = 0
-                oauth_payload = {"type": oauth_type if oauth_type == "oauth" else "oauth", "access": access_value, "refresh": refresh_value, "expires": expires}
-                enterprise_url = (form.get("llm_oauth_enterprise_url") or "").strip()
-                account_id = (form.get("llm_oauth_account_id") or "").strip()
-                if enterprise_url:
-                    oauth_payload["enterpriseUrl"] = enterprise_url
-                if account_id:
-                    oauth_payload["accountId"] = account_id
-                llm["oauth"] = oauth_payload
+            existing_by_runtime = _settings_existing_oauth_by_runtime(llm)
+            oauth_by_runtime = {}
+            for runtime_key in ("native", "opencode"):
+                oauth_payload, should_delete = _settings_parse_oauth_for_runtime(form, runtime_key, existing_by_runtime.get(runtime_key))
+                if not should_delete and isinstance(oauth_payload, dict):
+                    oauth_by_runtime[runtime_key] = oauth_payload
+            if oauth_by_runtime:
+                llm["oauth_by_runtime"] = oauth_by_runtime
+                llm.pop("oauth", None)
                 llm.pop("api_key", None)
             elif api_key_value:
                 llm["api_key"] = api_key_value
                 llm.pop("oauth", None)
-            elif explicit_oauth_clear:
-                llm.pop("oauth", None)
-                llm.pop("api_key", None)
+                llm.pop("oauth_by_runtime", None)
             else:
-                if existing_oauth:
-                    llm["oauth"] = existing_oauth
                 llm.pop("api_key", None)
+                llm.pop("oauth", None)
+                llm.pop("oauth_by_runtime", None)
         else:
             llm.pop("oauth", None)
+            llm.pop("oauth_by_runtime", None)
             if api_key_value:
                 llm["api_key"] = api_key_value
             else:
@@ -2571,7 +2597,7 @@ async def app_agent_settings_test(request: Request, agent_id: str, target: str):
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
-        ok, message = await runtime_profile_test_service.run_test(target, config_payload)
+        ok, message = await runtime_profile_test_service.run_test(target, config_payload, runtime_type=getattr(agent, "runtime_type", None))
         return JSONResponse({"ok": bool(ok), "target": target, "message": message})
     finally:
         db.close()
@@ -2618,7 +2644,7 @@ async def app_runtime_profile_test(request: Request, profile_id: str, target: st
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
 
-        ok, message = await runtime_profile_test_service.run_test(target, config_payload)
+        ok, message = await runtime_profile_test_service.run_test(target, config_payload, runtime_type=(form.get("test_runtime_type") or "native"))
         return JSONResponse({"ok": bool(ok), "target": target, "message": message})
     finally:
         db.close()

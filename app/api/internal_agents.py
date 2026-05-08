@@ -4,14 +4,15 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
-from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.schemas.runtime_router import AgentRuntimeContextResponse, RuntimeCapabilityContextResponse, RuntimePolicyContextResponse, RuntimeProfileContextResponse
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_router import RuntimeRouterService
+from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 
 router = APIRouter(tags=["internal-agents"])
 service = RuntimeRouterService()
 runtime_execution_context_service = RuntimeExecutionContextService()
+runtime_profile_sync_service = RuntimeProfileSyncService()
 
 
 @router.get("/api/internal/agents/{agent_id}/runtime-context", response_model=AgentRuntimeContextResponse)
@@ -26,7 +27,8 @@ def get_agent_runtime_context(agent_id: str, db: Session = Depends(get_db)):
     if agent.runtime_profile_id:
         runtime_profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
         if runtime_profile:
-            config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+            payload = runtime_profile_sync_service.build_apply_payload_for_agent(db, agent, runtime_profile)
+            config = payload.get("config") or {}
             runtime_profile_context = RuntimeProfileContextResponse(
                 runtime_profile_id=runtime_profile.id,
                 name=runtime_profile.name,

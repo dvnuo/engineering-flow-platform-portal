@@ -12,7 +12,18 @@ from app.utils.github_url import normalize_github_oauth_base_url
 
 logger = logging.getLogger(__name__)
 
-COPILOT_OAUTH_CLIENT_ID = "Ov23li8tweQw6odWQebz"
+COPILOT_OAUTH_CLIENT_IDS = {"native": "Iv1.b507a08c87ecfe98", "efp": "Iv1.b507a08c87ecfe98", "opencode": "Ov23li8tweQw6odWQebz"}
+
+
+def normalize_copilot_runtime_type(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return "opencode"
+    if raw == "efp":
+        return "native"
+    if raw in {"native", "opencode"}:
+        return raw
+    raise ValueError("runtime_type must be one of: native, opencode")
 
 _pending_authorizations: dict[str, dict[str, Any]] = {}
 
@@ -43,14 +54,16 @@ class CopilotAuthService:
         for auth_id in expired_ids:
             _pending_authorizations.pop(auth_id, None)
 
-    async def start_authorization(self, user_id: str, github_base_url: str | None) -> tuple[int, dict]:
+    async def start_authorization(self, user_id: str, github_base_url: str | None, runtime_type: str | None = None) -> tuple[int, dict]:
         self._cleanup_expired()
+        runtime_type_normalized = normalize_copilot_runtime_type(runtime_type)
+        selected_client_id = COPILOT_OAUTH_CLIENT_IDS[runtime_type_normalized]
         oauth_base_url = normalize_github_oauth_base_url(github_base_url)
         device_url = f"{oauth_base_url}/login/device/code"
         access_token_url = f"{oauth_base_url}/login/oauth/access_token"
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(device_url, headers=self._HEADERS, json={"client_id": COPILOT_OAUTH_CLIENT_ID, "scope": "read:user"})
+                response = await client.post(device_url, headers=self._HEADERS, json={"client_id": selected_client_id, "scope": "read:user"})
         except Exception as exc:
             logger.exception("Copilot start authorization failed")
             return 500, {"error": "Failed to start authorization", "details": sanitize_exception_message(exc)}
@@ -68,12 +81,12 @@ class CopilotAuthService:
         created_at = self._utc_now()
         _pending_authorizations[auth_id] = {
             "auth_id": auth_id, "user_id": str(user_id), "device_code": data.get("device_code", ""), "user_code": data.get("user_code", ""),
-            "verification_uri": data.get("verification_uri", ""), "oauth_base_url": oauth_base_url, "access_token_url": access_token_url,
+            "verification_uri": data.get("verification_uri", ""), "oauth_base_url": oauth_base_url, "access_token_url": access_token_url, "runtime_type": runtime_type_normalized, "client_id": selected_client_id,
             "expires_at": created_at + timedelta(seconds=expires_in), "interval": interval, "status": "pending", "oauth": None, "created_at": created_at,
         }
         return 200, {"auth_id": auth_id, "device_code": data.get("device_code", ""), "user_code": data.get("user_code", ""),
                      "verification_url": data.get("verification_uri", ""), "verification_complete_url": data.get("verification_uri_complete") or data.get("verification_uri") or "",
-                     "expires_in": expires_in, "interval": interval}
+                     "expires_in": expires_in, "interval": interval, "runtime_type": runtime_type_normalized}
 
     async def check_authorization(self, user_id: str, auth_id: str, device_code: str) -> tuple[int, dict]:
         auth_id = (auth_id or "").strip()
@@ -91,11 +104,11 @@ class CopilotAuthService:
         if record.get("status") == "authorized" and isinstance(record.get("oauth"), dict):
             oauth = record["oauth"]
             _pending_authorizations.pop(auth_id, None)
-            return 200, {"status": "authorized", "oauth": oauth, "token": oauth.get("access", "")}
+            return 200, {"status": "authorized", "oauth": oauth, "token": oauth.get("access", ""), "runtime_type": record.get("runtime_type", "opencode")}
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(record["access_token_url"], headers=self._HEADERS, json={"client_id": COPILOT_OAUTH_CLIENT_ID, "device_code": record["device_code"], "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
+                response = await client.post(record["access_token_url"], headers=self._HEADERS, json={"client_id": record.get("client_id") or COPILOT_OAUTH_CLIENT_IDS["opencode"], "device_code": record["device_code"], "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
         except Exception as exc:
             logger.exception("Copilot verify failed auth_id=%s", auth_id)
             return 500, {"status": "failed", "message": sanitize_exception_message(exc)}
@@ -122,7 +135,7 @@ class CopilotAuthService:
             record["status"] = "authorized"
             record["oauth"] = oauth
             _pending_authorizations.pop(auth_id, None)
-            return 200, {"status": "authorized", "oauth": oauth, "token": access_token}
+            return 200, {"status": "authorized", "oauth": oauth, "token": access_token, "runtime_type": record.get("runtime_type", "opencode")}
 
         return 200, {"status": "failed", "message": sanitize_exception_message(error or f"GitHub API returned {response.status_code}")}
 

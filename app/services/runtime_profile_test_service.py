@@ -15,7 +15,7 @@ class RuntimeProfileTestService:
             if value:
                 return value.rstrip("/")
         return default
-    async def run_test(self, target: str, config: dict) -> tuple[bool, str]:
+    async def run_test(self, target: str, config: dict, runtime_type: str | None = None) -> tuple[bool, str]:
         if target == "proxy":
             return await self._test_proxy(config)
         if target == "github":
@@ -25,7 +25,7 @@ class RuntimeProfileTestService:
         if target == "confluence":
             return await self._test_confluence(config)
         if target == "llm":
-            return await self._test_llm(config)
+            return await self._test_llm(config, runtime_type=runtime_type)
         return False, f"Unsupported test target: {target}"
 
     async def _test_proxy(self, config: dict) -> tuple[bool, str]:
@@ -123,17 +123,18 @@ class RuntimeProfileTestService:
         name = str(instance.get("name") or base_url)
         return True, f"Confluence connection OK for {name}."
 
-    async def _test_llm(self, config: dict) -> tuple[bool, str]:
+    async def _test_llm(self, config: dict, runtime_type: str | None = None) -> tuple[bool, str]:
         llm_cfg = config.get("llm") if isinstance(config.get("llm"), dict) else {}
         provider = str(llm_cfg.get("provider") or "").strip()
         model = str(llm_cfg.get("model") or "").strip()
         api_key = str(llm_cfg.get("api_key") or "").strip()
+        runtime_key = "opencode" if str(runtime_type or "").strip().lower() == "opencode" else "native"
 
         if provider not in {"openai", "anthropic", "github_copilot"}:
             return False, f"Unsupported LLM provider: {provider or 'empty'}"
         if not model:
             return False, "LLM model is required."
-        if not api_key:
+        if provider in {"openai", "anthropic"} and not api_key:
             return False, "LLM API key is required."
 
         if provider == "openai":
@@ -166,12 +167,27 @@ class RuntimeProfileTestService:
             }
             return await self._provider_request(provider, model, f"{api_base}/messages", headers, payload)
 
+        if runtime_key == "opencode":
+            by_runtime = llm_cfg.get("oauth_by_runtime") if isinstance(llm_cfg.get("oauth_by_runtime"), dict) else {}
+            op_oauth = by_runtime.get("opencode") if isinstance(by_runtime.get("opencode"), dict) else llm_cfg.get("oauth") if isinstance(llm_cfg.get("oauth"), dict) else None
+            if not isinstance(op_oauth, dict):
+                return False, "OpenCode Copilot OAuth is required."
+            return True, "OpenCode Copilot OAuth is present; runtime apply will validate through OpenCode."
+
+        if not api_key:
+            by_runtime = llm_cfg.get("oauth_by_runtime") if isinstance(llm_cfg.get("oauth_by_runtime"), dict) else {}
+            native_oauth = by_runtime.get("native") if isinstance(by_runtime.get("native"), dict) else {}
+            api_key = str(native_oauth.get("access") or native_oauth.get("refresh") or "").strip()
+        if not api_key:
+            return False, "LLM API key is required."
+
         api_base = self._llm_base_url(llm_cfg, "https://api.githubcopilot.com")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "X-GitHub-Api-Version": "2023-06-01",
             "Accept": "application/vnd.github.copilot-chat-preview+json",
+            "copilot-integration-id": "vscode-chat",
         }
         payload = {
             "model": model,

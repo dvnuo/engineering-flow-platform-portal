@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -10,6 +10,8 @@ router = APIRouter(prefix="/api/copilot/auth", tags=["copilot"])
 
 class StartAuthRequest(BaseModel):
     github_base_url: str | None = None
+    runtime_type: str | None = None
+    runtime: str | None = None
 
 
 class AuthCheckRequest(BaseModel):
@@ -19,10 +21,15 @@ class AuthCheckRequest(BaseModel):
 
 @router.post("/start")
 async def start_auth(request: StartAuthRequest, user=Depends(get_current_user)):
-    status_code, payload = await copilot_auth_service.start_authorization(
-        user_id=str(user.id),
-        github_base_url=request.github_base_url,
-    )
+    runtime_type = request.runtime_type or request.runtime
+    try:
+        status_code, payload = await copilot_auth_service.start_authorization(
+            user_id=str(user.id),
+            github_base_url=request.github_base_url,
+            runtime_type=runtime_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(status_code=status_code, content=payload)
 
 
