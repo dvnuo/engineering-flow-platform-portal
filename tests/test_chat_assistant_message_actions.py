@@ -270,7 +270,11 @@ def test_chat_stream_final_payload_preserves_assistant_message_id():
     assert "user_message_id: eventData?.user_message_id || ''" in js_source
 
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
     wrapper_event_name = _extract_js_function(js_source, "isChatStreamWrapperEventName")
+    is_final_event_name = _extract_js_function(js_source, "isChatStreamFinalEventName")
+    is_direct_completion_event_name = _extract_js_function(js_source, "isDirectCompletionEventName")
+    is_delta_event_name = _extract_js_function(js_source, "isChatStreamDeltaEventName")
     event_type = _extract_js_function(js_source, "getChatStreamEventType")
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
@@ -285,7 +289,11 @@ function updatePendingAssistantStreamContent() {{}}
 async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ captured = payload; }}
 function handleAgentEventMessage() {{}}
 {is_delta}
+{normalize_event_name}
 {wrapper_event_name}
+{is_final_event_name}
+{is_direct_completion_event_name}
+{is_delta_event_name}
 {event_type}
 {text_payload}
 {normalize_data}
@@ -344,7 +352,11 @@ def test_chat_stream_done_without_payload_does_not_finalize_empty_response():
         pytest.skip("node is not installed; skipping JS helper behavior test")
     js_source = _chat_ui_js_source()
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
     wrapper_event_name = _extract_js_function(js_source, "isChatStreamWrapperEventName")
+    is_final_event_name = _extract_js_function(js_source, "isChatStreamFinalEventName")
+    is_direct_completion_event_name = _extract_js_function(js_source, "isDirectCompletionEventName")
+    is_delta_event_name = _extract_js_function(js_source, "isChatStreamDeltaEventName")
     event_type = _extract_js_function(js_source, "getChatStreamEventType")
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
@@ -358,7 +370,11 @@ function updatePendingAssistantStreamContent() {{}}
 async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ captured = payload; }}
 function handleAgentEventMessage() {{}}
 {is_delta}
+{normalize_event_name}
 {wrapper_event_name}
+{is_final_event_name}
+{is_direct_completion_event_name}
+{is_delta_event_name}
 {event_type}
 {text_payload}
 {normalize_data}
@@ -386,7 +402,11 @@ def test_chat_stream_explicit_final_payload_still_finalizes():
         pytest.skip("node is not installed; skipping JS helper behavior test")
     js_source = _chat_ui_js_source()
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
     wrapper_event_name = _extract_js_function(js_source, "isChatStreamWrapperEventName")
+    is_final_event_name = _extract_js_function(js_source, "isChatStreamFinalEventName")
+    is_direct_completion_event_name = _extract_js_function(js_source, "isDirectCompletionEventName")
+    is_delta_event_name = _extract_js_function(js_source, "isChatStreamDeltaEventName")
     event_type = _extract_js_function(js_source, "getChatStreamEventType")
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
@@ -400,7 +420,11 @@ function updatePendingAssistantStreamContent() {{}}
 async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ captured = payload; }}
 function handleAgentEventMessage() {{}}
 {is_delta}
+{normalize_event_name}
 {wrapper_event_name}
+{is_final_event_name}
+{is_direct_completion_event_name}
+{is_delta_event_name}
 {event_type}
 {text_payload}
 {normalize_data}
@@ -423,7 +447,11 @@ def test_chat_stream_progress_complete_is_candidate_not_immediate_final():
         pytest.skip("node is not installed; skipping JS helper behavior test")
     js_source = _chat_ui_js_source()
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
     wrapper_event_name = _extract_js_function(js_source, "isChatStreamWrapperEventName")
+    is_final_event_name = _extract_js_function(js_source, "isChatStreamFinalEventName")
+    is_direct_completion_event_name = _extract_js_function(js_source, "isDirectCompletionEventName")
+    is_delta_event_name = _extract_js_function(js_source, "isChatStreamDeltaEventName")
     event_type = _extract_js_function(js_source, "getChatStreamEventType")
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
@@ -437,7 +465,11 @@ function updatePendingAssistantStreamContent() {{}}
 async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ captured = payload; }}
 function handleAgentEventMessage() {{}}
 {is_delta}
+{normalize_event_name}
 {wrapper_event_name}
+{is_final_event_name}
+{is_direct_completion_event_name}
+{is_delta_event_name}
 {event_type}
 {text_payload}
 {normalize_data}
@@ -456,17 +488,25 @@ function handleAgentEventMessage() {{}}
     assert payload["candidate"]["response"] == "preview response"
 
 
-def test_chat_stream_event_type_uses_wrapped_data_type_for_progress():
+def test_chat_stream_event_type_keeps_outer_event_name_for_wrapper_events():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
     js_source = _chat_ui_js_source()
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
     wrapper_event_name = _extract_js_function(js_source, "isChatStreamWrapperEventName")
+    is_final_event_name = _extract_js_function(js_source, "isChatStreamFinalEventName")
+    is_direct_completion_event_name = _extract_js_function(js_source, "isDirectCompletionEventName")
+    is_delta_event_name = _extract_js_function(js_source, "isChatStreamDeltaEventName")
     event_type = _extract_js_function(js_source, "getChatStreamEventType")
     script = f"""
 {is_delta}
+{normalize_event_name}
 {wrapper_event_name}
+{is_final_event_name}
+{is_direct_completion_event_name}
+{is_delta_event_name}
 {event_type}
 console.log(JSON.stringify({{
   contextSnapshot: getChatStreamEventType("progress", {{ type: "context_snapshot" }}),
@@ -476,8 +516,8 @@ console.log(JSON.stringify({{
 """
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     payload = json.loads(completed.stdout)
-    assert payload["contextSnapshot"] == "context_snapshot"
-    assert payload["complete"] == "complete"
+    assert payload["contextSnapshot"] == "progress"
+    assert payload["complete"] == "progress"
     assert payload["explicitFinal"] == "final"
 
 
@@ -487,7 +527,11 @@ def test_chat_stream_final_without_payload_does_not_finalize_empty_response():
         pytest.skip("node is not installed; skipping JS helper behavior test")
     js_source = _chat_ui_js_source()
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
     wrapper_event_name = _extract_js_function(js_source, "isChatStreamWrapperEventName")
+    is_final_event_name = _extract_js_function(js_source, "isChatStreamFinalEventName")
+    is_direct_completion_event_name = _extract_js_function(js_source, "isDirectCompletionEventName")
+    is_delta_event_name = _extract_js_function(js_source, "isChatStreamDeltaEventName")
     event_type = _extract_js_function(js_source, "getChatStreamEventType")
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
@@ -501,7 +545,11 @@ function updatePendingAssistantStreamContent() {{}}
 async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ captured = payload; }}
 function handleAgentEventMessage() {{}}
 {is_delta}
+{normalize_event_name}
 {wrapper_event_name}
+{is_final_event_name}
+{is_direct_completion_event_name}
+{is_delta_event_name}
 {event_type}
 {text_payload}
 {normalize_data}
@@ -527,7 +575,11 @@ def test_chat_stream_message_completed_without_payload_does_not_finalize_empty_r
         pytest.skip("node is not installed; skipping JS helper behavior test")
     js_source = _chat_ui_js_source()
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
+    normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")
     wrapper_event_name = _extract_js_function(js_source, "isChatStreamWrapperEventName")
+    is_final_event_name = _extract_js_function(js_source, "isChatStreamFinalEventName")
+    is_direct_completion_event_name = _extract_js_function(js_source, "isDirectCompletionEventName")
+    is_delta_event_name = _extract_js_function(js_source, "isChatStreamDeltaEventName")
     event_type = _extract_js_function(js_source, "getChatStreamEventType")
     text_payload = _extract_js_function(js_source, "getChatStreamTextPayload")
     normalize_data = _extract_js_function(js_source, "normalizeChatStreamEventData")
@@ -541,7 +593,11 @@ function updatePendingAssistantStreamContent() {{}}
 async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ captured = payload; }}
 function handleAgentEventMessage() {{}}
 {is_delta}
+{normalize_event_name}
 {wrapper_event_name}
+{is_final_event_name}
+{is_direct_completion_event_name}
+{is_delta_event_name}
 {event_type}
 {text_payload}
 {normalize_data}

@@ -1679,7 +1679,7 @@ def test_chat_stream_event_type_parsing_source_markers_present():
     assert 'function isChatStreamWrapperEventName(name)' in js
     assert 'hasExplicitEvent = false' in js
     assert 'if (!dataLines.length && !hasExplicitEvent) return null;' in js
-    assert 'const t = getChatStreamEventType(eventName, data);' in js
+    assert 'const outerType = normalizeChatStreamEventName(eventName);' in js
     assert "if (sawEvent) {" in js
     assert '/api/chat/stream' in js
     assert 'getReader()' in js
@@ -1708,7 +1708,7 @@ def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
     assert "Object.assign(normalized, normalized.data)" in js
     assert "const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || \"\"" in js
     assert "const eventData = normalizeChatStreamEventData(data)" in js
-    assert "function hasChatStreamFinalPayload(data)" in js
+    assert 'function hasChatStreamFinalPayload(data, streamedText = "")' in js
     assert "handleAgentEventMessage(JSON.stringify(streamEventPayload)" in js
     assert "return 'unsupported'" in js
     assert "if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate))" in js
