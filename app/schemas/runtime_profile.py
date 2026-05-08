@@ -414,6 +414,7 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
             llm["oauth"] = oauth_copy
         by_runtime = llm.get("oauth_by_runtime")
         if isinstance(by_runtime, dict):
+            redacted_by_runtime = {}
             for key in ("native", "opencode"):
                 oauth_entry = by_runtime.get(key)
                 if isinstance(oauth_entry, dict):
@@ -421,7 +422,11 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
                     cp.pop("access", None)
                     cp.pop("refresh", None)
                     cp["present"] = True
-                    by_runtime[key] = cp
+                    redacted_by_runtime[key] = cp
+            if redacted_by_runtime:
+                llm["oauth_by_runtime"] = redacted_by_runtime
+            else:
+                llm.pop("oauth_by_runtime", None)
     github = redacted.get("github")
     if isinstance(github, dict):
         github.pop("api_token", None)

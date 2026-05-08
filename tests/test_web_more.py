@@ -302,6 +302,28 @@ const document = {{ createElement: makeOption }};
 global.document = document;
 let stopCalled = 0;
 function stopCopilotPolling(_root) {{ stopCalled += 1; }}
+function getManagedCopilotState() {{ return {{ authInterval: null }}; }}
+function normalizeCopilotRuntimeType(runtimeType) {{ return runtimeType === "opencode" ? "opencode" : "native"; }}
+function copilotCard(root, runtimeType) {{ return root.querySelector(`[data-copilot-auth-card="${{normalizeCopilotRuntimeType(runtimeType)}}"]`); }}
+function updateCopilotAuthCardsVisibility(root, isCopilot) {{
+  ["native", "opencode"].forEach((key) => {{
+    const card = copilotCard(root, key);
+    const button = card?.querySelector("[data-copilot-auth-button]");
+    const status = card?.querySelector("[data-copilot-auth-status]");
+    const instructions = card?.querySelector("[data-copilot-instructions]");
+    button?.classList.toggle("hidden", !isCopilot);
+    if (!isCopilot) {{
+      status?.classList.add("hidden");
+      instructions?.classList.add("hidden");
+    }}
+  }});
+}}
+function clearCopilotOAuthFields(root, _runtimeType = null, _options = {{}}) {{
+  const nativeClear = root.querySelector('input[name="llm_oauth_native_clear"]');
+  const opencodeClear = root.querySelector('input[name="llm_oauth_opencode_clear"]');
+  if (nativeClear) nativeClear.value = "";
+  if (opencodeClear) opencodeClear.value = "";
+}}
 
 function makeSelect(initialValue = "") {{
   return {{
@@ -321,16 +343,39 @@ function makeRoot(providerValue, modelValue) {{
   model.dataset.initialValue = modelValue;
   model.dataset.currentValue = modelValue;
   model.dataset.lastProvider = providerValue;
-  const copilotBtn = {{ classList: {{ toggle: noop }} }};
-  const authStatus = {{ classList: {{ add: noop }} }};
+  const makeCard = () => {{
+    const button = {{ classList: {{ toggle: noop }} }};
+    const status = {{ classList: {{ add: noop, remove: noop }} }};
+    const instructions = {{ classList: {{ add: noop }} }};
+    const statusText = {{ textContent: "" }};
+    return {{
+      querySelector(sel) {{
+        if (sel === "[data-copilot-auth-button]") return button;
+        if (sel === "[data-copilot-auth-status]") return status;
+        if (sel === "[data-copilot-instructions]") return instructions;
+        if (sel === "[data-copilot-status-text]") return statusText;
+        return null;
+      }},
+    }};
+  }};
+  const nativeCard = makeCard();
+  const opencodeCard = makeCard();
+  const nativePresent = {{ value: "" }};
+  const opencodePresent = {{ value: "" }};
+  const nativeClear = {{ value: "" }};
+  const opencodeClear = {{ value: "" }};
   return {{
     provider,
     model,
     querySelector(sel) {{
       if (sel === "#llm_provider") return provider;
       if (sel === "#llm_model") return model;
-      if (sel === "#copilot_auth_btn") return copilotBtn;
-      if (sel === "#copilot_auth_status") return authStatus;
+      if (sel === '[data-copilot-auth-card="native"]') return nativeCard;
+      if (sel === '[data-copilot-auth-card="opencode"]') return opencodeCard;
+      if (sel === 'input[name="llm_oauth_native_present"]') return nativePresent;
+      if (sel === 'input[name="llm_oauth_opencode_present"]') return opencodePresent;
+      if (sel === 'input[name="llm_oauth_native_clear"]') return nativeClear;
+      if (sel === 'input[name="llm_oauth_opencode_clear"]') return opencodeClear;
       return null;
     }},
   }};

@@ -5321,15 +5321,16 @@ function copilotCard(root, runtimeType) {
   const key = normalizeCopilotRuntimeType(runtimeType);
   return root?.querySelector(`[data-copilot-auth-card="${key}"]`);
 }
-function clearCopilotOAuthFields(root, runtimeType = null) {
+function clearCopilotOAuthFields(root, runtimeType = null, options = {}) {
+  const markClear = options.markClear !== false;
   const keys = runtimeType ? [normalizeCopilotRuntimeType(runtimeType)] : ["native", "opencode"];
   for (const key of keys) {
-    [`llm_oauth_${key}_type`,`llm_oauth_${key}_access`,`llm_oauth_${key}_refresh`,`llm_oauth_${key}_expires`,`llm_oauth_${key}_enterprise_url`,`llm_oauth_${key}_account_id`,`llm_oauth_${key}_present`].forEach((name) => {
+    [`llm_oauth_${key}_access`,`llm_oauth_${key}_refresh`].forEach((name) => {
       const el = root?.querySelector(`input[name="${name}"]`);
       if (el) el.value = "";
     });
     const clearEl = root?.querySelector(`input[name="llm_oauth_${key}_clear"]`);
-    if (clearEl) clearEl.value = "1";
+    if (clearEl) clearEl.value = markClear ? "1" : "";
   }
 }
 function setCopilotOAuthFields(root, runtimeType, oauth) {
@@ -5356,6 +5357,28 @@ function finishCopilotAuthWithMessage(root, runtimeType, message) {
   stopCopilotPolling(root, runtimeType);
   const statusText = copilotCard(root, runtimeType)?.querySelector("[data-copilot-status-text]");
   if (statusText) statusText.textContent = message || "Authorization failed";
+}
+
+function updateCopilotAuthCardsVisibility(root, isCopilot) {
+  ["native", "opencode"].forEach((key) => {
+    const card = copilotCard(root, key);
+    const button = card?.querySelector("[data-copilot-auth-button]");
+    const status = card?.querySelector("[data-copilot-auth-status]");
+    const instructions = card?.querySelector("[data-copilot-instructions]");
+    const statusText = card?.querySelector("[data-copilot-status-text]");
+    button?.classList.toggle("hidden", !isCopilot);
+    if (!isCopilot) {
+      status?.classList.add("hidden");
+      instructions?.classList.add("hidden");
+      return;
+    }
+    status?.classList.remove("hidden");
+    const st = getManagedCopilotState(root, key);
+    if (!st.authInterval && statusText) {
+      const present = (root.querySelector(`input[name="llm_oauth_${key}_present"]`)?.value || "") === "1";
+      statusText.textContent = present ? "Authorized" : "Not authorized";
+    }
+  });
 }
 
 function updateModelOptions(root) {
@@ -5400,16 +5423,11 @@ function updateModelOptions(root) {
   modelSelect.dataset.currentValue = modelSelect.value || "";
   modelSelect.dataset.lastProvider = provider;
 
-  const nativeCard = copilotCard(root, "native");
-  const opencodeCard = copilotCard(root, "opencode");
   const isCopilot = provider === "github_copilot";
-  [nativeCard, opencodeCard].forEach((card) => {
-    card?.querySelector("[data-copilot-auth-button]")?.classList.toggle("hidden", !isCopilot);
-    if (!isCopilot) card?.querySelector("[data-copilot-auth-status]")?.classList.add("hidden");
-  });
+  updateCopilotAuthCardsVisibility(root, isCopilot);
   if (!isCopilot) {
     stopCopilotPolling(root);
-    clearCopilotOAuthFields(root);
+    clearCopilotOAuthFields(root, null, { markClear: false });
   }
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }

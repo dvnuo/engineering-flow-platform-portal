@@ -59,3 +59,15 @@ def test_ui_static_dual_auth_markers_present():
     assert 'data-copilot-auth-card' in js
     assert 'closest("#copilot_auth_btn")' not in js
     assert 'function setCopilotOAuthFields(root, runtimeType, oauth)' in js
+
+
+def test_redaction_drops_unknown_oauth_by_runtime_key():
+    raw = {"llm": {"oauth_by_runtime": {"native": {"type": "oauth", "access": "N", "refresh": "N", "expires": 0}, "foo": {"type": "oauth", "access": "X", "refresh": "X", "expires": 0}}}}
+    red = redact_runtime_profile_config_for_public_response(raw)
+    assert "foo" not in red["llm"]["oauth_by_runtime"]
+    assert "access" not in red["llm"]["oauth_by_runtime"]["native"]
+
+
+def test_update_model_options_non_copilot_uses_mark_clear_false_static_assert():
+    js = open("app/static/js/chat_ui.js", encoding="utf-8").read()
+    assert "clearCopilotOAuthFields(root, null, { markClear: false })" in js
