@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
+from app.models.runtime_profile_sync_job import RuntimeProfileSyncJob
 from typing import Optional
 
 
@@ -39,5 +40,11 @@ class AgentRepository:
         return agent
 
     def delete(self, agent: Agent) -> None:
+        # Runtime profile sync jobs are durable queue entries, not audit records.
+        # Once an agent is deleted, queued/apply jobs for that agent can never
+        # succeed and must not block the agent deletion through the FK to agents.id.
+        self.db.query(RuntimeProfileSyncJob).filter(
+            RuntimeProfileSyncJob.agent_id == agent.id
+        ).delete(synchronize_session=False)
         self.db.delete(agent)
         self.db.commit()

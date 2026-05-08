@@ -35,6 +35,29 @@ def test_k8s_service_noop_create_agent():
     assert result.status == "running"
 
 
+def test_k8s_enabled_create_agent_runtime_returns_creating_after_resource_submission(monkeypatch):
+    service = K8sService()
+    service.enabled = True
+
+    calls = []
+
+    monkeypatch.setattr(service, "_ensure_pvc", lambda _agent: calls.append("pvc"))
+    monkeypatch.setattr(service, "_ensure_deployment", lambda _agent: calls.append("deployment"))
+    monkeypatch.setattr(service, "_ensure_service", lambda _agent: calls.append("service"))
+
+    mock_agent = MagicMock()
+    mock_agent.id = "test-agent"
+    mock_agent.name = "Test Agent"
+    mock_agent.namespace = "test-ns"
+    mock_agent.service_name = "test-svc"
+
+    result = service.create_agent_runtime(mock_agent)
+
+    assert result.status == "creating"
+    assert result.message is None
+    assert calls == ["pvc", "deployment", "service"]
+
+
 def test_k8s_service_noop_delete_agent():
     """Test deleting agent in noop mode."""
     service = K8sService()
