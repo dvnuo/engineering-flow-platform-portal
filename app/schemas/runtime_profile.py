@@ -35,6 +35,14 @@ PORTAL_MANAGED_FIELD_TREE = {
         "context_budget": True,
         "context_projection": True,
         "response_flow": True,
+        "oauth": {
+            "type": True,
+            "refresh": True,
+            "access": True,
+            "expires": True,
+            "enterpriseUrl": True,
+            "accountId": True,
+        },
         "tool_loop": {
             "one_tool_per_turn": True,
             "parallel_tool_calls": True,
@@ -245,6 +253,35 @@ def normalize_runtime_profile_temperature(value) -> float:
 
     return parsed
 
+def sanitize_runtime_profile_llm_oauth(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    oauth_type = str(value.get("type") or "oauth").strip()
+    if oauth_type and oauth_type != "oauth":
+        return {}
+    access = str(value.get("access") or "").strip()
+    refresh = str(value.get("refresh") or "").strip()
+    if not refresh and access:
+        refresh = access
+    if not access and refresh:
+        access = refresh
+    if not access or not refresh:
+        return {}
+    try:
+        expires = int(value.get("expires", 0))
+    except (TypeError, ValueError):
+        expires = 0
+    if expires < 0:
+        expires = 0
+    sanitized = {"type": "oauth", "access": access, "refresh": refresh, "expires": expires}
+    enterprise_url = str(value.get("enterpriseUrl") or "").strip()
+    account_id = str(value.get("accountId") or "").strip()
+    if enterprise_url:
+        sanitized["enterpriseUrl"] = enterprise_url
+    if account_id:
+        sanitized["accountId"] = account_id
+    return sanitized
+
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
@@ -303,6 +340,12 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
                 llm_copy["temperature"] = normalize_runtime_profile_temperature(llm_copy.get("temperature"))
         else:
             llm_copy.pop("temperature", None)
+        if "oauth" in llm_copy:
+            oauth = sanitize_runtime_profile_llm_oauth(llm_copy.get("oauth"))
+            if oauth:
+                llm_copy["oauth"] = oauth
+            else:
+                llm_copy.pop("oauth", None)
         llm = llm_copy
 
     if isinstance(llm, dict):
@@ -334,6 +377,27 @@ def parse_runtime_profile_config_json(raw: str | None, *, fallback_to_empty: boo
 
 def dump_runtime_profile_config_json(data: dict) -> str:
     return json.dumps(sanitize_runtime_profile_config_dict(data))
+
+
+def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
+    redacted = deepcopy(config) if isinstance(config, dict) else {}
+    llm = redacted.get("llm")
+    if isinstance(llm, dict):
+        llm.pop("api_key", None)
+        oauth = llm.get("oauth")
+        if isinstance(oauth, dict):
+            oauth_copy = oauth.copy()
+            oauth_copy.pop("access", None)
+            oauth_copy.pop("refresh", None)
+            oauth_copy["present"] = True
+            llm["oauth"] = oauth_copy
+    github = redacted.get("github")
+    if isinstance(github, dict):
+        github.pop("api_token", None)
+    proxy = redacted.get("proxy")
+    if isinstance(proxy, dict):
+        proxy.pop("password", None)
+    return redacted
 
 
 def validate_runtime_profile_config_json(value: str | None) -> str:

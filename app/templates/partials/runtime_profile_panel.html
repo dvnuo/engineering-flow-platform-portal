@@ -66,6 +66,14 @@
         Temperature is only available for exact gpt-4. Other models omit this deprecated parameter.
       </div>
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="Enter your API key" class="portal-form-input" /></label>
+      <input type="hidden" name="llm_oauth_type" value="{{ raw_llm.get('oauth', {}).get('type', '') if raw_llm.get('oauth') is mapping else '' }}" />
+      <input type="hidden" name="llm_oauth_access" value="" />
+      <input type="hidden" name="llm_oauth_refresh" value="" />
+      <input type="hidden" name="llm_oauth_present" value="{{ '1' if raw_llm.get('oauth') is mapping else '' }}" />
+      <input type="hidden" name="llm_oauth_clear" value="" />
+      <input type="hidden" name="llm_oauth_expires" value="{{ raw_llm.get('oauth', {}).get('expires', '') if raw_llm.get('oauth') is mapping else '' }}" />
+      <input type="hidden" name="llm_oauth_enterprise_url" value="{{ raw_llm.get('oauth', {}).get('enterpriseUrl', '') if raw_llm.get('oauth') is mapping else '' }}" />
+      <input type="hidden" name="llm_oauth_account_id" value="{{ raw_llm.get('oauth', {}).get('accountId', '') if raw_llm.get('oauth') is mapping else '' }}" />
       <button type="button" id="copilot_auth_btn" class="portal-btn is-secondary hidden">Authorize GitHub Copilot</button>
       <div id="copilot_auth_status" class="portal-form-input hidden">
         <div class="portal-settings-section-head"><span class="portal-inline-note">Status:</span><span id="copilot_status_text" class="portal-inline-note">Not authorized</span></div>

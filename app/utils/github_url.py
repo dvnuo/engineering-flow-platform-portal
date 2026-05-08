@@ -36,3 +36,24 @@ def normalize_github_api_base_url(raw: Optional[str]) -> str:
         path = "/api/v3"
 
     return urlunsplit(("https", netloc, path, "", ""))
+
+
+PUBLIC_GITHUB_OAUTH_BASE = "https://github.com"
+
+
+def normalize_github_oauth_base_url(raw: Optional[str]) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return PUBLIC_GITHUB_OAUTH_BASE
+    if "://" not in value:
+        value = f"https://{value}"
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return PUBLIC_GITHUB_OAUTH_BASE
+    if host in {PUBLIC_GITHUB_WEB_HOST, PUBLIC_GITHUB_API_HOST}:
+        return PUBLIC_GITHUB_OAUTH_BASE
+    netloc = host
+    if parsed.port is not None:
+        netloc = f"{host}:{parsed.port}"
+    return urlunsplit(("https", netloc, "", "", ""))

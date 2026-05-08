@@ -1,4 +1,5 @@
 import logging
+import json
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user
 from app.schemas.runtime_profile import (
+    parse_runtime_profile_config_json,
+    redact_runtime_profile_config_for_public_response,
     RuntimeProfileCreateRequest,
     RuntimeProfileOptionResponse,
     RuntimeProfileResponse,
@@ -21,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 def _runtime_profile_response(service: RuntimeProfileService, profile) -> RuntimeProfileResponse:
     response = RuntimeProfileResponse.model_validate(profile)
-    response.config_json = service.normalize_persisted_config_json(profile.config_json)
+    parsed = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    response.config_json = json.dumps(redact_runtime_profile_config_for_public_response(parsed))
     return response
 
 

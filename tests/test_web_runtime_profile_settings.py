@@ -493,3 +493,45 @@ def test_settings_save_rejects_invalid_temperature(monkeypatch):
         assert cfg["llm"]["temperature"] == 0.4
     finally:
         cleanup()
+
+
+def test_templates_and_js_include_copilot_oauth_fields_and_helpers():
+    from pathlib import Path
+    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text()
+    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text()
+    js = Path("app/static/js/chat_ui.js").read_text()
+    assert 'name="llm_oauth_access"' in runtime_tpl
+    assert 'name="llm_oauth_access"' in settings_tpl
+    assert 'setCopilotOAuthFields' in js
+    assert 'clearCopilotOAuthFields' in js
+
+
+def test_runtime_profile_panel_save_preserves_existing_oauth_when_hidden_fields_blank(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm":{"provider":"github_copilot","model":"gpt-5.4-mini","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":0}}})
+        get_resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert get_resp.status_code == 200
+        assert "gho_A" not in get_resp.text
+        assert "gho_R" not in get_resp.text
+
+        save_resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "llm_provider": "github_copilot",
+                "llm_model": "gpt-5.4-mini",
+                "llm_api_key": "",
+                "llm_oauth_type": "oauth",
+                "llm_oauth_access": "",
+                "llm_oauth_refresh": "",
+                "llm_oauth_expires": "0",
+            },
+        )
+        assert save_resp.status_code == 200
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["llm"]["oauth"]["access"] == "gho_A"
+        assert saved["llm"]["oauth"]["refresh"] == "gho_R"
+    finally:
+        cleanup()

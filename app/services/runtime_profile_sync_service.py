@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
 from app.contracts.opencode_provider import normalize_provider_for_runtime
+from app.redaction import redact_text, sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.proxy_service import ProxyService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
@@ -253,9 +254,9 @@ class RuntimeProfileSyncService:
             logger.warning(
                 "runtime profile sync exception agent_id=%s exception=%s",
                 getattr(agent, "id", "-"),
-                exc,
+                sanitize_exception_message(exc),
             )
-            return RuntimeProfilePushResult(getattr(agent, "id", "-"), False, None, "error", message=str(exc))
+            return RuntimeProfilePushResult(getattr(agent, "id", "-"), False, None, "error", message=sanitize_exception_message(exc))
 
         result = self._parse_apply_response(getattr(agent, "id", "-"), status_code, content)
         if not result.ok:
@@ -269,7 +270,7 @@ class RuntimeProfileSyncService:
             text = content.decode("utf-8", errors="ignore")
         else:
             text = str(content)
-        return text[:limit]
+        return redact_text(text)[:limit]
 
     @classmethod
     def _parse_apply_response(cls, agent_id: str, status_code: int, content: bytes) -> RuntimeProfilePushResult:
@@ -281,7 +282,7 @@ class RuntimeProfileSyncService:
             parsed = None
         if not isinstance(parsed, dict):
             if status_code >= 400:
-                return RuntimeProfilePushResult(agent_id, False, status_code, "failed", message=preview, raw_body_preview=preview)
+                return RuntimeProfilePushResult(agent_id, False, status_code, "failed", message=redact_text(preview), raw_body_preview=preview)
             return RuntimeProfilePushResult(agent_id, True, status_code, "applied", raw_body_preview=preview)
         apply_status = str(parsed.get("status") or parsed.get("apply_status") or ("applied" if parsed.get("ok") is not False else "failed")).lower()
         pending_restart = bool(parsed.get("pending_restart")) or apply_status == "pending_restart"
@@ -294,6 +295,6 @@ class RuntimeProfileSyncService:
             apply_status=apply_status,
             pending_restart=pending_restart,
             partially_applied=partially_applied,
-            message=str(parsed.get("message") or parsed.get("detail") or ""),
+            message=redact_text(str(parsed.get("message") or parsed.get("detail") or "")),
             raw_body_preview=preview,
         )
