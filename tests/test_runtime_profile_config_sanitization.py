@@ -167,3 +167,22 @@ def test_non_copilot_provider_does_not_migrate_stale_oauth_token():
     assert "api_key" not in sanitized["llm"]
     assert "oauth" not in sanitized["llm"]
     assert "oauth_by_runtime" not in sanitized["llm"]
+
+
+def test_runtime_profile_sanitizer_preserves_jira_api_version_only_for_jira():
+    cfg = sanitize_runtime_profile_config_dict(
+        {
+            "jira": {
+                "instances": [
+                    {"name": "J", "url": "https://j", "username": "u", "password": "pw", "api_version": "2"}
+                ]
+            },
+            "confluence": {
+                "instances": [
+                    {"name": "C", "url": "https://c", "username": "u", "password": "pw", "api_version": "2"}
+                ]
+            },
+        }
+    )
+    assert cfg["jira"]["instances"][0]["api_version"] == "2"
+    assert "api_version" not in cfg["confluence"]["instances"][0]

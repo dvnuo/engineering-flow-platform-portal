@@ -1115,7 +1115,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             jira["instances"] = _settings_parse_instances(
                 form,
                 "jira",
-                ["enabled", "name", "url", "username", "password", "token", "project"],
+                ["enabled", "name", "url", "username", "password", "token", "project", "api_version"],
                 existing_instances=existing_jira_instances,
                 preserve_blank_fields={"password", "token"},
                 clearable_fields={"password", "token"},

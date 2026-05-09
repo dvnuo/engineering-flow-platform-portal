@@ -326,6 +326,9 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
             project = str(item.get("project") or item.get("project_key") or "").strip()
             if project:
                 sanitized_item["project"] = project
+            api_version = str(item.get("api_version") or "").strip()
+            if api_version in {"2", "3"}:
+                sanitized_item["api_version"] = api_version
         if kind == "confluence":
             space = str(item.get("space") or item.get("space_key") or "").strip()
             if space:
