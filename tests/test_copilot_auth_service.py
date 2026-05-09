@@ -153,3 +153,55 @@ def test_oauth_summary_does_not_expose_short_token():
     assert summary["token_prefix"] == ""
     assert summary["token_suffix"] == ""
     assert summary["token_length"] == len("short")
+
+def test_check_slow_down_updates_latest_check_and_rate_limits_next_poll(monkeypatch):
+    calls = []
+
+    def factory(_url, _headers, payload):
+        if payload.get("scope"):
+            return _Resp(
+                200,
+                {
+                    "device_code": "d",
+                    "user_code": "u",
+                    "verification_uri": "https://github.com/login/device",
+                    "expires_in": 900,
+                    "interval": 5,
+                },
+            )
+        return _Resp(200, {"error": "slow_down"})
+
+    monkeypatch.setattr(
+        svc_module.httpx,
+        "AsyncClient",
+        lambda *a, **k: _Client(calls, factory),
+    )
+
+    svc = CopilotAuthService()
+    _, started = asyncio.run(svc.start_authorization("u", ""))
+    auth_id = started["auth_id"]
+    svc_module._pending_authorizations[auth_id]["latest_check"] = 0
+
+    _, first = asyncio.run(
+        svc.check_authorization("u", auth_id, started["device_code"])
+    )
+    assert first["status"] == "pending"
+    assert first["interval"] >= 10
+    assert svc_module._pending_authorizations[auth_id]["latest_check"] > 0
+
+    token_calls_after_first = [
+        call for call in calls
+        if call["json"].get("grant_type") == "urn:ietf:params:oauth:grant-type:device_code"
+    ]
+
+    _, second = asyncio.run(
+        svc.check_authorization("u", auth_id, started["device_code"])
+    )
+    assert second["status"] == "pending"
+
+    token_calls_after_second = [
+        call for call in calls
+        if call["json"].get("grant_type") == "urn:ietf:params:oauth:grant-type:device_code"
+    ]
+
+    assert len(token_calls_after_second) == len(token_calls_after_first)

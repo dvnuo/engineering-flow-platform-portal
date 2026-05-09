@@ -109,3 +109,42 @@ def test_project_llm_for_runtime_infers_copilot_provider_from_hyphen_model_prefi
     assert op["provider"] == "github-copilot"
     assert op["oauth"]["access"] == "OPENCODE_SECRET"
     assert "oauth_by_runtime" not in op
+
+def test_project_llm_for_runtime_drops_stale_oauth_for_non_copilot_provider():
+    llm = {
+        "provider": "openai",
+        "model": "gpt-4",
+        "api_key": "sk_OPENAI",
+        "oauth": {
+            "type": "oauth",
+            "access": "COPILOT_DIRECT_SECRET",
+            "refresh": "COPILOT_DIRECT_SECRET",
+            "expires": 0,
+        },
+        "oauth_by_runtime": {
+            "native": {
+                "type": "oauth",
+                "access": "NATIVE_SECRET",
+                "refresh": "NATIVE_SECRET",
+                "expires": 0,
+            },
+            "opencode": {
+                "type": "oauth",
+                "access": "OPENCODE_SECRET",
+                "refresh": "OPENCODE_SECRET",
+                "expires": 0,
+            },
+        },
+    }
+
+    for runtime_type in ("native", "opencode"):
+        projected = _project_llm_for_runtime(llm, runtime_type)
+        dumped = json.dumps(projected)
+        assert projected["provider"] == "openai"
+        assert projected["model"] == "gpt-4"
+        assert projected["api_key"] == "sk_OPENAI"
+        assert "oauth" not in projected
+        assert "oauth_by_runtime" not in projected
+        assert "COPILOT_DIRECT_SECRET" not in dumped
+        assert "NATIVE_SECRET" not in dumped
+        assert "OPENCODE_SECRET" not in dumped

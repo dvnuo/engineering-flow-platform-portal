@@ -43,6 +43,7 @@ def project_llm_for_runtime(llm: dict, runtime_type: str) -> dict:
         projected["provider"] = normalize_provider_for_runtime(runtime_type, provider_hint)
     if not _is_copilot_provider(provider_hint):
         projected.pop("oauth_by_runtime", None)
+        projected.pop("oauth", None)
         return projected
     oauth = _selected_copilot_oauth_for_runtime(llm, runtime_type)
     if runtime_type == "opencode":

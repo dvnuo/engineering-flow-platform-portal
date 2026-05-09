@@ -147,6 +147,8 @@ class CopilotAuthService:
             return 200, {"status": "pending"}
         if error == "slow_down":
             record["interval"] = int(record.get("interval") or 5) + 5
+            record["latest_check"] = now
+            _pending_authorizations[auth_id] = record
             return 200, {"status": "pending", "interval": record["interval"]}
         if error == "expired_token":
             _pending_authorizations.pop(auth_id, None)
