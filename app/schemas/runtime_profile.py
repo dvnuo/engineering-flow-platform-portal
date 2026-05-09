@@ -438,6 +438,12 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         return {}
     top_level = {key: value for key, value in data.items() if key in ALLOWED_RUNTIME_PROFILE_SECTIONS}
     sanitized = _filter_by_field_tree(top_level, PORTAL_MANAGED_FIELD_TREE) or {}
+    raw_llm = top_level.get("llm") if isinstance(top_level.get("llm"), dict) else {}
+    if "tools" in raw_llm:
+        sanitized_llm = sanitized.get("llm") if isinstance(sanitized.get("llm"), dict) else {}
+        sanitized_llm = sanitized_llm.copy()
+        sanitized_llm["tools"] = raw_llm.get("tools")
+        sanitized["llm"] = sanitized_llm
     llm = sanitized.get("llm")
     if isinstance(llm, dict) and "tools" in llm:
         llm_copy = llm.copy()
