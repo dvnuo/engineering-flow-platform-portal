@@ -268,6 +268,41 @@ def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults
         cleanup()
 
 
+def test_jira_api_version_present_in_rendered_and_dynamic_instance_ui():
+    from pathlib import Path
+
+    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+
+    assert 'data-field="api_version"' in runtime_tpl
+    assert 'data-field="api_version"' in settings_tpl
+    assert "REST API v2" in runtime_tpl
+    assert "REST API v3" in runtime_tpl
+    assert "REST API v2" in settings_tpl
+    assert "REST API v3" in settings_tpl
+    assert 'data-field="api_version"' in js
+    assert "Auto API Version" in js
+
+
+def test_confluence_instance_ui_blocks_do_not_include_api_version():
+    from pathlib import Path
+
+    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+
+    runtime_conf_start = runtime_tpl.index('data-instance-container="confluence"')
+    runtime_conf_end = runtime_tpl.index('data-action="add-instance" data-group="confluence"')
+    runtime_conf_block = runtime_tpl[runtime_conf_start:runtime_conf_end]
+
+    settings_conf_start = settings_tpl.index('data-instance-container="confluence"')
+    settings_conf_end = settings_tpl.index('data-action="add-instance" data-group="confluence"')
+    settings_conf_block = settings_tpl[settings_conf_start:settings_conf_end]
+
+    assert "api_version" not in runtime_conf_block
+    assert "api_version" not in settings_conf_block
+
+
 def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:

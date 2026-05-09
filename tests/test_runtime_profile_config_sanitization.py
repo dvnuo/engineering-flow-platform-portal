@@ -186,3 +186,10 @@ def test_runtime_profile_sanitizer_preserves_jira_api_version_only_for_jira():
     )
     assert cfg["jira"]["instances"][0]["api_version"] == "2"
     assert "api_version" not in cfg["confluence"]["instances"][0]
+
+
+def test_runtime_profile_sanitizer_drops_invalid_jira_api_version():
+    cfg = sanitize_runtime_profile_config_dict(
+        {"jira": {"instances": [{"name": "J", "url": "https://j", "api_version": "4"}]}}
+    )
+    assert "api_version" not in cfg["jira"]["instances"][0]
