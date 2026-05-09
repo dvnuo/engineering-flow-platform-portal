@@ -52,3 +52,63 @@ def test_alias_fields_are_normalized_to_canonical_shape():
     assert s["jira"]["instances"][0] == {"name": "J", "url": "https://a", "username": "u@x", "token": "jt", "project": "ENG", "enabled": True}
     assert s["confluence"]["instances"][0] == {"name": "C", "url": "https://a/wiki", "username": "c@x", "token": "ct", "space": "DOCS", "enabled": True}
     assert s["github"] == {"api_token": "gh", "base_url": "https://api.github.com"}
+
+def test_external_enabled_string_false_values_remain_disabled():
+    raw = {
+        "jira": {
+            "enabled": "false",
+            "instances": [
+                {"name": "J1", "url": "https://jira.example", "enabled": "0", "token": "jt"},
+                {"name": "J2", "url": "https://jira2.example", "enabled": "off", "token": "jt2"},
+            ],
+        },
+        "confluence": {
+            "enabled": "no",
+            "instances": [
+                {"name": "C1", "url": "https://conf.example", "enabled": "disabled", "token": "ct"},
+            ],
+        },
+        "github": {"enabled": "false", "api_token": "gh"},
+        "proxy": {"enabled": "0", "url": "http://proxy", "password": "pw"},
+        "debug": {"enabled": "off", "log_level": "debug"},
+    }
+    s = sanitize_runtime_profile_config_dict(raw)
+    assert s["jira"]["enabled"] is False
+    assert s["jira"]["instances"][0]["enabled"] is False
+    assert s["jira"]["instances"][1]["enabled"] is False
+    assert s["confluence"]["enabled"] is False
+    assert s["confluence"]["instances"][0]["enabled"] is False
+    assert s["github"]["enabled"] is False
+    assert s["proxy"]["enabled"] is False
+    assert s["debug"]["enabled"] is False
+
+
+def test_external_enabled_true_strings_are_respected():
+    raw = {
+        "jira": {"enabled": "true", "instances": [{"name": "J", "url": "https://jira", "enabled": "1"}]},
+        "github": {"enabled": "on", "api_token": "gh"},
+        "proxy": {"enabled": "yes", "url": "http://proxy"},
+    }
+    s = sanitize_runtime_profile_config_dict(raw)
+    assert s["jira"]["enabled"] is True
+    assert s["jira"]["instances"][0]["enabled"] is True
+    assert s["github"]["enabled"] is True
+    assert s["proxy"]["enabled"] is True
+
+
+def test_external_enabled_json_booleans_are_preserved():
+    raw = {
+        "jira": {"enabled": False, "instances": [{"name": "J", "url": "https://jira", "enabled": False}]},
+        "confluence": {"enabled": True, "instances": [{"name": "C", "url": "https://conf", "enabled": True}]},
+        "github": {"enabled": False, "api_token": "gh"},
+        "proxy": {"enabled": True, "url": "http://proxy"},
+        "debug": {"enabled": False},
+    }
+    s = sanitize_runtime_profile_config_dict(raw)
+    assert s["jira"]["enabled"] is False
+    assert s["jira"]["instances"][0]["enabled"] is False
+    assert s["confluence"]["enabled"] is True
+    assert s["confluence"]["instances"][0]["enabled"] is True
+    assert s["github"]["enabled"] is False
+    assert s["proxy"]["enabled"] is True
+    assert s["debug"]["enabled"] is False

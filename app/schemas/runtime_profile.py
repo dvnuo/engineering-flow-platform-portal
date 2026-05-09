@@ -92,6 +92,23 @@ _RESPONSE_FLOW_STAGING_POLICIES = {"explicit_or_complex", "always", "never"}
 _RESPONSE_FLOW_DEFAULT_SKILL_EXECUTION_STYLES = {"direct", "stepwise"}
 _RESPONSE_FLOW_ASK_USER_POLICIES = {"blocked_only", "permissive"}
 _RESPONSE_FLOW_ACTIVE_SKILL_CONFLICT_POLICIES = {"auto_switch_direct", "always_ask"}
+_TRUE_BOOL_VALUES = {"1", "true", "on", "yes", "y", "enabled"}
+_FALSE_BOOL_VALUES = {"0", "false", "off", "no", "n", "disabled", ""}
+
+
+def _runtime_profile_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    if value is None:
+        return False
+    normalized = str(value).strip().lower()
+    if normalized in _TRUE_BOOL_VALUES:
+        return True
+    if normalized in _FALSE_BOOL_VALUES:
+        return False
+    return False
 
 
 def sanitize_runtime_profile_response_flow(value) -> dict:
@@ -326,7 +343,7 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
         if token:
             sanitized_item["token"] = token
         if "enabled" in item:
-            sanitized_item["enabled"] = bool(item.get("enabled"))
+            sanitized_item["enabled"] = _runtime_profile_bool(item.get("enabled"))
         if kind == "jira":
             project = str(item.get("project") or item.get("project_key") or "").strip()
             if project:
@@ -346,7 +363,7 @@ def sanitize_runtime_profile_jira(value) -> dict:
         return {}
     out: dict = {}
     if "enabled" in value:
-        out["enabled"] = bool(value.get("enabled"))
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
     if "instances" in value:
         out["instances"] = sanitize_runtime_profile_external_instances(value.get("instances"), kind="jira")
     return out
@@ -357,7 +374,7 @@ def sanitize_runtime_profile_confluence(value) -> dict:
         return {}
     out: dict = {}
     if "enabled" in value:
-        out["enabled"] = bool(value.get("enabled"))
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
     if "instances" in value:
         out["instances"] = sanitize_runtime_profile_external_instances(value.get("instances"), kind="confluence")
     return out
@@ -368,7 +385,7 @@ def sanitize_runtime_profile_github(value) -> dict:
         return {}
     out: dict = {}
     if "enabled" in value:
-        out["enabled"] = bool(value.get("enabled"))
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
     token = str(value.get("api_token") or value.get("token") or value.get("access_token") or "").strip()
     if token:
         out["api_token"] = token
@@ -383,7 +400,7 @@ def sanitize_runtime_profile_proxy(value) -> dict:
         return {}
     out: dict = {}
     if "enabled" in value:
-        out["enabled"] = bool(value.get("enabled"))
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
     for key in ("url", "username", "password"):
         cleaned = str(value.get(key) or "").strip()
         if cleaned:
@@ -410,7 +427,7 @@ def sanitize_runtime_profile_debug(value) -> dict:
         return {}
     out: dict = {}
     if "enabled" in value:
-        out["enabled"] = bool(value.get("enabled"))
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
     log_level = str(value.get("log_level") or "").strip().upper()
     if log_level in {"DEBUG", "INFO", "WARNING", "ERROR"}:
         out["log_level"] = log_level
