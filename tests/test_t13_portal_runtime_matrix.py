@@ -45,8 +45,8 @@ def test_t13_create_native_and_opencode_agents_select_correct_defaults(monkeypat
     monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda agent: calls.append(agent.id) or SimpleNamespace(status="running", message=None))
 
     try:
-        native = agents_api.create_agent(_create_payload("native"), _fake_user(), db_session)
-        opencode = agents_api.create_agent(_create_payload("opencode"), _fake_user(), db_session)
+        native = asyncio.run(agents_api.create_agent(_create_payload("native"), _fake_user(), db_session))
+        opencode = asyncio.run(agents_api.create_agent(_create_payload("opencode"), _fake_user(), db_session))
 
         assert native.runtime_type == "native"
         assert "ghcr.io/example/efp-native-runtime:test-native" in native.image
@@ -74,7 +74,7 @@ def test_t13_edit_runtime_type_both_directions_switches_image_mount_and_reprovis
     monkeypatch.setattr(agents_api.k8s_service, "update_agent_runtime", lambda agent: updates.append((agent.runtime_type, agent.mount_path, agent.image)) or SimpleNamespace(status="running", message=None))
 
     try:
-        created = agents_api.create_agent(_create_payload("native"), _fake_user(), db_session)
+        created = asyncio.run(agents_api.create_agent(_create_payload("native"), _fake_user(), db_session))
         updated_to_opencode = asyncio.run(agents_api.update_agent(created.id, agents_api.AgentUpdateRequest(runtime_type="opencode"), _fake_user(), db_session))
         first_update = updates[-1]
         updated_to_native = asyncio.run(agents_api.update_agent(created.id, agents_api.AgentUpdateRequest(runtime_type="native"), _fake_user(), db_session))
@@ -99,7 +99,7 @@ def test_t13_skill_and_tool_repo_changes_trigger_runtime_rollout(monkeypatch):
     monkeypatch.setattr(agents_api.k8s_service, "update_agent_runtime", lambda agent: seen.update(skill_repo_url=agent.skill_repo_url, tool_repo_url=agent.tool_repo_url) or SimpleNamespace(status="running", message=None))
 
     try:
-        created = agents_api.create_agent(_create_payload("opencode"), _fake_user(), db_session)
+        created = asyncio.run(agents_api.create_agent(_create_payload("opencode"), _fake_user(), db_session))
         updated = asyncio.run(
             agents_api.update_agent(
                 created.id,
