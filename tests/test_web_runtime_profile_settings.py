@@ -523,6 +523,10 @@ def test_templates_and_js_include_copilot_auth_buttons_and_api_key_flow():
     assert 'data-copilot-auth-button="native"' in runtime_tpl
     assert 'data-copilot-auth-button="opencode"' in runtime_tpl
     assert 'setCopilotApiKeyField' in js
+    assert 'querySelectorAll("[data-copilot-auth-button]")' in js
+    assert 'button.classList.toggle("hidden", !isCopilot)' in js
+    assert 'Authorization completed, but no token was returned' in js
+    assert 'const updated = setCopilotApiKeyField(root, token)' in js
     assert 'setCopilotOAuthFields' not in js
     assert 'clearCopilotOAuthFields' not in js
     assert "Clear saved password" not in js

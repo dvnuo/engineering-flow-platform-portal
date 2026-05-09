@@ -1,4 +1,4 @@
-from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict
+from app.schemas.runtime_profile import PORTAL_MANAGED_FIELD_TREE, sanitize_runtime_profile_config_dict
 from app.services.runtime_profile_sync_service import _project_llm_for_runtime
 from app.web import _settings_merge_payload
 
@@ -55,5 +55,18 @@ def test_ui_and_js_static_single_key_auth_flow_markers():
             assert banned not in text
     assert "runtime_type: key" in js
     assert "setCopilotApiKeyField" in js
+    assert "querySelectorAll(\"[data-copilot-auth-button]\")" in js
+    assert "button.classList.toggle(\"hidden\", !isCopilot)" in js
+    assert "stopCopilotPolling(root);" in js
+    assert "Authorization completed, but no token was returned" in js
+    assert "const updated = setCopilotApiKeyField(root, token)" in js
+    assert "const key = normalizeCopilotRuntimeType(runtimeType);" in js
+    assert "stopCopilotPolling(root);" in js
     for banned in ["setCopilotOAuthFields", "clearCopilotOAuthFields", "llm_oauth_native", "llm_oauth_opencode", "data-copilot-auth-card", "data-copilot-auth-status"]:
         assert banned not in js
+
+
+def test_runtime_profile_field_tree_no_oauth_by_runtime_managed_key():
+    llm_tree = PORTAL_MANAGED_FIELD_TREE.get("llm", {})
+    assert "oauth_by_runtime" not in llm_tree
+    assert "oauth" not in llm_tree

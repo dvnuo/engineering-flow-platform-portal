@@ -5561,7 +5561,7 @@ function getManagedCopilotAuthBase(root) {
 }
 function setCopilotApiKeyField(root, token) {
   const apiKeyInput =
-    root.querySelector('input[name="llm_api_key"]') ||
+    root?.querySelector('input[name="llm_api_key"]') ||
     document.querySelector('input[name="llm_api_key"]');
   if (!apiKeyInput || !token) return false;
   apiKeyInput.value = token;
@@ -5589,7 +5589,12 @@ function finishCopilotAuthWithMessage(root, runtimeType, message, kind = "error"
 function updateCopilotAuthCardsVisibility(root, isCopilot) {
   const authRoot = root?.querySelector("[data-copilot-auth-root]");
   if (!authRoot) return;
+
   authRoot.classList.toggle("hidden", !isCopilot);
+  authRoot.querySelectorAll("[data-copilot-auth-button]").forEach((button) => {
+    button.classList.toggle("hidden", !isCopilot);
+  });
+
   if (!isCopilot) {
     stopCopilotPolling(root);
     authRoot.querySelector("[data-copilot-instructions]")?.classList.add("hidden");
@@ -5685,7 +5690,7 @@ async function startCopilotAuth(root, runtimeType) {
   const userCode = root?.querySelector("[data-copilot-user-code]");
   const timer = root?.querySelector("[data-copilot-timer]");
 
-  stopCopilotPolling(root, key);
+  stopCopilotPolling(root);
   const authBase = getManagedCopilotAuthBase(root);
   try {
     const response = await fetch(`${authBase}/start`, {
@@ -5783,7 +5788,19 @@ async function startCopilotAuth(root, runtimeType) {
         stopCopilotPolling(root, key);
         if (instructions) instructions.classList.add("hidden");
         const token = check?.token || check?.oauth?.access || check?.oauth?.refresh || "";
-        setCopilotApiKeyField(root, token);
+        const updated = setCopilotApiKeyField(root, token);
+
+        if (!token || !updated) {
+          finishCopilotAuthWithMessage(
+            root,
+            key,
+            "Authorization completed, but no token was returned. Please try again.",
+            "error"
+          );
+          showToast("GitHub Copilot authorization completed, but no token was returned.");
+          return;
+        }
+
         setCopilotResultSummary(root, key, "Authorization complete. API Key field has been filled. Click Save Settings to persist.", "success");
         showToast("Authorization complete. API Key field has been filled. Click Save Settings to persist.");
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {

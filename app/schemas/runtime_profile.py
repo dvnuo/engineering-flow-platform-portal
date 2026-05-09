@@ -35,18 +35,6 @@ PORTAL_MANAGED_FIELD_TREE = {
         "context_budget": True,
         "context_projection": True,
         "response_flow": True,
-        "oauth": {
-            "type": True,
-            "refresh": True,
-            "access": True,
-            "expires": True,
-            "enterpriseUrl": True,
-            "accountId": True,
-        },
-        "oauth_by_runtime": {
-            "native": {"type": True, "refresh": True, "access": True, "expires": True, "enterpriseUrl": True, "accountId": True},
-            "opencode": {"type": True, "refresh": True, "access": True, "expires": True, "enterpriseUrl": True, "accountId": True},
-        },
         "tool_loop": {
             "one_tool_per_turn": True,
             "parallel_tool_calls": True,
@@ -308,16 +296,6 @@ def sanitize_runtime_profile_llm_oauth(value) -> dict:
 
 
 
-def sanitize_runtime_profile_llm_oauth_by_runtime(value) -> dict:
-    if not isinstance(value, dict):
-        return {}
-    out = {}
-    for runtime_key in ("native", "opencode"):
-        oauth = sanitize_runtime_profile_llm_oauth(value.get(runtime_key))
-        if oauth:
-            out[runtime_key] = oauth
-    return out
-
 
 def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dict]:
     if not isinstance(value, list):
@@ -435,6 +413,16 @@ def sanitize_runtime_profile_debug(value) -> dict:
 
 
 
+
+
+def _runtime_profile_llm_looks_like_copilot(llm: dict) -> bool:
+    provider = str((llm or {}).get("provider") or "").strip().lower().replace("-", "_")
+    if provider in {"github", "copilot", "github_copilot"}:
+        return True
+    model = str((llm or {}).get("model") or "").strip().lower()
+    return model.startswith("github_copilot/") or model.startswith("github-copilot/")
+
+
 def _legacy_copilot_token_from_llm(raw_llm: dict) -> str:
     if not isinstance(raw_llm, dict):
         return ""
@@ -520,7 +508,9 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         if api_key:
             llm_copy["api_key"] = api_key
         else:
-            migrated = _legacy_copilot_token_from_llm(llm_copy)
+            migrated = ""
+            if _runtime_profile_llm_looks_like_copilot(raw_llm) or _runtime_profile_llm_looks_like_copilot(llm_copy):
+                migrated = _legacy_copilot_token_from_llm(raw_llm)
             if migrated:
                 llm_copy["api_key"] = migrated
             else:
