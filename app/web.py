@@ -2,7 +2,6 @@ import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 import logging
-import math
 from datetime import datetime
 from urllib.parse import urlencode
 from typing import List, Optional
@@ -43,6 +42,7 @@ from app.services.agent_group_service import AgentGroupService, AgentGroupServic
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 from app.services.runtime_profile_service import RuntimeProfileService
+from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.thinking_process_view import build_thinking_process_view
@@ -987,23 +987,6 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         llm.pop("oauth", None)
         llm.pop("oauth_by_runtime", None)
 
-        temperature_allowed = runtime_profile_model_supports_temperature(llm.get("model"))
-        temperature_text = (form.get("llm_temperature") or "").strip()
-
-        if not temperature_allowed:
-            llm.pop("temperature", None)
-        elif "llm_temperature" in form:
-            if not temperature_text:
-                llm.pop("temperature", None)
-            else:
-                try:
-                    parsed_temperature = float(temperature_text)
-                except ValueError:
-                    return config_payload, "Temperature is only supported for gpt-4 and must be a number between 0 and 2."
-                if not math.isfinite(parsed_temperature) or parsed_temperature < 0 or parsed_temperature > 2:
-                    return config_payload, "Temperature is only supported for gpt-4 and must be a number between 0 and 2."
-                llm["temperature"] = parsed_temperature
-        
         max_tokens_text = (form.get("llm_max_tokens") or "").strip()
         if "llm_max_tokens" in form:
             if not max_tokens_text:
@@ -1013,95 +996,6 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                     llm["max_tokens"] = int(max_tokens_text)
                 except ValueError:
                     return config_payload, "Max tokens must be an integer."
-
-        llm_tools_mode = (form.get("llm_tools_mode") or "").strip().lower()
-        if llm_tools_mode == "inherit":
-            llm.pop("tools", None)
-        elif llm_tools_mode == "all":
-            llm["tools"] = ["*"]
-        elif llm_tools_mode == "none":
-            llm["tools"] = []
-        elif llm_tools_mode == "custom":
-            llm["tools"] = _settings_parse_llm_tools_patterns(form)
-
-        existing_response_flow = llm.get("response_flow") if isinstance(llm.get("response_flow"), dict) else {}
-        response_flow = existing_response_flow.copy() if isinstance(existing_response_flow, dict) else {}
-
-        plan_policy = _settings_parse_response_flow_select(
-            form,
-            "llm_response_flow_plan_policy",
-            {"explicit_or_complex", "always", "never"},
-        )
-        staging_policy = _settings_parse_response_flow_select(
-            form,
-            "llm_response_flow_staging_policy",
-            {"explicit_or_complex", "always", "never"},
-        )
-        default_skill_execution_style = _settings_parse_response_flow_select(
-            form,
-            "llm_response_flow_default_skill_execution_style",
-            {"direct", "stepwise"},
-        )
-        ask_user_policy = _settings_parse_response_flow_select(
-            form,
-            "llm_response_flow_ask_user_policy",
-            {"blocked_only", "permissive"},
-        )
-        active_skill_conflict_policy = _settings_parse_response_flow_select(
-            form,
-            "llm_response_flow_active_skill_conflict_policy",
-            {"auto_switch_direct", "always_ask"},
-        )
-
-        if plan_policy is not None:
-            response_flow["plan_policy"] = plan_policy
-        else:
-            response_flow.pop("plan_policy", None)
-
-        if staging_policy is not None:
-            response_flow["staging_policy"] = staging_policy
-        else:
-            response_flow.pop("staging_policy", None)
-
-        if default_skill_execution_style is not None:
-            response_flow["default_skill_execution_style"] = default_skill_execution_style
-        else:
-            response_flow.pop("default_skill_execution_style", None)
-
-        if ask_user_policy is not None:
-            response_flow["ask_user_policy"] = ask_user_policy
-        else:
-            response_flow.pop("ask_user_policy", None)
-
-        if active_skill_conflict_policy is not None:
-            response_flow["active_skill_conflict_policy"] = active_skill_conflict_policy
-        else:
-            response_flow.pop("active_skill_conflict_policy", None)
-
-        complexity_prompt_budget_ratio, ratio_error = _settings_parse_response_flow_ratio(
-            form, "llm_response_flow_complexity_prompt_budget_ratio"
-        )
-        if ratio_error:
-            return config_payload, ratio_error
-        if complexity_prompt_budget_ratio is not None:
-            response_flow["complexity_prompt_budget_ratio"] = complexity_prompt_budget_ratio
-        else:
-            response_flow.pop("complexity_prompt_budget_ratio", None)
-
-        complexity_min_request_tokens, min_tokens_error = _settings_parse_response_flow_min_tokens(
-            form, "llm_response_flow_complexity_min_request_tokens"
-        )
-        if min_tokens_error:
-            return config_payload, min_tokens_error
-        if complexity_min_request_tokens is not None:
-            response_flow["complexity_min_request_tokens"] = complexity_min_request_tokens
-        else:
-            response_flow.pop("complexity_min_request_tokens", None)
-
-        if response_flow:
-            llm["response_flow"] = response_flow
-        else:
-            llm.pop("response_flow", None)
 
         if llm:
             config_payload["llm"] = llm
@@ -1225,6 +1119,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         config_payload["debug"] = debug_cfg
 
     config_payload.pop("ssh", None)
+    config_payload = canonicalize_portal_runtime_profile_config(config_payload)
     return config_payload, None
 
 

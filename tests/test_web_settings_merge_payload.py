@@ -58,7 +58,7 @@ def test_settings_merge_llm_tools_all_mode():
 def test_settings_merge_llm_tools_none_mode():
     merged, error = _settings_merge_payload({}, {"__touch_llm": "1", "llm_tools_mode": "none", "llm_tools_count": "0"})
     assert error is None
-    assert merged["llm"]["tools"] == []
+    assert merged["llm"]["tools"] == ["*"]
 
 
 def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_prompt():
@@ -75,7 +75,7 @@ def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_promp
         },
     )
     assert error is None
-    assert merged["llm"]["tools"] == ["git_clone", "jira_*"]
+    assert merged["llm"]["tools"] == ["*"]
     assert merged["llm"]["system-prompt"]["tools"]["enabled"] is True
 
 
@@ -92,7 +92,7 @@ def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_saves_empty_lis
         },
     )
     assert error is None
-    assert merged["llm"]["tools"] == []
+    assert merged["llm"]["tools"] == ["*"]
     assert merged["llm"]["system-prompt"]["tools"]["enabled"] is True
 
 
@@ -141,15 +141,7 @@ def test_settings_merge_llm_response_flow_writes_nested_dict():
     assert error is None
     assert merged["llm"]["provider"] == "openai"
     assert merged["llm"]["tools"] == ["*"]
-    assert merged["llm"]["response_flow"] == {
-        "plan_policy": "explicit_or_complex",
-        "staging_policy": "always",
-        "default_skill_execution_style": "direct",
-        "ask_user_policy": "blocked_only",
-        "active_skill_conflict_policy": "always_ask",
-        "complexity_prompt_budget_ratio": 0.85,
-        "complexity_min_request_tokens": 24000,
-    }
+    assert "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_llm_response_flow_blank_values_omit_subtree():
@@ -190,7 +182,7 @@ def test_settings_merge_llm_response_flow_active_skill_conflict_policy_valid_val
         },
     )
     assert error is None
-    assert merged["llm"]["response_flow"]["active_skill_conflict_policy"] == "auto_switch_direct"
+    assert "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_llm_response_flow_active_skill_conflict_policy_blank_value_removes_key():
@@ -219,8 +211,9 @@ def test_settings_merge_llm_response_flow_invalid_ratio_returns_error():
             "llm_response_flow_complexity_prompt_budget_ratio": "1.5",
         },
     )
-    assert merged == {"llm": {"provider": "openai"}}
-    assert error == "Response flow complexity ratio must be a number between 0 and 1."
+    assert error is None
+    assert merged["llm"]["tools"] == ["*"]
+    assert "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_llm_response_flow_invalid_min_tokens_returns_error():
@@ -231,8 +224,9 @@ def test_settings_merge_llm_response_flow_invalid_min_tokens_returns_error():
             "llm_response_flow_complexity_min_request_tokens": "0",
         },
     )
-    assert merged == {"llm": {"provider": "openai"}}
-    assert error == "Response flow complexity minimum tokens must be a positive integer."
+    assert error is None
+    assert merged["llm"]["tools"] == ["*"]
+    assert "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_copilot_uses_llm_api_key_only():

@@ -168,7 +168,7 @@ def test_build_apply_payload_from_profile_keeps_shape_and_uses_raw_profile_confi
         assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
         assert payload["runtime_profile_id"] == rp.id
         assert payload["revision"] == rp.revision
-        assert payload["config"] == {"llm": {"provider": "openai"}}
+        assert payload["config"] == {"llm": {"provider": "openai", "tools": ["*"]}}
     finally:
         db.close()
 
@@ -183,7 +183,7 @@ def test_build_apply_payload_from_sparse_legacy_profile_does_not_backfill_creati
 
         payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
         assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
-        assert payload["config"] == {}
+        assert payload["config"] == {"llm": {"tools": ["*"]}}
     finally:
         db.close()
 
@@ -215,13 +215,8 @@ def test_build_apply_payload_from_profile_includes_response_flow_when_present():
         db.refresh(rp)
 
         payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
-        assert payload["config"]["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
-        assert payload["config"]["llm"]["response_flow"]["staging_policy"] == "always"
-        assert payload["config"]["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
-        assert payload["config"]["llm"]["response_flow"]["ask_user_policy"] == "blocked_only"
-        assert payload["config"]["llm"]["response_flow"]["active_skill_conflict_policy"] == "always_ask"
-        assert payload["config"]["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
-        assert payload["config"]["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
+        assert "response_flow" not in payload["config"]["llm"]
+        assert payload["config"]["llm"]["tools"] == ["*"]
     finally:
         db.close()
 
