@@ -125,6 +125,7 @@
         <button type="button" class="portal-btn is-secondary" data-action="add-llm-tool-pattern">+ Add pattern</button>
       </div>
       <div class="portal-inline-note">GitHub Copilot uses separate Portal-managed OAuth credentials for EFP Runtime and OpenCode Runtime. Saved tokens are not rendered in HTML. Save after authorization to persist.</div>
+      <div class="portal-inline-note">GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL above.</div>
       <div class="portal-inline-note">Supports * wildcard (examples: git_clone, jira_*). This controls runtime tools, not prompt rendering (system-prompt.tools.enabled is separate). Empty custom rows are ignored.</div>
       {% set raw_response_flow = raw_llm.get('response_flow', {}) %}
       {% include 'partials/_response_flow_fields.html' %}

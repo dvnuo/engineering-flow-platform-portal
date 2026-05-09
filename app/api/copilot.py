@@ -9,6 +9,8 @@ router = APIRouter(prefix="/api/copilot/auth", tags=["copilot"])
 
 
 class StartAuthRequest(BaseModel):
+    # Backward compatibility: accepted but ignored by CopilotAuthService because
+    # Copilot OAuth must always use https://github.com.
     github_base_url: str | None = None
     runtime_type: str | None = None
     runtime: str | None = None
