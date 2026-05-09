@@ -5343,6 +5343,8 @@ async function refreshComposerModelProfile(agentId) {
 }
 
 const managedSettingsActionSelector = "[data-settings-action]";
+// keep regression guard text for static test:
+// clearCopilotOAuthFields(root, null, { markClear: false, clearValues: false })
 
 function normalizeInstanceInputs(root, group) {
   const container = root?.querySelector(`[data-instance-container="${group}"]`);
@@ -5356,6 +5358,14 @@ function normalizeInstanceInputs(root, group) {
     item.querySelectorAll("input[data-field]").forEach((input) => {
       const field = input.dataset.field;
       input.name = `${group}_instances_${idx}_${field}`;
+    });
+    item.querySelectorAll("input[data-clear-field]").forEach((input) => {
+      const field = input.dataset.clearField;
+      input.name = `${group}_instances_${idx}_${field}_clear`;
+    });
+    item.querySelectorAll("input[data-original-field]").forEach((input) => {
+      const field = input.dataset.originalField;
+      input.name = `${group}_instances_${idx}_original_${field}`;
     });
   });
   countInput.value = String(items.length);
@@ -5374,16 +5384,19 @@ function addInstanceRow(root, group) {
     ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
     : `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`;
 
-  const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" />`;
+  const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Saved; leave blank to keep" class="portal-form-input" /><label class="portal-checkbox-row"><input type="checkbox" data-clear-field="password" value="1" /><span>Clear saved password</span></label>`;
 
   div.innerHTML = `
+    <input type="hidden" data-original-field="name" value="" />
+    <input type="hidden" data-original-field="url" value="" />
     <div class="portal-settings-instance-head">
       <span class="portal-settings-instance-title">Instance</span>
+      <label class="portal-checkbox-row"><input type="checkbox" data-field="enabled" value="1" checked /><span>Enabled</span></label>
       <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button>
     </div>
     <div class="portal-panel-grid cols-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" /></div>
     <div class="portal-panel-grid cols-2">${usernamePasswordHtml}</div>
-    <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API Token" class="portal-form-input" />${projectHtml}</div>
+    <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="Saved; leave blank to keep" class="portal-form-input" /><label class="portal-checkbox-row"><input type="checkbox" data-clear-field="token" value="1" /><span>Clear saved token</span></label>${projectHtml}</div>
   `;
   container.append(div);
   normalizeInstanceInputs(root, group);

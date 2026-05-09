@@ -21,7 +21,7 @@ def test_settings_merge_github_base_url_blank_removes_existing_value():
     merged, error = _settings_merge_payload(config_payload, form)
 
     assert error is None
-    assert "api_token" not in merged["github"]
+    assert merged["github"]["api_token"] == "keep-token"
     assert "base_url" not in merged["github"]
 
 
@@ -303,3 +303,298 @@ def test_github_copilot_clear_opencode_only_preserves_native():
     assert error is None
     assert "opencode" not in merged["llm"]["oauth_by_runtime"]
     assert merged["llm"]["oauth_by_runtime"]["native"]["access"] == "N"
+
+def test_settings_merge_blank_github_token_keeps_existing_without_clear():
+    merged, error = _settings_merge_payload({"github": {"api_token": "old"}}, {"__touch_github": "1", "github_enabled": "on", "github_api_token": ""})
+    assert error is None
+    assert merged["github"]["api_token"] == "old"
+
+
+def test_settings_merge_blank_proxy_password_keeps_existing_without_clear():
+    merged, error = _settings_merge_payload({"proxy": {"password": "old"}}, {"__touch_proxy": "1", "proxy_enabled": "on", "proxy_password": ""})
+    assert error is None
+    assert merged["proxy"]["password"] == "old"
+
+
+def test_settings_merge_blank_llm_api_key_keeps_existing_without_clear():
+    merged, error = _settings_merge_payload({"llm": {"provider": "openai", "api_key": "old"}}, {"__touch_llm": "1", "llm_provider": "openai", "llm_api_key": ""})
+    assert error is None
+    assert merged["llm"]["api_key"] == "old"
+
+
+def test_settings_merge_clear_flags_remove_secrets():
+    merged, error = _settings_merge_payload(
+        {"llm": {"provider": "openai", "api_key": "old"}, "github": {"api_token": "gh"}, "proxy": {"password": "pw"}},
+        {
+            "__touch_llm": "1", "llm_provider": "openai", "llm_api_key": "", "llm_api_key_clear": "1",
+            "__touch_github": "1", "github_enabled": "on", "github_api_token": "", "github_api_token_clear": "1",
+            "__touch_proxy": "1", "proxy_enabled": "on", "proxy_password": "", "proxy_password_clear": "1",
+        },
+    )
+    assert error is None
+    assert "api_key" not in merged["llm"]
+    assert "api_token" not in merged["github"]
+    assert "password" not in merged["proxy"]
+
+
+def test_settings_merge_jira_instance_blank_secret_preserves_existing():
+    merged, error = _settings_merge_payload(
+        {"jira": {"instances": [{"name": "J", "url": "https://a", "password": "oldp", "token": "oldt"}]}},
+        {
+            "__touch_jira": "1", "jira_enabled": "on", "jira_instance_count": "1",
+            "jira_instances_0_original_name": "J", "jira_instances_0_original_url": "https://a",
+            "jira_instances_0_name": "J", "jira_instances_0_url": "https://a",
+            "jira_instances_0_password": "", "jira_instances_0_token": "",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["password"] == "oldp"
+    assert merged["jira"]["instances"][0]["token"] == "oldt"
+
+
+def test_settings_merge_jira_instance_clear_secret_removes_existing():
+    merged, error = _settings_merge_payload(
+        {"jira": {"instances": [{"name": "J", "url": "https://a", "password": "oldp", "token": "oldt"}]}},
+        {
+            "__touch_jira": "1", "jira_enabled": "on", "jira_instance_count": "1",
+            "jira_instances_0_original_name": "J", "jira_instances_0_original_url": "https://a",
+            "jira_instances_0_name": "J", "jira_instances_0_url": "https://a",
+            "jira_instances_0_password": "", "jira_instances_0_token": "",
+            "jira_instances_0_password_clear": "1", "jira_instances_0_token_clear": "1",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["password"] == ""
+    assert merged["jira"]["instances"][0]["token"] == ""
+
+def test_settings_merge_confluence_instance_blank_secret_preserves_existing():
+    merged, error = _settings_merge_payload(
+        {"confluence": {"instances": [{"name": "C", "url": "https://a/wiki", "password": "oldp", "token": "oldt"}]}},
+        {
+            "__touch_confluence": "1", "confluence_enabled": "on", "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "C", "confluence_instances_0_original_url": "https://a/wiki",
+            "confluence_instances_0_name": "C", "confluence_instances_0_url": "https://a/wiki",
+            "confluence_instances_0_password": "", "confluence_instances_0_token": "",
+        },
+    )
+    assert error is None
+    assert merged["confluence"]["instances"][0]["password"] == "oldp"
+    assert merged["confluence"]["instances"][0]["token"] == "oldt"
+
+
+def test_settings_merge_confluence_instance_clear_secret_removes_existing():
+    merged, error = _settings_merge_payload(
+        {"confluence": {"instances": [{"name": "C", "url": "https://a/wiki", "password": "oldp", "token": "oldt"}]}},
+        {
+            "__touch_confluence": "1", "confluence_enabled": "on", "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "C", "confluence_instances_0_original_url": "https://a/wiki",
+            "confluence_instances_0_name": "C", "confluence_instances_0_url": "https://a/wiki",
+            "confluence_instances_0_password": "", "confluence_instances_0_token": "",
+            "confluence_instances_0_password_clear": "1", "confluence_instances_0_token_clear": "1",
+        },
+    )
+    assert error is None
+    assert merged["confluence"]["instances"][0]["password"] == ""
+    assert merged["confluence"]["instances"][0]["token"] == ""
+
+def test_settings_merge_jira_instance_enabled_false_is_preserved_from_unchecked_checkbox():
+    merged, error = _settings_merge_payload(
+        {"jira": {"enabled": True, "instances": [{"name": "off", "url": "https://j", "username": "u", "token": "tok", "enabled": False}]}},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_original_name": "off",
+            "jira_instances_0_original_url": "https://j",
+            "jira_instances_0_name": "off",
+            "jira_instances_0_url": "https://j",
+            "jira_instances_0_username": "u",
+            "jira_instances_0_token": "",
+            "jira_instances_0_project": "ENG",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["enabled"] is False
+    assert merged["jira"]["instances"][0]["token"] == "tok"
+
+
+def test_settings_merge_jira_instance_enabled_true_from_checkbox():
+    merged, error = _settings_merge_payload(
+        {"jira": {"enabled": True, "instances": [{"name": "on", "url": "https://j", "username": "u", "token": "tok", "enabled": False}]}},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_name": "on",
+            "jira_instances_0_url": "https://j",
+            "jira_instances_0_username": "u",
+            "jira_instances_0_enabled": "1",
+            "jira_instances_0_token": "",
+            "jira_instances_0_project": "ENG",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["enabled"] is True
+
+
+def test_settings_merge_confluence_instance_enabled_false_from_unchecked_checkbox():
+    merged, error = _settings_merge_payload(
+        {"confluence": {"enabled": True, "instances": [{"name": "off", "url": "https://c", "username": "u", "token": "tok", "enabled": False}]}},
+        {
+            "__touch_confluence": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "off",
+            "confluence_instances_0_original_url": "https://c",
+            "confluence_instances_0_name": "off",
+            "confluence_instances_0_url": "https://c",
+            "confluence_instances_0_username": "u",
+            "confluence_instances_0_token": "",
+            "confluence_instances_0_space": "DOCS",
+        },
+    )
+    assert error is None
+    assert merged["confluence"]["instances"][0]["enabled"] is False
+    assert merged["confluence"]["instances"][0]["token"] == "tok"
+
+def test_settings_merge_jira_instance_preserves_secret_by_original_identity_not_index():
+    merged, error = _settings_merge_payload(
+        {
+            "jira": {
+                "enabled": True,
+                "instances": [
+                    {"name": "A", "url": "https://a", "username": "u", "token": "A_TOKEN"},
+                    {"name": "B", "url": "https://b", "username": "u", "token": "B_TOKEN"},
+                ],
+            }
+        },
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_original_name": "B",
+            "jira_instances_0_original_url": "https://b",
+            "jira_instances_0_name": "B",
+            "jira_instances_0_url": "https://b",
+            "jira_instances_0_username": "u",
+            "jira_instances_0_token": "",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["token"] == "B_TOKEN"
+
+
+def test_settings_merge_confluence_instance_preserves_secret_by_original_identity_not_index():
+    merged, error = _settings_merge_payload(
+        {
+            "confluence": {
+                "enabled": True,
+                "instances": [
+                    {"name": "A", "url": "https://a", "username": "u", "token": "A_TOKEN"},
+                    {"name": "B", "url": "https://b", "username": "u", "token": "B_TOKEN"},
+                ],
+            }
+        },
+        {
+            "__touch_confluence": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "B",
+            "confluence_instances_0_original_url": "https://b",
+            "confluence_instances_0_name": "B",
+            "confluence_instances_0_url": "https://b",
+            "confluence_instances_0_username": "u",
+            "confluence_instances_0_token": "",
+        },
+    )
+    assert error is None
+    assert merged["confluence"]["instances"][0]["token"] == "B_TOKEN"
+
+
+def test_settings_merge_new_jira_instance_blank_secret_does_not_inherit_old_index_secret():
+    merged, error = _settings_merge_payload(
+        {"jira": {"enabled": True, "instances": [{"name": "A", "url": "https://a", "token": "A_TOKEN"}]}},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_original_name": "",
+            "jira_instances_0_original_url": "",
+            "jira_instances_0_name": "NEW",
+            "jira_instances_0_url": "https://new",
+            "jira_instances_0_token": "",
+        },
+    )
+    assert error is None
+    assert "token" not in merged["jira"]["instances"][0] or merged["jira"]["instances"][0]["token"] == ""
+
+
+def test_settings_merge_jira_instance_rename_preserves_secret_by_original_identity():
+    merged, error = _settings_merge_payload(
+        {"jira": {"enabled": True, "instances": [{"name": "Old", "url": "https://old", "token": "TOK"}]}},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_original_name": "Old",
+            "jira_instances_0_original_url": "https://old",
+            "jira_instances_0_name": "New",
+            "jira_instances_0_url": "https://new",
+            "jira_instances_0_token": "",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["token"] == "TOK"
+
+def test_settings_merge_new_jira_instance_same_current_identity_does_not_inherit_old_secret():
+    merged, error = _settings_merge_payload(
+        {
+            "jira": {
+                "enabled": True,
+                "instances": [
+                    {"name": "Old", "url": "https://old", "username": "u", "token": "OLD_TOKEN"}
+                ],
+            }
+        },
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_original_name": "",
+            "jira_instances_0_original_url": "",
+            "jira_instances_0_name": "Old",
+            "jira_instances_0_url": "https://old",
+            "jira_instances_0_username": "u",
+            "jira_instances_0_token": "",
+        },
+    )
+    assert error is None
+    row = merged["jira"]["instances"][0]
+    assert row.get("token", "") == ""
+
+
+def test_settings_merge_new_confluence_instance_same_current_identity_does_not_inherit_old_secret():
+    merged, error = _settings_merge_payload(
+        {
+            "confluence": {
+                "enabled": True,
+                "instances": [
+                    {"name": "Old", "url": "https://old", "username": "u", "token": "OLD_TOKEN"}
+                ],
+            }
+        },
+        {
+            "__touch_confluence": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "",
+            "confluence_instances_0_original_url": "",
+            "confluence_instances_0_name": "Old",
+            "confluence_instances_0_url": "https://old",
+            "confluence_instances_0_username": "u",
+            "confluence_instances_0_token": "",
+        },
+    )
+    assert error is None
+    row = merged["confluence"]["instances"][0]
+    assert row.get("token", "") == ""

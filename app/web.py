@@ -776,7 +776,28 @@ def _settings_parse_instances(
     fields: list[str],
     existing_instances: Optional[list] = None,
     preserve_blank_fields: Optional[set[str]] = None,
+    clearable_fields: Optional[set[str]] = None,
 ) -> list[dict]:
+    def as_bool(value) -> bool:
+        return str(value or "").lower() in {"1", "true", "on", "yes"}
+    def _norm_identity(value) -> str:
+        return str(value or "").strip().rstrip("/").lower()
+    def _build_unique_index(items: list[dict], key_fn):
+        index = {}
+        duplicates = set()
+        for row in items:
+            if not isinstance(row, dict):
+                continue
+            key = key_fn(row)
+            if not key:
+                continue
+            if key in index:
+                duplicates.add(key)
+            else:
+                index[key] = row
+        for key in duplicates:
+            index.pop(key, None)
+        return index
     count_text = (form.get(f"{prefix}_instance_count") or "0").strip()
     try:
         count = max(0, int(count_text))
@@ -785,13 +806,54 @@ def _settings_parse_instances(
 
     instances = []
     existing_instances = existing_instances if isinstance(existing_instances, list) else []
+    by_name_url = _build_unique_index(
+        existing_instances,
+        lambda item: (_norm_identity(item.get("name")), _norm_identity(item.get("url")))
+        if _norm_identity(item.get("name")) or _norm_identity(item.get("url")) else None,
+    )
+    by_name = _build_unique_index(existing_instances, lambda item: _norm_identity(item.get("name")))
+    by_url = _build_unique_index(existing_instances, lambda item: _norm_identity(item.get("url")))
+
+    def _find_existing_for_row(original_name, original_url, current_name, current_url) -> dict:
+        original_pair = (_norm_identity(original_name), _norm_identity(original_url))
+        has_original_identity = bool(original_pair[0] or original_pair[1])
+        if not has_original_identity:
+            return {}
+
+        found = by_name_url.get(original_pair)
+        if isinstance(found, dict):
+            return found
+
+        if original_pair[0]:
+            found = by_name.get(original_pair[0])
+            if isinstance(found, dict):
+                return found
+
+        if original_pair[1]:
+            found = by_url.get(original_pair[1])
+            if isinstance(found, dict):
+                return found
+        return {}
+
     preserve_blank_fields = preserve_blank_fields or set()
+    clearable_fields = clearable_fields or set()
     for i in range(count):
         item = {}
-        existing_item = existing_instances[i] if i < len(existing_instances) and isinstance(existing_instances[i], dict) else {}
+        original_name = (form.get(f"{prefix}_instances_{i}_original_name") or "").strip()
+        original_url = (form.get(f"{prefix}_instances_{i}_original_url") or "").strip()
+        current_name = (form.get(f"{prefix}_instances_{i}_name") or "").strip()
+        current_url = (form.get(f"{prefix}_instances_{i}_url") or "").strip()
+        existing_item = _find_existing_for_row(original_name, original_url, current_name, current_url)
         for field in fields:
-            value = (form.get(f"{prefix}_instances_{i}_{field}") or "").strip()
-            if not value and field in preserve_blank_fields:
+            field_name = f"{prefix}_instances_{i}_{field}"
+            if field == "enabled":
+                item[field] = as_bool(form.get(field_name))
+                continue
+            clear_flag = as_bool(form.get(f"{prefix}_instances_{i}_{field}_clear")) if field in clearable_fields else False
+            value = (form.get(field_name) or "").strip()
+            if clear_flag:
+                value = ""
+            elif not value and field in preserve_blank_fields:
                 value = existing_item.get(field) or ""
             item[field] = value
         if item.get("name") or item.get("url"):
@@ -923,6 +985,8 @@ def _settings_parse_oauth_for_runtime(form, runtime_key: str, existing: dict | N
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
+    def is_clear(field_name: str) -> bool:
+        return as_bool(form.get(field_name))
 
     def is_section_touched(section: str) -> bool:
         return str(form.get(f"__touch_{section}") or "0").strip() == "1"
@@ -987,6 +1051,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             llm.pop("oauth_by_runtime", None)
             if api_key_value:
                 llm["api_key"] = api_key_value
+            elif is_clear("llm_api_key_clear"):
+                llm.pop("api_key", None)
+            elif str(llm.get("api_key") or "").strip():
+                llm["api_key"] = llm.get("api_key")
             else:
                 llm.pop("api_key", None)
 
@@ -1118,9 +1186,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             jira["instances"] = _settings_parse_instances(
                 form,
                 "jira",
-                ["name", "url", "username", "password", "token", "project"],
+                ["enabled", "name", "url", "username", "password", "token", "project"],
                 existing_instances=existing_jira_instances,
                 preserve_blank_fields={"password", "token"},
+                clearable_fields={"password", "token"},
             )
         jira.pop("automation", None)
         config_payload["jira"] = jira
@@ -1132,9 +1201,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             confluence["instances"] = _settings_parse_instances(
                 form,
                 "confluence",
-                ["name", "url", "username", "password", "token", "space"],
+                ["enabled", "name", "url", "username", "password", "token", "space"],
                 existing_instances=existing_confluence_instances,
                 preserve_blank_fields={"password", "token"},
+                clearable_fields={"password", "token"},
             )
         confluence.pop("automation", None)
         config_payload["confluence"] = confluence
@@ -1147,8 +1217,14 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         if "github_api_token" in form:
             if github_token_value:
                 github_cfg["api_token"] = github_token_value
-            else:
+            elif is_clear("github_api_token_clear"):
                 github_cfg.pop("api_token", None)
+            else:
+                existing_token = str(github_cfg.get("api_token") or "").strip()
+                if existing_token:
+                    github_cfg["api_token"] = existing_token
+                else:
+                    github_cfg.pop("api_token", None)
         if "github_base_url" in form:
             if github_base_url_value:
                 github_cfg["base_url"] = github_base_url_value
@@ -1200,6 +1276,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             new_password = (form.get("proxy_password") or "").strip()
             if new_password:
                 proxy_cfg["password"] = new_password
+            elif is_clear("proxy_password_clear"):
+                proxy_cfg.pop("password", None)
+            elif existing_proxy_password:
+                proxy_cfg["password"] = existing_proxy_password
             else:
                 proxy_cfg.pop("password", None)
         elif existing_proxy_password:
