@@ -368,6 +368,25 @@ def test_settings_merge_jira_instance_enabled_true_from_checkbox():
     assert merged["jira"]["instances"][0]["enabled"] is True
 
 
+def test_settings_merge_jira_instance_api_version_is_merged():
+    merged, error = _settings_merge_payload(
+        {"jira": {"enabled": True, "instances": [{"name": "J", "url": "https://j", "username": "u"}]}},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_original_name": "J",
+            "jira_instances_0_original_url": "https://j",
+            "jira_instances_0_name": "J",
+            "jira_instances_0_url": "https://j",
+            "jira_instances_0_username": "u",
+            "jira_instances_0_api_version": "2",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["api_version"] == "2"
+
+
 def test_settings_merge_confluence_instance_enabled_false_from_unchecked_checkbox():
     merged, error = _settings_merge_payload(
         {"confluence": {"enabled": True, "instances": [{"name": "off", "url": "https://c", "username": "u", "token": "tok", "enabled": False}]}},

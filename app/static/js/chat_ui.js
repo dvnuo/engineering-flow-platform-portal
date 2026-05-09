@@ -5395,9 +5395,9 @@ function normalizeInstanceInputs(root, group) {
   items.forEach((item, idx) => {
     const title = item.querySelector(".portal-settings-instance-title");
     if (title) title.textContent = `Instance ${idx + 1}`;
-    item.querySelectorAll("input[data-field]").forEach((input) => {
-      const field = input.dataset.field;
-      input.name = `${group}_instances_${idx}_${field}`;
+    item.querySelectorAll("[data-field]").forEach((fieldEl) => {
+      const field = fieldEl.dataset.field;
+      fieldEl.name = `${group}_instances_${idx}_${field}`;
     });
     item.querySelectorAll("input[data-clear-field]").forEach((input) => {
       const field = input.dataset.clearField;
@@ -5423,6 +5423,9 @@ function addInstanceRow(root, group) {
   const projectHtml = group === "jira"
     ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
     : `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`;
+  const apiVersionHtml = group === "jira"
+    ? `<div class="portal-panel-grid cols-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>Auto API Version</option><option value="2">REST API v2</option><option value="3">REST API v3</option></select><div></div></div>`
+    : "";
 
   const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" />`;
 
@@ -5437,6 +5440,7 @@ function addInstanceRow(root, group) {
     <div class="portal-panel-grid cols-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" /></div>
     <div class="portal-panel-grid cols-2">${usernamePasswordHtml}</div>
     <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${projectHtml}</div>
+    ${apiVersionHtml}
   `;
   container.append(div);
   normalizeInstanceInputs(root, group);
