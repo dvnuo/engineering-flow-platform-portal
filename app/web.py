@@ -2722,11 +2722,6 @@ async def app_chat_send(request: Request):
     session_id = (form.get("session_id") or "").strip() or None
     attachments_str = (form.get("attachments") or "").strip()
 
-    if not agent_id:
-        raise HTTPException(status_code=400, detail="Agent not selected")
-    if not message:
-        raise HTTPException(status_code=400, detail="Message required")
-
     # Parse attachments from JSON
     attachments = []
     if attachments_str:
@@ -2736,6 +2731,13 @@ async def app_chat_send(request: Request):
                 attachments = parsed
         except json.JSONDecodeError:
             pass  # Invalid JSON, ignore attachments
+
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="Agent not selected")
+    if not message and not attachments:
+        raise HTTPException(status_code=400, detail="Message or attachment required")
+    request_message = message or "[attachment]"
+    display_message = message or "📎 Attachment"
 
     db = SessionLocal()
     try:
@@ -2749,7 +2751,7 @@ async def app_chat_send(request: Request):
 
         metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
         payload = {
-            "message": message,
+            "message": request_message,
             "metadata": metadata,
         }
         if session_id:
@@ -2781,7 +2783,7 @@ async def app_chat_send(request: Request):
             "partials/chat_response.html",
             {
                 "request": request,
-                "user_message": message,
+                "user_message": display_message,
                 "assistant_message": normalized_payload["assistant_message"],
                 "session_id": normalized_payload["session_id"],
                 "agent_name": agent.name if agent else "Assistant",

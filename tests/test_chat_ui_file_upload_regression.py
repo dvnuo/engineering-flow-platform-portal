@@ -264,3 +264,23 @@ def test_attachment_only_send_contract_and_textarea_not_required():
     assert "message: requestMessage" in submit_block
     assert "[attachment]" in submit_block
     assert "attachments: attachmentsAtSend" in submit_block
+
+
+def test_legacy_app_chat_send_allows_attachment_only_contract():
+    web_py = Path("app/web.py").read_text(encoding="utf-8")
+    start = web_py.index("async def app_chat_send")
+    end = web_py.index("@router.get(\"/app/agent-groups/{group_id}/task-board/panel\")", start)
+    block = web_py[start:end]
+    assert 'raise HTTPException(status_code=400, detail="Message or attachment required")' in block
+    assert '"message": request_message' in block
+    assert '"user_message": display_message' in block
+    assert 'request_message = message or "[attachment]"' in block
+    assert 'display_message = message or "📎 Attachment"' in block
+
+
+def test_build_attachments_comment_contract_no_blob_payload():
+    js = _source()
+    start = js.index("function buildAttachmentsFromChatState")
+    snippet = js[start:start + 350]
+    assert "resolves file_id server-side" in snippet
+    assert "Do not include previewUrl/blob/base64/browser File objects" in snippet

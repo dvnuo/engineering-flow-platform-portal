@@ -2889,9 +2889,8 @@ function formatAttachmentMetaText(attachment) {
 }
 
 function buildAttachmentsFromChatState(agentId, chatState) {
-  // Runtime directly consumes image attachments in this array. Non-image files take a different path:
-  // upload -> parse -> runtime session file_context keyed by stable session_id.
-  // Keep auto-parse + session_id flow intact for documents even if they also appear in local preview UI.
+  // Runtime consumes uploaded attachment metadata here and resolves file_id server-side.
+  // Do not include previewUrl/blob/base64/browser File objects in the chat payload.
   const uploadedAttachments = chatState.pendingFiles
     .filter((pf) => pf.file_id && pf.status === "uploaded")
     .map((pf) => {
