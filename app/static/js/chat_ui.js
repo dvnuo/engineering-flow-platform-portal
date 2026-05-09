@@ -5465,6 +5465,26 @@ function normalizeCopilotRuntimeType(runtimeType) {
   return "native";
 }
 
+
+function copilotRuntimeLabel(runtimeType) {
+  return normalizeCopilotRuntimeType(runtimeType) === "opencode" ? "OpenCode Runtime" : "EFP Runtime";
+}
+
+function maskCopilotSecret(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.length <= 8) return "••••";
+  return `${raw.slice(0, 4)}…${raw.slice(-4)}`;
+}
+
+function setCopilotResultSummary(root, runtimeType, message, kind = "") {
+  const summary = copilotCard(root, runtimeType)?.querySelector("[data-copilot-result-summary]");
+  if (!summary) return;
+  summary.textContent = message || "";
+  summary.classList.toggle("hidden", !message);
+  summary.classList.toggle("is-error", kind === "error");
+  summary.classList.toggle("is-success", kind === "success");
+}
 function getManagedCopilotState(root, runtimeType) {
   if (!root.__managedCopilotState) root.__managedCopilotState = { byRuntime: {} };
   const key = normalizeCopilotRuntimeType(runtimeType);
@@ -5542,6 +5562,7 @@ function updateCopilotAuthCardsVisibility(root, isCopilot) {
     if (!isCopilot) {
       status?.classList.add("hidden");
       instructions?.classList.add("hidden");
+      setCopilotResultSummary(root, key, "", "");
       return;
     }
     status?.classList.remove("hidden");
@@ -5549,6 +5570,11 @@ function updateCopilotAuthCardsVisibility(root, isCopilot) {
     if (!st.authInterval && statusText) {
       const present = (root.querySelector(`input[name="llm_oauth_${key}_present"]`)?.value || "") === "1";
       statusText.textContent = present ? "Authorized" : "Not authorized";
+      if (present) {
+        setCopilotResultSummary(root, key, `Saved OAuth credential present for ${copilotRuntimeLabel(key)}. Token is hidden.`, "success");
+      } else {
+        setCopilotResultSummary(root, key, "", "");
+      }
     }
   });
 }
@@ -5599,7 +5625,7 @@ function updateModelOptions(root) {
   updateCopilotAuthCardsVisibility(root, isCopilot);
   if (!isCopilot) {
     if (typeof stopCopilotPolling === "function") stopCopilotPolling(root);
-    if (typeof clearCopilotOAuthFields === "function") clearCopilotOAuthFields(root);
+    if (typeof clearCopilotOAuthFields === "function") clearCopilotOAuthFields(root, null, { markClear: false, clearValues: false });
   }
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
@@ -5685,6 +5711,10 @@ async function startCopilotAuth(root, runtimeType) {
     }
     if (userCode) userCode.textContent = data.user_code || "";
     if (statusText) statusText.textContent = "Waiting for authorization...";
+    if (typeof setCopilotResultSummary === "function") {
+      const runtimeLabel = typeof copilotRuntimeLabel === "function" ? copilotRuntimeLabel(key) : (key === "opencode" ? "OpenCode Runtime" : "EFP Runtime");
+      setCopilotResultSummary(root, key, `Device authorization started for ${runtimeLabel}. Complete GitHub verification, then wait for this panel to update.`);
+    }
 
     let remaining = Number(data.expires_in || 600);
     if (timer) timer.textContent = `${remaining}s`;
@@ -5741,23 +5771,34 @@ async function startCopilotAuth(root, runtimeType) {
 
       if (check.status === "authorized") {
         stopCopilotPolling(root, key);
-        if (statusText) statusText.textContent = "Authorized";
+        if (statusText) statusText.textContent = "Authorized (unsaved)";
         if (instructions) instructions.classList.add("hidden");
         const apiInput = root.querySelector('input[name="llm_api_key"]');
         if (check.oauth) {
           setCopilotOAuthFields(root, key, check.oauth);
           if (apiInput) apiInput.value = "";
           markManagedSectionTouched(root, "llm");
-          showToast(key === "opencode" ? "GitHub Copilot OAuth authorized for OpenCode Runtime. Save to persist." : "GitHub Copilot OAuth authorized for EFP Runtime. Save to persist.");
+          const summary = check.oauth_summary || {};
+          const preview = summary.token_prefix && summary.token_suffix
+            ? `${summary.token_prefix}…${summary.token_suffix}`
+            : (typeof maskCopilotSecret === "function" ? maskCopilotSecret(check.oauth?.access || check.oauth?.refresh || "") : "");
+          const runtimeLabel = typeof copilotRuntimeLabel === "function" ? copilotRuntimeLabel(key) : (key === "opencode" ? "OpenCode Runtime" : "EFP Runtime");
+          const tokenPart = preview ? ` (${preview})` : "";
+          if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, key, `Credential captured for ${runtimeLabel}${tokenPart}. Click Save Settings to persist.`, "success");
+          showToast(`GitHub Copilot OAuth captured for ${runtimeLabel}. Click Save Settings to persist.`);
         } else if (apiInput && check.token) {
           apiInput.value = check.token;
           markManagedSectionTouched(root, "llm");
           showToast("Legacy Copilot token inserted into API Key field. Re-authorize if OpenCode requires OAuth.");
         }
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
-        finishCopilotAuthWithMessage(root, key, check.message || check.error || "Authorization failed");
+        const errorMessage = check.message || check.error || "Authorization failed";
+        finishCopilotAuthWithMessage(root, key, errorMessage);
+        if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, key, errorMessage, "error");
       } else {
-        finishCopilotAuthWithMessage(root, key, `Authorization check failed: unknown status ${safe(check.status)}`);
+        const unknownStatusMessage = `Authorization check failed: unknown status ${safe(check.status)}`;
+        finishCopilotAuthWithMessage(root, key, unknownStatusMessage);
+        if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, key, unknownStatusMessage, "error");
       }
     }, (Number(data.interval) || 5) * 1000);
   } catch (error) {

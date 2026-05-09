@@ -557,3 +557,12 @@ def test_runtime_profile_panel_save_preserves_existing_oauth_when_hidden_fields_
         assert "native" not in saved["llm"]["oauth_by_runtime"]
     finally:
         cleanup()
+
+def test_templates_include_copilot_result_summary_notes():
+    from pathlib import Path
+    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    assert 'data-copilot-result-summary' in runtime_tpl
+    assert 'data-copilot-result-summary' in settings_tpl
+    assert 'Saved OAuth credential present for OpenCode Runtime. Token is hidden.' in runtime_tpl
+    assert 'Saved OAuth credential present for OpenCode Runtime. Token is hidden.' in settings_tpl
