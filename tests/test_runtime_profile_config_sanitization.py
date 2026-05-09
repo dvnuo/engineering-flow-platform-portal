@@ -33,8 +33,8 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
     }
     red = redact_runtime_profile_config_for_public_response(cfg)
     assert "api_key" not in red["llm"] and red["llm"]["api_key_present"] is True
-    assert "access" not in red["llm"]["oauth"] and "refresh" not in red["llm"]["oauth"]
-    assert "access" not in red["llm"]["oauth_by_runtime"]["opencode"]
+    assert "oauth" not in red["llm"]
+    assert "oauth_by_runtime" not in red["llm"]
     assert "api_token" not in red["github"] and red["github"]["api_token_present"] is True
     assert "password" not in red["proxy"] and red["proxy"]["password_present"] is True
     assert "password" not in red["jira"]["instances"][0] and red["jira"]["instances"][0]["password_present"] is True

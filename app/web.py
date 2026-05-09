@@ -931,57 +931,6 @@ def _settings_parse_response_flow_min_tokens(form, field_name: str) -> tuple[int
 
 
 
-def _settings_existing_oauth_by_runtime(llm: dict) -> dict:
-    out = {}
-    existing = llm.get("oauth_by_runtime")
-    if isinstance(existing, dict):
-        for key in ("native", "opencode"):
-            val = existing.get(key)
-            if isinstance(val, dict):
-                out[key] = val.copy()
-    if "opencode" not in out and isinstance(llm.get("oauth"), dict):
-        out["opencode"] = llm["oauth"].copy()
-    return out
-
-
-def _settings_parse_oauth_for_runtime(form, runtime_key: str, existing: dict | None):
-    def as_bool(value) -> bool:
-        return str(value or "").lower() in {"1", "true", "on", "yes"}
-    access_raw = (form.get(f"llm_oauth_{runtime_key}_access") or "").strip()
-    refresh_raw = (form.get(f"llm_oauth_{runtime_key}_refresh") or "").strip()
-    clear_raw = form.get(f"llm_oauth_{runtime_key}_clear")
-    expires_raw = (form.get(f"llm_oauth_{runtime_key}_expires") or "").strip()
-    enterprise = (form.get(f"llm_oauth_{runtime_key}_enterprise_url") or "").strip()
-    account = (form.get(f"llm_oauth_{runtime_key}_account_id") or "").strip()
-    if runtime_key == "opencode" and not access_raw and not refresh_raw:
-        access_raw = (form.get("llm_oauth_access") or "").strip()
-        refresh_raw = (form.get("llm_oauth_refresh") or "").strip()
-        clear_raw = clear_raw or form.get("llm_oauth_clear")
-        if not expires_raw:
-            expires_raw = (form.get("llm_oauth_expires") or "").strip()
-        if not enterprise:
-            enterprise = (form.get("llm_oauth_enterprise_url") or "").strip()
-        if not account:
-            account = (form.get("llm_oauth_account_id") or "").strip()
-    clear = as_bool(clear_raw)
-    access = access_raw or refresh_raw
-    refresh = refresh_raw or access_raw
-    if clear:
-        return None, True
-    if access or refresh:
-        try:
-            expires = int(expires_raw or "0")
-        except ValueError:
-            expires = 0
-        oauth = {"type": "oauth", "access": access, "refresh": refresh, "expires": max(0, expires)}
-        if enterprise:
-            oauth["enterpriseUrl"] = enterprise
-        if account:
-            oauth["accountId"] = account
-        return oauth, False
-    if isinstance(existing, dict):
-        return existing.copy(), False
-    return None, False
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
@@ -1027,36 +976,16 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             llm["model"] = model_value
         else:
             llm.pop("model", None)
-        if is_github_copilot_provider(provider_value):
-            existing_by_runtime = _settings_existing_oauth_by_runtime(llm)
-            oauth_by_runtime = {}
-            for runtime_key in ("native", "opencode"):
-                oauth_payload, should_delete = _settings_parse_oauth_for_runtime(form, runtime_key, existing_by_runtime.get(runtime_key))
-                if not should_delete and isinstance(oauth_payload, dict):
-                    oauth_by_runtime[runtime_key] = oauth_payload
-            if oauth_by_runtime:
-                llm["oauth_by_runtime"] = oauth_by_runtime
-                llm.pop("oauth", None)
-                llm.pop("api_key", None)
-            elif api_key_value:
-                llm["api_key"] = api_key_value
-                llm.pop("oauth", None)
-                llm.pop("oauth_by_runtime", None)
-            else:
-                llm.pop("api_key", None)
-                llm.pop("oauth", None)
-                llm.pop("oauth_by_runtime", None)
+        if api_key_value:
+            llm["api_key"] = api_key_value
+        elif "llm_api_key" in form or is_clear("llm_api_key_clear"):
+            llm.pop("api_key", None)
+        elif str(llm.get("api_key") or "").strip():
+            llm["api_key"] = llm.get("api_key")
         else:
-            llm.pop("oauth", None)
-            llm.pop("oauth_by_runtime", None)
-            if api_key_value:
-                llm["api_key"] = api_key_value
-            elif "llm_api_key" in form or is_clear("llm_api_key_clear"):
-                llm.pop("api_key", None)
-            elif str(llm.get("api_key") or "").strip():
-                llm["api_key"] = llm.get("api_key")
-            else:
-                llm.pop("api_key", None)
+            llm.pop("api_key", None)
+        llm.pop("oauth", None)
+        llm.pop("oauth_by_runtime", None)
 
         temperature_allowed = runtime_profile_model_supports_temperature(llm.get("model"))
         temperature_text = (form.get("llm_temperature") or "").strip()

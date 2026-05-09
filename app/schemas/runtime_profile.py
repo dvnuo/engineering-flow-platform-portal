@@ -433,6 +433,25 @@ def sanitize_runtime_profile_debug(value) -> dict:
         out["log_level"] = log_level
     return out
 
+
+
+def _legacy_copilot_token_from_llm(raw_llm: dict) -> str:
+    if not isinstance(raw_llm, dict):
+        return ""
+    api_key = str(raw_llm.get("api_key") or "").strip()
+    if api_key:
+        return api_key
+
+    by_runtime = raw_llm.get("oauth_by_runtime") if isinstance(raw_llm.get("oauth_by_runtime"), dict) else {}
+    for key in ("opencode", "native"):
+        oauth = sanitize_runtime_profile_llm_oauth(by_runtime.get(key))
+        token = str(oauth.get("access") or oauth.get("refresh") or "").strip() if oauth else ""
+        if token:
+            return token
+
+    oauth = sanitize_runtime_profile_llm_oauth(raw_llm.get("oauth"))
+    return str(oauth.get("access") or oauth.get("refresh") or "").strip() if oauth else ""
+
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
@@ -497,17 +516,17 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
                 llm_copy["temperature"] = normalize_runtime_profile_temperature(llm_copy.get("temperature"))
         else:
             llm_copy.pop("temperature", None)
-        if "oauth" in llm_copy:
-            oauth = sanitize_runtime_profile_llm_oauth(llm_copy.get("oauth"))
-            if oauth:
-                llm_copy["oauth"] = oauth
-            else:
-                llm_copy.pop("oauth", None)
-        oauth_by_runtime = sanitize_runtime_profile_llm_oauth_by_runtime(llm_copy.get("oauth_by_runtime"))
-        if oauth_by_runtime:
-            llm_copy["oauth_by_runtime"] = oauth_by_runtime
+        api_key = str(llm_copy.get("api_key") or "").strip()
+        if api_key:
+            llm_copy["api_key"] = api_key
         else:
-            llm_copy.pop("oauth_by_runtime", None)
+            migrated = _legacy_copilot_token_from_llm(llm_copy)
+            if migrated:
+                llm_copy["api_key"] = migrated
+            else:
+                llm_copy.pop("api_key", None)
+        llm_copy.pop("oauth", None)
+        llm_copy.pop("oauth_by_runtime", None)
         llm = llm_copy
 
     if isinstance(llm, dict):
@@ -558,24 +577,8 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     llm = redacted.get("llm")
     if isinstance(llm, dict):
         llm["api_key_present"] = bool(str(llm.pop("api_key", "")).strip())
-        oauth = llm.get("oauth")
-        if isinstance(oauth, dict):
-            oauth_copy = {k: oauth.get(k) for k in ("type", "expires", "enterpriseUrl", "accountId") if k in oauth}
-            oauth_copy["present"] = bool(str(oauth.get("access") or oauth.get("refresh") or "").strip())
-            llm["oauth"] = oauth_copy
-        by_runtime = llm.get("oauth_by_runtime")
-        if isinstance(by_runtime, dict):
-            redacted_by_runtime = {}
-            for key in ("native", "opencode"):
-                oauth_entry = by_runtime.get(key)
-                if isinstance(oauth_entry, dict):
-                    cp = {k: oauth_entry.get(k) for k in ("type", "expires", "enterpriseUrl", "accountId") if k in oauth_entry}
-                    cp["present"] = bool(str(oauth_entry.get("access") or oauth_entry.get("refresh") or "").strip())
-                    redacted_by_runtime[key] = cp
-            if redacted_by_runtime:
-                llm["oauth_by_runtime"] = redacted_by_runtime
-            else:
-                llm.pop("oauth_by_runtime", None)
+        llm.pop("oauth", None)
+        llm.pop("oauth_by_runtime", None)
     github = redacted.get("github")
     if isinstance(github, dict):
         github["api_token_present"] = bool(str(github.pop("api_token", "")).strip())
