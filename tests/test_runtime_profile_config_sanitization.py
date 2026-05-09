@@ -112,3 +112,25 @@ def test_external_enabled_json_booleans_are_preserved():
     assert s["github"]["enabled"] is False
     assert s["proxy"]["enabled"] is True
     assert s["debug"]["enabled"] is False
+
+
+def test_public_redaction_never_exposes_raw_secret_literals():
+    cfg = {
+        "llm": {"api_key": "sk-secret"},
+        "github": {"api_token": "gh-secret"},
+        "proxy": {"password": "proxy-secret"},
+        "jira": {"instances": [{"password": "jira-pass", "token": "jira-token"}]},
+        "confluence": {"instances": [{"password": "conf-pass", "token": "conf-token"}]},
+    }
+    red = redact_runtime_profile_config_for_public_response(cfg)
+    dumped = str(red)
+    for secret in ["sk-secret", "gh-secret", "proxy-secret", "jira-pass", "jira-token", "conf-pass", "conf-token"]:
+        assert secret not in dumped
+
+    assert red["llm"]["api_key_present"] is True
+    assert red["github"]["api_token_present"] is True
+    assert red["proxy"]["password_present"] is True
+    assert red["jira"]["instances"][0]["password_present"] is True
+    assert red["jira"]["instances"][0]["token_present"] is True
+    assert red["confluence"]["instances"][0]["password_present"] is True
+    assert red["confluence"]["instances"][0]["token_present"] is True
