@@ -206,9 +206,12 @@ class RuntimeProfileSyncService:
 
     def build_apply_payload_for_agent(self, db: Session, agent, runtime_profile) -> dict:
         payload = self.build_apply_payload_from_profile(runtime_profile)
+        runtime_type = getattr(agent, "runtime_type", "") or "native"
+        payload["runtime_type"] = runtime_type
+        payload["agent_id"] = getattr(agent, "id", None)
+        payload["config"]["runtime_type"] = runtime_type
         llm = payload.get("config", {}).get("llm")
         if isinstance(llm, dict):
-            runtime_type = getattr(agent, "runtime_type", "") or "native"
             payload["config"]["llm"] = _project_llm_for_runtime(llm, runtime_type)
         raw_config = self._raw_profile_config(runtime_profile)
         for key in [

@@ -21,7 +21,7 @@ def test_settings_merge_github_base_url_blank_removes_existing_value():
     merged, error = _settings_merge_payload(config_payload, form)
 
     assert error is None
-    assert "api_token" not in merged["github"]
+    assert merged["github"]["api_token"] == "keep-token"
     assert "base_url" not in merged["github"]
 
 
@@ -303,3 +303,35 @@ def test_github_copilot_clear_opencode_only_preserves_native():
     assert error is None
     assert "opencode" not in merged["llm"]["oauth_by_runtime"]
     assert merged["llm"]["oauth_by_runtime"]["native"]["access"] == "N"
+
+def test_settings_merge_blank_github_token_keeps_existing_without_clear():
+    merged, error = _settings_merge_payload({"github": {"api_token": "old"}}, {"__touch_github": "1", "github_enabled": "on", "github_api_token": ""})
+    assert error is None
+    assert merged["github"]["api_token"] == "old"
+
+
+def test_settings_merge_blank_proxy_password_keeps_existing_without_clear():
+    merged, error = _settings_merge_payload({"proxy": {"password": "old"}}, {"__touch_proxy": "1", "proxy_enabled": "on", "proxy_password": ""})
+    assert error is None
+    assert merged["proxy"]["password"] == "old"
+
+
+def test_settings_merge_blank_llm_api_key_keeps_existing_without_clear():
+    merged, error = _settings_merge_payload({"llm": {"provider": "openai", "api_key": "old"}}, {"__touch_llm": "1", "llm_provider": "openai", "llm_api_key": ""})
+    assert error is None
+    assert merged["llm"]["api_key"] == "old"
+
+
+def test_settings_merge_clear_flags_remove_secrets():
+    merged, error = _settings_merge_payload(
+        {"llm": {"provider": "openai", "api_key": "old"}, "github": {"api_token": "gh"}, "proxy": {"password": "pw"}},
+        {
+            "__touch_llm": "1", "llm_provider": "openai", "llm_api_key": "", "llm_api_key_clear": "1",
+            "__touch_github": "1", "github_enabled": "on", "github_api_token": "", "github_api_token_clear": "1",
+            "__touch_proxy": "1", "proxy_enabled": "on", "proxy_password": "", "proxy_password_clear": "1",
+        },
+    )
+    assert error is None
+    assert "api_key" not in merged["llm"]
+    assert "api_token" not in merged["github"]
+    assert "password" not in merged["proxy"]

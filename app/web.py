@@ -923,6 +923,8 @@ def _settings_parse_oauth_for_runtime(form, runtime_key: str, existing: dict | N
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
+    def is_clear(field_name: str) -> bool:
+        return as_bool(form.get(field_name))
 
     def is_section_touched(section: str) -> bool:
         return str(form.get(f"__touch_{section}") or "0").strip() == "1"
@@ -987,6 +989,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             llm.pop("oauth_by_runtime", None)
             if api_key_value:
                 llm["api_key"] = api_key_value
+            elif is_clear("llm_api_key_clear"):
+                llm.pop("api_key", None)
+            elif str(llm.get("api_key") or "").strip():
+                llm["api_key"] = llm.get("api_key")
             else:
                 llm.pop("api_key", None)
 
@@ -1147,8 +1153,14 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         if "github_api_token" in form:
             if github_token_value:
                 github_cfg["api_token"] = github_token_value
-            else:
+            elif is_clear("github_api_token_clear"):
                 github_cfg.pop("api_token", None)
+            else:
+                existing_token = str(github_cfg.get("api_token") or "").strip()
+                if existing_token:
+                    github_cfg["api_token"] = existing_token
+                else:
+                    github_cfg.pop("api_token", None)
         if "github_base_url" in form:
             if github_base_url_value:
                 github_cfg["base_url"] = github_base_url_value
@@ -1200,6 +1212,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             new_password = (form.get("proxy_password") or "").strip()
             if new_password:
                 proxy_cfg["password"] = new_password
+            elif is_clear("proxy_password_clear"):
+                proxy_cfg.pop("password", None)
+            elif existing_proxy_password:
+                proxy_cfg["password"] = existing_proxy_password
             else:
                 proxy_cfg.pop("password", None)
         elif existing_proxy_password:
