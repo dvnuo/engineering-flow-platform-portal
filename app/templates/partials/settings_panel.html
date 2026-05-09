@@ -126,7 +126,7 @@
         Temperature is only available for exact gpt-4. Other models omit this deprecated parameter.
       </div>
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="API key" class="portal-form-input" /></label>
-      <div class="space-y-2" data-copilot-auth-root>
+      <div class="space-y-2 hidden" data-copilot-auth-root>
         <button type="button" data-copilot-auth-button="native" class="portal-btn is-secondary hidden">Authorize GitHub Copilot for EFP Runtime</button>
         <button type="button" data-copilot-auth-button="opencode" class="portal-btn is-secondary hidden">Authorize GitHub Copilot for OpenCode Runtime</button>
         <div class="portal-form-input hidden" data-copilot-instructions>
@@ -139,9 +139,9 @@
           <div class="flex items-center gap-2 mt-2"><span class="portal-inline-note" data-copilot-timer></span></div>
         </div>
         <div class="portal-inline-note hidden" data-copilot-result-summary></div>
+              <div class="portal-inline-note" data-copilot-auth-help>Choose one authorization button to generate a GitHub Copilot token. After authorization completes, Portal fills the API Key field. Click Save Settings to persist it.</div>
+        <div class="portal-inline-note" data-copilot-auth-help>GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL.</div>
       </div>
-      <div class="portal-inline-note">Choose one authorization button to generate a GitHub Copilot token. After authorization completes, Portal fills the API Key field. Click Save Settings to persist it.</div>
-      <div class="portal-inline-note">GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL.</div>
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Enabled Tools</h6></div>
       <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="inherit" {% if raw_llm_tools_mode == 'inherit' %}checked{% endif %} /> Use runtime local default</label></div>
       <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="all" {% if raw_llm_tools_mode == 'all' %}checked{% endif %} /> All tools</label></div>

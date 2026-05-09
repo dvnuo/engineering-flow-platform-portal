@@ -509,6 +509,13 @@ def test_settings_save_rejects_invalid_temperature(monkeypatch):
         cleanup()
 
 
+
+
+def _copilot_root_block(text: str) -> str:
+    start = text.index('data-copilot-auth-root')
+    end = text.index('<div class="portal-settings-section-title"', start)
+    return text[start:end]
+
 def test_templates_and_js_include_copilot_auth_buttons_and_api_key_flow():
     from pathlib import Path
     runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text()
@@ -520,8 +527,22 @@ def test_templates_and_js_include_copilot_auth_buttons_and_api_key_flow():
     assert 'llm_oauth_opencode' not in runtime_tpl
     assert 'llm_oauth_native' not in settings_tpl
     assert 'llm_oauth_opencode' not in settings_tpl
+    assert 'data-copilot-auth-status' not in runtime_tpl
+    assert 'data-copilot-status-text' not in runtime_tpl
+    assert 'data-copilot-auth-status' not in settings_tpl
+    assert 'data-copilot-status-text' not in settings_tpl
     assert 'data-copilot-auth-button="native"' in runtime_tpl
     assert 'data-copilot-auth-button="opencode"' in runtime_tpl
+    assert 'class="space-y-2 hidden" data-copilot-auth-root' in runtime_tpl
+    assert 'class="space-y-2 hidden" data-copilot-auth-root' in settings_tpl
+    assert "Choose one authorization button to generate a GitHub Copilot token" in runtime_tpl
+    assert "GitHub Copilot authorization always uses github.com" in runtime_tpl
+    assert "Choose one authorization button to generate a GitHub Copilot token" in settings_tpl
+    assert "GitHub Copilot authorization always uses github.com" in settings_tpl
+    assert "Choose one authorization button to generate a GitHub Copilot token" in _copilot_root_block(runtime_tpl)
+    assert "GitHub Copilot authorization always uses github.com" in _copilot_root_block(runtime_tpl)
+    assert "Choose one authorization button to generate a GitHub Copilot token" in _copilot_root_block(settings_tpl)
+    assert "GitHub Copilot authorization always uses github.com" in _copilot_root_block(settings_tpl)
     assert 'setCopilotApiKeyField' in js
     assert 'querySelectorAll("[data-copilot-auth-button]")' in js
     assert 'button.classList.toggle("hidden", !isCopilot)' in js
