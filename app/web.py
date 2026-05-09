@@ -816,18 +816,21 @@ def _settings_parse_instances(
 
     def _find_existing_for_row(original_name, original_url, current_name, current_url) -> dict:
         original_pair = (_norm_identity(original_name), _norm_identity(original_url))
-        current_pair = (_norm_identity(current_name), _norm_identity(current_url))
-        for pair in (original_pair, current_pair):
-            if pair[0] or pair[1]:
-                found = by_name_url.get(pair)
-                if isinstance(found, dict):
-                    return found
-        for name in (original_pair[0], current_pair[0]):
-            found = by_name.get(name) if name else None
+        has_original_identity = bool(original_pair[0] or original_pair[1])
+        if not has_original_identity:
+            return {}
+
+        found = by_name_url.get(original_pair)
+        if isinstance(found, dict):
+            return found
+
+        if original_pair[0]:
+            found = by_name.get(original_pair[0])
             if isinstance(found, dict):
                 return found
-        for url in (original_pair[1], current_pair[1]):
-            found = by_url.get(url) if url else None
+
+        if original_pair[1]:
+            found = by_url.get(original_pair[1])
             if isinstance(found, dict):
                 return found
         return {}

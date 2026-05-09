@@ -342,6 +342,7 @@ def test_settings_merge_jira_instance_blank_secret_preserves_existing():
         {"jira": {"instances": [{"name": "J", "url": "https://a", "password": "oldp", "token": "oldt"}]}},
         {
             "__touch_jira": "1", "jira_enabled": "on", "jira_instance_count": "1",
+            "jira_instances_0_original_name": "J", "jira_instances_0_original_url": "https://a",
             "jira_instances_0_name": "J", "jira_instances_0_url": "https://a",
             "jira_instances_0_password": "", "jira_instances_0_token": "",
         },
@@ -356,6 +357,7 @@ def test_settings_merge_jira_instance_clear_secret_removes_existing():
         {"jira": {"instances": [{"name": "J", "url": "https://a", "password": "oldp", "token": "oldt"}]}},
         {
             "__touch_jira": "1", "jira_enabled": "on", "jira_instance_count": "1",
+            "jira_instances_0_original_name": "J", "jira_instances_0_original_url": "https://a",
             "jira_instances_0_name": "J", "jira_instances_0_url": "https://a",
             "jira_instances_0_password": "", "jira_instances_0_token": "",
             "jira_instances_0_password_clear": "1", "jira_instances_0_token_clear": "1",
@@ -370,6 +372,7 @@ def test_settings_merge_confluence_instance_blank_secret_preserves_existing():
         {"confluence": {"instances": [{"name": "C", "url": "https://a/wiki", "password": "oldp", "token": "oldt"}]}},
         {
             "__touch_confluence": "1", "confluence_enabled": "on", "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "C", "confluence_instances_0_original_url": "https://a/wiki",
             "confluence_instances_0_name": "C", "confluence_instances_0_url": "https://a/wiki",
             "confluence_instances_0_password": "", "confluence_instances_0_token": "",
         },
@@ -384,6 +387,7 @@ def test_settings_merge_confluence_instance_clear_secret_removes_existing():
         {"confluence": {"instances": [{"name": "C", "url": "https://a/wiki", "password": "oldp", "token": "oldt"}]}},
         {
             "__touch_confluence": "1", "confluence_enabled": "on", "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "C", "confluence_instances_0_original_url": "https://a/wiki",
             "confluence_instances_0_name": "C", "confluence_instances_0_url": "https://a/wiki",
             "confluence_instances_0_password": "", "confluence_instances_0_token": "",
             "confluence_instances_0_password_clear": "1", "confluence_instances_0_token_clear": "1",
@@ -400,6 +404,8 @@ def test_settings_merge_jira_instance_enabled_false_is_preserved_from_unchecked_
             "__touch_jira": "1",
             "jira_enabled": "on",
             "jira_instance_count": "1",
+            "jira_instances_0_original_name": "off",
+            "jira_instances_0_original_url": "https://j",
             "jira_instances_0_name": "off",
             "jira_instances_0_url": "https://j",
             "jira_instances_0_username": "u",
@@ -438,6 +444,8 @@ def test_settings_merge_confluence_instance_enabled_false_from_unchecked_checkbo
             "__touch_confluence": "1",
             "confluence_enabled": "on",
             "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "off",
+            "confluence_instances_0_original_url": "https://c",
             "confluence_instances_0_name": "off",
             "confluence_instances_0_url": "https://c",
             "confluence_instances_0_username": "u",
@@ -537,3 +545,56 @@ def test_settings_merge_jira_instance_rename_preserves_secret_by_original_identi
     )
     assert error is None
     assert merged["jira"]["instances"][0]["token"] == "TOK"
+
+def test_settings_merge_new_jira_instance_same_current_identity_does_not_inherit_old_secret():
+    merged, error = _settings_merge_payload(
+        {
+            "jira": {
+                "enabled": True,
+                "instances": [
+                    {"name": "Old", "url": "https://old", "username": "u", "token": "OLD_TOKEN"}
+                ],
+            }
+        },
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_original_name": "",
+            "jira_instances_0_original_url": "",
+            "jira_instances_0_name": "Old",
+            "jira_instances_0_url": "https://old",
+            "jira_instances_0_username": "u",
+            "jira_instances_0_token": "",
+        },
+    )
+    assert error is None
+    row = merged["jira"]["instances"][0]
+    assert row.get("token", "") == ""
+
+
+def test_settings_merge_new_confluence_instance_same_current_identity_does_not_inherit_old_secret():
+    merged, error = _settings_merge_payload(
+        {
+            "confluence": {
+                "enabled": True,
+                "instances": [
+                    {"name": "Old", "url": "https://old", "username": "u", "token": "OLD_TOKEN"}
+                ],
+            }
+        },
+        {
+            "__touch_confluence": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_original_name": "",
+            "confluence_instances_0_original_url": "",
+            "confluence_instances_0_name": "Old",
+            "confluence_instances_0_url": "https://old",
+            "confluence_instances_0_username": "u",
+            "confluence_instances_0_token": "",
+        },
+    )
+    assert error is None
+    row = merged["confluence"]["instances"][0]
+    assert row.get("token", "") == ""
