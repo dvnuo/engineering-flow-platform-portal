@@ -65,8 +65,112 @@ console.log(JSON.stringify({{a,b}}));
 """
     out = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     payload = json.loads(out.stdout.strip())
-    assert payload["a"] == ["f1"]
+    assert payload["a"] == [
+        {
+            "file_id": "f1",
+            "id": "f1",
+            "name": "f1",
+            "filename": "f1",
+            "content_type": "",
+            "mime": "",
+            "size": None,
+            "type": "file",
+            "parsed": False,
+            "parse_error": "",
+        }
+    ]
     assert payload["b"] == []
+
+
+def test_build_attachments_metadata_shape_and_parse_flags():
+    js = _source()
+    build_attachments = _extract_js_function(js, "buildAttachmentsFromChatState")
+    node_bin = shutil.which("node")
+    if not node_bin:
+      pytest.skip("node is not installed")
+    script = f"""
+{build_attachments}
+const textResult = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'f1',
+    status:'uploaded',
+    isImage:false,
+    uploadedData:{{ name:'notes.txt', content_type:'text/plain', size:12 }}
+  }}]
+}});
+const imageResult = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'img1',
+    status:'uploaded',
+    isImage:true,
+    uploadedData:{{ name:'cat.png', content_type:'image/png', size:99 }},
+    previewUrl:'blob:http://local/abc'
+  }}]
+}});
+const parsedOkResult = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'f2',
+    status:'uploaded',
+    uploadedData:{{ name:'a.csv', content_type:'text/csv', size:5 }},
+    parseData:{{ success:true }}
+  }}]
+}});
+const parseFailedResult = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'pdf1',
+    status:'uploaded',
+    uploadedData:{{ name:'a.pdf', content_type:'application/pdf', size:123 }},
+    parseError:'unsupported_file_type',
+    parseData:null
+  }}]
+}});
+const filtered = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[
+    {{ file_id:'u1', status:'uploading' }},
+    {{ file_id:'p1', status:'parsing' }},
+    {{ file_id:'f1', status:'failed' }},
+    {{ status:'uploaded', uploadedData:{{ name:'nofileid.txt' }} }}
+  ]
+}});
+console.log(JSON.stringify({{
+  textResult,
+  imageResult,
+  parsedOkResult,
+  parseFailedResult,
+  filtered,
+  imageStringified: JSON.stringify(imageResult),
+}}));
+"""
+    out = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(out.stdout.strip())
+    assert payload["textResult"] == [
+        {
+            "file_id": "f1",
+            "id": "f1",
+            "name": "notes.txt",
+            "filename": "notes.txt",
+            "content_type": "text/plain",
+            "mime": "text/plain",
+            "size": 12,
+            "type": "file",
+            "parsed": False,
+            "parse_error": "",
+        }
+    ]
+    image_attachment = payload["imageResult"][0]
+    assert image_attachment["type"] == "image"
+    assert image_attachment["content_type"] == "image/png"
+    assert image_attachment["mime"] == "image/png"
+    assert image_attachment["name"] == "cat.png"
+    assert "previewUrl" not in image_attachment
+    assert "url" not in image_attachment
+    assert "dataUrl" not in image_attachment
+    assert "blob:" not in payload["imageStringified"]
+    assert payload["parsedOkResult"][0]["parsed"] is True
+    assert len(payload["parseFailedResult"]) == 1
+    assert payload["parseFailedResult"][0]["parsed"] is False
+    assert payload["parseFailedResult"][0]["parse_error"] == "unsupported_file_type"
+    assert payload["filtered"] == []
 
 
 def test_retry_and_edit_do_not_restore_history_attachments_hidden_input():
