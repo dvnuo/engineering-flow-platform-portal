@@ -5425,7 +5425,7 @@ function addInstanceRow(root, group) {
     ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
     : `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`;
 
-  const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /><label class="portal-checkbox-row"><input type="checkbox" data-clear-field="password" value="1" /><span>Clear saved password</span></label>`;
+  const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" />`;
 
   div.innerHTML = `
     <input type="hidden" data-original-field="name" value="" />
@@ -5437,7 +5437,7 @@ function addInstanceRow(root, group) {
     </div>
     <div class="portal-panel-grid cols-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" /></div>
     <div class="portal-panel-grid cols-2">${usernamePasswordHtml}</div>
-    <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" /><label class="portal-checkbox-row"><input type="checkbox" data-clear-field="token" value="1" /><span>Clear saved token</span></label>${projectHtml}</div>
+    <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${projectHtml}</div>
   `;
   container.append(div);
   normalizeInstanceInputs(root, group);
