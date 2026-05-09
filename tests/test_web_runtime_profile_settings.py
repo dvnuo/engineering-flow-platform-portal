@@ -509,58 +509,52 @@ def test_settings_save_rejects_invalid_temperature(monkeypatch):
         cleanup()
 
 
-def test_templates_and_js_include_copilot_oauth_fields_and_helpers():
+
+
+def _copilot_root_block(text: str) -> str:
+    start = text.index('data-copilot-auth-root')
+    end = text.index('<div class="portal-settings-section-title"', start)
+    return text[start:end]
+
+def test_templates_and_js_include_copilot_auth_buttons_and_api_key_flow():
     from pathlib import Path
     runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text()
     settings_tpl = Path("app/templates/partials/settings_panel.html").read_text()
     js = Path("app/static/js/chat_ui.js").read_text()
-    assert 'name="llm_oauth_native_access"' in runtime_tpl
-    assert 'name="llm_oauth_opencode_access"' in runtime_tpl
-    assert 'name="llm_oauth_native_access"' in settings_tpl
-    assert 'name="llm_oauth_opencode_access"' in settings_tpl
-    assert 'name="llm_oauth_access"' not in runtime_tpl
-    assert 'name="llm_oauth_access"' not in settings_tpl
+    assert 'name="llm_api_key"' in runtime_tpl
+    assert 'name="llm_api_key"' in settings_tpl
+    assert 'llm_oauth_native' not in runtime_tpl
+    assert 'llm_oauth_opencode' not in runtime_tpl
+    assert 'llm_oauth_native' not in settings_tpl
+    assert 'llm_oauth_opencode' not in settings_tpl
+    assert 'data-copilot-auth-status' not in runtime_tpl
+    assert 'data-copilot-status-text' not in runtime_tpl
+    assert 'data-copilot-auth-status' not in settings_tpl
+    assert 'data-copilot-status-text' not in settings_tpl
     assert 'data-copilot-auth-button="native"' in runtime_tpl
     assert 'data-copilot-auth-button="opencode"' in runtime_tpl
-    assert 'setCopilotOAuthFields' in js
-    assert 'clearCopilotOAuthFields' in js
+    assert 'class="space-y-2 hidden" data-copilot-auth-root' in runtime_tpl
+    assert 'class="space-y-2 hidden" data-copilot-auth-root' in settings_tpl
+    assert "Choose one authorization button to generate a GitHub Copilot token" in runtime_tpl
+    assert "GitHub Copilot authorization always uses github.com" in runtime_tpl
+    assert "Choose one authorization button to generate a GitHub Copilot token" in settings_tpl
+    assert "GitHub Copilot authorization always uses github.com" in settings_tpl
+    assert "Choose one authorization button to generate a GitHub Copilot token" in _copilot_root_block(runtime_tpl)
+    assert "GitHub Copilot authorization always uses github.com" in _copilot_root_block(runtime_tpl)
+    assert "Choose one authorization button to generate a GitHub Copilot token" in _copilot_root_block(settings_tpl)
+    assert "GitHub Copilot authorization always uses github.com" in _copilot_root_block(settings_tpl)
+    assert 'setCopilotApiKeyField' in js
+    assert 'querySelectorAll("[data-copilot-auth-button]")' in js
+    assert 'button.classList.toggle("hidden", !isCopilot)' in js
+    assert 'Authorization completed, but no token was returned' in js
+    assert 'const updated = setCopilotApiKeyField(root, token)' in js
+    assert 'setCopilotOAuthFields' not in js
+    assert 'clearCopilotOAuthFields' not in js
     assert "Clear saved password" not in js
     assert "Clear saved token" not in js
     assert 'data-clear-field="password"' not in js
     assert 'data-clear-field="token"' not in js
 
-
-def test_runtime_profile_panel_save_preserves_existing_oauth_when_hidden_fields_blank(monkeypatch):
-    client, db, agent, cleanup = _build_client(monkeypatch)
-    try:
-        rp = _bind_profile(db, agent, {"llm":{"provider":"github_copilot","model":"gpt-5.4-mini","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":0}}})
-        get_resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
-        assert get_resp.status_code == 200
-        assert "gho_A" not in get_resp.text
-        assert "gho_R" not in get_resp.text
-
-        save_resp = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={
-                "__touch_llm": "1",
-                "llm_provider": "github_copilot",
-                "llm_model": "gpt-5.4-mini",
-                "llm_api_key": "",
-                "llm_oauth_type": "oauth",
-                "llm_oauth_access": "",
-                "llm_oauth_refresh": "",
-                "llm_oauth_expires": "0",
-            },
-        )
-        assert save_resp.status_code == 200
-        db.refresh(rp)
-        saved = json.loads(rp.config_json)
-        assert saved["llm"]["oauth_by_runtime"]["opencode"]["access"] == "gho_A"
-        assert saved["llm"]["oauth_by_runtime"]["opencode"]["refresh"] == "gho_R"
-        assert "oauth" not in saved["llm"]
-        assert "native" not in saved["llm"]["oauth_by_runtime"]
-    finally:
-        cleanup()
 
 def test_templates_include_copilot_result_summary_notes():
     from pathlib import Path
@@ -568,5 +562,5 @@ def test_templates_include_copilot_result_summary_notes():
     settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     assert 'data-copilot-result-summary' in runtime_tpl
     assert 'data-copilot-result-summary' in settings_tpl
-    assert 'Saved OAuth credential present for OpenCode Runtime. Token is hidden.' in runtime_tpl
-    assert 'Saved OAuth credential present for OpenCode Runtime. Token is hidden.' in settings_tpl
+    assert 'Saved OAuth credential present' not in runtime_tpl
+    assert 'Saved OAuth credential present' not in settings_tpl

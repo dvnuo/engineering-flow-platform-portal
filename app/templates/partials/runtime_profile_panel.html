@@ -66,46 +66,21 @@
         Temperature is only available for exact gpt-4. Other models omit this deprecated parameter.
       </div>
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="API key" class="portal-form-input" /></label>
-      {% set oauth_by_runtime = raw_llm.get('oauth_by_runtime', {}) if raw_llm.get('oauth_by_runtime') is mapping else {} %}
-      {% set native_oauth_candidate = oauth_by_runtime.get('native') %}
-      {% set opencode_oauth_candidate = oauth_by_runtime.get('opencode') %}
-      {% set native_oauth = native_oauth_candidate if native_oauth_candidate is mapping else {} %}
-      {% set opencode_oauth = opencode_oauth_candidate if opencode_oauth_candidate is mapping else (raw_llm.get('oauth', {}) if raw_llm.get('oauth') is mapping else {}) %}
-      <input type="hidden" name="llm_oauth_native_type" value="{{ native_oauth.get('type', '') }}" />
-      <input type="hidden" name="llm_oauth_native_access" value="" />
-      <input type="hidden" name="llm_oauth_native_refresh" value="" />
-      <input type="hidden" name="llm_oauth_native_present" value="{{ '1' if native_oauth else '' }}" />
-      <input type="hidden" name="llm_oauth_native_clear" value="" />
-      <input type="hidden" name="llm_oauth_native_expires" value="{{ native_oauth.get('expires', '') }}" />
-      <input type="hidden" name="llm_oauth_native_enterprise_url" value="{{ native_oauth.get('enterpriseUrl', '') }}" />
-      <input type="hidden" name="llm_oauth_native_account_id" value="{{ native_oauth.get('accountId', '') }}" />
-      <input type="hidden" name="llm_oauth_opencode_type" value="{{ opencode_oauth.get('type', '') }}" />
-      <input type="hidden" name="llm_oauth_opencode_access" value="" />
-      <input type="hidden" name="llm_oauth_opencode_refresh" value="" />
-      <input type="hidden" name="llm_oauth_opencode_present" value="{{ '1' if opencode_oauth else '' }}" />
-      <input type="hidden" name="llm_oauth_opencode_clear" value="" />
-      <input type="hidden" name="llm_oauth_opencode_expires" value="{{ opencode_oauth.get('expires', '') }}" />
-      <input type="hidden" name="llm_oauth_opencode_enterprise_url" value="{{ opencode_oauth.get('enterpriseUrl', '') }}" />
-      <input type="hidden" name="llm_oauth_opencode_account_id" value="{{ opencode_oauth.get('accountId', '') }}" />
-      <div class="space-y-2" data-copilot-auth-card="native">
+      <div class="space-y-2 hidden" data-copilot-auth-root>
         <button type="button" data-copilot-auth-button="native" class="portal-btn is-secondary hidden">Authorize GitHub Copilot for EFP Runtime</button>
-        <div class="portal-form-input hidden" data-copilot-auth-status>
-          <div class="portal-settings-section-head"><span class="portal-inline-note">Status:</span><span data-copilot-status-text class="portal-inline-note">{{ 'Authorized' if native_oauth else 'Not authorized' }}</span></div>
-          <div class="portal-inline-note {% if native_oauth %}{% else %}hidden{% endif %}" data-copilot-result-summary>
-            {% if native_oauth %}Saved OAuth credential present for EFP Runtime. Token is hidden.{% endif %}
-          </div>
-          <div class="hidden space-y-2" data-copilot-instructions><p class="portal-inline-note">Step 1: Click the link below to authorize</p><a href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a><p class="portal-inline-note">Step 2: Copy this code</p><div class="flex items-center gap-2"><span class="portal-detail-code" data-copilot-user-code></span><button type="button" class="portal-btn is-secondary" data-copilot-copy-button>Copy</button></div><p class="portal-inline-note">Step 3: Click to complete authorization</p><a href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all" data-copilot-device-link>Complete Authorization →</a><div class="flex items-center gap-2 mt-2"><span class="portal-inline-note" data-copilot-timer></span></div></div>
-        </div>
-      </div>
-      <div class="space-y-2" data-copilot-auth-card="opencode">
         <button type="button" data-copilot-auth-button="opencode" class="portal-btn is-secondary hidden">Authorize GitHub Copilot for OpenCode Runtime</button>
-        <div class="portal-form-input hidden" data-copilot-auth-status>
-          <div class="portal-settings-section-head"><span class="portal-inline-note">Status:</span><span data-copilot-status-text class="portal-inline-note">{{ 'Authorized' if opencode_oauth else 'Not authorized' }}</span></div>
-          <div class="portal-inline-note {% if opencode_oauth %}{% else %}hidden{% endif %}" data-copilot-result-summary>
-            {% if opencode_oauth %}Saved OAuth credential present for OpenCode Runtime. Token is hidden.{% endif %}
-          </div>
-          <div class="hidden space-y-2" data-copilot-instructions><p class="portal-inline-note">Step 1: Click the link below to authorize</p><a href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a><p class="portal-inline-note">Step 2: Copy this code</p><div class="flex items-center gap-2"><span class="portal-detail-code" data-copilot-user-code></span><button type="button" class="portal-btn is-secondary" data-copilot-copy-button>Copy</button></div><p class="portal-inline-note">Step 3: Click to complete authorization</p><a href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all" data-copilot-device-link>Complete Authorization →</a><div class="flex items-center gap-2 mt-2"><span class="portal-inline-note" data-copilot-timer></span></div></div>
+        <div class="portal-form-input hidden" data-copilot-instructions>
+          <p class="portal-inline-note">Step 1: Click the link below to authorize</p>
+          <a href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a>
+          <p class="portal-inline-note">Step 2: Copy this code</p>
+          <div class="flex items-center gap-2"><span class="portal-detail-code" data-copilot-user-code></span><button type="button" class="portal-btn is-secondary" data-copilot-copy-button>Copy</button></div>
+          <p class="portal-inline-note">Step 3: Click to complete authorization</p>
+          <a href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all" data-copilot-device-link>Complete Authorization →</a>
+          <div class="flex items-center gap-2 mt-2"><span class="portal-inline-note" data-copilot-timer></span></div>
         </div>
+        <div class="portal-inline-note hidden" data-copilot-result-summary></div>
+              <div class="portal-inline-note" data-copilot-auth-help>Choose one authorization button to generate a GitHub Copilot token. After authorization completes, Portal fills the API Key field. Click Save Settings to persist it.</div>
+        <div class="portal-inline-note" data-copilot-auth-help>GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL.</div>
       </div>
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Enabled Tools</h6></div>
       <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="inherit" {% if raw_llm_tools_mode == 'inherit' %}checked{% endif %} /> Use runtime local default</label></div>
@@ -124,8 +99,6 @@
         </div>
         <button type="button" class="portal-btn is-secondary" data-action="add-llm-tool-pattern">+ Add pattern</button>
       </div>
-      <div class="portal-inline-note">GitHub Copilot uses separate Portal-managed OAuth credentials for EFP Runtime and OpenCode Runtime. Saved tokens are not rendered in HTML. Save after authorization to persist.</div>
-      <div class="portal-inline-note">GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL above.</div>
       <div class="portal-inline-note">Supports * wildcard (examples: git_clone, jira_*). This controls runtime tools, not prompt rendering (system-prompt.tools.enabled is separate). Empty custom rows are ignored.</div>
       {% set raw_response_flow = raw_llm.get('response_flow', {}) %}
       {% include 'partials/_response_flow_fields.html' %}

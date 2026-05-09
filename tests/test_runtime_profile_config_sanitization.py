@@ -33,8 +33,8 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
     }
     red = redact_runtime_profile_config_for_public_response(cfg)
     assert "api_key" not in red["llm"] and red["llm"]["api_key_present"] is True
-    assert "access" not in red["llm"]["oauth"] and "refresh" not in red["llm"]["oauth"]
-    assert "access" not in red["llm"]["oauth_by_runtime"]["opencode"]
+    assert "oauth" not in red["llm"]
+    assert "oauth_by_runtime" not in red["llm"]
     assert "api_token" not in red["github"] and red["github"]["api_token_present"] is True
     assert "password" not in red["proxy"] and red["proxy"]["password_present"] is True
     assert "password" not in red["jira"]["instances"][0] and red["jira"]["instances"][0]["password_present"] is True
@@ -134,3 +134,36 @@ def test_public_redaction_never_exposes_raw_secret_literals():
     assert red["jira"]["instances"][0]["token_present"] is True
     assert red["confluence"]["instances"][0]["password_present"] is True
     assert red["confluence"]["instances"][0]["token_present"] is True
+
+
+def test_copilot_legacy_oauth_by_runtime_migrates_to_api_key():
+    raw = {
+        "llm": {
+            "provider": "github_copilot",
+            "oauth_by_runtime": {
+                "opencode": {"type": "oauth", "access": "O", "refresh": "O", "expires": 0},
+                "native": {"type": "oauth", "access": "N", "refresh": "N", "expires": 0},
+            },
+        }
+    }
+    sanitized = sanitize_runtime_profile_config_dict(raw)
+    assert sanitized["llm"]["api_key"] == "O"
+    assert "oauth" not in sanitized["llm"]
+    assert "oauth_by_runtime" not in sanitized["llm"]
+
+
+def test_non_copilot_provider_does_not_migrate_stale_oauth_token():
+    raw = {
+        "llm": {
+            "provider": "openai",
+            "model": "gpt-4",
+            "oauth_by_runtime": {
+                "opencode": {"type": "oauth", "access": "COPILOT_TOKEN", "refresh": "COPILOT_TOKEN", "expires": 0}
+            },
+        }
+    }
+    sanitized = sanitize_runtime_profile_config_dict(raw)
+    assert sanitized["llm"]["provider"] == "openai"
+    assert "api_key" not in sanitized["llm"]
+    assert "oauth" not in sanitized["llm"]
+    assert "oauth_by_runtime" not in sanitized["llm"]
