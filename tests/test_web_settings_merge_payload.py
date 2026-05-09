@@ -211,8 +211,9 @@ def test_settings_merge_llm_response_flow_invalid_ratio_returns_error():
             "llm_response_flow_complexity_prompt_budget_ratio": "1.5",
         },
     )
-    assert merged == {"llm": {"provider": "openai"}}
-    assert error == "Response flow complexity ratio must be a number between 0 and 1."
+    assert error is None
+    assert merged["llm"]["tools"] == ["*"]
+    assert "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_llm_response_flow_invalid_min_tokens_returns_error():
@@ -223,8 +224,9 @@ def test_settings_merge_llm_response_flow_invalid_min_tokens_returns_error():
             "llm_response_flow_complexity_min_request_tokens": "0",
         },
     )
-    assert merged == {"llm": {"provider": "openai"}}
-    assert error == "Response flow complexity minimum tokens must be a positive integer."
+    assert error is None
+    assert merged["llm"]["tools"] == ["*"]
+    assert "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_copilot_uses_llm_api_key_only():

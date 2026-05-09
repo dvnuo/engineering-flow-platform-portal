@@ -167,14 +167,14 @@ def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(m
         assert resp.status_code == 200
         db.refresh(rp)
         assert json.loads(rp.config_json) == {
-            "llm": {"provider": "openai"},
+            "llm": {"provider": "openai", "tools": ["*"]},
             "debug": {"enabled": True, "log_level": "ERROR"},
         }
     finally:
         cleanup()
 
 
-def test_runtime_profile_save_rejects_nan_temperature(monkeypatch):
+def test_runtime_profile_save_ignores_hidden_nan_temperature_and_cleans_stale_value(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
         rp.config_json = json.dumps({"llm": {"provider": "openai", "model": "gpt-4", "temperature": 0.4}})
@@ -200,15 +200,16 @@ def test_runtime_profile_save_rejects_nan_temperature(monkeypatch):
             },
         )
         assert resp.status_code == 200
-        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." in resp.text
+        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." not in resp.text
         db.refresh(rp)
         saved = json.loads(rp.config_json)
-        assert saved["llm"]["temperature"] == 0.4
+        assert "temperature" not in saved["llm"]
+        assert saved["llm"]["tools"] == ["*"]
     finally:
         cleanup()
 
 
-def test_runtime_profile_name_only_save_keeps_sparse_config_unchanged(monkeypatch):
+def test_runtime_profile_name_only_save_canonicalizes_sparse_config(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
         rp.config_json = "{}"
@@ -235,7 +236,7 @@ def test_runtime_profile_name_only_save_keeps_sparse_config_unchanged(monkeypatc
         db.refresh(rp)
         assert rp.name == "Metadata Only"
         assert rp.description == "still sparse"
-        assert json.loads(rp.config_json) == {}
+        assert json.loads(rp.config_json) == {"llm": {"tools": ["*"]}}
     finally:
         cleanup()
 
@@ -289,7 +290,7 @@ def test_runtime_profile_save_sparse_llm_tools_none_does_not_inject_provider_or_
         )
         assert resp.status_code == 200
         db.refresh(rp)
-        assert json.loads(rp.config_json) == {"llm": {"tools": []}}
+        assert json.loads(rp.config_json) == {"llm": {"tools": ["*"]}}
     finally:
         cleanup()
 
@@ -304,14 +305,14 @@ def test_runtime_profile_panel_get_renders_llm_tools_custom_patterns(monkeypatch
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
         assert 'name="llm_tools_mode"' not in resp.text
-        assert "git_clone" in resp.text
-        assert "jira_*" in resp.text
+        assert "git_clone" not in resp.text
+        assert "jira_*" not in resp.text
         assert 'data-action="add-llm-tool-pattern"' not in resp.text
     finally:
         cleanup()
 
 
-def test_runtime_profile_panel_get_renders_llm_tools_none_mode(monkeypatch):
+def test_runtime_profile_panel_hides_llm_tools_controls(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
         rp.config_json = json.dumps({"llm": {"tools": []}})
@@ -320,14 +321,14 @@ def test_runtime_profile_panel_get_renders_llm_tools_none_mode(monkeypatch):
 
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
-        assert 'name="llm_tools_mode"' in resp.text
-        assert 'name="llm_tools_mode" value="none" checked' in resp.text
-        assert 'data-llm-tools-editor class="space-y-2 hidden"' in resp.text
+        assert 'name="llm_tools_mode"' not in resp.text
+        assert 'name="llm_tools_count"' not in resp.text
+        assert "data-llm-tools-editor" not in resp.text
     finally:
         cleanup()
 
 
-def test_runtime_profile_panel_response_flow_controls_render(monkeypatch):
+def test_runtime_profile_panel_hides_response_flow_controls(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
         rp.config_json = json.dumps({"llm": {"provider": "openai"}})
@@ -337,32 +338,8 @@ def test_runtime_profile_panel_response_flow_controls_render(monkeypatch):
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
         assert "Response Flow" not in resp.text
-        assert 'name="llm_response_flow_plan_policy"' in resp.text
-        assert 'name="llm_response_flow_staging_policy"' in resp.text
-        assert 'name="llm_response_flow_default_skill_execution_style"' in resp.text
-        assert 'name="llm_response_flow_ask_user_policy"' in resp.text
-        assert 'name="llm_response_flow_active_skill_conflict_policy"' in resp.text
-        assert 'name="llm_response_flow_complexity_prompt_budget_ratio"' in resp.text
-        assert 'name="llm_response_flow_complexity_min_request_tokens"' in resp.text
-        assert "Use runtime local default" in resp.text
-        assert "Ordinary requests should complete directly" in resp.text
-        assert "explicit request or truly complex work" in resp.text
-        assert "near/over runtime budget" in resp.text
-        assert "not plan-first or staged-first" in resp.text
-        assert "Plan policy controls only up-front planning" in resp.text
-        assert "phase-by-phase/manifest-first continuation" in resp.text
-        assert "independent from ask_user_policy" in resp.text
-        assert "skill frontmatter" in resp.text
-        assert "active_skill_conflict_policy" in resp.text
-        assert "auto_switch_direct switches on clear new requests" in resp.text
-        assert "always_ask keeps the current direct skill" in resp.text
-        assert "stepwise/required-plan/required-staging active skills" in resp.text
-        assert "replying to a blocking skill question" in resp.text
-        assert "independent new requests should leave the old active skill" in resp.text
-        assert "prior staged generation flow is not session-sticky" in resp.text
-        assert "explicit continue/next signals should resume it" in resp.text
-        assert "restart staged mode only if the new request explicitly asks for staged output or is truly complex" in resp.text
-        assert "not persisted" in resp.text
+        assert "llm_response_flow_" not in resp.text
+        assert "plan_policy" not in resp.text
     finally:
         cleanup()
 
@@ -397,6 +374,7 @@ def test_runtime_profile_save_persists_response_flow_nested_dict(monkeypatch):
         db.refresh(rp)
         saved = json.loads(rp.config_json)
         assert "response_flow" not in saved["llm"]
+        assert saved["llm"]["tools"] == ["*"]
 
         clear_resp = client.post(
             f"/app/runtime-profiles/{rp.id}/save",
@@ -424,6 +402,57 @@ def test_runtime_profile_save_persists_response_flow_nested_dict(monkeypatch):
         db.refresh(rp)
         cleared = json.loads(rp.config_json)
         assert "response_flow" not in cleared["llm"]
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_save_ignores_hidden_llm_advanced_fields(monkeypatch):
+    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        rp.config_json = json.dumps(
+            {
+                "llm": {
+                    "provider": "openai",
+                    "model": "gpt-4",
+                    "temperature": 0.1,
+                    "tools": [],
+                    "response_flow": {"plan_policy": "always"},
+                }
+            }
+        )
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        resp = client.post(
+            f"/app/runtime-profiles/{rp.id}/save",
+            data={
+                "__touch_llm": "1",
+                "__touch_proxy": "0",
+                "__touch_jira": "0",
+                "__touch_confluence": "0",
+                "__touch_github": "0",
+                "__touch_git": "0",
+                "__touch_debug": "0",
+                "name": rp.name,
+                "description": rp.description or "",
+                "llm_provider": "openai",
+                "llm_model": "gpt-4",
+                "llm_temperature": "nan",
+                "llm_tools_mode": "none",
+                "llm_tools_count": "1",
+                "llm_tools_0_pattern": "jira_*",
+                "llm_response_flow_plan_policy": "always",
+                "llm_response_flow_complexity_prompt_budget_ratio": "bad",
+                "llm_response_flow_complexity_min_request_tokens": "bad",
+            },
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        saved = json.loads(rp.config_json)
+        assert saved["llm"]["tools"] == ["*"]
+        assert "temperature" not in saved["llm"]
+        assert "response_flow" not in saved["llm"]
     finally:
         cleanup()
 

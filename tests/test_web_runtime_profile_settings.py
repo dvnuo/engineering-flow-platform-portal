@@ -120,8 +120,8 @@ def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
         assert resp.status_code == 200
         assert 'name="llm_tools_mode"' not in resp.text
         assert 'name="llm_tools_count"' not in resp.text
-        assert "git_clone" in resp.text
-        assert "jira_*" in resp.text
+        assert "git_clone" not in resp.text
+        assert "jira_*" not in resp.text
     finally:
         cleanup()
 
@@ -236,7 +236,7 @@ def test_settings_save_sparse_llm_tools_none_does_not_inject_provider_or_model(m
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg == {"llm": {"tools": []}}
+        assert cfg == {"llm": {"tools": ["*"]}}
     finally:
         cleanup()
 
@@ -297,7 +297,7 @@ def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypa
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg == {"debug": {"enabled": True, "log_level": "DEBUG"}}
+        assert cfg == {"llm": {"tools": ["*"]}, "debug": {"enabled": True, "log_level": "DEBUG"}}
     finally:
         cleanup()
 
@@ -370,44 +370,14 @@ def test_bindings_panel_available_without_runtime_profile(monkeypatch):
         cleanup()
 
 
-def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
+def test_settings_panel_hides_response_flow_controls_and_ignores_submitted_values(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"llm": {"provider": "openai"}})
         panel = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert panel.status_code == 200
         assert "Response Flow" not in panel.text
-        assert 'name="llm_response_flow_plan_policy"' in panel.text
-        assert 'name="llm_response_flow_staging_policy"' in panel.text
-        assert 'name="llm_response_flow_default_skill_execution_style"' in panel.text
-        assert 'name="llm_response_flow_ask_user_policy"' in panel.text
-        assert 'name="llm_response_flow_active_skill_conflict_policy"' in panel.text
-        assert 'name="llm_response_flow_complexity_prompt_budget_ratio"' in panel.text
-        assert 'name="llm_response_flow_complexity_min_request_tokens"' in panel.text
-        assert "Use runtime local default" in panel.text
-        assert "Default skill execution style" in panel.text
-        assert "ASK_USER policy" in panel.text
-        assert "Active skill conflict policy" in panel.text
-        assert "Ordinary requests should complete directly" in panel.text
-        assert "explicit request or truly complex work" in panel.text
-        assert "near/over runtime budget" in panel.text
-        assert "not plan-first or staged-first" in panel.text
-        assert "Plan policy controls only up-front planning" in panel.text
-        assert "phase-by-phase/manifest-first continuation" in panel.text
-        assert "independent from ask_user_policy" in panel.text
-        assert "skill frontmatter" in panel.text
-        assert "active_skill_conflict_policy are global defaults" in panel.text
-        assert "does not declare the corresponding field" in panel.text
-        assert "direct active skills" in panel.text
-        assert "auto_switch_direct switches on clear new requests" in panel.text
-        assert "always_ask keeps the current direct skill" in panel.text
-        assert "stepwise/required-plan/required-staging active skills" in panel.text
-        assert "replying to a blocking skill question" in panel.text
-        assert "independent new requests should leave the old active skill" in panel.text
-        assert "prior staged generation flow is not session-sticky" in panel.text
-        assert "explicit continue/next signals should resume it" in panel.text
-        assert "restart staged mode only if the new request explicitly asks for staged output or is truly complex" in panel.text
-        assert "not persisted" in panel.text
+        assert "llm_response_flow_" not in panel.text
 
         save = client.post(
             f"/app/agents/{agent.id}/settings/save",
@@ -427,15 +397,8 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
         assert cfg["llm"]["provider"] == "openai"
-        assert cfg["llm"]["response_flow"] == {
-            "plan_policy": "explicit_or_complex",
-            "staging_policy": "always",
-            "default_skill_execution_style": "direct",
-            "ask_user_policy": "blocked_only",
-            "active_skill_conflict_policy": "always_ask",
-            "complexity_prompt_budget_ratio": 0.85,
-            "complexity_min_request_tokens": 24000,
-        }
+        assert cfg["llm"]["tools"] == ["*"]
+        assert "response_flow" not in cfg["llm"]
     finally:
         cleanup()
 
@@ -472,7 +435,7 @@ def test_settings_save_blank_temperature_removes_override(monkeypatch):
         cleanup()
 
 
-def test_settings_save_rejects_invalid_temperature(monkeypatch):
+def test_settings_save_ignores_invalid_temperature(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"llm": {"provider": "openai", "model": "gpt-4", "temperature": 0.4}})
@@ -481,30 +444,30 @@ def test_settings_save_rejects_invalid_temperature(monkeypatch):
             data={"__touch_llm": "1", "llm_provider": "openai", "llm_model": "gpt-4", "llm_temperature": "2.5"},
         )
         assert resp.status_code == 200
-        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." in resp.text
+        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." not in resp.text
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["temperature"] == 0.4
+        assert "temperature" not in cfg["llm"]
 
         resp_negative = client.post(
             f"/app/agents/{agent.id}/settings/save",
             data={"__touch_llm": "1", "llm_provider": "openai", "llm_model": "gpt-4", "llm_temperature": "-0.1"},
         )
         assert resp_negative.status_code == 200
-        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." in resp_negative.text
+        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." not in resp_negative.text
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["temperature"] == 0.4
+        assert "temperature" not in cfg["llm"]
 
         resp_nan = client.post(
             f"/app/agents/{agent.id}/settings/save",
             data={"__touch_llm": "1", "llm_provider": "openai", "llm_model": "gpt-4", "llm_temperature": "NaN"},
         )
         assert resp_nan.status_code == 200
-        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." in resp_nan.text
+        assert "Temperature is only supported for gpt-4 and must be a number between 0 and 2." not in resp_nan.text
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["temperature"] == 0.4
+        assert "temperature" not in cfg["llm"]
     finally:
         cleanup()
 
