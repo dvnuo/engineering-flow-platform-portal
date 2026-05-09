@@ -751,14 +751,71 @@ function normalizeSkillCommand(raw) {
   return skillName ? `/${skillName}` : "";
 }
 
+function parseSkillSlashInput(text) {
+  const raw = String(text || "").trim();
+  const match = raw.match(/^\/([A-Za-z0-9][A-Za-z0-9_-]*)(?:\s+(.*))?$/);
+  if (!match) return null;
+  const rawName = match[1];
+  const normalizedName = rawName.trim().toLowerCase().replaceAll("_", "-");
+  return {
+    rawName,
+    name: normalizedName,
+    arguments: match[2] || "",
+    command: `/${normalizedName}`,
+  };
+}
+
 function toSkillSuggestion(item) {
-  const name = typeof item === "string" ? item : (item?.name || "");
-  const command = normalizeSkillCommand(name);
+  const skill = (item && typeof item === "object") ? item : null;
+  const name = typeof item === "string" ? item : (skill?.name || skill?.opencode_name || skill?.efp_name || "");
+  const normalizedName = String(name || "").trim().toLowerCase().replaceAll("_", "-");
+  const command = normalizeSkillCommand(normalizedName);
+  const blockedReason = skill?.blocked_reason || "";
+  const compatibilityWarnings = Array.isArray(skill?.compatibility_warnings) ? skill.compatibility_warnings.filter(Boolean).join(" · ") : "";
+  const isCallable = skill?.callable !== false;
+  const status = isCallable ? "" : "Not callable";
+  const descBase = typeof item === "string" ? "Skill" : (skill?.description || "Skill");
+  const desc = [descBase, status, blockedReason || compatibilityWarnings].filter(Boolean).join(" · ");
+  const missingTools = Array.isArray(skill?.missing_tools) ? skill.missing_tools.join(", ") : "";
+  const missingOpencodeTools = Array.isArray(skill?.missing_opencode_tools) ? skill.missing_opencode_tools.join(", ") : "";
+  const titleText = [blockedReason, compatibilityWarnings].filter(Boolean).join(" · ");
   return {
     label: command,
     command,
-    desc: typeof item === "string" ? "Skill" : (item?.description || "Skill"),
+    desc,
+    title: titleText,
+    callable: isCallable,
+    blocked_reason: blockedReason,
+    opencode_compatibility: skill?.opencode_compatibility || "",
+    runtime_equivalence: skill?.runtime_equivalence ?? "",
+    programmatic: skill?.programmatic,
+    permission_state: skill?.permission_state || "",
+    missing_tools: missingTools,
+    missing_opencode_tools: missingOpencodeTools,
+    opencode_name: skill?.opencode_name || "",
+    efp_name: skill?.efp_name || "",
+    name: skill?.name || normalizedName,
   };
+}
+
+function getCachedSkillsForAgent(agentId = state.selectedAgentId) {
+  if (!agentId) return [];
+  const cached = state.cachedSkillsByAgent.get(agentId);
+  if (Array.isArray(cached)) return cached;
+  return Array.isArray(state.cachedSkills) ? state.cachedSkills : [];
+}
+
+function findCachedSkillForSlash(invocation, agentId = state.selectedAgentId) {
+  if (!invocation) return null;
+  const target = invocation.name;
+  return getCachedSkillsForAgent(agentId).find((skill) => {
+    const names = [
+      skill?.name,
+      skill?.opencode_name,
+      skill?.efp_name,
+    ].filter(Boolean).map((x) => String(x).trim().toLowerCase().replaceAll("_", "-"));
+    return names.includes(target);
+  }) || null;
 }
 
 function canWriteAgent(agent) {
@@ -1151,6 +1208,11 @@ function getThinkingEventDisplay(event) {
     "permission.requested": { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
     "permission.resolved": { icon: "shield-check", title: "Permission Resolved", detail: data.message || "Permission resolved" },
     "skill.loaded": { icon: "zap", title: "Skill Loaded", detail: data.skill || data.message || "Skill loaded" },
+    "skill.detected": { icon: "zap", title: "Skill Detected", detail: data.skill || data.message || "Skill detected" },
+    "skill.blocked": { icon: "shield-alert", title: "Skill Blocked", detail: data.reason || data.blocked_reason || data.message || "Skill blocked" },
+    "skill.command.executed": { icon: "terminal", title: "Skill Command Executed", detail: data.command || data.message || "Skill command executed" },
+    "skill.prompt_applied": { icon: "layers", title: "Skill Prompt Applied", detail: data.skill || data.message || "Skill prompt applied" },
+    "skill.completed": { icon: "check-square", title: "Skill Completed", detail: data.message || "Skill completed" },
     "task.started": { icon: "list-start", title: "Task Started", detail: data.message || "Task started" },
     "task.completed": { icon: "list-checks", title: "Task Completed", detail: data.message || "Task completed" },
     "usage.updated": { icon: "gauge", title: "Usage Updated", detail: data.message || "Usage updated" },
@@ -2978,6 +3040,36 @@ async function submitChatForSelectedAgent() {
     client_request_id: clientRequestId,
     ...(modelOverride && modelOverride !== defaultModel ? { model_override: modelOverride } : {}),
   };
+  const slashInvocation = parseSkillSlashInput(messageAtSend);
+  const matchedSkill = findCachedSkillForSlash(slashInvocation, agentIdAtSend);
+  if (slashInvocation && matchedSkill && matchedSkill.callable === false) {
+    showToast(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.");
+    setChatStatus(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.", true);
+    chatState.activeRequest = null;
+    setChatSubmittingForAgent(agentIdAtSend, false);
+    return;
+  }
+  if (slashInvocation) {
+    const existingMetadata = requestBody.metadata;
+    requestBody.metadata = {
+      ...(existingMetadata || {}),
+      slash_command: matchedSkill ? {
+        type: "skill",
+        raw_name: slashInvocation.rawName,
+        name: matchedSkill.name || matchedSkill.opencode_name || slashInvocation.name,
+        opencode_name: matchedSkill.opencode_name || matchedSkill.name || slashInvocation.name,
+        efp_name: matchedSkill.efp_name || "",
+        arguments: slashInvocation.arguments,
+        source: "portal-chat-ui",
+      } : {
+        type: "unknown",
+        raw_name: slashInvocation.rawName,
+        name: slashInvocation.name,
+        arguments: slashInvocation.arguments,
+        source: "portal-chat-ui",
+      },
+    };
+  }
   removeWelcomeMessageIfPresent();
   removeTemporaryAssistantRows();
   hideSuggest();
@@ -3684,7 +3776,7 @@ function showSuggest(items, onPick) {
   }
 
   dom.chatSuggest.innerHTML = items.map((item, index) => (
-    `<button type="button" data-i="${index}" class="portal-suggest-item"><div class="portal-suggest-title">${safe(item.label || item.title || "")}</div><div class="portal-suggest-desc">${safe(item.desc || "")}</div></button>`
+    `<button type="button" data-i="${index}" class="portal-suggest-item${item.callable === false ? " is-blocked" : ""}" title="${escapeHtmlAttr(item.title || "")}"><div class="portal-suggest-title">${safe(item.label || item.title || "")}${item.callable === false ? ' <span class="portal-badge">blocked</span>' : ""}</div><div class="portal-suggest-desc">${safe(item.desc || "")}</div></button>`
   )).join("");
   dom.chatSuggest.classList.remove("hidden");
   state.selectedSuggestionIndex = 0;
