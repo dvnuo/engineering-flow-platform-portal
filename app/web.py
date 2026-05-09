@@ -776,7 +776,10 @@ def _settings_parse_instances(
     fields: list[str],
     existing_instances: Optional[list] = None,
     preserve_blank_fields: Optional[set[str]] = None,
+    clearable_fields: Optional[set[str]] = None,
 ) -> list[dict]:
+    def as_bool(value) -> bool:
+        return str(value or "").lower() in {"1", "true", "on", "yes"}
     count_text = (form.get(f"{prefix}_instance_count") or "0").strip()
     try:
         count = max(0, int(count_text))
@@ -786,12 +789,16 @@ def _settings_parse_instances(
     instances = []
     existing_instances = existing_instances if isinstance(existing_instances, list) else []
     preserve_blank_fields = preserve_blank_fields or set()
+    clearable_fields = clearable_fields or set()
     for i in range(count):
         item = {}
         existing_item = existing_instances[i] if i < len(existing_instances) and isinstance(existing_instances[i], dict) else {}
         for field in fields:
+            clear_flag = as_bool(form.get(f"{prefix}_instances_{i}_{field}_clear")) if field in clearable_fields else False
             value = (form.get(f"{prefix}_instances_{i}_{field}") or "").strip()
-            if not value and field in preserve_blank_fields:
+            if clear_flag:
+                value = ""
+            elif not value and field in preserve_blank_fields:
                 value = existing_item.get(field) or ""
             item[field] = value
         if item.get("name") or item.get("url"):
@@ -1127,6 +1134,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 ["name", "url", "username", "password", "token", "project"],
                 existing_instances=existing_jira_instances,
                 preserve_blank_fields={"password", "token"},
+                clearable_fields={"password", "token"},
             )
         jira.pop("automation", None)
         config_payload["jira"] = jira
@@ -1141,6 +1149,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 ["name", "url", "username", "password", "token", "space"],
                 existing_instances=existing_confluence_instances,
                 preserve_blank_fields={"password", "token"},
+                clearable_fields={"password", "token"},
             )
         confluence.pop("automation", None)
         config_payload["confluence"] = confluence

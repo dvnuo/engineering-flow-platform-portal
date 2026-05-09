@@ -302,13 +302,29 @@ def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypa
         cleanup()
 
 
-def test_settings_save_touched_github_blank_api_token_clears_token(monkeypatch):
+def test_settings_save_touched_github_blank_api_token_keeps_token_without_clear(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"github": {"api_token": "secret"}})
         resp = client.post(
             f"/app/agents/{agent.id}/settings/save",
             data={"__touch_github": "1", "github_api_token": "", "github_enabled": ""},
+        )
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg.get("github", {}).get("api_token") == "secret"
+    finally:
+        cleanup()
+
+
+def test_settings_save_touched_github_blank_api_token_clears_with_clear_flag(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"github": {"api_token": "secret"}})
+        resp = client.post(
+            f"/app/agents/{agent.id}/settings/save",
+            data={"__touch_github": "1", "github_api_token": "", "github_api_token_clear": "1", "github_enabled": ""},
         )
         assert resp.status_code == 200
         db.refresh(rp)

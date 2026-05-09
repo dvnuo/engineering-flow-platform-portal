@@ -70,7 +70,10 @@ PORTAL_MANAGED_FIELD_TREE = {
     "github": {
         "enabled": True,
         "api_token": True,
+        "token": True,
+        "access_token": True,
         "base_url": True,
+        "api_base_url": True,
     },
     "git": {
         "user": {
@@ -302,23 +305,36 @@ def sanitize_runtime_profile_llm_oauth_by_runtime(value) -> dict:
 def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dict]:
     if not isinstance(value, list):
         return []
-    allowed = {
-        "jira": {"name", "url", "username", "password", "token", "project"},
-        "confluence": {"name", "url", "username", "password", "token", "space"},
-    }.get(kind, set())
     sanitized_instances: list[dict] = []
     for item in value:
         if not isinstance(item, dict):
             continue
         sanitized_item: dict = {}
-        for key in allowed:
-            if key not in item:
-                continue
-            cleaned = str(item.get(key) or "").strip()
-            if key == "url" and cleaned:
-                cleaned = cleaned.rstrip("/")
-            if cleaned:
-                sanitized_item[key] = cleaned
+        name = str(item.get("name") or "").strip()
+        url = str(item.get("url") or "").strip().rstrip("/")
+        username = str(item.get("username") or item.get("email") or "").strip()
+        password = str(item.get("password") or "").strip()
+        token = str(item.get("token") or item.get("api_token") or "").strip()
+        if name:
+            sanitized_item["name"] = name
+        if url:
+            sanitized_item["url"] = url
+        if username:
+            sanitized_item["username"] = username
+        if password:
+            sanitized_item["password"] = password
+        if token:
+            sanitized_item["token"] = token
+        if "enabled" in item:
+            sanitized_item["enabled"] = bool(item.get("enabled"))
+        if kind == "jira":
+            project = str(item.get("project") or item.get("project_key") or "").strip()
+            if project:
+                sanitized_item["project"] = project
+        if kind == "confluence":
+            space = str(item.get("space") or item.get("space_key") or "").strip()
+            if space:
+                sanitized_item["space"] = space
         if not sanitized_item.get("name") and not sanitized_item.get("url"):
             continue
         sanitized_instances.append(sanitized_item)
@@ -353,10 +369,10 @@ def sanitize_runtime_profile_github(value) -> dict:
     out: dict = {}
     if "enabled" in value:
         out["enabled"] = bool(value.get("enabled"))
-    token = str(value.get("api_token") or "").strip()
+    token = str(value.get("api_token") or value.get("token") or value.get("access_token") or "").strip()
     if token:
         out["api_token"] = token
-    base_url = str(value.get("base_url") or "").strip().rstrip("/")
+    base_url = str(value.get("base_url") or value.get("api_base_url") or "").strip().rstrip("/")
     if base_url:
         out["base_url"] = base_url
     return out

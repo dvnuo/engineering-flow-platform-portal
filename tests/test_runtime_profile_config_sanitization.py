@@ -39,3 +39,16 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
     assert "password" not in red["proxy"] and red["proxy"]["password_present"] is True
     assert "password" not in red["jira"]["instances"][0] and red["jira"]["instances"][0]["password_present"] is True
     assert "token" not in red["confluence"]["instances"][0] and red["confluence"]["instances"][0]["token_present"] is True
+
+
+def test_alias_fields_are_normalized_to_canonical_shape():
+    s = sanitize_runtime_profile_config_dict(
+        {
+            "jira": {"instances": [{"name": "J", "url": "https://a/", "email": "u@x", "api_token": "jt", "project_key": "ENG", "enabled": "1"}]},
+            "confluence": {"instances": [{"name": "C", "url": "https://a/wiki/", "email": "c@x", "api_token": "ct", "space_key": "DOCS", "enabled": True}]},
+            "github": {"token": "gh", "api_base_url": "https://api.github.com/"},
+        }
+    )
+    assert s["jira"]["instances"][0] == {"name": "J", "url": "https://a", "username": "u@x", "token": "jt", "project": "ENG", "enabled": True}
+    assert s["confluence"]["instances"][0] == {"name": "C", "url": "https://a/wiki", "username": "c@x", "token": "ct", "space": "DOCS", "enabled": True}
+    assert s["github"] == {"api_token": "gh", "base_url": "https://api.github.com"}
