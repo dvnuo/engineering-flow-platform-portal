@@ -25,6 +25,32 @@ def test_chat_ui_send_guard_checks_uploading_and_parsing():
     assert 'pf.status === "parsing"' in js
 
 
+def test_parse_uploaded_pending_file_treats_success_false_as_failure():
+    js = _source()
+    parse_fn = _extract_js_function(js, "parseUploadedPendingFile")
+    node_bin = shutil.which("node")
+    if not node_bin:
+      pytest.skip("node is not installed")
+    script = f"""
+{parse_fn}
+globalThis.handleErrorResponse = async () => "unused";
+globalThis.fetch = async () => ({{
+  ok: true,
+  json: async () => ({{ success:false, error:"unsupported_file_type" }})
+}});
+(async () => {{
+  try {{
+    await parseUploadedPendingFile({{ file_id:"f1" }}, "agent", "s1");
+    console.log("NO_ERROR");
+  }} catch (err) {{
+    console.log(String(err && err.message ? err.message : err));
+  }}
+}})();
+"""
+    out = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    assert "unsupported_file_type" in out.stdout.strip()
+
+
 def test_removed_sources_and_mentions_contracts():
     js = _source()
     assert "function insertFileReference(fileIdOrRef)" not in js
@@ -65,8 +91,155 @@ console.log(JSON.stringify({{a,b}}));
 """
     out = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     payload = json.loads(out.stdout.strip())
-    assert payload["a"] == ["f1"]
+    assert payload["a"] == [
+        {
+            "file_id": "f1",
+            "id": "f1",
+            "name": "f1",
+            "filename": "f1",
+            "content_type": "",
+            "mime": "",
+            "size": None,
+            "type": "file",
+            "parsed": False,
+            "parse_error": "",
+        }
+    ]
     assert payload["b"] == []
+
+
+def test_build_attachments_metadata_shape_and_parse_flags():
+    js = _source()
+    build_attachments = _extract_js_function(js, "buildAttachmentsFromChatState")
+    node_bin = shutil.which("node")
+    if not node_bin:
+      pytest.skip("node is not installed")
+    script = f"""
+{build_attachments}
+const textResult = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'f1',
+    status:'uploaded',
+    isImage:false,
+    uploadedData:{{ name:'notes.txt', content_type:'text/plain', size:12 }}
+  }}]
+}});
+const imageResult = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'img1',
+    status:'uploaded',
+    isImage:true,
+    uploadedData:{{ name:'cat.png', content_type:'image/png', size:99 }},
+    previewUrl:'blob:http://local/abc'
+  }}]
+}});
+const parsedOkResult = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'f2',
+    status:'uploaded',
+    uploadedData:{{ name:'a.csv', content_type:'text/csv', size:5 }},
+    parseData:{{ success:true }}
+  }}]
+}});
+const parseFailedResult = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'pdf1',
+    status:'uploaded',
+    uploadedData:{{ name:'a.pdf', content_type:'application/pdf', size:123 }},
+    parseError:'unsupported_file_type',
+    parseData:null
+  }}]
+}});
+const filtered = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[
+    {{ file_id:'u1', status:'uploading' }},
+    {{ file_id:'p1', status:'parsing' }},
+    {{ file_id:'f1', status:'failed' }},
+    {{ status:'uploaded', uploadedData:{{ name:'nofileid.txt' }} }}
+  ]
+}});
+console.log(JSON.stringify({{
+  textResult,
+  imageResult,
+  parsedOkResult,
+  parseFailedResult,
+  filtered,
+  imageStringified: JSON.stringify(imageResult),
+}}));
+"""
+    out = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(out.stdout.strip())
+    assert payload["textResult"] == [
+        {
+            "file_id": "f1",
+            "id": "f1",
+            "name": "notes.txt",
+            "filename": "notes.txt",
+            "content_type": "text/plain",
+            "mime": "text/plain",
+            "size": 12,
+            "type": "file",
+            "parsed": False,
+            "parse_error": "",
+        }
+    ]
+    image_attachment = payload["imageResult"][0]
+    assert image_attachment["type"] == "image"
+    assert image_attachment["content_type"] == "image/png"
+    assert image_attachment["mime"] == "image/png"
+    assert image_attachment["name"] == "cat.png"
+    assert "previewUrl" not in image_attachment
+    assert "url" not in image_attachment
+    assert "dataUrl" not in image_attachment
+    assert "blob:" not in payload["imageStringified"]
+    assert payload["parsedOkResult"][0]["parsed"] is True
+    assert len(payload["parseFailedResult"]) == 1
+    assert payload["parseFailedResult"][0]["parsed"] is False
+    assert payload["parseFailedResult"][0]["parse_error"] == "unsupported_file_type"
+    assert payload["filtered"] == []
+
+
+def test_build_attachments_handles_non_string_content_type_safely():
+    js = _source()
+    build_attachments = _extract_js_function(js, "buildAttachmentsFromChatState")
+    node_bin = shutil.which("node")
+    if not node_bin:
+      pytest.skip("node is not installed")
+    script = f"""
+{build_attachments}
+const result = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'x1',
+    status:'uploaded',
+    uploadedData:{{ name:'weird.bin', content_type:123, size:1 }}
+  }}]
+}});
+console.log(JSON.stringify({{ result, serialized: JSON.stringify(result) }}));
+"""
+    out = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(out.stdout.strip())
+    item = payload["result"][0]
+    assert item["content_type"] == "123"
+    assert item["type"] == "file"
+    assert "url" not in item
+    assert "previewUrl" not in item
+    assert "blob:" not in payload["serialized"]
+    assert "base64" not in payload["serialized"]
+
+
+def test_parse_failure_catch_keeps_uploaded_and_no_continue():
+    js = _source()
+    start = js.index("if (shouldAutoParseUploadedFile(pf, data))")
+    end = js.index("} else {", start)
+    parse_block = js[start:end]
+    catch_start = parse_block.index("} catch (parseError) {")
+    parse_catch_block = parse_block[catch_start:]
+    assert 'pf.status = "uploaded"' in parse_catch_block
+    assert "pf.parseError =" in parse_catch_block
+    assert 'pf.error = ""' in parse_catch_block
+    assert "pf.parseData = null" in parse_catch_block
+    assert 'pf.status = "failed"' not in parse_catch_block
+    assert "continue;" not in parse_catch_block
 
 
 def test_retry_and_edit_do_not_restore_history_attachments_hidden_input():
@@ -91,3 +264,23 @@ def test_attachment_only_send_contract_and_textarea_not_required():
     assert "message: requestMessage" in submit_block
     assert "[attachment]" in submit_block
     assert "attachments: attachmentsAtSend" in submit_block
+
+
+def test_legacy_app_chat_send_allows_attachment_only_contract():
+    web_py = Path("app/web.py").read_text(encoding="utf-8")
+    start = web_py.index("async def app_chat_send")
+    end = web_py.index("@router.get(\"/app/agent-groups/{group_id}/task-board/panel\")", start)
+    block = web_py[start:end]
+    assert 'raise HTTPException(status_code=400, detail="Message or attachment required")' in block
+    assert '"message": request_message' in block
+    assert '"user_message": display_message' in block
+    assert 'request_message = message or "[attachment]"' in block
+    assert 'display_message = message or "📎 Attachment"' in block
+
+
+def test_build_attachments_comment_contract_no_blob_payload():
+    js = _source()
+    start = js.index("function buildAttachmentsFromChatState")
+    snippet = js[start:start + 350]
+    assert "resolves file_id server-side" in snippet
+    assert "Do not include previewUrl/blob/base64/browser File objects" in snippet

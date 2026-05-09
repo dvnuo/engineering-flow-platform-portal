@@ -506,7 +506,11 @@ async function parseUploadedPendingFile(pf, agentId, sessionId) {
   if (!response.ok) {
     throw new Error(await handleErrorResponse(response));
   }
-  return await response.json();
+  const data = await response.json();
+  if (data && typeof data === "object" && data.success === false) {
+    throw new Error(data.error || "Parse failed");
+  }
+  return data;
 }
 
 function filterRuntimeSupportedUploads(files) {
@@ -597,6 +601,7 @@ async function addPendingFilesAndUpload(files) {
       const data = await uploadPendingFile(pf, agentId);
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
+      let uploadToastMessage = "File uploaded: " + file.name;
 
       // Store blob URL to file ID mapping
       if (pf.previewUrl && pf.file_id) {
@@ -616,13 +621,12 @@ async function addPendingFilesAndUpload(files) {
           }
           renderInputPreview();
         } catch (parseError) {
-          pf.status = "failed";
+          pf.status = "uploaded";
           pf.parseError = parseError?.message || "Parse failed";
-          pf.error = pf.parseError;
+          pf.error = "";
           pf.parseData = null;
+          uploadToastMessage = "File uploaded; text extraction unavailable: " + pf.parseError;
           renderInputPreview();
-          showToast("File processing failed: " + pf.parseError);
-          continue;
         }
       } else {
         pf.status = "uploaded";
@@ -631,7 +635,7 @@ async function addPendingFilesAndUpload(files) {
         pf.parseData = null;
         renderInputPreview();
       }
-      showToast("File uploaded: " + file.name);
+      showToast(uploadToastMessage);
 
       // Note: Do NOT add to attachments here - will be built from pendingFiles when sending
       // Image will be shown in input-preview-area via renderInputPreview()
@@ -2885,13 +2889,50 @@ function formatAttachmentMetaText(attachment) {
 }
 
 function buildAttachmentsFromChatState(agentId, chatState) {
-  // Runtime directly consumes image attachments in this array. Non-image files take a different path:
-  // upload -> parse -> runtime session file_context keyed by stable session_id.
-  // Keep auto-parse + session_id flow intact for documents even if they also appear in local preview UI.
-  const uploadedFileIds = chatState.pendingFiles
+  // Runtime consumes uploaded attachment metadata here and resolves file_id server-side.
+  // Do not include previewUrl/blob/base64/browser File objects in the chat payload.
+  const uploadedAttachments = chatState.pendingFiles
     .filter((pf) => pf.file_id && pf.status === "uploaded")
-    .map((pf) => pf.file_id);
-  return uploadedFileIds;
+    .map((pf) => {
+      const fileId = String(pf.file_id);
+      const rawName =
+        pf.uploadedData?.name ||
+        pf.uploadedData?.filename ||
+        pf.file?.name ||
+        pf.name ||
+        fileId;
+      const name = String(rawName || fileId);
+      const rawContentType =
+        pf.uploadedData?.content_type ??
+        pf.uploadedData?.mime ??
+        pf.file?.type ??
+        pf.content_type ??
+        "";
+      const contentType = String(rawContentType || "");
+      const rawSize = pf.uploadedData?.size ?? pf.file?.size ?? pf.size;
+      const size = typeof rawSize === "number" && Number.isFinite(rawSize) ? rawSize : null;
+      const parsed =
+        (pf.parseData && pf.parseData.success !== false) ||
+        pf.uploadedData?.parsed === true;
+      const parseError =
+        pf.parseError ||
+        pf.parseData?.error ||
+        pf.uploadedData?.parse_error ||
+        "";
+      return {
+        file_id: fileId,
+        id: fileId,
+        name,
+        filename: name,
+        content_type: contentType,
+        mime: contentType,
+        size,
+        type: pf.isImage === true || contentType.toLowerCase().startsWith("image/") ? "image" : "file",
+        parsed: !!parsed,
+        parse_error: parseError,
+      };
+    });
+  return uploadedAttachments;
 }
 
 async function submitChatForSelectedAgent() {
