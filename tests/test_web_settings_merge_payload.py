@@ -392,3 +392,59 @@ def test_settings_merge_confluence_instance_clear_secret_removes_existing():
     assert error is None
     assert merged["confluence"]["instances"][0]["password"] == ""
     assert merged["confluence"]["instances"][0]["token"] == ""
+
+def test_settings_merge_jira_instance_enabled_false_is_preserved_from_unchecked_checkbox():
+    merged, error = _settings_merge_payload(
+        {"jira": {"enabled": True, "instances": [{"name": "off", "url": "https://j", "username": "u", "token": "tok", "enabled": False}]}},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_name": "off",
+            "jira_instances_0_url": "https://j",
+            "jira_instances_0_username": "u",
+            "jira_instances_0_token": "",
+            "jira_instances_0_project": "ENG",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["enabled"] is False
+    assert merged["jira"]["instances"][0]["token"] == "tok"
+
+
+def test_settings_merge_jira_instance_enabled_true_from_checkbox():
+    merged, error = _settings_merge_payload(
+        {"jira": {"enabled": True, "instances": [{"name": "on", "url": "https://j", "username": "u", "token": "tok", "enabled": False}]}},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_name": "on",
+            "jira_instances_0_url": "https://j",
+            "jira_instances_0_username": "u",
+            "jira_instances_0_enabled": "1",
+            "jira_instances_0_token": "",
+            "jira_instances_0_project": "ENG",
+        },
+    )
+    assert error is None
+    assert merged["jira"]["instances"][0]["enabled"] is True
+
+
+def test_settings_merge_confluence_instance_enabled_false_from_unchecked_checkbox():
+    merged, error = _settings_merge_payload(
+        {"confluence": {"enabled": True, "instances": [{"name": "off", "url": "https://c", "username": "u", "token": "tok", "enabled": False}]}},
+        {
+            "__touch_confluence": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_name": "off",
+            "confluence_instances_0_url": "https://c",
+            "confluence_instances_0_username": "u",
+            "confluence_instances_0_token": "",
+            "confluence_instances_0_space": "DOCS",
+        },
+    )
+    assert error is None
+    assert merged["confluence"]["instances"][0]["enabled"] is False
+    assert merged["confluence"]["instances"][0]["token"] == "tok"

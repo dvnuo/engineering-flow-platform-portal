@@ -794,8 +794,12 @@ def _settings_parse_instances(
         item = {}
         existing_item = existing_instances[i] if i < len(existing_instances) and isinstance(existing_instances[i], dict) else {}
         for field in fields:
+            field_name = f"{prefix}_instances_{i}_{field}"
+            if field == "enabled":
+                item[field] = as_bool(form.get(field_name))
+                continue
             clear_flag = as_bool(form.get(f"{prefix}_instances_{i}_{field}_clear")) if field in clearable_fields else False
-            value = (form.get(f"{prefix}_instances_{i}_{field}") or "").strip()
+            value = (form.get(field_name) or "").strip()
             if clear_flag:
                 value = ""
             elif not value and field in preserve_blank_fields:
@@ -1131,7 +1135,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             jira["instances"] = _settings_parse_instances(
                 form,
                 "jira",
-                ["name", "url", "username", "password", "token", "project"],
+                ["enabled", "name", "url", "username", "password", "token", "project"],
                 existing_instances=existing_jira_instances,
                 preserve_blank_fields={"password", "token"},
                 clearable_fields={"password", "token"},
@@ -1146,7 +1150,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             confluence["instances"] = _settings_parse_instances(
                 form,
                 "confluence",
-                ["name", "url", "username", "password", "token", "space"],
+                ["enabled", "name", "url", "username", "password", "token", "space"],
                 existing_instances=existing_confluence_instances,
                 preserve_blank_fields={"password", "token"},
                 clearable_fields={"password", "token"},

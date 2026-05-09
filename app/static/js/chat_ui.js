@@ -5385,6 +5385,7 @@ function addInstanceRow(root, group) {
   div.innerHTML = `
     <div class="portal-settings-instance-head">
       <span class="portal-settings-instance-title">Instance</span>
+      <label class="portal-checkbox-row"><input type="checkbox" data-field="enabled" value="1" checked /><span>Enabled</span></label>
       <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button>
     </div>
     <div class="portal-panel-grid cols-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="URL (e.g. https://yourcompany.atlassian.net)" class="portal-form-input" /></div>
