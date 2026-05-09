@@ -370,3 +370,20 @@ def test_safe_body_preview_redacts_github_oauth_tokens():
     assert "gho_SECRET" not in preview
     assert "ghu_SECRET" not in preview
     assert "[REDACTED]" in preview
+
+def test_build_apply_payload_for_agent_adds_runtime_type_agent_id_and_external_sections():
+    db, rp, running, _stopped = _build_db()
+    try:
+        running.runtime_type = "opencode"
+        rp.config_json = '{"llm":{"provider":"github_copilot","oauth_by_runtime":{"opencode":{"type":"oauth","access":"OA","refresh":"OR","expires":0}}},"jira":{"enabled":true,"instances":[{"name":"j"}]},"confluence":{"enabled":true,"instances":[{"name":"c"}]},"github":{"enabled":true,"api_token":"gh"},"proxy":{"enabled":true,"password":"pw"},"git":{"user":{"name":"bot"}},"debug":{"enabled":true,"log_level":"INFO"}}'
+        db.add_all([running, rp])
+        db.commit(); db.refresh(running); db.refresh(rp)
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        assert payload["runtime_type"] == "opencode"
+        assert payload["agent_id"] == running.id
+        assert payload["config"]["runtime_type"] == "opencode"
+        for key in ["jira", "confluence", "github", "proxy", "git", "debug"]:
+            assert key in payload["config"]
+        assert payload["config"]["llm"]["oauth"]["access"] == "OA"
+    finally:
+        db.close()

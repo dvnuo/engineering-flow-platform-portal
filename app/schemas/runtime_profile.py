@@ -70,7 +70,10 @@ PORTAL_MANAGED_FIELD_TREE = {
     "github": {
         "enabled": True,
         "api_token": True,
+        "token": True,
+        "access_token": True,
         "base_url": True,
+        "api_base_url": True,
     },
     "git": {
         "user": {
@@ -89,6 +92,23 @@ _RESPONSE_FLOW_STAGING_POLICIES = {"explicit_or_complex", "always", "never"}
 _RESPONSE_FLOW_DEFAULT_SKILL_EXECUTION_STYLES = {"direct", "stepwise"}
 _RESPONSE_FLOW_ASK_USER_POLICIES = {"blocked_only", "permissive"}
 _RESPONSE_FLOW_ACTIVE_SKILL_CONFLICT_POLICIES = {"auto_switch_direct", "always_ask"}
+_TRUE_BOOL_VALUES = {"1", "true", "on", "yes", "y", "enabled"}
+_FALSE_BOOL_VALUES = {"0", "false", "off", "no", "n", "disabled", ""}
+
+
+def _runtime_profile_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    if value is None:
+        return False
+    normalized = str(value).strip().lower()
+    if normalized in _TRUE_BOOL_VALUES:
+        return True
+    if normalized in _FALSE_BOOL_VALUES:
+        return False
+    return False
 
 
 def sanitize_runtime_profile_response_flow(value) -> dict:
@@ -298,11 +318,132 @@ def sanitize_runtime_profile_llm_oauth_by_runtime(value) -> dict:
             out[runtime_key] = oauth
     return out
 
+
+def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    sanitized_instances: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        sanitized_item: dict = {}
+        name = str(item.get("name") or "").strip()
+        url = str(item.get("url") or "").strip().rstrip("/")
+        username = str(item.get("username") or item.get("email") or "").strip()
+        password = str(item.get("password") or "").strip()
+        token = str(item.get("token") or item.get("api_token") or "").strip()
+        if name:
+            sanitized_item["name"] = name
+        if url:
+            sanitized_item["url"] = url
+        if username:
+            sanitized_item["username"] = username
+        if password:
+            sanitized_item["password"] = password
+        if token:
+            sanitized_item["token"] = token
+        if "enabled" in item:
+            sanitized_item["enabled"] = _runtime_profile_bool(item.get("enabled"))
+        if kind == "jira":
+            project = str(item.get("project") or item.get("project_key") or "").strip()
+            if project:
+                sanitized_item["project"] = project
+        if kind == "confluence":
+            space = str(item.get("space") or item.get("space_key") or "").strip()
+            if space:
+                sanitized_item["space"] = space
+        if not sanitized_item.get("name") and not sanitized_item.get("url"):
+            continue
+        sanitized_instances.append(sanitized_item)
+    return sanitized_instances
+
+
+def sanitize_runtime_profile_jira(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    if "instances" in value:
+        out["instances"] = sanitize_runtime_profile_external_instances(value.get("instances"), kind="jira")
+    return out
+
+
+def sanitize_runtime_profile_confluence(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    if "instances" in value:
+        out["instances"] = sanitize_runtime_profile_external_instances(value.get("instances"), kind="confluence")
+    return out
+
+
+def sanitize_runtime_profile_github(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    token = str(value.get("api_token") or value.get("token") or value.get("access_token") or "").strip()
+    if token:
+        out["api_token"] = token
+    base_url = str(value.get("base_url") or value.get("api_base_url") or "").strip().rstrip("/")
+    if base_url:
+        out["base_url"] = base_url
+    return out
+
+
+def sanitize_runtime_profile_proxy(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    for key in ("url", "username", "password"):
+        cleaned = str(value.get(key) or "").strip()
+        if cleaned:
+            out[key] = cleaned
+    return out
+
+
+def sanitize_runtime_profile_git(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    user = value.get("user")
+    if not isinstance(user, dict):
+        return {}
+    out_user: dict = {}
+    for key in ("name", "email"):
+        cleaned = str(user.get(key) or "").strip()
+        if cleaned:
+            out_user[key] = cleaned
+    return {"user": out_user} if out_user else {}
+
+
+def sanitize_runtime_profile_debug(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    log_level = str(value.get("log_level") or "").strip().upper()
+    if log_level in {"DEBUG", "INFO", "WARNING", "ERROR"}:
+        out["log_level"] = log_level
+    return out
+
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
     top_level = {key: value for key, value in data.items() if key in ALLOWED_RUNTIME_PROFILE_SECTIONS}
     sanitized = _filter_by_field_tree(top_level, PORTAL_MANAGED_FIELD_TREE) or {}
+    raw_llm = top_level.get("llm") if isinstance(top_level.get("llm"), dict) else {}
+    if "tools" in raw_llm:
+        sanitized_llm = sanitized.get("llm") if isinstance(sanitized.get("llm"), dict) else {}
+        sanitized_llm = sanitized_llm.copy()
+        sanitized_llm["tools"] = raw_llm.get("tools")
+        sanitized["llm"] = sanitized_llm
     llm = sanitized.get("llm")
     if isinstance(llm, dict) and "tools" in llm:
         llm_copy = llm.copy()
@@ -371,6 +512,18 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
 
     if isinstance(llm, dict):
         sanitized["llm"] = llm
+    if "jira" in sanitized:
+        sanitized["jira"] = sanitize_runtime_profile_jira(sanitized.get("jira"))
+    if "confluence" in sanitized:
+        sanitized["confluence"] = sanitize_runtime_profile_confluence(sanitized.get("confluence"))
+    if "github" in sanitized:
+        sanitized["github"] = sanitize_runtime_profile_github(sanitized.get("github"))
+    if "proxy" in sanitized:
+        sanitized["proxy"] = sanitize_runtime_profile_proxy(sanitized.get("proxy"))
+    if "git" in sanitized:
+        sanitized["git"] = sanitize_runtime_profile_git(sanitized.get("git"))
+    if "debug" in sanitized:
+        sanitized["debug"] = sanitize_runtime_profile_debug(sanitized.get("debug"))
     return sanitized
 
 
@@ -404,13 +557,11 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     redacted = deepcopy(config) if isinstance(config, dict) else {}
     llm = redacted.get("llm")
     if isinstance(llm, dict):
-        llm.pop("api_key", None)
+        llm["api_key_present"] = bool(str(llm.pop("api_key", "")).strip())
         oauth = llm.get("oauth")
         if isinstance(oauth, dict):
-            oauth_copy = oauth.copy()
-            oauth_copy.pop("access", None)
-            oauth_copy.pop("refresh", None)
-            oauth_copy["present"] = True
+            oauth_copy = {k: oauth.get(k) for k in ("type", "expires", "enterpriseUrl", "accountId") if k in oauth}
+            oauth_copy["present"] = bool(str(oauth.get("access") or oauth.get("refresh") or "").strip())
             llm["oauth"] = oauth_copy
         by_runtime = llm.get("oauth_by_runtime")
         if isinstance(by_runtime, dict):
@@ -418,10 +569,8 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
             for key in ("native", "opencode"):
                 oauth_entry = by_runtime.get(key)
                 if isinstance(oauth_entry, dict):
-                    cp = oauth_entry.copy()
-                    cp.pop("access", None)
-                    cp.pop("refresh", None)
-                    cp["present"] = True
+                    cp = {k: oauth_entry.get(k) for k in ("type", "expires", "enterpriseUrl", "accountId") if k in oauth_entry}
+                    cp["present"] = bool(str(oauth_entry.get("access") or oauth_entry.get("refresh") or "").strip())
                     redacted_by_runtime[key] = cp
             if redacted_by_runtime:
                 llm["oauth_by_runtime"] = redacted_by_runtime
@@ -429,10 +578,26 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
                 llm.pop("oauth_by_runtime", None)
     github = redacted.get("github")
     if isinstance(github, dict):
-        github.pop("api_token", None)
+        github["api_token_present"] = bool(str(github.pop("api_token", "")).strip())
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
-        proxy.pop("password", None)
+        proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())
+    for section in ("jira", "confluence"):
+        cfg = redacted.get(section)
+        if not isinstance(cfg, dict):
+            continue
+        instances = cfg.get("instances")
+        if not isinstance(instances, list):
+            continue
+        redacted_instances = []
+        for inst in instances:
+            if not isinstance(inst, dict):
+                continue
+            inst_copy = inst.copy()
+            inst_copy["password_present"] = bool(str(inst_copy.pop("password", "")).strip())
+            inst_copy["token_present"] = bool(str(inst_copy.pop("token", "")).strip())
+            redacted_instances.append(inst_copy)
+        cfg["instances"] = redacted_instances
     return redacted
 
 
