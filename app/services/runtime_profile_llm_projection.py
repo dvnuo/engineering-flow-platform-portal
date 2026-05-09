@@ -22,14 +22,26 @@ def _selected_copilot_oauth_for_runtime(llm: dict, runtime_type: str) -> dict | 
     return None
 
 
+
+def _provider_hint_from_llm(llm: dict) -> str | None:
+    provider = llm.get("provider")
+    if isinstance(provider, str) and provider.strip():
+        return provider.strip()
+    model = llm.get("model")
+    if isinstance(model, str) and "/" in model:
+        prefix = model.split("/", 1)[0].strip()
+        if prefix:
+            return prefix
+    return None
+
 def project_llm_for_runtime(llm: dict, runtime_type: str) -> dict:
     projected = deepcopy(llm)
-    provider = projected.get("provider")
+    provider_hint = _provider_hint_from_llm(projected)
     runtime_type = "opencode" if str(runtime_type or "").strip().lower() == "opencode" else "native"
     has_oauth_by_runtime = isinstance(llm.get("oauth_by_runtime"), dict) and bool(llm.get("oauth_by_runtime"))
-    if provider:
-        projected["provider"] = normalize_provider_for_runtime(runtime_type, provider)
-    if not _is_copilot_provider(provider):
+    if provider_hint:
+        projected["provider"] = normalize_provider_for_runtime(runtime_type, provider_hint)
+    if not _is_copilot_provider(provider_hint):
         projected.pop("oauth_by_runtime", None)
         return projected
     oauth = _selected_copilot_oauth_for_runtime(llm, runtime_type)

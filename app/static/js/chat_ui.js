@@ -5545,10 +5545,14 @@ function getManagedGithubBaseUrl(root) {
   return (input?.value || "").trim();
 }
 
-function finishCopilotAuthWithMessage(root, runtimeType, message) {
+function finishCopilotAuthWithMessage(root, runtimeType, message, kind = "error") {
   stopCopilotPolling(root, runtimeType);
   const statusText = copilotCard(root, runtimeType)?.querySelector("[data-copilot-status-text]");
-  if (statusText) statusText.textContent = message || "Authorization failed";
+  const finalMessage = message || "Authorization failed";
+  if (statusText) statusText.textContent = finalMessage;
+  if (typeof setCopilotResultSummary === "function") {
+    setCopilotResultSummary(root, runtimeType, finalMessage, kind);
+  }
 }
 
 function updateCopilotAuthCardsVisibility(root, isCopilot) {

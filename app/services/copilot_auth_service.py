@@ -93,13 +93,15 @@ class CopilotAuthService:
     @staticmethod
     def _oauth_summary(oauth: dict | None, runtime_type: str) -> dict:
         token = str((oauth or {}).get("access") or (oauth or {}).get("refresh") or "").strip()
+        token_len = len(token)
+        safe_edges = token_len > 8
         summary = {
             "present": bool(token),
             "type": "oauth",
             "runtime_type": normalize_copilot_runtime_type(runtime_type),
-            "token_prefix": token[:4] if token else "",
-            "token_suffix": token[-4:] if token else "",
-            "token_length": len(token),
+            "token_prefix": token[:4] if safe_edges else "",
+            "token_suffix": token[-4:] if safe_edges else "",
+            "token_length": token_len,
             "expires": (oauth or {}).get("expires", 0),
         }
         if isinstance(oauth, dict) and oauth.get("enterpriseUrl"):

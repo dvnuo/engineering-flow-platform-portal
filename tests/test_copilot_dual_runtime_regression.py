@@ -74,3 +74,38 @@ def test_update_model_options_non_copilot_does_not_clear_unsaved_copilot_values_
     assert "const clearValues = options.clearValues !== false;" in js
     assert "clearCopilotOAuthFields(root, null, { markClear: false, clearValues: false })" in js
     assert "stopCopilotPolling(root);" in js
+
+def test_project_llm_for_runtime_infers_copilot_provider_from_model_prefix():
+    llm = {
+        "model": "github_copilot/gpt-5",
+        "oauth_by_runtime": {
+            "native": {"type": "oauth", "access": "NATIVE_SECRET", "refresh": "NATIVE_SECRET", "expires": 0},
+            "opencode": {"type": "oauth", "access": "OPENCODE_SECRET", "refresh": "OPENCODE_SECRET", "expires": 0},
+        },
+    }
+    op = _project_llm_for_runtime(llm, "opencode")
+    assert op["provider"] == "github-copilot"
+    assert op["oauth"]["access"] == "OPENCODE_SECRET"
+    assert "api_key" not in op
+    assert "oauth_by_runtime" not in op
+    assert "NATIVE_SECRET" not in json.dumps(op)
+
+    native = _project_llm_for_runtime(llm, "native")
+    assert native["provider"] == "github_copilot"
+    assert native["api_key"] == "NATIVE_SECRET"
+    assert "oauth" not in native
+    assert "oauth_by_runtime" not in native
+    assert "OPENCODE_SECRET" not in json.dumps(native)
+
+
+def test_project_llm_for_runtime_infers_copilot_provider_from_hyphen_model_prefix():
+    llm = {
+        "model": "github-copilot/gpt-5",
+        "oauth_by_runtime": {
+            "opencode": {"type": "oauth", "access": "OPENCODE_SECRET", "refresh": "OPENCODE_SECRET", "expires": 0},
+        },
+    }
+    op = _project_llm_for_runtime(llm, "opencode")
+    assert op["provider"] == "github-copilot"
+    assert op["oauth"]["access"] == "OPENCODE_SECRET"
+    assert "oauth_by_runtime" not in op

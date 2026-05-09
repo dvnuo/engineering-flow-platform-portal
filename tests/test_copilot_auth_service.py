@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import asyncio
 from pathlib import Path
 import pytest
@@ -140,3 +141,15 @@ def test_authorized_response_contains_oauth_summary(monkeypatch):
     assert summary["token_suffix"] == "1234"
     assert summary["token_length"] == len("gho_SECRET1234")
     assert "access" not in summary and "refresh" not in summary
+
+
+def test_oauth_summary_does_not_expose_short_token():
+    summary = CopilotAuthService._oauth_summary(
+        {"type": "oauth", "access": "short", "refresh": "short", "expires": 0},
+        "opencode",
+    )
+    dumped = json.dumps(summary)
+    assert "short" not in dumped
+    assert summary["token_prefix"] == ""
+    assert summary["token_suffix"] == ""
+    assert summary["token_length"] == len("short")
