@@ -56,6 +56,8 @@ def test_ui_static_dual_auth_markers_present():
         assert 'id="copilot_auth_btn"' not in text
         assert 'id="copilot_auth_status"' not in text
     assert 'runtime_type: key' in js
+    assert 'JSON.stringify({ runtime_type: key })' in js
+    assert 'github_base_url: githubBaseUrl' not in js
     assert 'data-copilot-auth-card' in js
     assert 'closest("#copilot_auth_btn")' not in js
     assert 'function setCopilotOAuthFields(root, runtimeType, oauth)' in js

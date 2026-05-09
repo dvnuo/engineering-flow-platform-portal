@@ -1586,7 +1586,7 @@ global.fetch = fetch;
     data = json.loads(completed.stdout)
 
     assert data["fetchCalls"][0]["url"] == "/api/copilot/auth/start"
-    assert data["startBody"]["github_base_url"] == "https://github.company.com"
+    assert "github_base_url" not in data["startBody"]
     assert data["startBody"]["runtime_type"] == "opencode"
     assert 7000 in data["intervalMs"]
     assert data["fetchCalls"][1]["url"] == "/api/copilot/auth/check"

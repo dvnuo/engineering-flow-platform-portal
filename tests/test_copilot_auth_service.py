@@ -37,10 +37,17 @@ def test_start_uses_public_github_oauth_device_endpoint(monkeypatch):
     monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})))
     s,p=asyncio.run(CopilotAuthService().start_authorization("u","")); assert s==200; assert calls[0]["url"]=="https://github.com/login/device/code"; assert calls[0]["json"]["client_id"]==COPILOT_OAUTH_CLIENT_IDS["opencode"]; assert calls[0]["headers"]["Accept"]=="application/json"; assert p["auth_id"] and p["device_code"]
 
-def test_start_uses_enterprise_oauth_device_endpoint(monkeypatch):
+def test_start_ignores_enterprise_base_url_for_copilot_oauth(monkeypatch):
     calls=[]
-    monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://ghe/login/device","expires_in":900,"interval":5})))
-    asyncio.run(CopilotAuthService().start_authorization("u","https://github.company.com/api/v3")); assert calls[0]["url"]=="https://github.company.com/login/device/code"
+    monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})))
+    status, payload = asyncio.run(CopilotAuthService().start_authorization("u","https://github.company.com/api/v3"))
+    assert status == 200
+    assert calls[0]["url"]=="https://github.com/login/device/code"
+    rec = svc_module._pending_authorizations[payload["auth_id"]]
+    assert rec["access_token_url"] == "https://github.com/login/oauth/access_token"
+    assert rec["oauth_base_url"] == "https://github.com"
+    assert payload["auth_id"] and payload["device_code"] and payload["user_code"]
+    assert payload["runtime_type"] == "opencode"
 
 def test_start_runtime_specific_client_ids(monkeypatch):
     calls=[]
@@ -205,3 +212,19 @@ def test_check_slow_down_updates_latest_check_and_rate_limits_next_poll(monkeypa
     ]
 
     assert len(token_calls_after_second) == len(token_calls_after_first)
+
+
+def test_check_authorization_omits_enterprise_url_for_enterprise_base_input(monkeypatch):
+    calls=[]
+    def factory(_u,_h,j):
+        if j.get("scope"): return _Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})
+        return _Resp(200,{"access_token":"gho_ENTERPRISE_IGNORED","token_type":"bearer","scope":"read:user"})
+    monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,factory))
+    svc=CopilotAuthService(); _,st=asyncio.run(svc.start_authorization("u","https://github.company.com/api/v3")); svc_module._pending_authorizations[st["auth_id"]]["latest_check"] = 0
+    _,res=asyncio.run(svc.check_authorization("u",st["auth_id"],st["device_code"]))
+    oauth = res["oauth"]
+    assert oauth["access"] == "gho_ENTERPRISE_IGNORED"
+    assert oauth["refresh"] == "gho_ENTERPRISE_IGNORED"
+    assert oauth["type"] == "oauth"
+    assert oauth["expires"] == 0
+    assert "enterpriseUrl" not in oauth

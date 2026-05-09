@@ -8,11 +8,13 @@ from uuid import uuid4
 import httpx
 
 from app.redaction import sanitize_exception_message
-from app.utils.github_url import normalize_github_oauth_base_url
 
 logger = logging.getLogger(__name__)
 
 COPILOT_OAUTH_CLIENT_IDS = {"native": "Iv1.b507a08c87ecfe98", "efp": "Iv1.b507a08c87ecfe98", "opencode": "Ov23li8tweQw6odWQebz"}
+COPILOT_GITHUB_OAUTH_BASE_URL = "https://github.com"
+COPILOT_DEVICE_CODE_URL = f"{COPILOT_GITHUB_OAUTH_BASE_URL}/login/device/code"
+COPILOT_ACCESS_TOKEN_URL = f"{COPILOT_GITHUB_OAUTH_BASE_URL}/login/oauth/access_token"
 
 
 def normalize_copilot_runtime_type(value: str | None) -> str:
@@ -58,9 +60,12 @@ class CopilotAuthService:
         self._cleanup_expired()
         runtime_type_normalized = normalize_copilot_runtime_type(runtime_type)
         selected_client_id = COPILOT_OAUTH_CLIENT_IDS[runtime_type_normalized]
-        oauth_base_url = normalize_github_oauth_base_url(github_base_url)
-        device_url = f"{oauth_base_url}/login/device/code"
-        access_token_url = f"{oauth_base_url}/login/oauth/access_token"
+        # GitHub Copilot OAuth must always use public github.com.
+        # Do not reuse runtime profile github.base_url/GHE here.
+        _ = github_base_url
+        oauth_base_url = COPILOT_GITHUB_OAUTH_BASE_URL
+        device_url = COPILOT_DEVICE_CODE_URL
+        access_token_url = COPILOT_ACCESS_TOKEN_URL
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(device_url, headers=self._HEADERS, json={"client_id": selected_client_id, "scope": "read:user"})
@@ -160,8 +165,6 @@ class CopilotAuthService:
         access_token = (body.get("access_token") or "").strip() if isinstance(body, dict) else ""
         if access_token:
             oauth = {"type": "oauth", "access": access_token, "refresh": access_token, "expires": 0}
-            if record.get("oauth_base_url") and record["oauth_base_url"] != "https://github.com":
-                oauth["enterpriseUrl"] = record["oauth_base_url"]
             record["status"] = "authorized"
             record["oauth"] = oauth
             _pending_authorizations.pop(auth_id, None)

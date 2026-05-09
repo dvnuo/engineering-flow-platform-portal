@@ -5731,13 +5731,11 @@ async function startCopilotAuth(root, runtimeType) {
 
   stopCopilotPolling(root, key);
   const authBase = getManagedCopilotAuthBase(root);
-  const githubBaseUrl = getManagedGithubBaseUrl(root);
-
   try {
     const response = await fetch(`${authBase}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ github_base_url: githubBaseUrl, runtime_type: key }),
+      body: JSON.stringify({ runtime_type: key }),
     });
     let data = null;
     try {

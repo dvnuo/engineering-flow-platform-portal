@@ -168,6 +168,7 @@
         </div>
       </div>
       <div class="portal-inline-note">GitHub Copilot uses separate Portal-managed OAuth credentials for EFP Runtime and OpenCode Runtime. Saved tokens are not rendered in HTML. Save after authorization to persist.</div>
+      <div class="portal-inline-note">GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL above.</div>
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Enabled Tools</h6></div>
       <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="inherit" {% if raw_llm_tools_mode == 'inherit' %}checked{% endif %} /> Use runtime local default</label></div>
       <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="all" {% if raw_llm_tools_mode == 'all' %}checked{% endif %} /> All tools</label></div>
