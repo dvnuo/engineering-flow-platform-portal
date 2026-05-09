@@ -8,6 +8,8 @@ def test_templates_include_clear_controls_and_do_not_render_secret_values():
         assert "proxy_password_clear" in text
         assert "github_api_token_clear" in text
         assert 'data-field="enabled"' in text
+        assert 'data-original-field="name"' in text
+        assert 'data-original-field="url"' in text
         assert 'data-clear-field="password"' in text
         assert 'data-clear-field="token"' in text
         assert "value=\"{{ proxy.get('password', '') }}\"" not in text

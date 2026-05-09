@@ -5363,6 +5363,10 @@ function normalizeInstanceInputs(root, group) {
       const field = input.dataset.clearField;
       input.name = `${group}_instances_${idx}_${field}_clear`;
     });
+    item.querySelectorAll("input[data-original-field]").forEach((input) => {
+      const field = input.dataset.originalField;
+      input.name = `${group}_instances_${idx}_original_${field}`;
+    });
   });
   countInput.value = String(items.length);
 }
@@ -5383,6 +5387,8 @@ function addInstanceRow(root, group) {
   const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Saved; leave blank to keep" class="portal-form-input" /><label class="portal-checkbox-row"><input type="checkbox" data-clear-field="password" value="1" /><span>Clear saved password</span></label>`;
 
   div.innerHTML = `
+    <input type="hidden" data-original-field="name" value="" />
+    <input type="hidden" data-original-field="url" value="" />
     <div class="portal-settings-instance-head">
       <span class="portal-settings-instance-title">Instance</span>
       <label class="portal-checkbox-row"><input type="checkbox" data-field="enabled" value="1" checked /><span>Enabled</span></label>

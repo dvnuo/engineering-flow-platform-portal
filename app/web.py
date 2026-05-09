@@ -780,6 +780,24 @@ def _settings_parse_instances(
 ) -> list[dict]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
+    def _norm_identity(value) -> str:
+        return str(value or "").strip().rstrip("/").lower()
+    def _build_unique_index(items: list[dict], key_fn):
+        index = {}
+        duplicates = set()
+        for row in items:
+            if not isinstance(row, dict):
+                continue
+            key = key_fn(row)
+            if not key:
+                continue
+            if key in index:
+                duplicates.add(key)
+            else:
+                index[key] = row
+        for key in duplicates:
+            index.pop(key, None)
+        return index
     count_text = (form.get(f"{prefix}_instance_count") or "0").strip()
     try:
         count = max(0, int(count_text))
@@ -788,11 +806,41 @@ def _settings_parse_instances(
 
     instances = []
     existing_instances = existing_instances if isinstance(existing_instances, list) else []
+    by_name_url = _build_unique_index(
+        existing_instances,
+        lambda item: (_norm_identity(item.get("name")), _norm_identity(item.get("url")))
+        if _norm_identity(item.get("name")) or _norm_identity(item.get("url")) else None,
+    )
+    by_name = _build_unique_index(existing_instances, lambda item: _norm_identity(item.get("name")))
+    by_url = _build_unique_index(existing_instances, lambda item: _norm_identity(item.get("url")))
+
+    def _find_existing_for_row(original_name, original_url, current_name, current_url) -> dict:
+        original_pair = (_norm_identity(original_name), _norm_identity(original_url))
+        current_pair = (_norm_identity(current_name), _norm_identity(current_url))
+        for pair in (original_pair, current_pair):
+            if pair[0] or pair[1]:
+                found = by_name_url.get(pair)
+                if isinstance(found, dict):
+                    return found
+        for name in (original_pair[0], current_pair[0]):
+            found = by_name.get(name) if name else None
+            if isinstance(found, dict):
+                return found
+        for url in (original_pair[1], current_pair[1]):
+            found = by_url.get(url) if url else None
+            if isinstance(found, dict):
+                return found
+        return {}
+
     preserve_blank_fields = preserve_blank_fields or set()
     clearable_fields = clearable_fields or set()
     for i in range(count):
         item = {}
-        existing_item = existing_instances[i] if i < len(existing_instances) and isinstance(existing_instances[i], dict) else {}
+        original_name = (form.get(f"{prefix}_instances_{i}_original_name") or "").strip()
+        original_url = (form.get(f"{prefix}_instances_{i}_original_url") or "").strip()
+        current_name = (form.get(f"{prefix}_instances_{i}_name") or "").strip()
+        current_url = (form.get(f"{prefix}_instances_{i}_url") or "").strip()
+        existing_item = _find_existing_for_row(original_name, original_url, current_name, current_url)
         for field in fields:
             field_name = f"{prefix}_instances_{i}_{field}"
             if field == "enabled":
