@@ -853,7 +853,7 @@ def _settings_parse_instances(
             value = (form.get(field_name) or "").strip()
             if clear_flag:
                 value = ""
-            elif not value and field in preserve_blank_fields:
+            elif field_name not in form and not value and field in preserve_blank_fields:
                 value = existing_item.get(field) or ""
             item[field] = value
         if item.get("name") or item.get("url"):
@@ -1051,7 +1051,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             llm.pop("oauth_by_runtime", None)
             if api_key_value:
                 llm["api_key"] = api_key_value
-            elif is_clear("llm_api_key_clear"):
+            elif "llm_api_key" in form or is_clear("llm_api_key_clear"):
                 llm.pop("api_key", None)
             elif str(llm.get("api_key") or "").strip():
                 llm["api_key"] = llm.get("api_key")
@@ -1217,7 +1217,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         if "github_api_token" in form:
             if github_token_value:
                 github_cfg["api_token"] = github_token_value
-            elif is_clear("github_api_token_clear"):
+            elif "github_api_token" in form or is_clear("github_api_token_clear"):
                 github_cfg.pop("api_token", None)
             else:
                 existing_token = str(github_cfg.get("api_token") or "").strip()
@@ -1276,7 +1276,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             new_password = (form.get("proxy_password") or "").strip()
             if new_password:
                 proxy_cfg["password"] = new_password
-            elif is_clear("proxy_password_clear"):
+            elif "proxy_password" in form or is_clear("proxy_password_clear"):
                 proxy_cfg.pop("password", None)
             elif existing_proxy_password:
                 proxy_cfg["password"] = existing_proxy_password
