@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.redaction import redact_text, sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.proxy_service import ProxyService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
@@ -45,6 +46,7 @@ class RuntimeProfileSyncService:
     @staticmethod
     def build_apply_payload_from_profile(runtime_profile) -> dict:
         parsed_config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        parsed_config = canonicalize_portal_runtime_profile_config(parsed_config)
         return {
             "runtime_profile_id": runtime_profile.id,
             "revision": runtime_profile.revision,
@@ -169,6 +171,7 @@ class RuntimeProfileSyncService:
         if isinstance(llm, dict):
             runtime_type = getattr(agent, "runtime_type", "") or "native"
             payload["config"]["llm"] = project_llm_for_runtime(llm, runtime_type)
+        payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
         raw_config = self._raw_profile_config(runtime_profile)
         for key in [
             "allowed_capability_ids",
@@ -182,6 +185,7 @@ class RuntimeProfileSyncService:
                 payload["config"][key] = deepcopy(raw_config.get(key))
         execution_context = self.execution_context_service.build_for_agent(db, agent)
         payload["config"] = self._merge_agent_runtime_context_into_config(payload["config"], execution_context)
+        payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
         return payload
 
     async def push_payload_to_agent_with_retry(self, agent, payload: dict, timeout_seconds: int = 180, interval_seconds: float = 3.0) -> RuntimeProfilePushResult:

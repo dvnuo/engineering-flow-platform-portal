@@ -43,6 +43,7 @@ from app.services.agent_group_service import AgentGroupService, AgentGroupServic
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 from app.services.runtime_profile_service import RuntimeProfileService
+from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.thinking_process_view import build_thinking_process_view
@@ -1225,6 +1226,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         config_payload["debug"] = debug_cfg
 
     config_payload.pop("ssh", None)
+    config_payload = canonicalize_portal_runtime_profile_config(config_payload)
     return config_payload, None
 
 

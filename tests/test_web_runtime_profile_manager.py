@@ -78,7 +78,7 @@ def test_runtime_profile_panel_owner_only(monkeypatch):
         assert 'Copilot auth proxy' not in ok.text
         assert f'data-test-base=\"/app/runtime-profiles/{rp.id}/test\"' in ok.text
         assert "data-current-value=" in ok.text
-        assert 'name="llm_temperature"' in ok.text
+        assert 'name="llm_temperature"' not in ok.text
 
         set_user(other)
         deny = client.get(f"/app/runtime-profiles/{rp.id}/panel")
@@ -252,7 +252,7 @@ def test_runtime_profile_panel_renders_view_defaults_for_sparse_profiles(monkeyp
         assert 'name="jira_instance_count" value="0"' in resp.text
         assert 'name="confluence_instance_count" value="0"' in resp.text
         assert 'option value="" selected>Use runtime local default</option>' in resp.text
-        assert 'name="llm_tools_mode" value="inherit" checked' in resp.text
+        assert 'name="llm_tools_mode"' not in resp.text
         assert 'data-current-value="" data-initial-value=""' in resp.text
         assert "PR review requests" not in resp.text
         assert "GitHub Automation" not in resp.text
@@ -303,10 +303,10 @@ def test_runtime_profile_panel_get_renders_llm_tools_custom_patterns(monkeypatch
 
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
-        assert 'name="llm_tools_mode" value="custom" checked' in resp.text
+        assert 'name="llm_tools_mode"' not in resp.text
         assert "git_clone" in resp.text
         assert "jira_*" in resp.text
-        assert 'data-action="add-llm-tool-pattern"' in resp.text
+        assert 'data-action="add-llm-tool-pattern"' not in resp.text
     finally:
         cleanup()
 
@@ -336,7 +336,7 @@ def test_runtime_profile_panel_response_flow_controls_render(monkeypatch):
 
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
-        assert "Response Flow" in resp.text
+        assert "Response Flow" not in resp.text
         assert 'name="llm_response_flow_plan_policy"' in resp.text
         assert 'name="llm_response_flow_staging_policy"' in resp.text
         assert 'name="llm_response_flow_default_skill_execution_style"' in resp.text
@@ -396,15 +396,7 @@ def test_runtime_profile_save_persists_response_flow_nested_dict(monkeypatch):
 
         db.refresh(rp)
         saved = json.loads(rp.config_json)
-        assert saved["llm"]["response_flow"] == {
-            "plan_policy": "explicit_or_complex",
-            "staging_policy": "always",
-            "default_skill_execution_style": "direct",
-            "ask_user_policy": "blocked_only",
-            "active_skill_conflict_policy": "always_ask",
-            "complexity_prompt_budget_ratio": 0.85,
-            "complexity_min_request_tokens": 24000,
-        }
+        assert "response_flow" not in saved["llm"]
 
         clear_resp = client.post(
             f"/app/runtime-profiles/{rp.id}/save",
@@ -461,7 +453,7 @@ def test_runtime_profile_save_persists_temperature_only_for_exact_gpt4(monkeypat
         db.refresh(rp)
         saved = json.loads(rp.config_json)
         assert saved["llm"]["model"] == "gpt-4"
-        assert saved["llm"]["temperature"] == 0.2
+        assert "temperature" not in saved["llm"]
     finally:
         cleanup()
 

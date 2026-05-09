@@ -107,24 +107,6 @@
           <select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ raw_llm.get('model', '') }}" data-initial-value="{{ raw_llm.get('model', '') }}"></select>
         </label>
       </div>
-      <label class="portal-form-label" data-llm-temperature-row>
-        <span class="portal-form-label">Temperature</span>
-        <input
-          type="number"
-          name="llm_temperature"
-          value="{{ raw_llm.get('temperature', '') if llm_temperature_allowed else '' }}"
-          placeholder="{{ '0.7' if llm_temperature_allowed else 'Only available for gpt-4' }}"
-          min="0"
-          max="2"
-          step="0.01"
-          class="portal-form-input"
-          data-llm-temperature-input
-          {% if not llm_temperature_allowed %}disabled{% endif %}
-        />
-      </label>
-      <div class="portal-inline-note" data-llm-temperature-note>
-        Temperature is only available for exact gpt-4. Other models omit this deprecated parameter.
-      </div>
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="API key" class="portal-form-input" /></label>
       <div class="space-y-2 hidden" data-copilot-auth-root>
         <button type="button" data-copilot-auth-button="native" class="portal-btn is-secondary hidden">Authorize GitHub Copilot for EFP Runtime</button>
@@ -142,27 +124,7 @@
               <div class="portal-inline-note" data-copilot-auth-help>Choose one authorization button to generate a GitHub Copilot token. After authorization completes, Portal fills the API Key field. Click Save Settings to persist it.</div>
         <div class="portal-inline-note" data-copilot-auth-help>GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL.</div>
       </div>
-      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Enabled Tools</h6></div>
-      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="inherit" {% if raw_llm_tools_mode == 'inherit' %}checked{% endif %} /> Use runtime local default</label></div>
-      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="all" {% if raw_llm_tools_mode == 'all' %}checked{% endif %} /> All tools</label></div>
-      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="none" {% if raw_llm_tools_mode == 'none' %}checked{% endif %} /> No tools</label></div>
-      <div class="portal-checkbox-row"><label><input type="radio" name="llm_tools_mode" value="custom" {% if raw_llm_tools_mode == 'custom' %}checked{% endif %} /> Custom patterns</label></div>
-      <div data-llm-tools-editor class="space-y-2 {% if raw_llm_tools_mode != 'custom' %}hidden{% endif %}">
-        <input type="hidden" name="llm_tools_count" value="{{ raw_llm_tools_patterns|length }}" data-llm-tools-count />
-        <div class="space-y-2" data-llm-tools-container>
-          {% for pattern in raw_llm_tools_patterns %}
-            <div class="flex items-center gap-2" data-llm-tools-item>
-              <input type="text" value="{{ pattern }}" placeholder="e.g. git_clone or jira_*" class="portal-form-input" />
-              <button type="button" class="portal-btn is-secondary" data-action="remove-llm-tool-pattern">Remove</button>
-            </div>
-          {% endfor %}
-        </div>
-        <button type="button" class="portal-btn is-secondary" data-action="add-llm-tool-pattern">+ Add pattern</button>
-      </div>
-      <div class="portal-inline-note">Supports * wildcard (examples: git_clone, jira_*). This controls runtime tools, not prompt rendering (system-prompt.tools.enabled is separate). Empty custom rows are ignored.</div>
 
-      {% set raw_response_flow = raw_llm.get('response_flow', {}) %}
-      {% include 'partials/_response_flow_fields.html' %}
     </section>
 
     <section class="portal-panel-section" data-instance-group="jira" data-managed-section="jira">

@@ -105,9 +105,9 @@ def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
         assert resp.status_code == 200
         assert 'name="llm_provider"' in resp.text
         assert 'option value="" selected>Use runtime local default</option>' in resp.text
-        assert 'name="llm_tools_mode" value="inherit" checked' in resp.text
+        assert 'name="llm_tools_mode"' not in resp.text
         assert 'data-current-value="" data-initial-value=""' in resp.text
-        assert 'name="llm_temperature"' in resp.text
+        assert 'name="llm_temperature"' not in resp.text
     finally:
         cleanup()
 
@@ -118,8 +118,8 @@ def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
         _bind_profile(db, agent, {"llm": {"tools": ["git_clone", "jira_*"]}})
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
-        assert 'name="llm_tools_mode" value="custom" checked' in resp.text
-        assert 'name="llm_tools_count"' in resp.text
+        assert 'name="llm_tools_mode"' not in resp.text
+        assert 'name="llm_tools_count"' not in resp.text
         assert "git_clone" in resp.text
         assert "jira_*" in resp.text
     finally:
@@ -195,9 +195,9 @@ def test_settings_save_persists_llm_tools_custom_patterns(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["tools"] == ["git_clone", "jira_*"]
-        assert 'name="llm_tools_count"' in resp.text
-        assert 'data-action="add-llm-tool-pattern"' in resp.text
+        assert cfg["llm"]["tools"] == ["*"]
+        assert 'name="llm_tools_count"' not in resp.text
+        assert 'data-action="add-llm-tool-pattern"' not in resp.text
     finally:
         cleanup()
 
@@ -213,7 +213,7 @@ def test_settings_save_persists_llm_tools_none_mode(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["tools"] == []
+        assert cfg["llm"]["tools"] == ["*"]
     finally:
         cleanup()
 
@@ -258,7 +258,7 @@ def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults
         cfg = json.loads(rp.config_json)
         assert cfg["llm"]["provider"] == "openai"
         assert cfg["llm"]["model"] == "gpt-5"
-        assert cfg["llm"]["tools"] == []
+        assert cfg["llm"]["tools"] == ["*"]
         assert "max_retries" not in cfg["llm"]
         assert "system-prompt" not in cfg["llm"]
         assert "proxy" not in cfg
@@ -376,7 +376,7 @@ def test_settings_panel_response_flow_controls_render_and_persist(monkeypatch):
         rp = _bind_profile(db, agent, {"llm": {"provider": "openai"}})
         panel = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert panel.status_code == 200
-        assert "Response Flow" in panel.text
+        assert "Response Flow" not in panel.text
         assert 'name="llm_response_flow_plan_policy"' in panel.text
         assert 'name="llm_response_flow_staging_policy"' in panel.text
         assert 'name="llm_response_flow_default_skill_execution_style"' in panel.text
@@ -451,7 +451,7 @@ def test_settings_save_persists_llm_temperature(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["temperature"] == 0.2
+        assert "temperature" not in cfg["llm"]
     finally:
         cleanup()
 
