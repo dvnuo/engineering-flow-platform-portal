@@ -25,6 +25,32 @@ def test_chat_ui_send_guard_checks_uploading_and_parsing():
     assert 'pf.status === "parsing"' in js
 
 
+def test_parse_uploaded_pending_file_treats_success_false_as_failure():
+    js = _source()
+    parse_fn = _extract_js_function(js, "parseUploadedPendingFile")
+    node_bin = shutil.which("node")
+    if not node_bin:
+      pytest.skip("node is not installed")
+    script = f"""
+{parse_fn}
+globalThis.handleErrorResponse = async () => "unused";
+globalThis.fetch = async () => ({{
+  ok: true,
+  json: async () => ({{ success:false, error:"unsupported_file_type" }})
+}});
+(async () => {{
+  try {{
+    await parseUploadedPendingFile({{ file_id:"f1" }}, "agent", "s1");
+    console.log("NO_ERROR");
+  }} catch (err) {{
+    console.log(String(err && err.message ? err.message : err));
+  }}
+}})();
+"""
+    out = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    assert "unsupported_file_type" in out.stdout.strip()
+
+
 def test_removed_sources_and_mentions_contracts():
     js = _source()
     assert "function insertFileReference(fileIdOrRef)" not in js
@@ -171,6 +197,49 @@ console.log(JSON.stringify({{
     assert payload["parseFailedResult"][0]["parsed"] is False
     assert payload["parseFailedResult"][0]["parse_error"] == "unsupported_file_type"
     assert payload["filtered"] == []
+
+
+def test_build_attachments_handles_non_string_content_type_safely():
+    js = _source()
+    build_attachments = _extract_js_function(js, "buildAttachmentsFromChatState")
+    node_bin = shutil.which("node")
+    if not node_bin:
+      pytest.skip("node is not installed")
+    script = f"""
+{build_attachments}
+const result = buildAttachmentsFromChatState('agent', {{
+  pendingFiles:[{{
+    file_id:'x1',
+    status:'uploaded',
+    uploadedData:{{ name:'weird.bin', content_type:123, size:1 }}
+  }}]
+}});
+console.log(JSON.stringify({{ result, serialized: JSON.stringify(result) }}));
+"""
+    out = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    payload = json.loads(out.stdout.strip())
+    item = payload["result"][0]
+    assert item["content_type"] == "123"
+    assert item["type"] == "file"
+    assert "url" not in item
+    assert "previewUrl" not in item
+    assert "blob:" not in payload["serialized"]
+    assert "base64" not in payload["serialized"]
+
+
+def test_parse_failure_catch_keeps_uploaded_and_no_continue():
+    js = _source()
+    start = js.index("if (shouldAutoParseUploadedFile(pf, data))")
+    end = js.index("} else {", start)
+    parse_block = js[start:end]
+    catch_start = parse_block.index("} catch (parseError) {")
+    parse_catch_block = parse_block[catch_start:]
+    assert 'pf.status = "uploaded"' in parse_catch_block
+    assert "pf.parseError =" in parse_catch_block
+    assert 'pf.error = ""' in parse_catch_block
+    assert "pf.parseData = null" in parse_catch_block
+    assert 'pf.status = "failed"' not in parse_catch_block
+    assert "continue;" not in parse_catch_block
 
 
 def test_retry_and_edit_do_not_restore_history_attachments_hidden_input():

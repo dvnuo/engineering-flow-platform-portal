@@ -506,7 +506,11 @@ async function parseUploadedPendingFile(pf, agentId, sessionId) {
   if (!response.ok) {
     throw new Error(await handleErrorResponse(response));
   }
-  return await response.json();
+  const data = await response.json();
+  if (data && typeof data === "object" && data.success === false) {
+    throw new Error(data.error || "Parse failed");
+  }
+  return data;
 }
 
 function filterRuntimeSupportedUploads(files) {
@@ -2892,18 +2896,20 @@ function buildAttachmentsFromChatState(agentId, chatState) {
     .filter((pf) => pf.file_id && pf.status === "uploaded")
     .map((pf) => {
       const fileId = String(pf.file_id);
-      const name =
+      const rawName =
         pf.uploadedData?.name ||
         pf.uploadedData?.filename ||
         pf.file?.name ||
         pf.name ||
         fileId;
-      const contentType =
-        pf.uploadedData?.content_type ||
-        pf.uploadedData?.mime ||
-        pf.file?.type ||
-        pf.content_type ||
+      const name = String(rawName || fileId);
+      const rawContentType =
+        pf.uploadedData?.content_type ??
+        pf.uploadedData?.mime ??
+        pf.file?.type ??
+        pf.content_type ??
         "";
+      const contentType = String(rawContentType || "");
       const rawSize = pf.uploadedData?.size ?? pf.file?.size ?? pf.size;
       const size = typeof rawSize === "number" && Number.isFinite(rawSize) ? rawSize : null;
       const parsed =
@@ -2922,7 +2928,7 @@ function buildAttachmentsFromChatState(agentId, chatState) {
         content_type: contentType,
         mime: contentType,
         size,
-        type: pf.isImage === true || contentType.startsWith("image/") ? "image" : "file",
+        type: pf.isImage === true || contentType.toLowerCase().startsWith("image/") ? "image" : "file",
         parsed: !!parsed,
         parse_error: parseError,
       };
