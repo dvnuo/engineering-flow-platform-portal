@@ -2013,3 +2013,140 @@ console.log(JSON.stringify({{ typedMessageDelta, plainDelta, explicitRuntimeEven
     assert payload["typedMessageDelta"] == "message.delta"
     assert payload["plainDelta"] == "message.delta"
     assert payload["explicitRuntimeEvent"] == "runtime_event"
+
+def test_start_copilot_auth_authorized_updates_hidden_fields_and_masked_summary():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping copilot auth behavior test")
+
+    js_file = _chat_ui_js_source()
+    fn_names = [
+        "normalizeCopilotRuntimeType",
+        "copilotRuntimeLabel",
+        "maskCopilotSecret",
+        "setCopilotResultSummary",
+        "getManagedCopilotState",
+        "stopCopilotPolling",
+        "getManagedCopilotAuthBase",
+        "copilotCard",
+        "setCopilotOAuthFields",
+        "getManagedGithubBaseUrl",
+        "finishCopilotAuthWithMessage",
+        "startCopilotAuth",
+    ]
+    extracted = "\n".join(_extract_js_function(js_file, name) for name in fn_names)
+
+    script = f"""
+const fetchCalls = [];
+const intervalCalls = [];
+const toasts = [];
+let intervalId = 1;
+global.setInterval = (fn, ms) => {{ intervalCalls.push({{ id: intervalId, fn, ms }}); return intervalId++; }};
+global.clearInterval = (_id) => {{}};
+
+function safe(v) {{ return String(v || ""); }}
+function showToast(msg) {{ toasts.push(msg); }}
+function markManagedSectionTouched() {{}}
+function makeClassList() {{ return {{ add() {{}}, remove() {{}}, toggle() {{}} }}; }}
+
+function makeCopilotCard(elements) {{
+  return {{
+    querySelector(sel) {{
+      if (sel === "[data-copilot-auth-status]") return elements.authStatus;
+      if (sel === "[data-copilot-instructions]") return elements.instructions;
+      if (sel === "[data-copilot-status-text]") return elements.statusText;
+      if (sel === "[data-copilot-result-summary]") return elements.summary;
+      if (sel === "[data-copilot-verify-link]") return elements.verifyLink;
+      if (sel === "[data-copilot-device-link]") return elements.deviceLink;
+      if (sel === "[data-copilot-user-code]") return elements.userCode;
+      if (sel === "[data-copilot-timer]") return elements.timer;
+      return null;
+    }}
+  }};
+}}
+
+const elements = {{
+  authStatus: {{ classList: makeClassList() }},
+  instructions: {{ classList: makeClassList() }},
+  statusText: {{ textContent: "" }},
+  summary: {{ textContent: "", classList: makeClassList() }},
+  verifyLink: {{ href: "", textContent: "" }},
+  deviceLink: {{ href: "", classList: makeClassList() }},
+  userCode: {{ textContent: "" }},
+  timer: {{ textContent: "" }},
+  apiKey: {{ value: "existing-api-key" }},
+  githubBase: {{ value: "" }},
+  oauthType: {{ value: "" }}, oauthAccess: {{ value: "" }}, oauthRefresh: {{ value: "" }},
+  oauthExpires: {{ value: "" }}, oauthPresent: {{ value: "" }}, oauthClear: {{ value: "" }},
+}};
+
+const opencodeCard = makeCopilotCard(elements);
+const nativeCard = makeCopilotCard(elements);
+const root = {{
+  dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
+  querySelector(sel) {{
+    if (sel === '[data-copilot-auth-card="opencode"]') return opencodeCard;
+    if (sel === '[data-copilot-auth-card="native"]') return nativeCard;
+    if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
+    if (sel === 'input[name="github_base_url"]') return elements.githubBase;
+    if (sel === 'input[name="llm_oauth_opencode_type"]') return elements.oauthType;
+    if (sel === 'input[name="llm_oauth_opencode_access"]') return elements.oauthAccess;
+    if (sel === 'input[name="llm_oauth_opencode_refresh"]') return elements.oauthRefresh;
+    if (sel === 'input[name="llm_oauth_opencode_expires"]') return elements.oauthExpires;
+    if (sel === 'input[name="llm_oauth_opencode_present"]') return elements.oauthPresent;
+    if (sel === 'input[name="llm_oauth_opencode_clear"]') return elements.oauthClear;
+    return null;
+  }}
+}};
+
+async function fetch(url, options) {{
+  fetchCalls.push({{ url, options }});
+  if (url.endsWith('/start')) {{
+    return {{ ok: true, json: async () => ({{
+      auth_id: 'auth-1', device_code: 'device-1', user_code: 'CODE1',
+      verification_url: 'https://github.com/login/device',
+      verification_complete_url: 'https://github.com/login/device?user_code=CODE1',
+      expires_in: 60, interval: 2,
+    }}) }};
+  }}
+  return {{ ok: true, json: async () => ({{
+    status: 'authorized',
+    oauth: {{ type: 'oauth', access: 'gho_SECRET1234', refresh: 'gho_SECRET1234', expires: 0 }},
+    oauth_summary: {{ present: true, type: 'oauth', runtime_type: 'opencode', token_prefix: 'gho_', token_suffix: '1234', token_length: 14 }},
+    runtime_type: 'opencode'
+  }}) }};
+}}
+global.fetch = fetch;
+
+{extracted}
+
+(async () => {{
+  await startCopilotAuth(root, 'opencode');
+  await intervalCalls.find((x) => x.ms === 2000).fn();
+  console.log(JSON.stringify({{
+    statusText: elements.statusText.textContent,
+    summaryText: elements.summary.textContent,
+    oauthType: elements.oauthType.value,
+    oauthAccess: elements.oauthAccess.value,
+    oauthRefresh: elements.oauthRefresh.value,
+    oauthPresent: elements.oauthPresent.value,
+    oauthClear: elements.oauthClear.value,
+    apiKey: elements.apiKey.value,
+    toasts,
+  }}));
+}})().catch((err) => {{ console.error(err); process.exit(1); }});
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+
+    assert data["statusText"] == "Authorized (unsaved)"
+    assert data["oauthAccess"] == "gho_SECRET1234"
+    assert data["oauthRefresh"] == "gho_SECRET1234"
+    assert data["oauthType"] == "oauth"
+    assert data["oauthPresent"] == "1"
+    assert data["oauthClear"] == ""
+    assert data["apiKey"] == ""
+    assert "Credential captured for OpenCode Runtime" in data["summaryText"]
+    assert "gho_…1234" in data["summaryText"]
+    assert "gho_SECRET1234" not in data["summaryText"]
+    assert any("Click Save Settings to persist" in msg for msg in data["toasts"])

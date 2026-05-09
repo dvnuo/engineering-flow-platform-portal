@@ -9,11 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
-from app.contracts.opencode_provider import normalize_provider_for_runtime, normalize_provider_for_portal
 from app.redaction import redact_text, sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.proxy_service import ProxyService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -31,53 +31,8 @@ class RuntimeProfilePushResult:
 
 
 
+_project_llm_for_runtime = project_llm_for_runtime
 
-def _is_copilot_provider(provider: str | None) -> bool:
-    return normalize_provider_for_portal(provider) == "github_copilot"
-
-
-def _selected_copilot_oauth_for_runtime(llm: dict, runtime_type: str) -> dict | None:
-    by_runtime = llm.get("oauth_by_runtime") if isinstance(llm.get("oauth_by_runtime"), dict) else {}
-    if runtime_type == "opencode":
-        if isinstance(by_runtime.get("opencode"), dict):
-            return deepcopy(by_runtime["opencode"])
-        if isinstance(llm.get("oauth"), dict):
-            return deepcopy(llm["oauth"])
-        return None
-    if isinstance(by_runtime.get("native"), dict):
-        return deepcopy(by_runtime["native"])
-    return None
-
-
-def _project_llm_for_runtime(llm: dict, runtime_type: str) -> dict:
-    projected = deepcopy(llm)
-    provider = projected.get("provider")
-    runtime_type = "opencode" if str(runtime_type or "").strip().lower() == "opencode" else "native"
-    has_oauth_by_runtime = isinstance(llm.get("oauth_by_runtime"), dict) and bool(llm.get("oauth_by_runtime"))
-    if provider:
-        projected["provider"] = normalize_provider_for_runtime(runtime_type, provider)
-    if not _is_copilot_provider(provider):
-        projected.pop("oauth_by_runtime", None)
-        return projected
-    oauth = _selected_copilot_oauth_for_runtime(llm, runtime_type)
-    if runtime_type == "opencode":
-        if oauth:
-            projected["oauth"] = oauth
-            projected.pop("api_key", None)
-        elif has_oauth_by_runtime:
-            projected.pop("api_key", None)
-            projected.pop("oauth", None)
-        projected.pop("oauth_by_runtime", None)
-        return projected
-    if oauth:
-        token = str(oauth.get("access") or oauth.get("refresh") or "").strip()
-        if token:
-            projected["api_key"] = token
-    elif has_oauth_by_runtime:
-        projected.pop("api_key", None)
-    projected.pop("oauth", None)
-    projected.pop("oauth_by_runtime", None)
-    return projected
 class RuntimeProfileSyncService:
     def __init__(self, proxy_service: ProxyService | None = None) -> None:
         self.proxy_service = proxy_service or ProxyService()
@@ -212,7 +167,8 @@ class RuntimeProfileSyncService:
         payload["config"]["runtime_type"] = runtime_type
         llm = payload.get("config", {}).get("llm")
         if isinstance(llm, dict):
-            payload["config"]["llm"] = _project_llm_for_runtime(llm, runtime_type)
+            runtime_type = getattr(agent, "runtime_type", "") or "native"
+            payload["config"]["llm"] = project_llm_for_runtime(llm, runtime_type)
         raw_config = self._raw_profile_config(runtime_profile)
         for key in [
             "allowed_capability_ids",

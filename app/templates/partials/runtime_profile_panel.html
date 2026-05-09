@@ -91,6 +91,9 @@
         <button type="button" data-copilot-auth-button="native" class="portal-btn is-secondary hidden">Authorize GitHub Copilot for EFP Runtime</button>
         <div class="portal-form-input hidden" data-copilot-auth-status>
           <div class="portal-settings-section-head"><span class="portal-inline-note">Status:</span><span data-copilot-status-text class="portal-inline-note">{{ 'Authorized' if native_oauth else 'Not authorized' }}</span></div>
+          <div class="portal-inline-note {% if native_oauth %}{% else %}hidden{% endif %}" data-copilot-result-summary>
+            {% if native_oauth %}Saved OAuth credential present for EFP Runtime. Token is hidden.{% endif %}
+          </div>
           <div class="hidden space-y-2" data-copilot-instructions><p class="portal-inline-note">Step 1: Click the link below to authorize</p><a href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a><p class="portal-inline-note">Step 2: Copy this code</p><div class="flex items-center gap-2"><span class="portal-detail-code" data-copilot-user-code></span><button type="button" class="portal-btn is-secondary" data-copilot-copy-button>Copy</button></div><p class="portal-inline-note">Step 3: Click to complete authorization</p><a href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all" data-copilot-device-link>Complete Authorization →</a><div class="flex items-center gap-2 mt-2"><span class="portal-inline-note" data-copilot-timer></span></div></div>
         </div>
       </div>
@@ -98,6 +101,9 @@
         <button type="button" data-copilot-auth-button="opencode" class="portal-btn is-secondary hidden">Authorize GitHub Copilot for OpenCode Runtime</button>
         <div class="portal-form-input hidden" data-copilot-auth-status>
           <div class="portal-settings-section-head"><span class="portal-inline-note">Status:</span><span data-copilot-status-text class="portal-inline-note">{{ 'Authorized' if opencode_oauth else 'Not authorized' }}</span></div>
+          <div class="portal-inline-note {% if opencode_oauth %}{% else %}hidden{% endif %}" data-copilot-result-summary>
+            {% if opencode_oauth %}Saved OAuth credential present for OpenCode Runtime. Token is hidden.{% endif %}
+          </div>
           <div class="hidden space-y-2" data-copilot-instructions><p class="portal-inline-note">Step 1: Click the link below to authorize</p><a href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a><p class="portal-inline-note">Step 2: Copy this code</p><div class="flex items-center gap-2"><span class="portal-detail-code" data-copilot-user-code></span><button type="button" class="portal-btn is-secondary" data-copilot-copy-button>Copy</button></div><p class="portal-inline-note">Step 3: Click to complete authorization</p><a href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all" data-copilot-device-link>Complete Authorization →</a><div class="flex items-center gap-2 mt-2"><span class="portal-inline-note" data-copilot-timer></span></div></div>
         </div>
       </div>

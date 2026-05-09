@@ -58,7 +58,7 @@ class CopilotAuthService:
         self._cleanup_expired()
         runtime_type_normalized = normalize_copilot_runtime_type(runtime_type)
         selected_client_id = COPILOT_OAUTH_CLIENT_IDS[runtime_type_normalized]
-        oauth_base_url = "https://github.com"
+        oauth_base_url = normalize_github_oauth_base_url(github_base_url)
         device_url = f"{oauth_base_url}/login/device/code"
         access_token_url = f"{oauth_base_url}/login/oauth/access_token"
         try:
@@ -89,6 +89,26 @@ class CopilotAuthService:
                      "verification_url": data.get("verification_uri", ""), "verification_complete_url": data.get("verification_uri_complete") or data.get("verification_uri") or "",
                      "expires_in": expires_in, "interval": interval, "runtime_type": runtime_type_normalized}
 
+
+    @staticmethod
+    def _oauth_summary(oauth: dict | None, runtime_type: str) -> dict:
+        token = str((oauth or {}).get("access") or (oauth or {}).get("refresh") or "").strip()
+        token_len = len(token)
+        safe_edges = token_len > 8
+        summary = {
+            "present": bool(token),
+            "type": "oauth",
+            "runtime_type": normalize_copilot_runtime_type(runtime_type),
+            "token_prefix": token[:4] if safe_edges else "",
+            "token_suffix": token[-4:] if safe_edges else "",
+            "token_length": token_len,
+            "expires": (oauth or {}).get("expires", 0),
+        }
+        if isinstance(oauth, dict) and oauth.get("enterpriseUrl"):
+            summary["enterpriseUrl"] = oauth.get("enterpriseUrl")
+        if isinstance(oauth, dict) and oauth.get("accountId"):
+            summary["accountId"] = oauth.get("accountId")
+        return summary
     async def check_authorization(self, user_id: str, auth_id: str, device_code: str) -> tuple[int, dict]:
         auth_id = (auth_id or "").strip()
         device_code = (device_code or "").strip()
@@ -96,11 +116,13 @@ class CopilotAuthService:
         if not auth_id or not device_code:
             return 400, {"error": "auth_id and device_code required"}
         record = _pending_authorizations.get(auth_id)
-        now = datetime.utcnow().timestamp()
-        if now - record['latest_check'] <= int(record['interval']):
-            return 200, {"status": "pending"}
         if not record or str(record.get("user_id")) != str(user_id):
             return 404, {"error": "Authorization not found or expired"}
+        now = datetime.utcnow().timestamp()
+        latest_check = float(record.get("latest_check") or 0)
+        interval = int(record.get("interval") or 5)
+        if now - latest_check <= interval:
+            return 200, {"status": "pending"}
         if isinstance(record.get("expires_at"), datetime) and record["expires_at"] <= self._utc_now():
             _pending_authorizations.pop(auth_id, None)
             return 200, {"status": "expired", "message": "Authorization expired"}
@@ -108,7 +130,7 @@ class CopilotAuthService:
         if record.get("status") == "authorized" and isinstance(record.get("oauth"), dict):
             oauth = record["oauth"]
             _pending_authorizations.pop(auth_id, None)
-            return 200, {"status": "authorized", "oauth": oauth, "token": oauth.get("access", ""), "runtime_type": record.get("runtime_type", "opencode")}
+            return 200, {"status": "authorized", "oauth": oauth, "oauth_summary": self._oauth_summary(oauth, record.get("runtime_type", "opencode")), "token": oauth.get("access", ""), "runtime_type": record.get("runtime_type", "opencode")}
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -125,6 +147,8 @@ class CopilotAuthService:
             return 200, {"status": "pending"}
         if error == "slow_down":
             record["interval"] = int(record.get("interval") or 5) + 5
+            record["latest_check"] = now
+            _pending_authorizations[auth_id] = record
             return 200, {"status": "pending", "interval": record["interval"]}
         if error == "expired_token":
             _pending_authorizations.pop(auth_id, None)
@@ -141,7 +165,7 @@ class CopilotAuthService:
             record["status"] = "authorized"
             record["oauth"] = oauth
             _pending_authorizations.pop(auth_id, None)
-            return 200, {"status": "authorized", "oauth": oauth, "token": access_token, "runtime_type": record.get("runtime_type", "opencode")}
+            return 200, {"status": "authorized", "oauth": oauth, "oauth_summary": self._oauth_summary(oauth, record.get("runtime_type", "opencode")), "token": access_token, "runtime_type": record.get("runtime_type", "opencode")}
 
         return 200, {"status": "failed", "message": sanitize_exception_message(error or f"GitHub API returned {response.status_code}")}
 

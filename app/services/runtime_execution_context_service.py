@@ -12,6 +12,7 @@ from app.schemas.runtime_profile import (
 )
 from app.services.capability_context_service import CapabilityContextService
 from app.services.runtime_profile_service import RuntimeProfileService
+from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 
 
 class RuntimeExecutionContextService:
@@ -156,11 +157,12 @@ class RuntimeExecutionContextService:
             return runtime_profile_id, {}
 
         runtime_type = getattr(agent, "runtime_type", "") if agent else ""
-        provider = normalize_provider_for_runtime(runtime_type, llm.get("provider") if isinstance(llm, dict) else None)
-        model = str(llm.get("model") or "").strip() if isinstance(llm, dict) else ""
+        projected_llm = project_llm_for_runtime(llm, runtime_type) if isinstance(llm, dict) else {}
+        provider = projected_llm.get("provider") if isinstance(projected_llm, dict) else None
+        model = str(projected_llm.get("model") or "").strip() if isinstance(projected_llm, dict) else ""
         base_url = ""
-        if isinstance(llm, dict):
-            base_url = str(llm.get("base_url") or llm.get("api_base") or llm.get("baseURL") or llm.get("endpoint") or "").strip()
+        if isinstance(projected_llm, dict):
+            base_url = str(projected_llm.get("base_url") or projected_llm.get("api_base") or projected_llm.get("baseURL") or projected_llm.get("endpoint") or "").strip()
         runtime_cfg = {"llm": {"tool_loop": dict(tool_loop)}}
         if provider:
             runtime_cfg["llm"]["provider"] = provider
@@ -168,6 +170,13 @@ class RuntimeExecutionContextService:
             runtime_cfg["llm"]["model"] = model
         if base_url:
             runtime_cfg["llm"]["base_url"] = base_url
+        if isinstance(projected_llm, dict):
+            api_key = str(projected_llm.get("api_key") or "").strip()
+            oauth = projected_llm.get("oauth") if isinstance(projected_llm.get("oauth"), dict) else None
+            if api_key:
+                runtime_cfg["llm"]["api_key"] = api_key
+            if oauth:
+                runtime_cfg["llm"]["oauth"] = dict(oauth)
         return runtime_profile_id, {"runtime_profile_id": runtime_profile_id, "revision": getattr(profile, "revision", None), "config": runtime_cfg}
 
     def build_for_agent(self, db: Session, agent: Agent | None) -> dict:
