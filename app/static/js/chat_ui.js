@@ -5037,6 +5037,50 @@ function buildServerFilesBreadcrumb(path, rootPath) {
   return breadcrumbParts.join(' ');
 }
 
+
+function normalizeServerFileItem(item) {
+  const source = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+  const type = String(source.type || source.kind || "").trim().toLowerCase();
+
+  let isDir;
+  if (typeof source.is_dir === "boolean") {
+    isDir = source.is_dir;
+  } else if (typeof source.isDir === "boolean") {
+    isDir = source.isDir;
+  } else {
+    isDir = type === "directory" || type === "dir";
+  }
+
+  let isFile;
+  if (typeof source.is_file === "boolean") {
+    isFile = source.is_file;
+  } else if (typeof source.isFile === "boolean") {
+    isFile = source.isFile;
+  } else if (type === "file") {
+    isFile = true;
+  } else {
+    isFile = !isDir;
+  }
+
+  const rawPath =
+    source.path ||
+    source.relative_path ||
+    source.relativePath ||
+    source.name ||
+    "";
+
+  const path = String(rawPath || "");
+  const name = String(source.name || (path ? path.split("/").filter(Boolean).pop() : "") || "");
+
+  return {
+    ...source,
+    name,
+    path,
+    is_dir: !!isDir,
+    is_file: !!isFile,
+  };
+}
+
 async function loadServerFiles(path) {
   setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>', "server-files");
 
@@ -5046,7 +5090,7 @@ async function loadServerFiles(path) {
       ? `/api/server-files?path=${encodeURIComponent(path)}`
       : '/api/server-files';
     const data = await agentApi(endpoint);
-    const items = data.items || [];
+    const items = (Array.isArray(data.items) ? data.items : []).map(normalizeServerFileItem);
     const runtimePath = (typeof data.path === 'string' && data.path.length > 0) ? data.path : '';
     const currentPath = runtimePath || (hasPath ? path : (state.serverFilesRootPath || ''));
     const runtimeRoot = (typeof data.root_path === 'string' && data.root_path.length > 0) ? data.root_path : '';
@@ -5059,13 +5103,16 @@ async function loadServerFiles(path) {
     // Build file rows with checkboxes in separate cell
     const rows = items.map((item) => {
       const icon = item.is_dir ? '📁' : '📄';
-      const safePath = item.path.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      const itemPath = String(item.path || '');
+      const safePath = escapeHtmlAttr(itemPath);
+      const safeName = escapeHtml(item.name || '(unknown)');
+      const disabledAttr = itemPath ? '' : ' disabled';
       return (
         `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox portal-file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${escapeHtml(item.name)}">` +
+          `<input type="checkbox" class="file-checkbox portal-file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${safeName}"${disabledAttr}>` +
           `<div class="portal-file-name-cell name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
             `<span class="portal-file-icon">${icon}</span>` +
-            `<span class="portal-file-name">${escapeHtml(item.name)}</span>` +
+            `<span class="portal-file-name">${safeName}</span>` +
           `</div>` +
         `</div>`
       );
@@ -5117,6 +5164,7 @@ async function loadServerFiles(path) {
           const filePath = row.dataset.path;
           const isDir = row.dataset.isDir === 'true';
 
+          if (!filePath) return;
           if (isDir) {
             loadServerFiles(filePath);
           }
@@ -5138,6 +5186,7 @@ async function loadServerFiles(path) {
           const filePath = cell.dataset.path;
           const isDir = cell.dataset.isDir === 'true';
           
+          if (!filePath) return;
           if (isDir) {
             loadServerFiles(filePath);
           } else {
