@@ -9,4 +9,4 @@ def test_chat_ui_session_action_wiring_regression():
     assert "data-session-action" in js_source
     assert 'event.target.closest("[data-session-action]")' in js_source
     assert "/a/${agentId}/api/sessions/${encodeURIComponent(normalizedSessionId)}/rename" in js_source
-    assert "/a/${agentId}/api/sessions/${encodeURIComponent(normalizedSessionId)}" in js_source
+    assert "fetch(`/app/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(normalizedSessionId)}`" in js_source

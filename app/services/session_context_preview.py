@@ -556,9 +556,10 @@ def merge_runtime_sessions_with_metadata(
     *,
     include_metadata_only: bool = False,
 ) -> list[dict]:
+    active_metadata_records = [record for record in metadata_records if getattr(record, "deleted_at", None) is None]
     metadata_by_session_id = {
         record.session_id: extract_context_preview(record)
-        for record in metadata_records
+        for record in active_metadata_records
         if getattr(record, "session_id", None)
     }
     merged_sessions: list[dict] = []
@@ -574,7 +575,7 @@ def merge_runtime_sessions_with_metadata(
     runtime_session_ids = {session.get("session_id") for session in runtime_sessions if session.get("session_id")}
     metadata_only_records = [
         record
-        for record in metadata_records
+        for record in active_metadata_records
         if getattr(record, "session_id", None) and getattr(record, "session_id", None) not in runtime_session_ids
     ]
     def _updated_at_sort_value(record) -> float:
@@ -616,6 +617,7 @@ def serialize_agent_session_metadata_with_preview(record) -> dict:
         "pending_delegations_json": getattr(record, "pending_delegations_json", None),
         "runtime_events_json": getattr(record, "runtime_events_json", None),
         "metadata_json": getattr(record, "metadata_json", None),
+        "deleted_at": getattr(record, "deleted_at", None),
         "created_at": getattr(record, "created_at", None),
         "updated_at": getattr(record, "updated_at", None),
     }

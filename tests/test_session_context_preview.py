@@ -721,3 +721,14 @@ def test_extract_context_preview_maps_source_ref_and_controller_reason_fields():
     assert flat["context_preview_tool_used"] is False
     assert flat["context_output_controller_stage"] == "finalizer"
     assert flat["context_output_controller_recovery_reason"] == "max_output_tokens"
+
+
+def test_merge_runtime_sessions_with_metadata_skips_deleted_metadata_only_rows():
+    merged = merge_runtime_sessions_with_metadata([], [SimpleNamespace(session_id="s-deleted", deleted_at=datetime.utcnow(), metadata_json='{"context_summary_preview":"x"}', updated_at=datetime.utcnow())], include_metadata_only=True)
+    assert merged == []
+
+def test_merge_runtime_sessions_with_metadata_keeps_runtime_row_when_metadata_deleted():
+    merged = merge_runtime_sessions_with_metadata([{"session_id":"s-1","name":"S1"}], [SimpleNamespace(session_id="s-1", deleted_at=datetime.utcnow(), metadata_json='{"context_summary_preview":"x"}', updated_at=datetime.utcnow())], include_metadata_only=True)
+    assert len(merged) == 1
+    assert merged[0]["session_id"] == "s-1"
+    assert "context_summary_preview" not in merged[0]

@@ -312,7 +312,8 @@ def test_agent_session_metadata_upsert_recovers_from_insert_race(monkeypatch):
 
     calls = {"count": 0}
 
-    def _fake_get(*, agent_id: str, session_id: str):
+    def _fake_get(*, agent_id: str, session_id: str, include_deleted: bool = False):
+        _ = include_deleted
         _ = (agent_id, session_id)
         calls["count"] += 1
         if calls["count"] == 1:
@@ -334,3 +335,36 @@ def test_agent_session_metadata_upsert_recovers_from_insert_race(monkeypatch):
     assert result.latest_event_state == "running"
     assert result.metadata_json == '{"k":"v"}'
     assert db.rollback_calls == 1
+
+def test_internal_session_metadata_delete_idempotent_and_hidden_by_default():
+    client, agent, _agent_b, cleanup = _build_client()
+    try:
+        client.put(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata", json={"group_id": "g"})
+        deleted = client.delete(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata")
+        assert deleted.status_code == 200
+        assert deleted.json()["success"] is True
+
+        missing_get = client.get(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata")
+        assert missing_get.status_code == 404
+
+        include_deleted_get = client.get(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata?include_deleted=true")
+        assert include_deleted_get.status_code == 200
+        assert include_deleted_get.json()["deleted_at"] is not None
+
+        list_default = client.get(f"/api/internal/agents/{agent.id}/sessions/metadata")
+        assert all(item["session_id"] != "s-del" for item in list_default.json())
+
+        list_with_deleted = client.get(f"/api/internal/agents/{agent.id}/sessions/metadata?include_deleted=true")
+        assert any(item["session_id"] == "s-del" for item in list_with_deleted.json())
+
+        deleted_again = client.delete(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata")
+        assert deleted_again.status_code == 200
+        assert deleted_again.json()["already_deleted"] is True
+
+        late_put = client.put(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata", json={"latest_event_state": "running"})
+        assert late_put.status_code == 200
+        assert late_put.json()["deleted_at"] is not None
+        list_after_late_put = client.get(f"/api/internal/agents/{agent.id}/sessions/metadata")
+        assert all(item["session_id"] != "s-del" for item in list_after_late_put.json())
+    finally:
+        cleanup()

@@ -54,6 +54,7 @@ class AgentSessionMetadataResponse(BaseModel):
     active_skill_turn_count: Optional[int] = None
     active_skill_activation_reason: Optional[str] = None
     active_skill_tool_policy_declared: Optional[bool] = None
+    deleted_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

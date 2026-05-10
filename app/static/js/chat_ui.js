@@ -4907,7 +4907,22 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     }
   }
 
-  const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(normalized)}`);
+  let data;
+  try {
+    data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(normalized)}`);
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (message.includes("404") || message.includes("410") || message.toLowerCase().includes("no longer exists")) {
+      if (normalized === currentSessionIdForAgent(agentId)) {
+        updateAgentSession(agentId, "");
+        setLastSessionId(agentId, "");
+      }
+      showToast("Session no longer exists");
+      await openSessionsPanel();
+      return;
+    }
+    throw error;
+  }
   updateAgentSession(agentId, normalized);
   const latestChatState = ensureChatState(agentId);
   if (latestChatState) latestChatState.needsReload = false;
@@ -4969,13 +4984,16 @@ async function deleteSessionForAgent(agentId, sessionId) {
   if (!confirm("Delete this session? This cannot be undone.")) return;
 
   try {
-    const resp = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(normalizedSessionId)}`, {
+    const resp = await fetch(`/app/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(normalizedSessionId)}`, {
       method: "DELETE",
     });
-    if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+    let payload = {};
+    try { payload = await resp.json(); } catch (_ignored) {}
+    if (!resp.ok || payload.success === false) throw new Error(payload.detail || await handleErrorResponse(resp));
 
     if (normalizedSessionId === currentSessionIdForAgent(agentId)) {
       updateAgentSession(agentId, "");
+      setLastSessionId(agentId, "");
       if (agentId === state.selectedAgentId) {
         const chatState = getChatState();
         if (chatState) chatState.inflightThinking = null;
