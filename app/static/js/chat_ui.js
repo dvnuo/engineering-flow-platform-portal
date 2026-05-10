@@ -3622,18 +3622,15 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
         ? hasRenderableDisplayBlock(block)
         : !!(block && typeof block === "object" && String(block.text || block.content || block.value || "").trim()));
     };
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
   if (!localHasRenderableAssistantPayload(payload)) {
-    const chatState = ensureChatState(agentIdAtSend);
     const finalSessionId = payload?.session_id || requestCtx?.sessionIdAtSend || chatState?.sessionId || "";
     removeTemporaryAssistantRows();
-    if (chatState?.activeRequest?.clientRequestId === requestCtx?.clientRequestId) {
-      chatState.activeRequest = null;
-    }
-    if (chatState) {
-      chatState.inflightThinking = null;
-      chatState.pendingThinkingEvents = null;
-      chatState.needsReload = true;
-    }
+    chatState.activeRequest = null;
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
+    chatState.needsReload = true;
     setChatSubmittingForAgent(agentIdAtSend, false);
     setChatStatus("Completed without a visible assistant response. Reloading session...");
     if (finalSessionId) {
@@ -3642,8 +3639,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     syncSelectedAgentChatActionControls();
     return;
   }
-  const chatState = ensureChatState(agentIdAtSend);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
   const normalizeEvents = (typeof normalizePayloadThinkingEvents === "function")
     ? normalizePayloadThinkingEvents
     : (events) => Array.isArray(events) ? events.filter((event) => event && typeof event === "object") : [];
