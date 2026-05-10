@@ -291,3 +291,150 @@ def test_sessions_panel_renders_metadata_only_sessions_when_k8s_disabled(monkeyp
     assert response.status_code == 200
     assert "K8s disabled preview" in response.text
     assert "metadata only" in response.text
+
+def test_control_plane_delete_session_runtime_404_marks_metadata_deleted(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: agent))
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+
+    async def _fake_forward_runtime(**_kwargs):
+        return 404, b'{"detail":"not found"}', "application/json"
+
+    calls = {}
+    monkeypatch.setattr(web_module, "_forward_runtime", _fake_forward_runtime)
+    monkeypatch.setattr(web_module, "AgentSessionMetadataRepository", lambda _db: SimpleNamespace(mark_deleted=lambda **kwargs: (SimpleNamespace(deleted_at=__import__('datetime').datetime.utcnow()), False)))
+    client = TestClient(app)
+    resp = client.delete('/app/agents/agent-1/sessions/s-zombie')
+    assert resp.status_code == 200
+    assert resp.json()["runtime_missing"] is True
+    assert resp.json()["metadata_deleted"] is True
+
+
+def test_control_plane_delete_session_runtime_500_does_not_mark_deleted(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+    user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: agent))
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+    async def _fake_forward_runtime(**_kwargs):
+        return 500, b'{"error":"boom"}', "application/json"
+    monkeypatch.setattr(web_module, "_forward_runtime", _fake_forward_runtime)
+    marker = {"called": False}
+    monkeypatch.setattr(web_module, "AgentSessionMetadataRepository", lambda _db: SimpleNamespace(mark_deleted=lambda **kwargs: marker.__setitem__("called", True)))
+    client = TestClient(app)
+    resp = client.delete('/app/agents/agent-1/sessions/s-zombie')
+    assert resp.status_code == 502
+    assert marker["called"] is False
+
+def test_control_plane_delete_session_runtime_success_false_returns_502(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+    user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: agent))
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+    async def _fake_forward_runtime(**_kwargs):
+        return 200, b'{"success":false,"detail":"bad"}', "application/json"
+    monkeypatch.setattr(web_module, "_forward_runtime", _fake_forward_runtime)
+    marker = {"called": False}
+    monkeypatch.setattr(web_module, "AgentSessionMetadataRepository", lambda _db: SimpleNamespace(mark_deleted=lambda **kwargs: marker.__setitem__("called", True)))
+    client = TestClient(app)
+    resp = client.delete('/app/agents/agent-1/sessions/s-zombie')
+    assert resp.status_code == 502
+    assert marker["called"] is False
+
+
+def test_control_plane_delete_session_runtime_invalid_json_is_accepted(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+    user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: agent))
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+    async def _fake_forward_runtime(**_kwargs):
+        return 200, b'plain-text-ok', "text/plain"
+    monkeypatch.setattr(web_module, "_forward_runtime", _fake_forward_runtime)
+    monkeypatch.setattr(web_module, "AgentSessionMetadataRepository", lambda _db: SimpleNamespace(mark_deleted=lambda **kwargs: (SimpleNamespace(deleted_at=__import__('datetime').datetime.utcnow()), False)))
+    client = TestClient(app)
+    resp = client.delete('/app/agents/agent-1/sessions/s-zombie')
+    assert resp.status_code == 200
+    assert resp.json()["runtime_response_json"] is False
+
+
+def test_control_plane_delete_session_k8s_disabled_skips_runtime(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+    user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: agent))
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", False)
+    called = {"runtime": False, "mark": False}
+    async def _fake_forward_runtime(**_kwargs):
+        called["runtime"] = True
+        return 200, b'{}', "application/json"
+    monkeypatch.setattr(web_module, "_forward_runtime", _fake_forward_runtime)
+    monkeypatch.setattr(web_module, "AgentSessionMetadataRepository", lambda _db: SimpleNamespace(mark_deleted=lambda **kwargs: (called.__setitem__("mark", True) or (SimpleNamespace(deleted_at=__import__('datetime').datetime.utcnow()), False))))
+    client = TestClient(app)
+    resp = client.delete('/app/agents/agent-1/sessions/s-zombie')
+    assert resp.status_code == 200
+    assert resp.json()["runtime_skipped"] is True
+    assert called["runtime"] is False
+    assert called["mark"] is True
+
+
+def test_control_plane_delete_session_no_write_permission_does_not_call_runtime(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+    user = SimpleNamespace(id=99, username="viewer", nickname="Viewer", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: agent))
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+    called = {"runtime": False, "mark": False}
+    async def _fake_forward_runtime(**_kwargs):
+        called["runtime"] = True
+        return 200, b'{}', "application/json"
+    monkeypatch.setattr(web_module, "_forward_runtime", _fake_forward_runtime)
+    monkeypatch.setattr(web_module, "AgentSessionMetadataRepository", lambda _db: SimpleNamespace(mark_deleted=lambda **kwargs: called.__setitem__("mark", True)))
+    client = TestClient(app)
+    resp = client.delete('/app/agents/agent-1/sessions/s-zombie')
+    assert resp.status_code == 403
+    assert called["runtime"] is False
+    assert called["mark"] is False
+
+
+def test_control_plane_delete_session_quotes_runtime_subpath(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+    user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: agent))
+    monkeypatch.setattr(web_module.settings, "k8s_enabled", True)
+    seen = {"subpath": None}
+    async def _fake_forward_runtime(**kwargs):
+        seen["subpath"] = kwargs.get("subpath")
+        return 200, b'{"success":true}', "application/json"
+    monkeypatch.setattr(web_module, "_forward_runtime", _fake_forward_runtime)
+    monkeypatch.setattr(web_module, "AgentSessionMetadataRepository", lambda _db: SimpleNamespace(mark_deleted=lambda **kwargs: (SimpleNamespace(deleted_at=__import__('datetime').datetime.utcnow()), False)))
+    client = TestClient(app)
+    resp = client.delete('/app/agents/agent-1/sessions/s%201%25')
+    assert resp.status_code == 200
+    assert seen["subpath"] == "api/sessions/s%201%25"
