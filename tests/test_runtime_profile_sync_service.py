@@ -168,7 +168,10 @@ def test_build_apply_payload_from_profile_keeps_shape_and_uses_raw_profile_confi
         assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
         assert payload["runtime_profile_id"] == rp.id
         assert payload["revision"] == rp.revision
-        assert payload["config"] == {"llm": {"provider": "openai", "tools": ["*"]}}
+        assert payload["config"] == {
+            "llm": {"provider": "openai", "tools": ["*"]},
+            "capability_profile": {"skill_set": ["*"]},
+        }
     finally:
         db.close()
 
@@ -183,7 +186,10 @@ def test_build_apply_payload_from_sparse_legacy_profile_does_not_backfill_creati
 
         payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
         assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
-        assert payload["config"] == {"llm": {"tools": ["*"]}}
+        assert payload["config"] == {
+            "llm": {"tools": ["*"]},
+            "capability_profile": {"skill_set": ["*"]},
+        }
     finally:
         db.close()
 

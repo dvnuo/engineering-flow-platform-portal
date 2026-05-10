@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 DEFAULT_PORTAL_LLM_TOOLS: list[str] = ["*"]
+DEFAULT_PORTAL_SKILL_SET: list[str] = ["*"]
 HIDDEN_PORTAL_LLM_FIELDS: tuple[str, ...] = ("temperature", "response_flow")
 
 
@@ -22,4 +23,14 @@ def canonicalize_portal_runtime_profile_config(config: dict[str, Any] | None) ->
 
     llm["tools"] = list(DEFAULT_PORTAL_LLM_TOOLS)
     canonical["llm"] = llm
+
+    capability_profile = canonical.get("capability_profile")
+    if isinstance(capability_profile, dict):
+        capability_profile = deepcopy(capability_profile)
+    else:
+        capability_profile = {}
+
+    capability_profile["skill_set"] = list(DEFAULT_PORTAL_SKILL_SET)
+    canonical["capability_profile"] = capability_profile
+
     return canonical
