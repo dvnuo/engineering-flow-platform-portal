@@ -12,6 +12,17 @@ class AgentSessionMetadataRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    def _apply_fields(self, record: AgentSessionMetadata, fields: dict, *, allow_reactivate: bool) -> AgentSessionMetadata:
+        was_deleted_at = getattr(record, "deleted_at", None)
+        for key, value in fields.items():
+            if key == "deleted_at" and was_deleted_at is not None and not allow_reactivate:
+                continue
+            if hasattr(record, key):
+                setattr(record, key, value)
+        if was_deleted_at is not None and not allow_reactivate:
+            record.deleted_at = was_deleted_at
+        return record
+
     def get_by_agent_and_session(self, agent_id: str, session_id: str, *, include_deleted: bool = False) -> Optional[AgentSessionMetadata]:
         stmt = select(AgentSessionMetadata).where(
             AgentSessionMetadata.agent_id == agent_id,
@@ -59,11 +70,7 @@ class AgentSessionMetadataRepository:
         if is_new:
             record = AgentSessionMetadata(agent_id=agent_id, session_id=session_id)
 
-        for key, value in fields.items():
-            if hasattr(record, key):
-                setattr(record, key, value)
-        if getattr(record, 'deleted_at', None) is not None and not allow_reactivate:
-            record.deleted_at = record.deleted_at
+        self._apply_fields(record, fields, allow_reactivate=allow_reactivate)
         record.agent_id = agent_id
         record.session_id = session_id
         record.updated_at = datetime.utcnow()
@@ -78,9 +85,7 @@ class AgentSessionMetadataRepository:
             record = self.get_by_agent_and_session(agent_id=agent_id, session_id=session_id, include_deleted=True)
             if record is None:
                 raise
-            for key, value in fields.items():
-                if hasattr(record, key):
-                    setattr(record, key, value)
+            self._apply_fields(record, fields, allow_reactivate=allow_reactivate)
             record.agent_id = agent_id
             record.session_id = session_id
             record.updated_at = datetime.utcnow()

@@ -3,7 +3,7 @@ import app.logger  # Ensure logging is configured (intentional side-effect impor
 import json
 import logging
 from datetime import datetime
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
@@ -1792,12 +1792,14 @@ async def app_agent_delete_session(request: Request, agent_id: str, session_id: 
         runtime_missing = False
         runtime_skipped = False
         runtime_status = None
+        runtime_response_json = True
 
         if not settings.k8s_enabled:
             runtime_skipped = True
         else:
             try:
-                runtime_status, content, _ = await _forward_runtime(user=user, agent=agent, method="DELETE", subpath=f"api/sessions/{session_id}", query_items=[], body=None)
+                quoted_session_id = quote(session_id, safe="")
+                runtime_status, content, _ = await _forward_runtime(user=user, agent=agent, method="DELETE", subpath=f"api/sessions/{quoted_session_id}", query_items=[], body=None)
             except Exception as exc:
                 raise HTTPException(status_code=502, detail=f"Runtime delete failed: {exc}")
             if runtime_status == 404:
@@ -1805,13 +1807,19 @@ async def app_agent_delete_session(request: Request, agent_id: str, session_id: 
             elif runtime_status >= 400:
                 raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
             else:
-                payload = json.loads(content.decode("utf-8")) if content else {}
+                payload = {}
+                if content:
+                    try:
+                        payload = json.loads(content.decode("utf-8"))
+                        runtime_response_json = isinstance(payload, dict)
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        runtime_response_json = False
                 if isinstance(payload, dict) and payload.get("success") is False:
                     raise HTTPException(status_code=502, detail="Runtime delete returned success=false")
                 runtime_deleted = True
 
         record, already_deleted = AgentSessionMetadataRepository(db).mark_deleted(agent_id=agent_id, session_id=session_id)
-        return {"success": True, "agent_id": agent_id, "session_id": session_id, "runtime_deleted": runtime_deleted, "runtime_missing": runtime_missing, "runtime_skipped": runtime_skipped, "runtime_status": runtime_status, "metadata_deleted": bool(record.deleted_at), "already_deleted": already_deleted}
+        return {"success": True, "agent_id": agent_id, "session_id": session_id, "runtime_deleted": runtime_deleted, "runtime_missing": runtime_missing, "runtime_skipped": runtime_skipped, "runtime_status": runtime_status, "runtime_response_json": runtime_response_json, "metadata_deleted": bool(record.deleted_at), "already_deleted": already_deleted}
     finally:
         db.close()
 

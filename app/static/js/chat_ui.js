@@ -4988,8 +4988,21 @@ async function deleteSessionForAgent(agentId, sessionId) {
       method: "DELETE",
     });
     let payload = {};
-    try { payload = await resp.json(); } catch (_ignored) {}
-    if (!resp.ok || payload.success === false) throw new Error(payload.detail || await handleErrorResponse(resp));
+    let parsedJson = false;
+    try {
+      payload = await resp.json();
+      parsedJson = !!payload && typeof payload === "object";
+    } catch (_ignored) {}
+    if (!resp.ok || payload.success === false) {
+      const detail =
+        payload.detail ||
+        payload.error ||
+        payload.message ||
+        (parsedJson ? JSON.stringify(payload) : "") ||
+        resp.statusText ||
+        `HTTP ${resp.status}`;
+      throw new Error(detail);
+    }
 
     if (normalizedSessionId === currentSessionIdForAgent(agentId)) {
       updateAgentSession(agentId, "");
