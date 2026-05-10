@@ -57,3 +57,14 @@ def test_non_stream_chat_ok_false_not_success():
     assert "payload?.ok === false" in chat_api_snippet
     assert "isNonSuccessFinalPayload(payload)" in chat_api_snippet
     assert 'await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_error_or_incomplete", payload);' in chat_api_snippet
+
+
+def test_non_stream_completed_path_normalizes_response_before_success():
+    src = _source()
+    chat_api_start = src.find('const resp = await fetch(`/a/${agentIdAtSend}/api/chat`')
+    assert chat_api_start != -1
+    chat_api_snippet = src[chat_api_start:chat_api_start + 2200]
+    assert "await handleAgentChatSuccess(agentIdAtSend, requestCtx, {" in chat_api_snippet
+    assert "response: responseText" in chat_api_snippet
+    assert "session_id: payload?.session_id || requestCtx.sessionIdAtSend || \"\"" in chat_api_snippet
+    assert "await handleAgentChatSuccess(agentIdAtSend, requestCtx, payload);" not in chat_api_snippet

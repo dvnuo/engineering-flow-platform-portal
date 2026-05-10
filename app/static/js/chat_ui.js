@@ -3128,7 +3128,14 @@ async function submitChatForSelectedAgent() {
       await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", payload);
       return;
     }
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, payload);
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {
+      ...payload,
+      response: responseText,
+      session_id: payload?.session_id || requestCtx.sessionIdAtSend || "",
+      request_id: payload?.request_id || requestCtx.clientRequestId,
+      events: payload?.events || [],
+      runtime_events: payload?.runtime_events || [],
+    });
   } catch (error) {
     handleAgentChatFailure(agentIdAtSend, requestCtx, error);
   }
