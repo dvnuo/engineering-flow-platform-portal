@@ -3119,6 +3119,15 @@ async function submitChatForSelectedAgent() {
     });
     if (!resp.ok) throw new Error(await handleErrorResponse(resp));
     const payload = await resp.json();
+    const responseText = finalResponseText(payload);
+    if (payload?.ok === false || isNonSuccessFinalPayload(payload)) {
+      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_error_or_incomplete", payload);
+      return;
+    }
+    if (!isCompletedFinalPayload(payload) || !responseText) {
+      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", payload);
+      return;
+    }
     await handleAgentChatSuccess(agentIdAtSend, requestCtx, payload);
   } catch (error) {
     handleAgentChatFailure(agentIdAtSend, requestCtx, error);
@@ -3381,6 +3390,9 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       if (typeof payload?.text === "string") return payload.text;
       return "";
     };
+  const localHandleIncompleteChatStream = (typeof handleIncompleteChatStream === "function")
+    ? handleIncompleteChatStream
+    : async () => {};
   const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
 
   if (isChatStreamWrapperEventName(outerType)) {
@@ -3436,10 +3448,18 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
     if (localIsNonSuccessFinalPayload(eventData)) {
+      requestCtx.streamCompleted = false;
+      await localHandleIncompleteChatStream(
+        agentIdAtSend,
+        requestCtx,
+        "runtime_error_or_incomplete",
+        eventData,
+      );
       return "final_non_success";
     }
     const finalText = localFinalResponseText(eventData);
     if (!localIsCompletedFinalPayload(eventData) || !finalText) {
+      await localHandleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", eventData);
       return "final_incomplete";
     }
     requestCtx.streamCompleted = true;
@@ -3535,9 +3555,30 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     buffer += decoder.decode(); if(buffer.trim()) await flush(buffer);
   } catch (e) { if (sawEvent) throw e; return 'unsupported'; }
   if (requestCtx.streamCompleted || sawFinal) return 'handled';
+  if (requestCtx.completed || requestCtx.streamIncomplete || requestCtx.streamFailed) return "handled";
   if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate)) {
-    await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", requestCtx.streamFinalCandidate);
-    return "handled";
+    const candidate = requestCtx.streamFinalCandidate;
+    const candidateText = finalResponseText(candidate) || getChatStreamTextPayload(candidate);
+    if (isNonSuccessFinalPayload(candidate)) {
+      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_error", candidate);
+      return "handled";
+    }
+    if (isCompletedFinalPayload(candidate) && candidateText) {
+      requestCtx.streamCompleted = true;
+      await handleAgentChatSuccess(agentIdAtSend, requestCtx, {
+        ...candidate,
+        response: candidateText,
+        session_id: candidate.session_id || requestCtx.sessionIdAtSend || "",
+        request_id: candidate.request_id || requestCtx.clientRequestId,
+        events: candidate.events || requestCtx.streamEvents || [],
+        runtime_events: candidate.runtime_events || requestCtx.runtimeEvents || [],
+      });
+      return "handled";
+    }
+    if (candidateText) {
+      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", candidate);
+      return "handled";
+    }
   }
   if (requestCtx.streamSawFinal && requestCtx.streamFinalPayload) {
     await handleIncompleteChatStream(
