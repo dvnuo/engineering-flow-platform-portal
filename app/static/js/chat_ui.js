@@ -3322,6 +3322,29 @@ function hasChatStreamFinalPayload(data, streamedText = "") {
   return false;
 }
 
+function getCompletionState(payload) {
+  const state = String(payload?.completion_state || payload?.completionState || "").trim().toLowerCase();
+  return state || "";
+}
+
+function isCompletedFinalPayload(payload) {
+  const state = getCompletionState(payload);
+  if (state) return state === "completed" || state === "success";
+  return typeof payload?.response === "string" && payload.response.length > 0;
+}
+
+function isNonSuccessFinalPayload(payload) {
+  const state = getCompletionState(payload);
+  return ["blocked", "error", "failed", "incomplete", "pending"].includes(state) || payload?.ok === false;
+}
+
+function finalResponseText(payload) {
+  if (typeof payload?.response === "string") return payload.response;
+  if (typeof payload?.message === "string") return payload.message;
+  if (typeof payload?.text === "string") return payload.text;
+  return "";
+}
+
 function updatePendingAssistantStreamContent(agentId, markdownText) {
   if (state.selectedAgentId !== agentId || !dom.messageList) return;
   const article = dom.messageList.querySelector('article[data-pending-assistant="1"]');
@@ -3334,8 +3357,31 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const outerType = normalizeChatStreamEventName(eventName);
   const eventData = normalizeChatStreamEventData(data);
   const embeddedType = normalizeChatStreamEventName(eventData.type || eventData.event_type || eventData.event || "");
+  const localGetCompletionState = (typeof getCompletionState === "function")
+    ? getCompletionState
+    : (payload) => String(payload?.completion_state || payload?.completionState || "").trim().toLowerCase();
+  const localIsCompletedFinalPayload = (typeof isCompletedFinalPayload === "function")
+    ? isCompletedFinalPayload
+    : (payload) => {
+      const state = localGetCompletionState(payload);
+      if (state) return state === "completed" || state === "success";
+      return typeof payload?.response === "string" && payload.response.length > 0;
+    };
+  const localIsNonSuccessFinalPayload = (typeof isNonSuccessFinalPayload === "function")
+    ? isNonSuccessFinalPayload
+    : (payload) => {
+      const state = localGetCompletionState(payload);
+      return ["blocked", "error", "failed", "incomplete", "pending"].includes(state) || payload?.ok === false;
+    };
+  const localFinalResponseText = (typeof finalResponseText === "function")
+    ? finalResponseText
+    : (payload) => {
+      if (typeof payload?.response === "string") return payload.response;
+      if (typeof payload?.message === "string") return payload.message;
+      if (typeof payload?.text === "string") return payload.text;
+      return "";
+    };
   const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
-  const hasFinalPayload = hasChatStreamFinalPayload(eventData, requestCtx.streamedText || "");
 
   if (isChatStreamWrapperEventName(outerType)) {
     const streamEventPayload = {
@@ -3385,10 +3431,19 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
 
   if (isChatStreamFinalEventName(outerType) || isDirectCompletionEventName(outerType)) {
+    requestCtx.streamSawFinal = true;
+    requestCtx.streamFinalPayload = eventData;
+    requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
-    if (!hasFinalPayload) return "empty_final";
+    if (localIsNonSuccessFinalPayload(eventData)) {
+      return "final_non_success";
+    }
+    const finalText = localFinalResponseText(eventData);
+    if (!localIsCompletedFinalPayload(eventData) || !finalText) {
+      return "final_incomplete";
+    }
     requestCtx.streamCompleted = true;
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: responseText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: finalText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
     return 'final';
   }
 
@@ -3413,9 +3468,12 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   return 'event';
 }
 
-async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
+async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, payload = {}) {
   const chatState = ensureChatState(agentIdAtSend);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId || requestCtx.completed) return;
+  requestCtx.completed = true;
+  requestCtx.streamFailed = true;
+  requestCtx.streamIncomplete = true;
   const finalSessionId = requestCtx.sessionIdAtSend || chatState.sessionId || "";
   const finalRequestId = requestCtx.clientRequestId;
   if (chatState.inflightThinking) {
@@ -3432,14 +3490,21 @@ async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
   chatState.pendingThinkingEvents = null;
   chatState.needsReload = true;
   setChatSubmittingForAgent(agentIdAtSend, false);
+  const statusText = String(payload?.response || payload?.error || payload?.detail || "").trim();
+  const fallbackStatusText = reason === "missing_final"
+    ? "Stream ended before a final assistant response."
+    : "Assistant response stream ended in an incomplete state.";
+  const message = statusText || fallbackStatusText;
   if (state.selectedAgentId === agentIdAtSend) {
     removeTemporaryAssistantRows();
-    setChatStatus("Response stream ended without a final payload; reloading the persisted session.", true);
+    setChatStatus(message, true);
+    showToast(message);
     try {
       if (finalSessionId) await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
     } catch (e) {
-      setChatStatus("Response stream ended without a final payload; refresh or reload the session to view the persisted answer.", true);
+      setChatStatus(message, true);
     }
+    syncSelectedAgentChatActionControls();
     addEditButtonsToMessages();
     renderIcons();
     scrollToBottom();
@@ -3449,22 +3514,38 @@ async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
   }
 }
 
+async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
+  return handleIncompleteChatStream(
+    agentIdAtSend,
+    requestCtx,
+    "missing_final",
+    { streamedTextPreview: requestCtx?.streamedText || "" },
+  );
+}
+
 async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
   const resp = await fetch(`/a/${agentIdAtSend}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
   if ([404,405,501].includes(resp.status) || !resp.body) return 'unsupported';
   if (!resp.ok) throw new Error(await handleErrorResponse(resp));
   const reader = resp.body.getReader(); const decoder = new TextDecoder();
-  let buffer=''; let sawEvent=false; let sawFinal=false;
-  const flush = async (rawEvent)=>{ const parsed=parseSseEvent(rawEvent); if(!parsed) return; sawEvent=true; const r=await handleChatStreamEvent(agentIdAtSend, requestCtx, parsed.eventName, parsed.data); if(r==='final') sawFinal=true; };
+  let buffer=''; let sawEvent=false; let sawFinal=false; let sawError=false;
+  const flush = async (rawEvent)=>{ const parsed=parseSseEvent(rawEvent); if(!parsed) return; sawEvent=true; const r=await handleChatStreamEvent(agentIdAtSend, requestCtx, parsed.eventName, parsed.data); if(r==='final') sawFinal=true; if(r==='final_non_success' || r==='final_incomplete') sawError=true; };
   try {
     while(true){ const {value,done}=await reader.read(); if(done) break; buffer += decoder.decode(value,{stream:true}).replace(/\r\n/g,'\n'); let i; while((i=buffer.indexOf('\n\n'))>=0){ await flush(buffer.slice(0,i)); buffer=buffer.slice(i+2);} }
     buffer += decoder.decode(); if(buffer.trim()) await flush(buffer);
   } catch (e) { if (sawEvent) throw e; return 'unsupported'; }
   if (requestCtx.streamCompleted || sawFinal) return 'handled';
-  if (requestCtx.streamedText) { requestCtx.streamCompleted = true; await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: requestCtx.streamedText, session_id: requestCtx.sessionIdAtSend || '', request_id: requestCtx.clientRequestId, events: requestCtx.streamEvents || [], runtime_events: requestCtx.runtimeEvents || []}); return 'handled'; }
   if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate)) {
-    requestCtx.streamCompleted = true;
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, requestCtx.streamFinalCandidate);
+    await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", requestCtx.streamFinalCandidate);
+    return "handled";
+  }
+  if (requestCtx.streamSawFinal && requestCtx.streamFinalPayload) {
+    await handleIncompleteChatStream(
+      agentIdAtSend,
+      requestCtx,
+      sawError ? "runtime_error" : "runtime_incomplete",
+      requestCtx.streamFinalPayload,
+    );
     return "handled";
   }
   if (sawEvent) {
