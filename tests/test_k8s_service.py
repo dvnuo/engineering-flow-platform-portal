@@ -128,6 +128,9 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["OPENCODE_CONFIG"], "/workspace/.opencode/opencode.json")
         self.assertNotIn("OPENCODE_VERSION", env_map)
         self.assertEqual(env_map["EFP_OPENCODE_URL"], "http://127.0.0.1:4096")
+        self.assertEqual(env_map["EFP_OPENCODE_PERMISSION_MODE"], "workspace_full_access")
+        self.assertEqual(env_map["EFP_OPENCODE_ALLOW_BASH_ALL"], "true")
+        self.assertIn("EFP_WORKSPACE_DIR", env_map)
         self.assertEqual(env_map["PORTAL_AGENT_NAME"], "agent-one")
         self.assertNotEqual(env_map["OPENCODE_TOOLS_DIR"], "/workspace/tools")
 
@@ -143,6 +146,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("OPENCODE_TOOLS_DIR", env_map)
         self.assertNotIn("EFP_ADAPTER_STATE_DIR", env_map)
         self.assertNotIn("EFP_OPENCODE_URL", env_map)
+        self.assertNotIn("EFP_OPENCODE_PERMISSION_MODE", env_map)
+        self.assertNotIn("EFP_OPENCODE_ALLOW_BASH_ALL", env_map)
 
     def test_build_agent_container_resources_uses_requests(self):
         agent = SimpleNamespace(cpu="500m", memory="1Gi")
@@ -451,3 +456,14 @@ class K8sServiceNoopTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_opencode_runtime_env_permission_overrides(self):
+        self.service.settings.default_opencode_permission_mode = "profile_policy"
+        self.service.settings.default_opencode_allow_bash_all = False
+        agent = SimpleNamespace(id="a9", runtime_type="opencode", mount_path="/workspace")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        self.assertEqual(env_map["EFP_OPENCODE_PERMISSION_MODE"], "profile_policy")
+        self.assertEqual(env_map["EFP_OPENCODE_ALLOW_BASH_ALL"], "false")
+        self.assertNotIn("GIT_TOKEN", env_map)

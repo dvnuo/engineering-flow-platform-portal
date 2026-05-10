@@ -588,7 +588,7 @@ console.log(JSON.stringify(result));
     assert "Copy" in data["renderCodeFromCodeField"]
     assert "x = 1" in data["renderCodeBlankContentFallback"]
     assert "Heads up" in data["calloutFromEnglishMessage"]
-    assert "(empty response)" in data["bodylessBlocksFallbackPlaceholder"]
+    assert data["bodylessBlocksFallbackPlaceholder"].strip() == ""
 
 
 def test_chat_ui_runtime_event_helpers_behavior():

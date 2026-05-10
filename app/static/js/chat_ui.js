@@ -1946,14 +1946,14 @@ function renderDisplayBlocksToHtml(blocks, fallbackMarkdown = "") {
     if (isMeaningfulText(fallbackMarkdown)) {
       return md.render(normalizeMarkdownText(fallbackMarkdown));
     }
-    return md.render(normalizeMarkdownText("(empty response)"));
+    return "";
   }
   const html = parsedBlocks.map((block) => renderSingleDisplayBlock(block)).join("");
   if (html) return html;
   if (isMeaningfulText(fallbackMarkdown)) {
     return md.render(normalizeMarkdownText(fallbackMarkdown));
   }
-  return md.render(normalizeMarkdownText("(empty response)"));
+  return "";
 }
 
 async function copyText(text) {
@@ -3351,7 +3351,7 @@ function isCompletedFinalPayload(payload) {
 
 function isNonSuccessFinalPayload(payload) {
   const state = getCompletionState(payload);
-  return ["blocked", "error", "failed", "incomplete", "pending"].includes(state) || payload?.ok === false;
+  return ["blocked", "error", "failed", "incomplete", "pending", "empty_final"].includes(state) || payload?.ok === false;
 }
 
 function finalResponseText(payload) {
@@ -3359,6 +3359,14 @@ function finalResponseText(payload) {
   if (typeof payload?.message === "string") return payload.message;
   if (typeof payload?.text === "string") return payload.text;
   return "";
+}
+
+
+function hasRenderableAssistantPayload(payload) {
+  const text = String(payload?.response || "").trim();
+  if (text) return true;
+  const blocks = Array.isArray(payload?.display_blocks) ? payload.display_blocks : [];
+  return blocks.some((block) => hasRenderableDisplayBlock(block));
 }
 
 function updatePendingAssistantStreamContent(agentId, markdownText) {
@@ -3387,7 +3395,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     ? isNonSuccessFinalPayload
     : (payload) => {
       const state = localGetCompletionState(payload);
-      return ["blocked", "error", "failed", "incomplete", "pending"].includes(state) || payload?.ok === false;
+      return ["blocked", "error", "failed", "incomplete", "pending", "empty_final"].includes(state) || payload?.ok === false;
     };
   const localFinalResponseText = (typeof finalResponseText === "function")
     ? finalResponseText
@@ -3604,6 +3612,36 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
 }
 
 async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
+  const localHasRenderableAssistantPayload = (typeof hasRenderableAssistantPayload === "function")
+    ? hasRenderableAssistantPayload
+    : (candidate) => {
+      const text = String(candidate?.response || "").trim();
+      if (text) return true;
+      const blocks = Array.isArray(candidate?.display_blocks) ? candidate.display_blocks : [];
+      return blocks.some((block) => (typeof hasRenderableDisplayBlock === "function")
+        ? hasRenderableDisplayBlock(block)
+        : !!(block && typeof block === "object" && String(block.text || block.content || block.value || "").trim()));
+    };
+  if (!localHasRenderableAssistantPayload(payload)) {
+    const chatState = ensureChatState(agentIdAtSend);
+    const finalSessionId = payload?.session_id || requestCtx?.sessionIdAtSend || chatState?.sessionId || "";
+    removeTemporaryAssistantRows();
+    if (chatState?.activeRequest?.clientRequestId === requestCtx?.clientRequestId) {
+      chatState.activeRequest = null;
+    }
+    if (chatState) {
+      chatState.inflightThinking = null;
+      chatState.pendingThinkingEvents = null;
+      chatState.needsReload = true;
+    }
+    setChatSubmittingForAgent(agentIdAtSend, false);
+    setChatStatus("Completed without a visible assistant response. Reloading session...");
+    if (finalSessionId) {
+      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
+    }
+    syncSelectedAgentChatActionControls();
+    return;
+  }
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
   const normalizeEvents = (typeof normalizePayloadThinkingEvents === "function")

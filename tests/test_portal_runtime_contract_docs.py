@@ -14,7 +14,13 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "/root/.local/share/opencode" in text
     assert "/root/.local/share/efp-compat" in text
     assert "/home/opencode" not in text
+    assert "EFP_OPENCODE_PERMISSION_MODE" in text
+    assert "EFP_OPENCODE_ALLOW_BASH_ALL" in text
+
 
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "docs/PORTAL_RUNTIME_CONTRACT.md" in readme
     assert "native runtime clones runtime repo + skill repo via initContainers" not in readme
+    assert "DEFAULT_OPENCODE_PERMISSION_MODE" in readme
+    assert "DEFAULT_OPENCODE_ALLOW_BASH_ALL" in readme
+    assert "workspace_full_access" in readme

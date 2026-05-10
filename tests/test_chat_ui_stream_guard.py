@@ -68,3 +68,8 @@ def test_non_stream_completed_path_normalizes_response_before_success():
     assert "response: responseText" in chat_api_snippet
     assert "session_id: payload?.session_id || requestCtx.sessionIdAtSend || \"\"" in chat_api_snippet
     assert "await handleAgentChatSuccess(agentIdAtSend, requestCtx, payload);" not in chat_api_snippet
+
+
+def test_non_success_states_include_empty_final():
+    src = _source()
+    assert "empty_final" in src

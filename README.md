@@ -90,8 +90,10 @@ PYTHONPATH=. pytest -q \
 | `DEFAULT_NATIVE_RUNTIME_IMAGE_REPO` | Native runtime image repository override | falls back to `DEFAULT_AGENT_IMAGE_REPO` |
 | `DEFAULT_NATIVE_RUNTIME_IMAGE_TAG` | Native runtime image tag override | falls back to `DEFAULT_AGENT_IMAGE_TAG` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
-| `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | EFP OpenCode runtime image tag. This is not injected as `OPENCODE_VERSION` and is not used for OpenCode CLI version gating. | `1.14.29` |
+| `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | EFP OpenCode runtime image tag. This is not injected as `OPENCODE_VERSION` and is not used for OpenCode CLI version gating. | `1.14.39` |
 | `DEFAULT_TOOL_REPO_URL` | Default tools repository for native/opencode runtime asset provisioning | (empty) |
+| `DEFAULT_OPENCODE_PERMISSION_MODE` | Default OpenCode runtime permission mode. For workspace coding agents the default is `workspace_full_access`, which asks the runtime adapter to allow workspace file read/write/edit tools. Applied only when `runtime_type=opencode`. | `workspace_full_access` |
+| `DEFAULT_OPENCODE_ALLOW_BASH_ALL` | When true, opencode runtime adapter should generate Bash permission as `{"*": "allow"}` without command-level deny patterns. Adapter/runtime env only; Portal does not execute bash. Applied only when `runtime_type=opencode`. | `true` |
 | `DEFAULT_TOOL_BRANCH` | Default tools repository branch | `main` |
 | `ENABLE_RUNTIME_SOURCE_OVERLAY` | Enable native runtime source overlay clone/mount (`/app/src`, `/app/.git`) | `false` |
 | `DEFAULT_AGENT_RUNTIME_REPO_URL` | Runtime source repository URL used when source overlay is enabled | (empty) |
