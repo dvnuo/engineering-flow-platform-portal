@@ -124,7 +124,13 @@ const chatState = {{ activeRequest: null, sessionId: "s1", inflightThinking: nul
   await trySubmitChatStreamForSelectedAgent("agent-1", reqE, {{}});
   const caseE = {{ success: successCalls.length, incomplete: incompleteCalls.length }};
 
-  console.log(JSON.stringify({{ caseA, caseB, caseC, caseD, caseE }}));
+  successCalls = []; incompleteCalls = [];
+  const reqH = {{ clientRequestId: "rH", sessionIdAtSend: "s1", streamedText: "", streamEvents: [], runtimeEvents: [] }};
+  chatState.activeRequest = reqH;
+  const resH = await handleChatStreamEvent("agent-1", reqH, "final", {{ ok: false, completion_state: "empty_final", response: "" }});
+  const caseH = {{ result: resH, success: successCalls.length, incomplete: incompleteCalls.length }};
+
+  console.log(JSON.stringify({{ caseA, caseB, caseC, caseD, caseE, caseH }}));
 }})();
 """
     data = _run_node(script)
@@ -146,6 +152,9 @@ const chatState = {{ activeRequest: null, sessionId: "s1", inflightThinking: nul
 
     assert data["caseE"]["success"] == 0
     assert data["caseE"]["incomplete"] == 1
+    assert data["caseH"]["result"] == "final_non_success"
+    assert data["caseH"]["success"] == 0
+    assert data["caseH"]["incomplete"] == 1
 
 
 def test_non_stream_fallback_handles_ok_false_and_normalizes_message_response():

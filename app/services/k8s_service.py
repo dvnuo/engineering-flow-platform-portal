@@ -681,6 +681,8 @@ class K8sService:
                 env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=self._tools_assets_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value="http://127.0.0.1:4096"))
+                env.append(client.V1EnvVar(name="EFP_OPENCODE_PERMISSION_MODE", value=str(getattr(self.settings, "default_opencode_permission_mode", "workspace_full_access") or "workspace_full_access")))
+                env.append(client.V1EnvVar(name="EFP_OPENCODE_ALLOW_BASH_ALL", value="true" if bool(getattr(self.settings, "default_opencode_allow_bash_all", True)) else "false"))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_TOOL_REGISTRY_TIMEOUT_SECONDS", value=str(getattr(self.settings, "opencode_tool_registry_timeout_seconds", 600))))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_TOOL_REGISTRY_REQUEST_TIMEOUT_SECONDS", value=str(getattr(self.settings, "opencode_tool_registry_request_timeout_seconds", 600))))
         return env

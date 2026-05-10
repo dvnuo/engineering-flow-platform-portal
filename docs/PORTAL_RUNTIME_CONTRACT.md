@@ -57,3 +57,14 @@
 ## 8) Smoke / CI
 - `integration/scripts/smoke_portal.sh` validates Portal-side contracts only.
 - Live runtime contract validation belongs to runtime repo(s) or multi-repo integration.
+
+
+## 9) OpenCode permission env contract
+Portal responsibility:
+- Pass `EFP_OPENCODE_PERMISSION_MODE` and `EFP_OPENCODE_ALLOW_BASH_ALL` to opencode runtime containers.
+- Do not execute tools or enforce OpenCode tool permissions in Portal.
+
+Runtime responsibility:
+- Generate OpenCode config permission map from those env vars.
+- Never return success with an empty visible assistant response.
+- Return non-success completion states such as `blocked`, `incomplete`, `empty_final`, or `error` when no final visible text is available.

@@ -68,3 +68,31 @@ def test_non_stream_completed_path_normalizes_response_before_success():
     assert "response: responseText" in chat_api_snippet
     assert "session_id: payload?.session_id || requestCtx.sessionIdAtSend || \"\"" in chat_api_snippet
     assert "await handleAgentChatSuccess(agentIdAtSend, requestCtx, payload);" not in chat_api_snippet
+
+
+def test_non_success_states_include_empty_final():
+    src = _source()
+    assert "empty_final" in src
+
+
+def test_empty_success_guard_runs_after_active_request_match_guard():
+    src = _source()
+    fn_start = src.find("async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload)")
+    assert fn_start != -1
+    fn_snippet = src[fn_start:fn_start + 2600]
+    guard_idx = fn_snippet.find("if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;")
+    empty_idx = fn_snippet.find("if (!localHasRenderableAssistantPayload(payload)) {")
+    assert guard_idx != -1
+    assert empty_idx != -1
+    assert guard_idx < empty_idx
+
+
+def test_current_empty_success_keeps_reload_fallback_contract():
+    src = _source()
+    fn_start = src.find("async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload)")
+    assert fn_start != -1
+    fn_snippet = src[fn_start:fn_start + 2600]
+    assert "Completed without a visible assistant response. Reloading session" in fn_snippet
+    assert "loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true })" in fn_snippet
+    assert "chatState.needsReload = true" in fn_snippet
+    assert "removeTemporaryAssistantRows()" in fn_snippet

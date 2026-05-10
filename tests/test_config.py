@@ -44,3 +44,17 @@ def test_settings_k8s_defaults():
     assert settings.k8s_pvc_access_modes == ["ReadWriteOnce"]
     assert settings.k8s_incluster is True
     assert settings.k8s_agent_service_type == "ClusterIP"
+
+
+def test_settings_default_opencode_permission_env_defaults():
+    settings = Settings()
+    assert settings.default_opencode_permission_mode == "workspace_full_access"
+    assert settings.default_opencode_allow_bash_all is True
+
+
+def test_settings_default_opencode_permission_env_overrides(monkeypatch):
+    monkeypatch.setenv("DEFAULT_OPENCODE_PERMISSION_MODE", "profile_policy")
+    monkeypatch.setenv("DEFAULT_OPENCODE_ALLOW_BASH_ALL", "false")
+    settings = Settings()
+    assert settings.default_opencode_permission_mode == "profile_policy"
+    assert settings.default_opencode_allow_bash_all is False
