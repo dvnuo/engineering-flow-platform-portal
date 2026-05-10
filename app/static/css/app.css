@@ -308,8 +308,8 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  width: min(100%, 980px);
-  max-width: 980px;
+  width: min(100%, 1000px);
+  max-width: 1000px;
   padding: 10px 14px 12px;
   border-radius: var(--portal-radius-xl);
   border: 1px solid var(--portal-border);
