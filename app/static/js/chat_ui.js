@@ -8193,112 +8193,135 @@ function initFilePanelPreview() {
 
 
 // ===== System Prompt Configuration =====
-function renderSystemPromptSection(agent) {
-  // Find the settings panel container
-  var container = null;
-  
-  // First try: use #agent-meta inside settings panel if it exists
-  var agentMeta = document.getElementById('agent-meta');
-  if (agentMeta) {
-    container = agentMeta;
+function getAgentRuntimeType(agent) {
+  var normalized = String((agent && agent.runtime_type) || 'native').trim().toLowerCase();
+  if (!normalized) return 'native';
+  return normalized === 'opencode' ? 'opencode' : 'native';
+}
+
+function isOpenCodeAgent(agent) {
+  return getAgentRuntimeType(agent) === 'opencode';
+}
+
+function getSystemPromptUiModel(agent, config) {
+  var runtimeType = getAgentRuntimeType(agent);
+  if (runtimeType === 'opencode') {
+    return {
+      runtimeType: runtimeType,
+      title: 'OpenCode Rules',
+      description: 'OpenCode uses the project-root AGENTS.md as its editable instruction file. SOUL, USER, MEMORY and DAILY NOTES are native EFP prompt sections and are not supported for this runtime.',
+      sections: ['agents'],
+      labels: { agents: (config && config.agents && config.agents.label) || 'AGENTS.md' },
+      editable: { agents: true },
+      canToggle: { agents: false },
+      forcedEnabled: { agents: true }
+    };
   }
-  
-  // Second try: use #tool-panel-body if it exists  
+
+  return {
+    runtimeType: runtimeType,
+    title: 'System Prompt',
+    description: '',
+    sections: ['soul', 'user', 'agents', 'memory', 'daily_notes'],
+    labels: { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'DAILY NOTES' },
+    editable: { soul: true, user: true, agents: true, memory: true, daily_notes: false },
+    canToggle: { soul: true, user: true, agents: true, memory: true, daily_notes: true },
+    forcedEnabled: {}
+  };
+}
+
+function resolveSystemPromptLabel(agent, section, config) {
+  var ui = getSystemPromptUiModel(agent, config || {});
+  return ui.labels[section] || String(section || '').toUpperCase();
+}
+
+function renderSystemPromptSection(agent) {
+  var container = null;
+  var agentMeta = document.getElementById('agent-meta');
+  if (agentMeta) container = agentMeta;
   if (!container) {
     var toolPanelBody = document.getElementById('tool-panel-body');
-    if (toolPanelBody) {
-      container = toolPanelBody;
-    }
+    if (toolPanelBody) container = toolPanelBody;
   }
-  
-  // Third try: find visible aside element in settings panel
   if (!container) {
     var asides = document.querySelectorAll('aside');
     for (var i = 0; i < asides.length; i++) {
-      if (asides[i].offsetParent !== null) {  // visible
+      if (asides[i].offsetParent !== null) {
         container = asides[i];
         break;
       }
     }
   }
-  
-  // Last resort: use body
-  if (!container) {
-    container = document.body;
-  }
-  
-  // Remove existing section if present
+  if (!container) container = document.body;
+
   var existing = document.getElementById('system-prompt-section');
   if (existing) existing.remove();
-  
+
+  var ui = getSystemPromptUiModel(agent, {});
+  var descriptionHtml = ui.description ? '<div class="portal-inline-state">' + ui.description + '</div>' : '';
+
   var section = document.createElement('div');
   section.id = 'system-prompt-section';
   section.className = 'portal-panel-section';
-  section.innerHTML = '<div class="portal-panel-header"><div class="portal-detail-label">System Prompt</div></div><div id="system-prompt-items" class="portal-panel-stack"></div><div id="system-prompt-loading" class="portal-inline-state">Loading...</div><div id="system-prompt-error" class="portal-inline-state is-error hidden"></div>';
-  
+  section.innerHTML = '<div class="portal-panel-header"><div class="portal-detail-label">' + ui.title + '</div></div>' + descriptionHtml + '<div id="system-prompt-items" class="portal-panel-stack"></div><div id="system-prompt-loading" class="portal-inline-state">Loading...</div><div id="system-prompt-error" class="portal-inline-state is-error hidden"></div>';
   container.appendChild(section);
-  
   loadSystemPromptConfig(agent.id);
 }
 
 function loadSystemPromptConfig(agentId) {
-  // Guard: don't touch DOM if not current agent
-  if (state.selectedAgentId !== agentId) {
-    return;
-  }
-  
+  if (state.selectedAgentId !== agentId) return;
   var loading = document.getElementById('system-prompt-loading');
   var error = document.getElementById('system-prompt-error');
   var items = document.getElementById('system-prompt-items');
   if (!items) return;
-  
+
   loading.classList.remove('hidden');
   error.classList.add('hidden');
   items.innerHTML = '';
-  
+
   api('/a/' + agentId + '/api/agent/system-prompt/config').then(function(config) {
-    // Guard: check if response is stale (agent switched while request was in-flight)
-    if (state.selectedAgentId !== agentId) {
-      return;
-    }
-    
-    // Check if agent is writable
-    const currentAgent = state.mineAgents?.find(a => a.id === agentId);
-    const canWrite = canWriteAgent(currentAgent);
-    
-    var sections = ['soul', 'user', 'agents', 'memory', 'daily_notes'];
-    var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'DAILY NOTES' };
-    var hasEdit = { soul: true, user: true, agents: true, memory: true, daily_notes: false };
-    
-    for (var i = 0; i < sections.length; i++) {
-      var name = sections[i];
-      var enabled = config[name] && config[name].enabled !== undefined ? config[name].enabled : true;
-      var disabledAttr = canWrite ? '' : ' disabled';
-      var editButton = hasEdit[name] ? '<button data-section="' + name + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + labels[name] + '"' + disabledAttr + '>Edit</button>' : '';
+    if (state.selectedAgentId !== agentId) return;
+
+    var currentAgent = state.mineAgents?.find(a => a.id === agentId);
+    var canWrite = canWriteAgent(currentAgent);
+    var ui = getSystemPromptUiModel(currentAgent, config || {});
+
+    for (var i = 0; i < ui.sections.length; i++) {
+      var name = ui.sections[i];
+      var enabled = ui.forcedEnabled[name] === true ? true : (config[name] && typeof config[name].enabled === 'boolean' ? config[name].enabled : true);
+      var isToggleable = ui.canToggle[name] !== false;
+      var disabledAttr = canWrite && isToggleable ? '' : ' disabled';
+      var label = ui.labels[name] || name;
+      var toggleHtml = isToggleable
+        ? '<label class="toggle-switch"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span class="toggle-slider"></span></label>'
+        : '<label class="toggle-switch"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" checked class="portal-system-prompt-check" disabled><span class="toggle-slider"></span></label><span class="portal-muted">Always enabled</span>';
+      var editAllowed = ui.editable[name] === true;
+      var editDisabledAttr = canWrite ? '' : ' disabled';
+      var editButton = editAllowed ? '<button data-section="' + name + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + label + '"' + editDisabledAttr + '>Edit</button>' : '';
+
       var item = document.createElement('div');
       item.className = 'portal-system-prompt-item';
-      item.innerHTML = '<div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span class="toggle-slider"></span></label><span>' + labels[name] + '</span></div>' + editButton;
+      item.innerHTML = '<div class="portal-checkbox-row">' + toggleHtml + '<span>' + label + '</span></div>' + editButton;
       items.appendChild(item);
     }
-    
+
     var checkboxes = items.querySelectorAll('input[type="checkbox"]');
     for (var j = 0; j < checkboxes.length; j++) {
+      if (checkboxes[j].disabled) continue;
       checkboxes[j].addEventListener('change', function(e) {
-        // Use current selected agent
         updateSystemPromptEnabled(state.selectedAgentId, e.target.dataset.section, e.target.checked);
       });
     }
-    
+
     var editBtns = items.querySelectorAll('button[data-action="edit"]');
     for (var k = 0; k < editBtns.length; k++) {
       editBtns[k].addEventListener('click', (function(btn) {
         return function() {
-          // Use current selected agent
           editSystemPromptSection(state.selectedAgentId, btn.dataset.section);
         };
       })(editBtns[k]));
     }
-    
+
     loading.classList.add('hidden');
   }).catch(function(e) {
     error.textContent = 'Failed to load: ' + e.message;
@@ -8308,21 +8331,35 @@ function loadSystemPromptConfig(agentId) {
 }
 
 function updateSystemPromptEnabled(agentId, section, enabled) {
+  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
+  if (isOpenCodeAgent(currentAgent)) {
+    if (section !== 'agents') {
+      showToast('OpenCode runtime only supports AGENTS.md');
+      loadSystemPromptConfig(agentId);
+      return;
+    }
+    if (enabled === false) {
+      showToast('AGENTS.md cannot be disabled for OpenCode runtime');
+      loadSystemPromptConfig(agentId);
+      return;
+    }
+    return;
+  }
   var payload = {};
   payload[section] = { enabled: enabled };
-  api('/a/' + agentId + '/api/agent/system-prompt/config', {
-    method: 'PUT',
-    body: JSON.stringify(payload)
-  }).then(function() {
-  }).catch(function(e) {
+  api('/a/' + agentId + '/api/agent/system-prompt/config', { method: 'PUT', body: JSON.stringify(payload) }).catch(function(e) {
     console.error('Failed to update:', e);
     showToast('Failed to update: ' + e.message);
-    // Reload config to revert UI to server state
     loadSystemPromptConfig(agentId);
   });
 }
 
 function editSystemPromptSection(agentId, section) {
+  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
+  if (isOpenCodeAgent(currentAgent) && section !== 'agents') {
+    showToast('OpenCode runtime only supports AGENTS.md');
+    return;
+  }
   api('/a/' + agentId + '/api/agent/system-prompt/' + section).then(function(data) {
     showSystemPromptEditor(agentId, section, data.content || '', data.enabled);
   }).catch(function(e) {
@@ -8332,7 +8369,10 @@ function editSystemPromptSection(agentId, section) {
 }
 
 function showSystemPromptEditor(agentId, section, content, enabled) {
-  var labels = { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY' };
+  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
+  var runtimeIsOpenCode = isOpenCodeAgent(currentAgent);
+  var label = resolveSystemPromptLabel(currentAgent, section, {});
+  var title = runtimeIsOpenCode && section === 'agents' ? 'AGENTS.md Configuration' : (label + ' Configuration');
 
   var modal = document.getElementById('system-prompt-editor-modal');
   if (!modal) {
@@ -8343,28 +8383,16 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-labelledby', 'sp-editor-title');
-    modal.innerHTML = '<div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-editor-enabled"><span class="toggle-slider"></span></label><span>Enable custom prompt for this section</span></div><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
+    modal.innerHTML = '<div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-editor-enabled"><span class="toggle-slider"></span></label><span>Enable custom prompt for this section</span></div><div id="sp-editor-enabled-note" class="portal-inline-state hidden"></div><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
     document.body.appendChild(modal);
-
-    modal._keyHandler = function(e) {
-      if (e.key === 'Escape') {
-        closeSystemPromptEditor();
-      }
-    };
-
+    modal._keyHandler = function(e) { if (e.key === 'Escape') closeSystemPromptEditor(); };
     document.getElementById('sp-editor-close').addEventListener('click', closeSystemPromptEditor);
-    modal.addEventListener('click', function(e) {
-      if (e.target === modal) {
-        closeSystemPromptEditor();
-      }
-    });
+    modal.addEventListener('click', function(e) { if (e.target === modal) closeSystemPromptEditor(); });
     document.getElementById('sp-editor-cancel').addEventListener('click', closeSystemPromptEditor);
     document.getElementById('sp-editor-save').addEventListener('click', function() {
       var currentAgentId = modal.dataset.agentId;
       var currentSection = modal.dataset.section;
-      if (currentAgentId && currentSection) {
-        saveSystemPromptSection(currentAgentId, currentSection);
-      }
+      if (currentAgentId && currentSection) saveSystemPromptSection(currentAgentId, currentSection);
     });
   }
 
@@ -8373,43 +8401,43 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
     modal.dataset.keyHandlerAttached = '1';
   }
 
-  document.getElementById('sp-editor-title').textContent = labels[section] + ' Configuration';
-  document.getElementById('sp-editor-enabled').checked = enabled;
+  document.getElementById('sp-editor-title').textContent = title;
+  var enabledCheckbox = document.getElementById('sp-editor-enabled');
+  var enabledNote = document.getElementById('sp-editor-enabled-note');
+  if (runtimeIsOpenCode) {
+    enabledCheckbox.checked = true;
+    enabledCheckbox.disabled = true;
+    enabledNote.textContent = 'AGENTS.md is always active for OpenCode.';
+    enabledNote.classList.remove('hidden');
+  } else {
+    enabledCheckbox.checked = enabled;
+    enabledCheckbox.disabled = false;
+    enabledNote.textContent = '';
+    enabledNote.classList.add('hidden');
+  }
   document.getElementById('sp-editor-content').value = content;
   modal.dataset.section = section;
   modal.dataset.agentId = agentId;
 
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
-
   modal._previousActiveElement = document.activeElement;
-  var focusTarget = document.getElementById('sp-editor-content') || document.getElementById('sp-editor-enabled');
-  if (focusTarget && typeof focusTarget.focus === 'function') {
-    focusTarget.focus();
-  }
-}
-
-function closeSystemPromptEditor() {
-  var modal = document.getElementById('system-prompt-editor-modal');
-  if (!modal) return;
-
-  modal.classList.add('hidden');
-  modal.setAttribute('aria-hidden', 'true');
-  if (modal._keyHandler && modal.dataset.keyHandlerAttached === '1') {
-    document.removeEventListener('keydown', modal._keyHandler);
-    modal.dataset.keyHandlerAttached = '0';
-  }
-  if (modal._previousActiveElement) {
-    modal._previousActiveElement.focus();
-    modal._previousActiveElement = null;
-  }
+  var focusTarget = document.getElementById('sp-editor-content') || enabledCheckbox;
+  if (focusTarget && typeof focusTarget.focus === 'function') focusTarget.focus();
 }
 
 function saveSystemPromptSection(agentId, section) {
+  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
+  var runtimeIsOpenCode = isOpenCodeAgent(currentAgent);
+  if (runtimeIsOpenCode && section !== 'agents') {
+    showToast('OpenCode runtime only supports AGENTS.md');
+    return;
+  }
+
   var enabled = document.getElementById('sp-editor-enabled').checked;
   var content = document.getElementById('sp-editor-content').value;
-  
-  // Send to individual section endpoint
+  if (runtimeIsOpenCode) enabled = true;
+
   api('/a/' + agentId + '/api/agent/system-prompt/' + section, {
     method: 'PUT',
     body: JSON.stringify({ enabled: enabled, content: content })
@@ -8419,6 +8447,7 @@ function saveSystemPromptSection(agentId, section) {
   }).catch(function(e) {
     console.error('Failed to save:', e);
     showToast('Failed to save: ' + e.message);
+    loadSystemPromptConfig(agentId);
   });
 }
 

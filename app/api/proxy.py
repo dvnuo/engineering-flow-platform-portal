@@ -54,6 +54,8 @@ def _requires_write_access(method: str, subpath: str) -> bool:
         return True
     if normalized == "api/sessions" or normalized.startswith("api/sessions/"):
         return method_upper not in {"GET", "HEAD", "OPTIONS"}
+    if normalized == "api/agent/system-prompt/config" or normalized.startswith("api/agent/system-prompt/"):
+        return method_upper not in {"GET", "HEAD", "OPTIONS"}
     return False
 
 
