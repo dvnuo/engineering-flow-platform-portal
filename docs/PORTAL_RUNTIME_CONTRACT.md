@@ -68,3 +68,17 @@ Runtime responsibility:
 - Generate OpenCode config permission map from those env vars.
 - Never return success with an empty visible assistant response.
 - Return non-success completion states such as `blocked`, `incomplete`, `empty_final`, or `error` when no final visible text is available.
+
+## 10) OpenCode on-demand repository checkout contract
+- Portal does **not** parse slash commands and does **not** clone user-requested business repositories during pod startup.
+- Runtime adapters own slash command parsing and on-demand checkout flows (for example `/create-pull-request in git repo <url> from branch <head> to <base>`).
+- OpenCode checkout workspace contract:
+  - workspace root: `/workspace`
+  - runtime checkout root: `/workspace/repos`
+  - repository path: `/workspace/repos/<owner>/<repo>`
+- Portal still provisions skills/tools assets with initContainers:
+  - skills clone target: `/app/skills`
+  - tools clone target: `/app/tools`
+- `GIT_TOKEN` remains initContainer-only for asset clone and is not injected into the main runtime container by default.
+- Private business-repo checkout must be authorized by runtime-side provider/runtime-profile credentials (for example GitHub provider token), not by broad Portal/K8s git token injection into runtime.
+- PR creation tool availability is determined by runtime/tools index (for example `efp_github_create_pull_request`), while Portal fallback aliases only prevent control-plane mapping gaps.

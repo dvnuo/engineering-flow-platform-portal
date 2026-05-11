@@ -24,6 +24,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.service.settings.agents_volume_sub_path_prefix = "efp-agents"
         self.service.settings.enable_runtime_source_overlay = False
         self.service.settings.default_native_tools_strict_mode = False
+        self.service.settings.opencode_workspace_repos_dir = "/workspace/repos"
+        self.service.settings.opencode_git_checkout_timeout_seconds = 120
 
     def test_native_runtime_clones_runtime_skills_and_tools_to_app_asset_dirs(self):
         self.service.settings.enable_runtime_source_overlay = True
@@ -119,6 +121,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         env_map = {item.name: getattr(item, "value", None) for item in env}
         self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "opencode")
         self.assertEqual(env_map["OPENCODE_WORKSPACE"], "/workspace")
+        self.assertEqual(env_map["EFP_WORKSPACE_REPOS_DIR"], "/workspace/repos")
+        self.assertEqual(env_map["EFP_GIT_CHECKOUT_TIMEOUT_SECONDS"], "120")
         self.assertEqual(env_map["EFP_SKILLS_DIR"], "/app/skills")
         self.assertEqual(env_map["EFP_TOOLS_DIR"], "/app/tools")
         self.assertEqual(env_map["OPENCODE_TOOLS_DIR"], "/app/tools")
@@ -134,6 +138,24 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["PORTAL_AGENT_NAME"], "agent-one")
         self.assertNotEqual(env_map["OPENCODE_TOOLS_DIR"], "/workspace/tools")
 
+    def test_opencode_runtime_env_supports_configured_checkout_contract(self):
+        self.service.settings.opencode_workspace_repos_dir = "/workspace/custom-repos"
+        self.service.settings.opencode_git_checkout_timeout_seconds = 300
+        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        self.assertEqual(env_map["EFP_WORKSPACE_REPOS_DIR"], "/workspace/custom-repos")
+        self.assertEqual(env_map["EFP_GIT_CHECKOUT_TIMEOUT_SECONDS"], "300")
+
+    def test_opencode_runtime_env_uses_workspace_based_fallback_repos_dir_and_timeout_default(self):
+        self.service.settings.opencode_workspace_repos_dir = " "
+        self.service.settings.opencode_git_checkout_timeout_seconds = 0
+        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {item.name: getattr(item, "value", None) for item in env}
+        self.assertEqual(env_map["EFP_WORKSPACE_REPOS_DIR"], "/workspace/repos")
+        self.assertEqual(env_map["EFP_GIT_CHECKOUT_TIMEOUT_SECONDS"], "120")
+
     def test_native_runtime_env_exposes_skills_and_tools_without_opencode_workspace(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/root/.efp")
         env = self.service._build_agent_container_env(agent)
@@ -148,6 +170,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("EFP_OPENCODE_URL", env_map)
         self.assertNotIn("EFP_OPENCODE_PERMISSION_MODE", env_map)
         self.assertNotIn("EFP_OPENCODE_ALLOW_BASH_ALL", env_map)
+        self.assertNotIn("EFP_WORKSPACE_REPOS_DIR", env_map)
+        self.assertNotIn("EFP_GIT_CHECKOUT_TIMEOUT_SECONDS", env_map)
 
     def test_build_agent_container_resources_uses_requests(self):
         agent = SimpleNamespace(cpu="500m", memory="1Gi")

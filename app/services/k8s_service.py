@@ -673,11 +673,22 @@ class K8sService:
                     )
                 )
             if runtime_type == "opencode":
+                configured_repos_dir = str(getattr(self.settings, "opencode_workspace_repos_dir", "") or "").strip()
+                workspace_repos_dir = configured_repos_dir or f"{workspace_dir.rstrip('/')}/repos"
+                configured_checkout_timeout = getattr(self.settings, "opencode_git_checkout_timeout_seconds", 120)
+                try:
+                    checkout_timeout = int(configured_checkout_timeout)
+                except (TypeError, ValueError):
+                    checkout_timeout = 120
+                if checkout_timeout <= 0:
+                    checkout_timeout = 120
                 env.append(client.V1EnvVar(name="EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT", value="true"))
                 env.append(client.V1EnvVar(name="HOME", value="/root"))
                 env.append(client.V1EnvVar(name="OPENCODE_DATA_DIR", value=self._opencode_state_dir()))
                 env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
+                env.append(client.V1EnvVar(name="EFP_WORKSPACE_REPOS_DIR", value=workspace_repos_dir))
+                env.append(client.V1EnvVar(name="EFP_GIT_CHECKOUT_TIMEOUT_SECONDS", value=str(checkout_timeout)))
                 env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=self._tools_assets_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value="http://127.0.0.1:4096"))
