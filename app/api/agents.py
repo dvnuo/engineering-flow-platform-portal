@@ -73,8 +73,6 @@ def get_agent_defaults(user=Depends(get_current_user)):
             },
         ],
         "enable_runtime_source_overlay": settings.enable_runtime_source_overlay,
-        "default_tool_repo_url": normalize_git_repo_url(settings.default_tool_repo_url),
-        "default_tool_branch": settings.default_tool_branch or "main",
     }
 
 
@@ -295,14 +293,6 @@ def _maybe_add_mount_path_switch_for_runtime_change(agent, changes: dict) -> Non
         changes["mount_path"] = _default_mount_path_for_runtime(new_runtime_type)
 
 
-def _resolve_create_tool_repo_url(payload: AgentCreateRequest) -> str | None:
-    return payload.tool_repo_url or normalize_git_repo_url(settings.default_tool_repo_url)
-
-
-def _resolve_create_tool_branch(payload: AgentCreateRequest) -> str:
-    branch = (payload.tool_branch or "").strip()
-    return branch or settings.default_tool_branch or "main"
-
 
 def _validate_runtime_type_or_422(runtime_type: str | None) -> None:
     if runtime_type is None:
@@ -339,8 +329,6 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
     effective_runtime_branch = _runtime_branch_from_settings()
     effective_skill_repo_url = _resolve_create_skill_repo_url(payload)
     effective_skill_branch = _resolve_create_skill_branch(payload)
-    effective_tool_repo_url = _resolve_create_tool_repo_url(payload)
-    effective_tool_branch = _resolve_create_tool_branch(payload)
 
     repo = AgentRepository(db)
     agent = repo.create(
@@ -355,8 +343,6 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         branch=effective_runtime_branch,
         skill_repo_url=effective_skill_repo_url,
         skill_branch=effective_skill_branch,
-        tool_repo_url=effective_tool_repo_url,
-        tool_branch=effective_tool_branch,
         cpu=payload.cpu,
         memory=payload.memory,
         agent_type=payload.agent_type,
@@ -385,7 +371,7 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         target_type="agent",
         target_id=agent.id,
         user_id=user.id,
-        details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch, "runtime_type": effective_runtime_type, "tool_repo_url": effective_tool_repo_url, "tool_branch": effective_tool_branch},
+        details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch , "runtime_type": effective_runtime_type},
     )
 
     # Do not push runtime profile synchronously during agent creation.
@@ -408,6 +394,8 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     changes = payload.model_dump(exclude_unset=True)
     changes.pop("repo_url", None)
     changes.pop("branch", None)
+    changes.pop("tool_repo_url", None)
+    changes.pop("tool_branch", None)
 
     if "capability_profile_id" in changes and changes["capability_profile_id"] is not None:
         _validate_profile_references(db, changes["capability_profile_id"], None, None)
@@ -458,8 +446,6 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         "image",
         "skill_repo_url",
         "skill_branch",
-        "tool_repo_url",
-        "tool_branch",
         "mount_path",
         "cpu",
         "memory",

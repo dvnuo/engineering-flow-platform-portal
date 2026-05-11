@@ -24,19 +24,12 @@ def test_invalid_runtime_type_raises():
         AgentCreateRequest(name="a", runtime_type="bad")
 
 
-def test_tool_repo_url_normalize():
-    payload = AgentCreateRequest(name="a", tool_repo_url="git@github.com:Acme/Tools.git")
-    assert payload.tool_repo_url == "https://github.com/Acme/Tools.git"
+def test_legacy_tool_fields_are_ignored_on_create():
+    payload = AgentCreateRequest(name="a", tool_repo_url="git@github.com:Acme/Tools.git", tool_branch="main")
+    assert not hasattr(payload, "tool_repo_url")
+    assert not hasattr(payload, "tool_branch")
 
 
-def test_tool_branch_blank_normalizes_to_none_on_create():
-    payload = AgentCreateRequest(name="a", tool_branch=" ")
-    assert payload.tool_branch is None
-
-
-def test_tool_branch_blank_normalizes_to_none_on_update():
-    payload = AgentUpdateRequest(tool_branch=" ")
-    assert payload.tool_branch is None
 
 
 def test_internal_runtime_type_normalizer_rejects_invalid_values():

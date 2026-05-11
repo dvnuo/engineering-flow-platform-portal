@@ -2599,42 +2599,6 @@ function renderAgentMeta(agent) {
   const effectiveSkillBranch = agent.effective_skill_branch || agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
   const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
   const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
-  const toolRepoUrl = agent.tool_repo_url || state.agentDefaults?.default_tool_repo_url || "";
-  const toolBranch = agent.tool_branch || state.agentDefaults?.default_tool_branch || "";
-  const isDefaultToolRepo = !agent.tool_repo_url && !!toolRepoUrl;
-
-  // Build repo/branch section if present
-  let repoSection = '';
-  if (effectiveSkillRepoUrl) {
-    const branchLine = effectiveSkillBranch
-      ? `<div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(effectiveSkillBranch)}</span></div>`
-      : "";
-    const defaultIndicator = isDefaultSkillRepo ? `<div class="portal-detail-subtle">Using configured default</div>` : "";
-    repoSection = `
-      <div class="portal-detail-section">
-        <div class="portal-detail-label">Skills Repository</div>
-        <code class="portal-detail-code">${safe(effectiveSkillRepoUrl)}</code>
-        ${branchLine}
-        ${defaultIndicator}
-        <div id="agent-skill-git-commit" class="portal-detail-subtle">Loading skill commit...</div>
-      </div>
-    `;
-  }
-  let toolRepoSection = "";
-  if (toolRepoUrl) {
-    const toolBranchLine = toolBranch
-      ? `<div class="portal-detail-subtle">Branch: <span class="portal-detail-value">${safe(toolBranch)}</span></div>`
-      : "";
-    const toolDefaultIndicator = isDefaultToolRepo ? `<div class="portal-detail-subtle">Using configured default</div>` : "";
-    toolRepoSection = `
-      <div class="portal-detail-section">
-        <div class="portal-detail-label">Tools Repository</div>
-        <code class="portal-detail-code">${safe(toolRepoUrl)}</code>
-        ${toolBranchLine}
-        ${toolDefaultIndicator}
-      </div>
-    `;
-  }
 
   dom.agentMeta.innerHTML = `
     <div class="portal-detail-stack">
@@ -2651,7 +2615,6 @@ function renderAgentMeta(agent) {
         <code class="portal-detail-code">${safe(agent.image)}</code>
       </div>
       ${repoSection}
-      ${toolRepoSection}
       <div class="portal-detail-section">
         <div class="portal-detail-label">Created</div>
         <div class="portal-detail-value">${dateStr}</div>
@@ -6670,19 +6633,6 @@ function applyCreateAgentDefaults(form, defaults) {
   }
   const runtimeTypeSelect = form.elements["runtime_type"];
   populateRuntimeTypeSelect(runtimeTypeSelect, defaults, defaults?.default_runtime_type || "native");
-  const toolRepoInput = form.elements["tool_repo_url"];
-  if (toolRepoInput) {
-    const toolRepoDefault = defaults?.default_tool_repo_url || "";
-    toolRepoInput.value = toolRepoDefault;
-    toolRepoInput.defaultValue = toolRepoDefault;
-  }
-  const toolBranchInput = form.elements["tool_branch"];
-  if (toolBranchInput) {
-    const toolBranchDefault = defaults?.default_tool_branch || "";
-    toolBranchInput.value = toolBranchDefault;
-    toolBranchInput.defaultValue = toolBranchDefault;
-    toolBranchInput.placeholder = toolBranchDefault ? `Configured default branch (${toolBranchDefault})` : "Configured default branch";
-  }
   updateCreateRuntimeTypeHint(form, defaults);
 }
 
@@ -7124,13 +7074,6 @@ async function openEditDialog(agent) {
         ? `Configured default branch (${state.agentDefaults.default_skill_branch})`
         : "Configured default branch";
     }
-    if (form.elements["tool_repo_url"]) form.elements["tool_repo_url"].value = agent.tool_repo_url || "";
-    if (form.elements["tool_branch"]) {
-      form.elements["tool_branch"].value = agent.tool_branch || "";
-      form.elements["tool_branch"].placeholder = state.agentDefaults?.default_tool_branch
-        ? `Configured default branch (${state.agentDefaults.default_tool_branch})`
-        : "Configured default branch";
-    }
     if (form.elements["runtime_profile_id"]) populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
   }
 
@@ -7457,16 +7400,12 @@ function bindEvents() {
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
     const runtimeType = (formData.get("runtime_type") || "").toString().trim().toLowerCase();
-    const toolRepoUrl = formData.get("tool_repo_url")?.toString().trim();
-    const toolBranch = formData.get("tool_branch")?.toString().trim();
 
     // Always include skill_repo_url and skill_branch; empty values mean "use configured default".
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
     if (runtimeType) updates.runtime_type = runtimeType;
-    if (toolRepoUrl !== undefined) updates.tool_repo_url = toolRepoUrl || null;
-    if (toolBranch !== undefined) updates.tool_branch = toolBranch || null;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
@@ -7981,8 +7920,6 @@ function bindEvents() {
     const branch = (formData.get("skill_branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
     const runtimeType = normalizeRuntimeTypeValue(formData.get("runtime_type"), state.agentDefaults || {});
-    const toolRepoUrl = (formData.get("tool_repo_url") || "").toString().trim();
-    const toolBranch = (formData.get("tool_branch") || "").toString().trim();
 
     const msgEl = document.getElementById("create-msg");
 
@@ -8000,8 +7937,6 @@ function bindEvents() {
         runtime_type: runtimeType,
         skill_repo_url: repoUrl || null,
         skill_branch: branch || null,
-        tool_repo_url: toolRepoUrl || null,
-        tool_branch: toolBranch || null,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,

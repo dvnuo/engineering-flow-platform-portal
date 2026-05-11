@@ -43,15 +43,14 @@ class K8sServiceNoopTest(unittest.TestCase):
             tool_branch="main",
         )
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
-        self.assertEqual({c.name for c in inits}, {"agent-asset-dirs-init", "runtime-git-clone", "skills-git-clone", "tools-git-clone"})
+        self.assertEqual({c.name for c in inits}, {"agent-asset-dirs-init", "runtime-git-clone", "skills-git-clone"})
         mount_paths = {m.mount_path for m in mounts}
         self.assertIn("/app/.git", mount_paths)
         self.assertIn("/app/src", mount_paths)
         self.assertIn("/app/skills", mount_paths)
         self.assertIn("/app/tools", mount_paths)
         self.assertIn("/root/.efp", mount_paths)
-        tools_init = next(c for c in inits if c.name == "tools-git-clone")
-        self.assertIn("/tools-code", tools_init.args[0])
+        self.assertNotIn("tools-git-clone", {c.name for c in inits})
 
     def test_opencode_runtime_clones_skills_and_tools_to_app_asset_dirs_without_native_runtime_mounts(self):
         self.service.settings.default_agent_runtime_repo_url = "https://github.com/acme/runtime.git"
@@ -66,7 +65,7 @@ class K8sServiceNoopTest(unittest.TestCase):
             tool_branch="tools-main",
         )
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
-        self.assertEqual({c.name for c in inits}, {"opencode-persistent-dirs-init", "skills-git-clone", "tools-git-clone"})
+        self.assertEqual({c.name for c in inits}, {"opencode-persistent-dirs-init", "skills-git-clone"})
         state_init = next(c for c in inits if c.name == "opencode-persistent-dirs-init")
         state_env = {e.name: e.value for e in state_init.env}
         self.assertEqual(state_env["AGENT_STATE_ROOT"], "/agent-data/efp-agents/a2")
@@ -79,9 +78,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("chown -R 0:0", command)
         self.assertNotIn("10001:10001", command)
         self.assertNotIn("runtime-git-clone", {c.name for c in inits})
-        clone_env = {e.name: e.value for e in next(c for c in inits if c.name == "tools-git-clone").env if getattr(e, "value", None)}
-        self.assertEqual(clone_env["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
-        self.assertIn("/tools-code", next(c for c in inits if c.name == "tools-git-clone").args[0])
+        self.assertNotIn("tools-git-clone", {c.name for c in inits})
         self.assertIn("/skills-code", next(c for c in inits if c.name == "skills-git-clone").args[0])
         mount_paths = {m.mount_path for m in mounts}
         self.assertIn("/workspace", mount_paths)
@@ -109,10 +106,10 @@ class K8sServiceNoopTest(unittest.TestCase):
             skill_branch="skills-main",
         )
         labels = self.service._agent_common_labels(agent)
-        for key in ["runtime-type", "tool-git-repo", "tool-git-repo-hash", "tool-git-branch"]:
+        for key in ["runtime-type"]:
             self.assertIn(key, labels)
         annotations = self.service._agent_metadata_annotations(agent)
-        for key in ["efp/runtime-type", "efp/tool-git-repo-url", "efp/tool-git-branch"]:
+        for key in ["efp/runtime-type"]:
             self.assertIn(key, annotations)
 
     def test_opencode_runtime_env_uses_app_asset_dirs(self):
@@ -245,10 +242,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         )
         self.service._patch_deployment(agent)
         init_containers = self.service.apps_api.calls[0]["body"]["spec"]["template"]["spec"]["initContainers"]
-        self.assertEqual(len(init_containers), 2)
+        self.assertEqual(len(init_containers), 1)
         self.assertEqual(init_containers[0]["name"], "opencode-persistent-dirs-init")
-        self.assertEqual(init_containers[1]["name"], "tools-git-clone")
-        self.assertIn("/tools-code", init_containers[1]["args"][0])
         env_map = {item["name"]: item.get("value") for item in init_containers[1]["env"]}
         self.assertEqual(env_map["GIT_REPO_URL"], "https://github.com/Acme/Tools.git")
         names = {item["name"] for item in init_containers}
@@ -289,7 +284,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         init_names = {c["name"] for c in body["spec"]["template"]["spec"]["initContainers"]}
         self.assertNotIn("runtime-git-clone", init_names)
         self.assertIn("skills-git-clone", init_names)
-        self.assertIn("tools-git-clone", init_names)
+        self.assertNotIn("tools-git-clone", init_names)
 
     def test_ensure_deployment_sets_opencode_working_dir(self):
         class FakeAppsApi:

@@ -94,12 +94,6 @@ class K8sService:
             agent_id = getattr(agent, "id", "-")
             raise ValueError(f"Invalid runtime_type for agent {agent_id}: {exc}") from exc
 
-    def _tool_repo_url(self, agent) -> str | None:
-        return normalize_git_repo_url(getattr(agent, "tool_repo_url", None)) or normalize_git_repo_url(self.settings.default_tool_repo_url)
-
-    def _tool_branch(self, agent) -> str:
-        return (getattr(agent, "tool_branch", None) or self.settings.default_tool_branch or "main").strip() or "main"
-
     def _effective_mount_path(self, agent) -> str:
         mount_path = getattr(agent, "mount_path", None)
         if mount_path:
@@ -178,8 +172,6 @@ class K8sService:
         runtime_branch = self._runtime_branch()
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
-        tool_repo_url = self._tool_repo_url(agent)
-        tool_branch = self._tool_branch(agent)
 
         if runtime_repo_url:
             runtime_sub_path = f"{prefix}/{agent.id}/runtime-code"
@@ -208,19 +200,6 @@ class K8sService:
                 )
             )
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
-        if tool_repo_url:
-            tools_sub_path = self._tools_assets_sub_path(agent)
-            init_containers.append(
-                client.V1Container(
-                    name="tools-git-clone",
-                    image=git_image,
-                    command=["sh", "-c"],
-                    args=[self._git_clone_shell_command("/tools-code")],
-                    env=self._build_git_clone_env(tool_repo_url, tool_branch),
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/tools-code", sub_path=tools_sub_path)],
-                )
-            )
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._tools_assets_dir(), sub_path=tools_sub_path))
         if self._tools_assets_dir() not in {mount.mount_path for mount in volume_mounts}:
             volume_mounts.append(
                 client.V1VolumeMount(
@@ -277,20 +256,6 @@ class K8sService:
                 )
             )
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
-        tool_repo_url = self._tool_repo_url(agent)
-        if tool_repo_url:
-            tools_sub_path = self._tools_assets_sub_path(agent)
-            init_containers.append(
-                client.V1Container(
-                    name="tools-git-clone",
-                    image=git_image,
-                    command=["sh", "-c"],
-                    args=[self._git_clone_shell_command("/tools-code")],
-                    env=self._build_git_clone_env(tool_repo_url, self._tool_branch(agent)),
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/tools-code", sub_path=tools_sub_path)],
-                )
-            )
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._tools_assets_dir(), sub_path=tools_sub_path))
         if self._tools_assets_dir() not in {mount.mount_path for mount in volume_mounts}:
             volume_mounts.append(
                 client.V1VolumeMount(
@@ -489,20 +454,17 @@ class K8sService:
         runtime_type = self._runtime_type(agent)
         runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
-        tool_meta = self._repo_metadata(self._tool_repo_url(agent), self._tool_branch(agent))
         return {
             "app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id), "managed-by": "portal",
             "runtime-type": self._sanitize_label_value(runtime_type),
             "runtime-git-repo": runtime_meta["repo_slug"], "runtime-git-repo-hash": runtime_meta["repo_hash"], "runtime-git-branch": runtime_meta["branch"],
             "skill-git-repo": skill_meta["repo_slug"], "skill-git-repo-hash": skill_meta["repo_hash"], "skill-git-branch": skill_meta["branch"],
-            "tool-git-repo": tool_meta["repo_slug"], "tool-git-repo-hash": tool_meta["repo_hash"], "tool-git-branch": tool_meta["branch"],
         }
 
     def _agent_metadata_annotations(self, agent) -> dict[str, str]:
         runtime_type = self._runtime_type(agent)
         runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
-        tool_meta = self._repo_metadata(self._tool_repo_url(agent), self._tool_branch(agent))
         annotations = {}
         annotations["efp/runtime-type"] = runtime_type
         if runtime_meta["raw_repo_url"]:
@@ -515,17 +477,12 @@ class K8sService:
         if skill_meta["raw_branch"]:
             annotations["efp/skill-git-branch"] = skill_meta["raw_branch"]
             annotations["efp/git-branch"] = skill_meta["raw_branch"]
-        if tool_meta["raw_repo_url"]:
-            annotations["efp/tool-git-repo-url"] = tool_meta["raw_repo_url"]
-        if tool_meta["raw_branch"]:
-            annotations["efp/tool-git-branch"] = tool_meta["raw_branch"]
         return annotations
 
     def _agent_patch_annotations(self, agent) -> dict[str, Optional[str]]:
         runtime_type = self._runtime_type(agent)
         runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
-        tool_meta = self._repo_metadata(self._tool_repo_url(agent), self._tool_branch(agent))
         return {
             "efp/runtime-type": runtime_type,
             "efp/runtime-git-repo-url": runtime_meta["raw_repo_url"] or None,
@@ -534,8 +491,6 @@ class K8sService:
             "efp/skill-git-branch": skill_meta["raw_branch"] or None,
             "efp/git-repo-url": skill_meta["raw_repo_url"] or None,
             "efp/git-branch": skill_meta["raw_branch"] or None,
-            "efp/tool-git-repo-url": tool_meta["raw_repo_url"] or None,
-            "efp/tool-git-branch": tool_meta["raw_branch"] or None,
         }
 
     def _ensure_pvc(self, agent) -> None:

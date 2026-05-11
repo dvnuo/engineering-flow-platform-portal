@@ -37,13 +37,13 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert 'name="skill_repo_url"' in html
     assert 'name="skill_branch"' in html
     assert 'name="runtime_type"' in html
-    assert 'name="tool_repo_url"' in html
-    assert 'name="tool_branch"' in html
+    assert 'name="tool_repo_url"' not in html
+    assert 'name="tool_branch"' not in html
     assert "Skill Repository" in html
     assert "Skill Branch" in html
     assert "Runtime Type" in html
-    assert "Tools Repository" in html
-    assert "Tools Branch" in html
+    assert "Tools Repository" not in html
+    assert "Tools Branch" not in html
 
     js = _chat_ui_js_source()
     assert "updates.repo_url =" not in js
@@ -53,19 +53,18 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "skill_repo_url: repoUrl || null" in js
     assert "skill_branch: branch || null" in js
     assert "runtime_types" in js
-    assert "default_tool_repo_url" in js
+    assert "default_tool_repo_url" not in js
     assert "runtime_type: runtimeType" in js
-    assert "tool_repo_url: toolRepoUrl || null" in js
-    assert "tool_branch: toolBranch || null" in js
+    assert "tool_repo_url: toolRepoUrl || null" not in js
+    assert "tool_branch: toolBranch || null" not in js
     assert "updates.runtime_type = runtimeType" in js
-    assert "updates.tool_repo_url = toolRepoUrl || null" in js
-    assert "updates.tool_branch = toolBranch || null" in js
+    assert "updates.tool_repo_url = toolRepoUrl || null" not in js
+    assert "updates.tool_branch = toolBranch || null" not in js
     assert "const runtimeTypeBadge" in js
     assert 'agent.runtime_type || "native"' in js
-    assert "toolRepoSection" in js
+    assert "toolRepoSection" not in js
     assert 'image: defaults.image_repo + ":"' not in js
     assert "/api/skill-git-info" in js
-    assert "Skills Repository" in js
     assert "Using configured default" in js
     assert "empty string to clear" not in js
     assert "use configured default" in js or "Using configured default" in js
