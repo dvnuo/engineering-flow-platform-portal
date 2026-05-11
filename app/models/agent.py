@@ -23,8 +23,8 @@ class Agent(Base):
     branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated runtime branch snapshot; configured by Portal settings only.
     skill_repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     skill_branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    tool_repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    tool_branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    tool_repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # deprecated: ignored by Portal/API/K8s
+    tool_branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated: ignored by Portal/API/K8s
     cpu: Mapped[Optional[str]] = mapped_column(String(32))
     memory: Mapped[Optional[str]] = mapped_column(String(32))
     disk_size_gi: Mapped[int] = mapped_column(Integer, nullable=False, default=20)

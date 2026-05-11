@@ -105,30 +105,19 @@ class K8sService:
     def _skills_assets_dir(self) -> str:
         return "/app/skills"
 
-    def _tools_assets_dir(self) -> str:
-        return "/app/tools"
-
-    def _agent_state_root(self, agent) -> str:
-        prefix = self.settings.agents_volume_sub_path_prefix
-        return f"/agent-data/{prefix}/{agent.id}"
-
-    def _tools_assets_sub_path(self, agent) -> str:
-        prefix = self.settings.agents_volume_sub_path_prefix
-        return f"{prefix}/{agent.id}/tools-code"
-
     def _build_asset_dirs_init_container(self, agent, *, include_opencode_state: bool = False):
         from kubernetes import client
 
         git_image = getattr(agent, "git_image", None) or self.settings.default_agent_git_image or "alpine/git:latest"
         commands = [
             "set -eu",
-            'mkdir -p "$AGENT_STATE_ROOT/data" "$AGENT_STATE_ROOT/tools-code"',
+            'mkdir -p "$AGENT_STATE_ROOT/data"',
         ]
         name = "agent-asset-dirs-init"
         if include_opencode_state:
             name = "opencode-persistent-dirs-init"
             commands.append('mkdir -p "$AGENT_STATE_ROOT/data/.opencode" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state"')
-            commands.append('chown -R 0:0 "$AGENT_STATE_ROOT/data" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state" "$AGENT_STATE_ROOT/tools-code" || true')
+            commands.append('chown -R 0:0 "$AGENT_STATE_ROOT/data" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state" || true')
 
         return client.V1Container(
             name=name,
@@ -200,14 +189,6 @@ class K8sService:
                 )
             )
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
-        if self._tools_assets_dir() not in {mount.mount_path for mount in volume_mounts}:
-            volume_mounts.append(
-                client.V1VolumeMount(
-                    name="agent-data",
-                    mount_path=self._tools_assets_dir(),
-                    sub_path=self._tools_assets_sub_path(agent),
-                )
-            )
         volume_mounts.append(
             client.V1VolumeMount(
                 name="agent-data",
@@ -256,14 +237,6 @@ class K8sService:
                 )
             )
             volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
-        if self._tools_assets_dir() not in {mount.mount_path for mount in volume_mounts}:
-            volume_mounts.append(
-                client.V1VolumeMount(
-                    name="agent-data",
-                    mount_path=self._tools_assets_dir(),
-                    sub_path=self._tools_assets_sub_path(agent),
-                )
-            )
         return init_containers, volume_mounts
 
     def _patch_deployment(self, agent) -> None:
@@ -619,14 +592,6 @@ class K8sService:
             env.append(client.V1EnvVar(name="EFP_RUNTIME_TYPE", value=runtime_type))
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
             env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
-            env.append(client.V1EnvVar(name="EFP_TOOLS_DIR", value=self._tools_assets_dir()))
-            if runtime_type == "native":
-                env.append(
-                    client.V1EnvVar(
-                        name="EFP_TOOLS_STRICT_MODE",
-                        value="true" if bool(getattr(self.settings, "default_native_tools_strict_mode", False)) else "false",
-                    )
-                )
             if runtime_type == "opencode":
                 configured_repos_dir = str(getattr(self.settings, "opencode_workspace_repos_dir", "") or "").strip()
                 workspace_repos_dir = configured_repos_dir or f"{workspace_dir.rstrip('/')}/repos"
@@ -644,13 +609,10 @@ class K8sService:
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
                 env.append(client.V1EnvVar(name="EFP_WORKSPACE_REPOS_DIR", value=workspace_repos_dir))
                 env.append(client.V1EnvVar(name="EFP_GIT_CHECKOUT_TIMEOUT_SECONDS", value=str(checkout_timeout)))
-                env.append(client.V1EnvVar(name="OPENCODE_TOOLS_DIR", value=self._tools_assets_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value="http://127.0.0.1:4096"))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_PERMISSION_MODE", value=str(getattr(self.settings, "default_opencode_permission_mode", "workspace_full_access") or "workspace_full_access")))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_ALLOW_BASH_ALL", value="true" if bool(getattr(self.settings, "default_opencode_allow_bash_all", True)) else "false"))
-                env.append(client.V1EnvVar(name="EFP_OPENCODE_TOOL_REGISTRY_TIMEOUT_SECONDS", value=str(getattr(self.settings, "opencode_tool_registry_timeout_seconds", 600))))
-                env.append(client.V1EnvVar(name="EFP_OPENCODE_TOOL_REGISTRY_REQUEST_TIMEOUT_SECONDS", value=str(getattr(self.settings, "opencode_tool_registry_request_timeout_seconds", 600))))
         return env
 
     def _build_agent_container_resources(self, agent):
