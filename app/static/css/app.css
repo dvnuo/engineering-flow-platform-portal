@@ -2239,3 +2239,18 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
     display: none;
   }
 }
+
+.message-surface-assistant.is-pending .assistant-waiting-indicator,
+.message-surface-assistant.is-streaming .assistant-waiting-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+.assistant-waiting-dots::after { content: ""; animation: assistant-waiting-dots 1.2s steps(4, end) infinite; }
+@keyframes assistant-waiting-dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75%,100% { content: "..."; } }
+.assistant-stream-cursor { display: inline-block; margin-left: 0.1rem; animation: assistant-stream-cursor-blink 1s steps(1, end) infinite; }
+@keyframes assistant-stream-cursor-blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .assistant-waiting-dots::after,
+  .assistant-stream-cursor { animation: none; }
+}

@@ -111,9 +111,22 @@ def _extract_js_function(js_text: str, function_name: str) -> str:
 
 def _extract_render_chat_history_dependencies(js_text: str) -> str:
     """Extract renderChatHistory with direct helper dependencies for Node harness tests."""
-    format_attachment_meta_text = _extract_js_function(js_text, "formatAttachmentMetaText")
-    render_chat_history = _extract_js_function(js_text, "renderChatHistory")
-    return f"{format_attachment_meta_text}\n{render_chat_history}"
+    helper_names = [
+        "formatAttachmentMetaText",
+        "getAssistantDisplayGroupKey",
+        "groupSessionMessagesForDisplay",
+        "getAssistantGroupMessageIds",
+        "getAssistantGroupMarkdown",
+        "getAssistantGroupDisplayBlocks",
+        "buildAssistantMessageArticle",
+        "buildAssistantGroupMessageArticle",
+        "renderChatHistory",
+    ]
+    prelude = (
+        'function escapeHtml(value){ return String(value ?? ""); }\n'
+        'function escapeHtmlAttr(value){ return String(value ?? ""); }\n'
+    )
+    return prelude + "\n".join(_extract_js_function(js_text, name) for name in helper_names)
 
 
 def _extract_render_chat_history_bundle(js_text: str) -> str:
@@ -128,9 +141,20 @@ def _extract_render_chat_history_bundle(js_text: str) -> str:
         "getSelectedAssistantDisplayName",
         "getHistoryMessageDisplayName",
         "formatAttachmentMetaText",
+        "getAssistantDisplayGroupKey",
+        "groupSessionMessagesForDisplay",
+        "getAssistantGroupMessageIds",
+        "getAssistantGroupMarkdown",
+        "getAssistantGroupDisplayBlocks",
+        "buildAssistantMessageArticle",
+        "buildAssistantGroupMessageArticle",
         "renderChatHistory",
     ]
-    return "\n".join(_extract_js_function(js_text, helper_name) for helper_name in helper_names)
+    prelude = (
+        'function escapeHtml(value){ return String(value ?? ""); }\n'
+        'function escapeHtmlAttr(value){ return String(value ?? ""); }\n'
+    )
+    return prelude + "\n".join(_extract_js_function(js_text, helper_name) for helper_name in helper_names)
 
 
 def _extract_js_set_values(js_text: str, const_name: str) -> set[str]:

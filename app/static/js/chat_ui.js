@@ -974,18 +974,93 @@ function buildUserMessageArticle(text, attachments = []) {
   return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
-function buildPendingAssistantArticle() {
-  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const pendingAgentName = getSelectedAssistantDisplayName();
-  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message pending-assistant" data-pending-assistant="1"><div class="pending-assistant-label"><span>Thinking</span><span class="assistant-loading-dots"><i></i><i></i><i></i></span></div></article></div>`;
+function getAssistantDisplayGroupKey(message, lastUserMessageId, index) {
+  const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : {};
+  return (
+    message?.request_id ||
+    message?.client_request_id ||
+    metadata.request_id ||
+    metadata.client_request_id ||
+    metadata.turn_id ||
+    metadata.run_id ||
+    (lastUserMessageId ? `after-user:${lastUserMessageId}` : `assistant-run:${index}`)
+  );
 }
 
-function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant", messageId = "") {
+function groupSessionMessagesForDisplay(messages = []) {
+  const entries = [];
+  let currentAssistantGroup = null;
+  let lastUserMessageId = "";
+
+  messages.forEach((message, index) => {
+    if (!message || typeof message !== "object") return;
+    if (message.role === "user") {
+      currentAssistantGroup = null;
+      lastUserMessageId = message.id || lastUserMessageId || "";
+      entries.push({ type: "message", message });
+      return;
+    }
+    if (message.role !== "assistant") return;
+    const groupKey = getAssistantDisplayGroupKey(message, lastUserMessageId, index);
+    if (!currentAssistantGroup || currentAssistantGroup.key !== groupKey) {
+      currentAssistantGroup = { type: "assistant_group", key: groupKey, userMessageId: lastUserMessageId || "", messages: [] };
+      entries.push(currentAssistantGroup);
+    }
+    currentAssistantGroup.messages.push(message);
+  });
+
+  return entries;
+}
+
+function getAssistantGroupMessageIds(group) {
+  return (group?.messages || []).map((m) => m?.id || m?.message_id || m?.metadata?.opencode_message_id || "").filter(Boolean);
+}
+
+function getAssistantGroupMarkdown(group) {
+  return (group?.messages || []).map((m) => String(m?.content || "")).filter((text) => text.trim().length > 0).join("\n\n");
+}
+
+function getAssistantGroupDisplayBlocks(group) {
+  return (group?.messages || []).flatMap((m) => Array.isArray(m?.display_blocks) ? m.display_blocks : []);
+}
+
+function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
+  const messageIds = getAssistantGroupMessageIds(group);
+  const primaryMessageId = messageIds[messageIds.length - 1] || "";
+  const markdown = getAssistantGroupMarkdown(group);
+  const displayBlocks = getAssistantGroupDisplayBlocks(group);
+  return buildAssistantMessageArticle(markdown, displayBlocks, authorName, primaryMessageId, {
+    messageIds,
+    primaryMessageId,
+    userMessageId: group?.userMessageId || "",
+    assistantGroupKey: group?.key || "",
+    copyText: markdown,
+  });
+}
+
+function buildPendingAssistantArticle(clientRequestId = "") {
+  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const pendingAgentName = getSelectedAssistantDisplayName();
+  const clientRequestAttr = clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(clientRequestId)}"` : "";
+  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">Thinking<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render max-w-none text-sm" data-md="" data-display-blocks="[]"></div></article></div>`;
+}
+
+function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant", messageId = "", options = {}) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const encodedMd = escapeHtmlAttr(content || "");
   const encodedBlocks = escapeHtmlAttr(JSON.stringify(displayBlocks || []));
-  const messageIdAttr = messageId ? ` data-message-id="${escapeHtmlAttr(messageId)}"` : "";
-  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message"${messageIdAttr}><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
+  const messageIds = Array.isArray(options.messageIds) ? options.messageIds.filter(Boolean) : (messageId ? [messageId] : []);
+  const primaryMessageId = options.primaryMessageId || messageId || messageIds[messageIds.length - 1] || "";
+  const messageIdAttr = primaryMessageId ? ` data-message-id="${escapeHtmlAttr(primaryMessageId)}"` : "";
+  const primaryMessageAttr = primaryMessageId ? ` data-primary-message-id="${escapeHtmlAttr(primaryMessageId)}"` : "";
+  const messageIdsAttr = ` data-message-ids="${escapeHtmlAttr(JSON.stringify(messageIds))}"`;
+  const userMessageIdAttr = options.userMessageId ? ` data-user-message-id="${escapeHtmlAttr(options.userMessageId)}"` : "";
+  const groupKeyAttr = options.assistantGroupKey ? ` data-assistant-group-key="${escapeHtmlAttr(options.assistantGroupKey)}"` : "";
+  const requestIdAttr = options.requestId ? ` data-request-id="${escapeHtmlAttr(options.requestId)}"` : "";
+  const clientRequestIdAttr = options.clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(options.clientRequestId)}"` : "";
+  const copyTextAttr = typeof options.copyText === "string" ? ` data-copy-text="${escapeHtmlAttr(options.copyText)}"` : "";
+  const streamingClass = options.isStreaming ? " is-streaming" : "";
+  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
 
 function removeTemporaryAssistantRows() {
@@ -2999,6 +3074,21 @@ function buildAttachmentsFromChatState(agentId, chatState) {
 
 async function submitChatForSelectedAgent() {
   const agentIdAtSend = state.selectedAgentId;
+  const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
+    ? normalizeAssistantMessageIds
+    : (candidate = {}) => {
+      const rawIds = Array.isArray(candidate?.assistant_message_ids) ? candidate.assistant_message_ids : [];
+      const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
+      const primary = String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
+      if (primary && !ids.includes(primary)) ids.push(primary);
+      return ids;
+    };
+  const localPrimaryAssistantMessageId = (typeof getPrimaryAssistantMessageId === "function")
+    ? getPrimaryAssistantMessageId
+    : (candidate = {}) => {
+      const ids = localNormalizeAssistantMessageIds(candidate);
+      return String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
+    };
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
@@ -3028,6 +3118,8 @@ async function submitChatForSelectedAgent() {
     clientRequestId,
     startedAt: Date.now(),
     backupMessage: messageAtSend,
+    typewriter: { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false },
+    usedStream: false,
   };
 
   maybeRequestNotificationPermission();
@@ -3046,7 +3138,8 @@ async function submitChatForSelectedAgent() {
     showToast(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.");
     setChatStatus(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.", true);
     chatState.activeRequest = null;
-    setChatSubmittingForAgent(agentIdAtSend, false);
+    cancelAssistantTypewriter(requestCtx);
+  setChatSubmittingForAgent(agentIdAtSend, false);
     return;
   }
   if (slashInvocation) {
@@ -3081,7 +3174,7 @@ async function submitChatForSelectedAgent() {
       url: pf.uploadedData?.url,
     }));
     dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(displayMessage, displayAttachments));
-    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle());
+    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(clientRequestId));
     chatState.inflightThinking = {
       id: clientRequestId,
       requestId: clientRequestId,
@@ -3362,6 +3455,85 @@ function finalResponseText(payload) {
 }
 
 
+
+function getAssistantTypewriterState(requestCtx) {
+  if (!requestCtx) return null;
+  if (!requestCtx.typewriter || typeof requestCtx.typewriter !== "object") {
+    requestCtx.typewriter = { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false };
+  }
+  return requestCtx.typewriter;
+}
+
+function cancelAssistantTypewriter(requestCtx) {
+  const tw = getAssistantTypewriterState(requestCtx);
+  if (!tw) return;
+  tw.cancelled = true;
+  if (tw.timerId) {
+    clearInterval(tw.timerId);
+    tw.timerId = null;
+  }
+}
+
+function queueAssistantTypewriter(agentId, requestCtx, targetText) {
+  const tw = getAssistantTypewriterState(requestCtx);
+  if (!tw || tw.cancelled) return;
+  tw.targetText = String(targetText || "");
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    tw.visibleText = tw.targetText;
+    updatePendingAssistantStreamContent(agentId, tw.visibleText, { streaming: true, requestCtx });
+    return;
+  }
+  if (tw.timerId) return;
+  tw.timerId = setInterval(() => {
+    if (tw.cancelled) {
+      clearInterval(tw.timerId);
+      tw.timerId = null;
+      return;
+    }
+    const remaining = Math.max(0, tw.targetText.length - tw.visibleText.length);
+    if (!remaining) {
+      if (!tw.finalizing) {
+        clearInterval(tw.timerId);
+        tw.timerId = null;
+      }
+      return;
+    }
+    const step = Math.max(1, Math.min(8, Math.ceil(remaining / 24)));
+    tw.visibleText = tw.targetText.slice(0, tw.visibleText.length + step);
+    updatePendingAssistantStreamContent(agentId, tw.visibleText, { streaming: true, requestCtx });
+  }, 24);
+}
+
+async function flushAssistantTypewriter(agentId, requestCtx, finalText, { maxWaitMs = 1200 } = {}) {
+  const tw = getAssistantTypewriterState(requestCtx);
+  if (!tw) return;
+  tw.finalizing = true;
+  queueAssistantTypewriter(agentId, requestCtx, finalText || "");
+  const deadline = Date.now() + maxWaitMs;
+  while (!tw.cancelled && tw.visibleText.length < tw.targetText.length && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  tw.visibleText = tw.targetText;
+  updatePendingAssistantStreamContent(agentId, tw.visibleText, { streaming: false, requestCtx });
+  if (tw.timerId) {
+    clearInterval(tw.timerId);
+    tw.timerId = null;
+  }
+  tw.finalizing = false;
+}
+function normalizeAssistantMessageIds(payload = {}) {
+  const rawIds = Array.isArray(payload?.assistant_message_ids) ? payload.assistant_message_ids : [];
+  const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
+  const primary = String(payload?.assistant_message_id || ids[ids.length - 1] || "");
+  if (primary && !ids.includes(primary)) ids.push(primary);
+  return ids;
+}
+
+function getPrimaryAssistantMessageId(payload = {}) {
+  const ids = normalizeAssistantMessageIds(payload);
+  return String(payload?.assistant_message_id || ids[ids.length - 1] || "");
+}
+
 function hasRenderableAssistantPayload(payload) {
   const text = String(payload?.response || "").trim();
   if (text) return true;
@@ -3369,12 +3541,69 @@ function hasRenderableAssistantPayload(payload) {
   return blocks.some((block) => hasRenderableDisplayBlock(block));
 }
 
-function updatePendingAssistantStreamContent(agentId, markdownText) {
+function updatePendingAssistantStreamContent(agentId, markdownText, options = {}) {
   if (state.selectedAgentId !== agentId || !dom.messageList) return;
-  const article = dom.messageList.querySelector('article[data-pending-assistant="1"]');
+  const reqId = options?.requestCtx?.clientRequestId || "";
+  const article = (reqId
+    ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
+    : null) || dom.messageList.querySelector('article[data-pending-assistant="1"]');
   if (!article) return;
-  article.innerHTML = `<div class="message-markdown md-render max-w-none text-sm" data-md="${escapeHtmlAttr(markdownText || '')}"></div>`;
+  const row = article.closest('.message-row');
+  const waiting = article.querySelector('.assistant-waiting-indicator');
+  if (waiting) waiting.remove();
+  article.classList.add('is-streaming');
+  row?.classList.add('is-streaming');
+  const markdownEl = article.querySelector('.message-markdown') || (() => {
+    const created = document.createElement('div');
+    created.className = 'message-markdown md-render max-w-none text-sm';
+    article.appendChild(created);
+    return created;
+  })();
+  markdownEl.dataset.md = String(markdownText || '');
+  if (!markdownEl.dataset.displayBlocks) markdownEl.dataset.displayBlocks = '[]';
+  let cursor = article.querySelector('.assistant-stream-cursor');
+  if (options.streaming !== false) {
+    if (!cursor) {
+      cursor = document.createElement('span');
+      cursor.className = 'assistant-stream-cursor';
+      cursor.setAttribute('aria-hidden', 'true');
+      cursor.textContent = '▌';
+      markdownEl.insertAdjacentElement('afterend', cursor);
+    }
+  } else if (cursor) {
+    cursor.remove();
+  }
   renderMarkdown(article); decorateToolMessages(article); renderIcons(); scrollToBottom();
+}
+
+function finalizePendingAssistantRow(agentId, requestCtx, payload) {
+  if (state.selectedAgentId !== agentId || !dom.messageList) return false;
+  const reqId = requestCtx?.clientRequestId || '';
+  const article = (reqId
+    ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
+    : null) || dom.messageList.querySelector('article[data-pending-assistant="1"]');
+  if (!article) return false;
+  const row = article.closest('.message-row');
+  const messageIds = normalizeAssistantMessageIds(payload);
+  const primary = getPrimaryAssistantMessageId(payload);
+  const nearestUser = row ? findPrecedingUserArticle(row)?.dataset?.messageId || '' : '';
+  article.removeAttribute('data-pending-assistant');
+  article.dataset.messageId = primary;
+  article.dataset.primaryMessageId = primary;
+  article.dataset.messageIds = JSON.stringify(messageIds);
+  article.dataset.userMessageId = payload?.user_message_id || nearestUser || '';
+  article.dataset.requestId = payload?.request_id || requestCtx?.clientRequestId || '';
+  article.classList.remove('is-pending', 'is-streaming');
+  row?.classList.remove('is-streaming');
+  article.classList.add('is-complete');
+  const md = article.querySelector('.message-markdown') || article.appendChild(document.createElement('div'));
+  md.className = 'message-markdown md-render max-w-none text-sm';
+  md.dataset.md = String(payload?.response || '');
+  md.dataset.displayBlocks = JSON.stringify(payload?.display_blocks || []);
+  article.querySelector('.assistant-stream-cursor')?.remove();
+  article.querySelector('.assistant-waiting-indicator')?.remove();
+  renderMarkdown(article); decorateToolMessages(article); renderIcons();
+  return true;
 }
 
 async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
@@ -3408,6 +3637,15 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const localHandleIncompleteChatStream = (typeof handleIncompleteChatStream === "function")
     ? handleIncompleteChatStream
     : async () => {};
+  const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
+    ? normalizeAssistantMessageIds
+    : (payload = {}) => {
+      const rawIds = Array.isArray(payload?.assistant_message_ids) ? payload.assistant_message_ids : [];
+      const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
+      const primary = String(payload?.assistant_message_id || ids[ids.length - 1] || "");
+      if (primary && !ids.includes(primary)) ids.push(primary);
+      return ids;
+    };
   const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
 
   if (isChatStreamWrapperEventName(outerType)) {
@@ -3435,6 +3673,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
           user_message_id: eventData?.user_message_id || "",
           assistant_message_id: eventData?.assistant_message_id || "",
           request_id: eventData?.request_id || requestCtx.clientRequestId,
+          assistant_message_ids: localNormalizeAssistantMessageIds(eventData),
           events: eventData?.events || [],
           runtime_events: eventData?.runtime_events || [],
         };
@@ -3452,8 +3691,9 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       return "event";
     }
 
-    requestCtx.streamedText = (requestCtx.streamedText || '') + (deltaText || '');
-    updatePendingAssistantStreamContent(agentIdAtSend, requestCtx.streamedText);
+    requestCtx.streamedText = (requestCtx.streamedText || "") + (deltaText || "");
+    if (typeof queueAssistantTypewriter === "function") queueAssistantTypewriter(agentIdAtSend, requestCtx, requestCtx.streamedText);
+    else updatePendingAssistantStreamContent(agentIdAtSend, requestCtx.streamedText);
     return 'delta';
   }
 
@@ -3478,7 +3718,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       return "final_incomplete";
     }
     requestCtx.streamCompleted = true;
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: finalText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: finalText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", assistant_message_ids: localNormalizeAssistantMessageIds(eventData), request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
     return 'final';
   }
 
@@ -3508,6 +3748,7 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId || requestCtx.completed) return;
   requestCtx.completed = true;
   requestCtx.streamFailed = true;
+  cancelAssistantTypewriter(requestCtx);
   requestCtx.streamIncomplete = true;
   const finalSessionId = requestCtx.sessionIdAtSend || chatState.sessionId || "";
   const finalRequestId = requestCtx.clientRequestId;
@@ -3621,6 +3862,21 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
       return blocks.some((block) => (typeof hasRenderableDisplayBlock === "function")
         ? hasRenderableDisplayBlock(block)
         : !!(block && typeof block === "object" && String(block.text || block.content || block.value || "").trim()));
+    };
+  const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
+    ? normalizeAssistantMessageIds
+    : (candidate = {}) => {
+      const rawIds = Array.isArray(candidate?.assistant_message_ids) ? candidate.assistant_message_ids : [];
+      const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
+      const primary = String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
+      if (primary && !ids.includes(primary)) ids.push(primary);
+      return ids;
+    };
+  const localPrimaryAssistantMessageId = (typeof getPrimaryAssistantMessageId === "function")
+    ? getPrimaryAssistantMessageId
+    : (candidate = {}) => {
+      const ids = localNormalizeAssistantMessageIds(candidate);
+      return String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
     };
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
@@ -3751,7 +4007,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     return;
   }
 
-  removeTemporaryAssistantRows();
   const optimisticUserArticle = getLatestOptimisticUserArticle();
   if (!optimisticUserArticle) {
     if (finalSessionId) {
@@ -3780,13 +4035,29 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     optimisticUserArticle.dataset.messageId = payload.user_message_id;
     delete optimisticUserArticle.dataset.optimisticUser;
   }
-  const assistantHtml = buildAssistantMessageArticle(
-    payload.response || "",
-    payload.display_blocks || [],
-    getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
-    payload.assistant_message_id || "",
-  );
-  dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
+  if (requestCtx.usedStream === true) {
+    await flushAssistantTypewriter(agentIdAtSend, requestCtx, payload.response || "");
+    const finalized = finalizePendingAssistantRow(agentIdAtSend, requestCtx, payload);
+    if (!finalized) {
+      const assistantHtml = buildAssistantMessageArticle(
+        payload.response || "",
+        payload.display_blocks || [],
+        getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+        payload.assistant_message_id || "",
+      );
+      dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
+    }
+  } else {
+    removeTemporaryAssistantRows();
+    const assistantHtml = buildAssistantMessageArticle(
+      payload.response || "",
+      payload.display_blocks || [],
+      getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+      payload.assistant_message_id || "",
+      { userMessageId: payload.user_message_id || optimisticUserArticle?.dataset?.messageId || "", messageIds: localNormalizeAssistantMessageIds(payload), primaryMessageId: localPrimaryAssistantMessageId(payload), requestId: payload.request_id || "", copyText: payload.response || "" }
+    );
+    dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
+  }
   if (canRenderThinkingPanel) {
     if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
     if (finalSessionId) {
@@ -4803,104 +5074,71 @@ async function returnFromTaskDetailToSidebar() {
 
 function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
-  const selectedChatState = getChatState();
-
-  if (!messages.length) {
-    clearMessageListToWelcome();
-    return;
-  }
-
+  if (!messages.length) { clearMessageListToWelcome(); return; }
   dom.messageList.innerHTML = "";
-  messages.forEach((message) => {
-    if (message.role !== "user" && message.role !== "assistant") return;
-    const isUser = message.role === "user";
-    let timeStr = "";
-    if (message.timestamp) {
-      try {
-        timeStr = new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      } catch (e) {}
-    }
-
-    const container = document.createElement("div");
-    container.className = `message-row ${isUser ? "message-row-user" : "message-row-assistant"}`;
-
-    const header = document.createElement("div");
-    header.className = `message-meta${isUser ? " message-meta-user" : ""}`;
-    const roleLabel = document.createElement("span");
-    roleLabel.className = "message-author";
-    roleLabel.textContent = getHistoryMessageDisplayName(message, isUser);
-    header.appendChild(roleLabel);
-    if (timeStr) {
-      const timeLabel = document.createElement("span");
-      timeLabel.className = "message-timestamp";
-      timeLabel.textContent = timeStr;
-      header.appendChild(timeLabel);
-    }
-    container.appendChild(header);
-
-    const article = document.createElement("article");
-    article.className = `message-surface ${isUser ? "message-surface-user" : "message-surface-assistant assistant-message"}`;
-
-    if (isUser) {
-      article.dataset.localUser = "1";
-      if (message.id) article.dataset.messageId = message.id;
-      const content = document.createElement("div");
-      content.className = "message-body whitespace-pre-wrap text-sm";
-      content.textContent = message.content || "";
-      article.appendChild(content);
-
+  const displayEntries = groupSessionMessagesForDisplay(messages);
+  displayEntries.forEach((entry) => {
+    if (entry.type === "message") {
+      const message = entry.message;
+      if (message.role !== "user") return;
+      let timeStr = "";
+      if (message.timestamp || message.created_at) { try { timeStr = new Date(message.timestamp || message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
+      const container = document.createElement("div"); container.className = "message-row message-row-user";
+      const header = document.createElement("div"); header.className = "message-meta message-meta-user";
+      const roleLabel = document.createElement("span"); roleLabel.className = "message-author"; roleLabel.textContent = getHistoryMessageDisplayName(message, true); header.appendChild(roleLabel);
+      if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      container.appendChild(header);
+      const article = document.createElement("article"); article.className = "message-surface message-surface-user"; article.dataset.localUser = "1"; if (message.id) article.dataset.messageId = message.id;
+      const content = document.createElement("div"); content.className = "message-body whitespace-pre-wrap text-sm"; content.textContent = message.content || ""; article.appendChild(content);
       const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
       if (normalizedAttachments.length > 0) {
-        const attachmentDiv = document.createElement("div");
-        attachmentDiv.className = "message-attachments";
-            normalizedAttachments.forEach((attachment) => {
-          const isAttachmentObject = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
-          const attachmentType = isAttachmentObject ? String(attachment.type || "").toLowerCase() : "";
-          const imageUrl = isAttachmentObject ? (attachment.url || attachment.previewUrl || "") : "";
-          const fileId = isAttachmentObject
-            ? String(attachment.file_id || attachment.fileId || attachment.id || attachment.filename || "attachment")
-            : String(attachment || "");
-          const fileName = isAttachmentObject
-            ? String(attachment.name || attachment.filename || attachment.file_name || fileId || "attachment")
-            : fileId;
-
-          if (attachmentType === "image" && imageUrl) {
-            const img = document.createElement("img");
-            img.src = imageUrl;
-            img.className = "message-attachment-thumb";
-            img.alt = fileName;
-            img.dataset.fileId = fileId;
-            attachmentDiv.appendChild(img);
-            return;
-          }
-
-          const fileChip = document.createElement("div");
-          fileChip.className = "message-attachment-file";
-          const metaText = formatAttachmentMetaText(attachment);
-          const baseText = `📄 ${fileName || fileId || "attachment"}`;
-          fileChip.textContent = metaText ? `${baseText} · ${metaText}` : baseText;
+        const attachmentDiv = document.createElement("div"); attachmentDiv.className = "message-attachments";
+        normalizedAttachments.forEach((attachment) => {
+          const isObj = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
+          const type = isObj ? String(attachment.type || "").toLowerCase() : "";
+          const imageUrl = isObj ? (attachment.url || attachment.previewUrl || "") : "";
+          const fileId = isObj ? String(attachment.file_id || attachment.fileId || attachment.id || attachment.filename || "attachment") : String(attachment || "");
+          const fileName = isObj ? String(attachment.name || attachment.filename || attachment.file_name || fileId || "attachment") : fileId;
+          if (type === "image" && imageUrl) { const img = document.createElement("img"); img.src = imageUrl; img.className = "message-attachment-thumb"; img.alt = fileName; img.dataset.fileId = fileId; attachmentDiv.appendChild(img); return; }
+          const fileChip = document.createElement("div"); fileChip.className = "message-attachment-file";
+          const metaText = formatAttachmentMetaText(attachment); const baseText = `📄 ${fileName || fileId || "attachment"}`; fileChip.textContent = metaText ? `${baseText} · ${metaText}` : baseText;
           attachmentDiv.appendChild(fileChip);
         });
         article.appendChild(attachmentDiv);
       }
-    } else {
-      if (message.id) article.dataset.messageId = message.id;
-      const content = document.createElement("div");
-      content.className = "message-markdown md-render max-w-none text-sm";
-      if (Array.isArray(message.display_blocks) && message.display_blocks.length) {
-        content.dataset.displayBlocks = JSON.stringify(message.display_blocks);
-      }
-      content.dataset.md = message.content || "";
-      article.appendChild(content);
+      container.appendChild(article); dom.messageList.appendChild(container);
+      return;
     }
-
-    container.appendChild(article);
-    dom.messageList.appendChild(container);
+    if (entry.type === "assistant_group") {
+      const first = entry.messages[0] || {};
+      const last = entry.messages[entry.messages.length - 1] || first;
+      const row = document.createElement("div"); row.className = "message-row message-row-assistant";
+      const header = document.createElement("div"); header.className = "message-meta";
+      const author = document.createElement("span"); author.className = "message-author"; author.textContent = getHistoryMessageDisplayName(first, false); header.appendChild(author);
+      let timeStr = "";
+      if (last?.timestamp || last?.created_at || first?.timestamp || first?.created_at) { try { timeStr = new Date(last.timestamp || last.created_at || first.timestamp || first.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
+      if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      row.appendChild(header);
+      const article = document.createElement("article"); article.className = "message-surface message-surface-assistant assistant-message";
+      const ids = getAssistantGroupMessageIds(entry);
+      const primary = ids[ids.length - 1] || "";
+      if (primary) article.dataset.messageId = primary;
+      if (primary) article.dataset.primaryMessageId = primary;
+      article.dataset.messageIds = JSON.stringify(ids);
+      if (entry.userMessageId) article.dataset.userMessageId = entry.userMessageId;
+      if (entry.key) article.dataset.assistantGroupKey = entry.key;
+      const markdown = getAssistantGroupMarkdown(entry);
+      article.dataset.copyText = markdown;
+      const content = document.createElement("div"); content.className = "message-markdown md-render max-w-none text-sm";
+      content.dataset.md = markdown;
+      content.dataset.displayBlocks = JSON.stringify(getAssistantGroupDisplayBlocks(entry));
+      article.appendChild(content);
+      row.appendChild(article);
+      dom.messageList.appendChild(row);
+    }
   });
-
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
-
   scrollToBottom();
 }
 
@@ -6982,6 +7220,7 @@ function getDisplayBlockCopyText(block) {
 }
 
 function getAssistantCopyText(article) {
+  if (article?.dataset?.copyText && article.dataset.copyText.trim()) return article.dataset.copyText;
   const markdownEl = article?.querySelector(".message-markdown");
   const rawMarkdown = markdownEl?.dataset?.md || "";
   if (rawMarkdown.trim()) return rawMarkdown;
@@ -7050,8 +7289,9 @@ async function retryAssistantMessage(row) {
     return;
   }
 
+  const rowUserMessageId = row?.dataset?.userMessageId || row?.querySelector("article")?.dataset?.userMessageId || "";
   const userArticle = findPrecedingUserArticle(row);
-  const userMessageId = userArticle?.dataset?.messageId || "";
+  const userMessageId = rowUserMessageId || userArticle?.dataset?.messageId || "";
   if (!userMessageId || userMessageId.startsWith("local-")) {
     showToast("Cannot retry this message yet");
     return;
