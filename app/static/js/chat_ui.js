@@ -3074,6 +3074,21 @@ function buildAttachmentsFromChatState(agentId, chatState) {
 
 async function submitChatForSelectedAgent() {
   const agentIdAtSend = state.selectedAgentId;
+  const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
+    ? normalizeAssistantMessageIds
+    : (candidate = {}) => {
+      const rawIds = Array.isArray(candidate?.assistant_message_ids) ? candidate.assistant_message_ids : [];
+      const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
+      const primary = String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
+      if (primary && !ids.includes(primary)) ids.push(primary);
+      return ids;
+    };
+  const localPrimaryAssistantMessageId = (typeof getPrimaryAssistantMessageId === "function")
+    ? getPrimaryAssistantMessageId
+    : (candidate = {}) => {
+      const ids = localNormalizeAssistantMessageIds(candidate);
+      return String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
+    };
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
@@ -3506,6 +3521,19 @@ async function flushAssistantTypewriter(agentId, requestCtx, finalText, { maxWai
   }
   tw.finalizing = false;
 }
+function normalizeAssistantMessageIds(payload = {}) {
+  const rawIds = Array.isArray(payload?.assistant_message_ids) ? payload.assistant_message_ids : [];
+  const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
+  const primary = String(payload?.assistant_message_id || ids[ids.length - 1] || "");
+  if (primary && !ids.includes(primary)) ids.push(primary);
+  return ids;
+}
+
+function getPrimaryAssistantMessageId(payload = {}) {
+  const ids = normalizeAssistantMessageIds(payload);
+  return String(payload?.assistant_message_id || ids[ids.length - 1] || "");
+}
+
 function hasRenderableAssistantPayload(payload) {
   const text = String(payload?.response || "").trim();
   if (text) return true;
@@ -3540,7 +3568,7 @@ function updatePendingAssistantStreamContent(agentId, markdownText, options = {}
       cursor.className = 'assistant-stream-cursor';
       cursor.setAttribute('aria-hidden', 'true');
       cursor.textContent = '▌';
-      markdownEl.appendChild(cursor);
+      markdownEl.insertAdjacentElement('afterend', cursor);
     }
   } else if (cursor) {
     cursor.remove();
@@ -3556,8 +3584,8 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
     : null) || dom.messageList.querySelector('article[data-pending-assistant="1"]');
   if (!article) return false;
   const row = article.closest('.message-row');
-  const messageIds = Array.isArray(payload?.assistant_message_ids) ? payload.assistant_message_ids.filter(Boolean) : [payload?.assistant_message_id].filter(Boolean);
-  const primary = payload?.assistant_message_id || messageIds[messageIds.length - 1] || '';
+  const messageIds = normalizeAssistantMessageIds(payload);
+  const primary = getPrimaryAssistantMessageId(payload);
   const nearestUser = row ? findPrecedingUserArticle(row)?.dataset?.messageId || '' : '';
   article.removeAttribute('data-pending-assistant');
   article.dataset.messageId = primary;
@@ -3609,6 +3637,15 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const localHandleIncompleteChatStream = (typeof handleIncompleteChatStream === "function")
     ? handleIncompleteChatStream
     : async () => {};
+  const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
+    ? normalizeAssistantMessageIds
+    : (payload = {}) => {
+      const rawIds = Array.isArray(payload?.assistant_message_ids) ? payload.assistant_message_ids : [];
+      const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
+      const primary = String(payload?.assistant_message_id || ids[ids.length - 1] || "");
+      if (primary && !ids.includes(primary)) ids.push(primary);
+      return ids;
+    };
   const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
 
   if (isChatStreamWrapperEventName(outerType)) {
@@ -3636,6 +3673,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
           user_message_id: eventData?.user_message_id || "",
           assistant_message_id: eventData?.assistant_message_id || "",
           request_id: eventData?.request_id || requestCtx.clientRequestId,
+          assistant_message_ids: localNormalizeAssistantMessageIds(eventData),
           events: eventData?.events || [],
           runtime_events: eventData?.runtime_events || [],
         };
@@ -3680,7 +3718,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       return "final_incomplete";
     }
     requestCtx.streamCompleted = true;
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: finalText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: finalText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", assistant_message_ids: localNormalizeAssistantMessageIds(eventData), request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
     return 'final';
   }
 
@@ -3824,6 +3862,21 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
       return blocks.some((block) => (typeof hasRenderableDisplayBlock === "function")
         ? hasRenderableDisplayBlock(block)
         : !!(block && typeof block === "object" && String(block.text || block.content || block.value || "").trim()));
+    };
+  const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
+    ? normalizeAssistantMessageIds
+    : (candidate = {}) => {
+      const rawIds = Array.isArray(candidate?.assistant_message_ids) ? candidate.assistant_message_ids : [];
+      const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
+      const primary = String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
+      if (primary && !ids.includes(primary)) ids.push(primary);
+      return ids;
+    };
+  const localPrimaryAssistantMessageId = (typeof getPrimaryAssistantMessageId === "function")
+    ? getPrimaryAssistantMessageId
+    : (candidate = {}) => {
+      const ids = localNormalizeAssistantMessageIds(candidate);
+      return String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
     };
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
@@ -4001,7 +4054,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
       payload.display_blocks || [],
       getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
       payload.assistant_message_id || "",
-      { userMessageId: payload.user_message_id || optimisticUserArticle?.dataset?.messageId || "", messageIds: [payload.assistant_message_id || ""].filter(Boolean) }
+      { userMessageId: payload.user_message_id || optimisticUserArticle?.dataset?.messageId || "", messageIds: localNormalizeAssistantMessageIds(payload), primaryMessageId: localPrimaryAssistantMessageId(payload), requestId: payload.request_id || "", copyText: payload.response || "" }
     );
     dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
   }
@@ -5028,18 +5081,65 @@ function renderChatHistory(messages, metadata = {}) {
     if (entry.type === "message") {
       const message = entry.message;
       if (message.role !== "user") return;
-      const row = document.createElement("div"); row.className = "message-row message-row-user";
-      row.innerHTML = buildUserMessageArticle(message.content || "", Array.isArray(message.attachments) ? message.attachments : []).replace('<article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1">', `<article class="message-surface message-surface-user" data-local-user="1" data-message-id="${escapeHtmlAttr(message.id || "")}">`);
-      dom.messageList.appendChild(row.firstElementChild);
+      let timeStr = "";
+      if (message.timestamp || message.created_at) { try { timeStr = new Date(message.timestamp || message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
+      const container = document.createElement("div"); container.className = "message-row message-row-user";
+      const header = document.createElement("div"); header.className = "message-meta message-meta-user";
+      const roleLabel = document.createElement("span"); roleLabel.className = "message-author"; roleLabel.textContent = getHistoryMessageDisplayName(message, true); header.appendChild(roleLabel);
+      if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      container.appendChild(header);
+      const article = document.createElement("article"); article.className = "message-surface message-surface-user"; article.dataset.localUser = "1"; if (message.id) article.dataset.messageId = message.id;
+      const content = document.createElement("div"); content.className = "message-body whitespace-pre-wrap text-sm"; content.textContent = message.content || ""; article.appendChild(content);
+      const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
+      if (normalizedAttachments.length > 0) {
+        const attachmentDiv = document.createElement("div"); attachmentDiv.className = "message-attachments";
+        normalizedAttachments.forEach((attachment) => {
+          const isObj = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
+          const type = isObj ? String(attachment.type || "").toLowerCase() : "";
+          const imageUrl = isObj ? (attachment.url || attachment.previewUrl || "") : "";
+          const fileId = isObj ? String(attachment.file_id || attachment.fileId || attachment.id || attachment.filename || "attachment") : String(attachment || "");
+          const fileName = isObj ? String(attachment.name || attachment.filename || attachment.file_name || fileId || "attachment") : fileId;
+          if (type === "image" && imageUrl) { const img = document.createElement("img"); img.src = imageUrl; img.className = "message-attachment-thumb"; img.alt = fileName; img.dataset.fileId = fileId; attachmentDiv.appendChild(img); return; }
+          const fileChip = document.createElement("div"); fileChip.className = "message-attachment-file";
+          const metaText = formatAttachmentMetaText(attachment); const baseText = `📄 ${fileName || fileId || "attachment"}`; fileChip.textContent = metaText ? `${baseText} · ${metaText}` : baseText;
+          attachmentDiv.appendChild(fileChip);
+        });
+        article.appendChild(attachmentDiv);
+      }
+      container.appendChild(article); dom.messageList.appendChild(container);
       return;
     }
     if (entry.type === "assistant_group") {
       const first = entry.messages[0] || {};
-      const author = getHistoryMessageDisplayName(first, false);
-      dom.messageList.insertAdjacentHTML("beforeend", buildAssistantGroupMessageArticle(entry, author));
+      const last = entry.messages[entry.messages.length - 1] || first;
+      const row = document.createElement("div"); row.className = "message-row message-row-assistant";
+      const header = document.createElement("div"); header.className = "message-meta";
+      const author = document.createElement("span"); author.className = "message-author"; author.textContent = getHistoryMessageDisplayName(first, false); header.appendChild(author);
+      let timeStr = "";
+      if (last?.timestamp || last?.created_at || first?.timestamp || first?.created_at) { try { timeStr = new Date(last.timestamp || last.created_at || first.timestamp || first.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
+      if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      row.appendChild(header);
+      const article = document.createElement("article"); article.className = "message-surface message-surface-assistant assistant-message";
+      const ids = getAssistantGroupMessageIds(entry);
+      const primary = ids[ids.length - 1] || "";
+      if (primary) article.dataset.messageId = primary;
+      if (primary) article.dataset.primaryMessageId = primary;
+      article.dataset.messageIds = JSON.stringify(ids);
+      if (entry.userMessageId) article.dataset.userMessageId = entry.userMessageId;
+      if (entry.key) article.dataset.assistantGroupKey = entry.key;
+      const markdown = getAssistantGroupMarkdown(entry);
+      article.dataset.copyText = markdown;
+      const content = document.createElement("div"); content.className = "message-markdown md-render max-w-none text-sm";
+      content.dataset.md = markdown;
+      content.dataset.displayBlocks = JSON.stringify(getAssistantGroupDisplayBlocks(entry));
+      article.appendChild(content);
+      row.appendChild(article);
+      dom.messageList.appendChild(row);
     }
   });
-  renderMarkdown(dom.messageList); decorateToolMessages(dom.messageList); scrollToBottom(); addEditButtonsToMessages();
+  renderMarkdown(dom.messageList);
+  decorateToolMessages(dom.messageList);
+  scrollToBottom();
 }
 
 function deriveSessionRecoveryNotice(metadata = {}) {
