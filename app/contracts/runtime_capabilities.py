@@ -5,6 +5,7 @@ from copy import deepcopy
 # Runtime remains the source-of-truth; this seed keeps local behavior deterministic.
 DEFAULT_RUNTIME_ADAPTER_ACTIONS_BY_SYSTEM: dict[str, dict[str, str]] = {
     "github": {
+        "create_pull_request": "adapter:github:create_pull_request",
         "review_pull_request": "adapter:github:review_pull_request",
         "add_comment": "adapter:github:add_comment",
         "reply_review_comment": "adapter:github:reply_review_comment",

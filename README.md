@@ -108,7 +108,15 @@ Kubernetes runtime provisioning behavior:
 - `native` mounts `/app/src` and `/app/.git` only when source overlay is enabled.
 - `opencode` uses packaged runtime image (no `/app/src`, no `/app/.git`).
 - `opencode` mounts `/workspace`, `/app/skills`, `/app/tools`, and opencode state dirs.
+- Portal does not parse slash commands and does not clone user-requested business repos at pod startup.
+- OpenCode runtime owns on-demand checkout (for example `/create-pull-request in git repo <url> from branch <head> to <base>`) using:
+  - `EFP_WORKSPACE_DIR=/workspace`
+  - `EFP_WORKSPACE_REPOS_DIR=/workspace/repos` (checkout path `/workspace/repos/<owner>/<repo>`)
+  - `EFP_GIT_CHECKOUT_TIMEOUT_SECONDS=120` (configurable via `OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS`)
+- Skills/tools repos are still cloned by Portal initContainers into `/app/skills` and `/app/tools`.
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
+- Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
+- PR creation runtime tool availability comes from tools repo/runtime tools index; Portal fallback only fills adapter-action alias gaps.
 
 Local default is `K8S_ENABLED=false`. Kubernetes manifests set `K8S_ENABLED=true` explicitly. For production Kubernetes, configure storage class/access mode via env or manifests.
 

@@ -80,6 +80,14 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="DEFAULT_OPENCODE_ALLOW_BASH_ALL",
     )
+    opencode_workspace_repos_dir: str = Field(
+        default="/workspace/repos",
+        validation_alias="OPENCODE_WORKSPACE_REPOS_DIR",
+    )
+    opencode_git_checkout_timeout_seconds: int = Field(
+        default=120,
+        validation_alias="OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS",
+    )
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"

@@ -16,6 +16,9 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "/home/opencode" not in text
     assert "EFP_OPENCODE_PERMISSION_MODE" in text
     assert "EFP_OPENCODE_ALLOW_BASH_ALL" in text
+    assert "OpenCode on-demand repository checkout contract" in text
+    assert "/workspace/repos/<owner>/<repo>" in text
+    assert "`GIT_TOKEN` remains initContainer-only" in text
 
 
     readme = Path("README.md").read_text(encoding="utf-8")
@@ -24,3 +27,5 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "DEFAULT_OPENCODE_PERMISSION_MODE" in readme
     assert "DEFAULT_OPENCODE_ALLOW_BASH_ALL" in readme
     assert "workspace_full_access" in readme
+    assert "EFP_WORKSPACE_REPOS_DIR=/workspace/repos" in readme
+    assert "EFP_GIT_CHECKOUT_TIMEOUT_SECONDS=120" in readme
