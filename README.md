@@ -115,7 +115,7 @@ Kubernetes runtime provisioning behavior:
 - Legacy payload fields `tool_repo_url` / `tool_branch` are ignored for backward compatibility.
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
 - Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
-- PR creation runtime tool availability comes from tools repo/runtime tools index; Portal fallback only fills adapter-action alias gaps.
+- Runtime tool availability is runtime-owned (built-in tool surface + runtime profile + permission policy), not Portal repo/branch/mount driven.
 
 Local default is `K8S_ENABLED=false`. Kubernetes manifests set `K8S_ENABLED=true` explicitly. For production Kubernetes, configure storage class/access mode via env or manifests.
 

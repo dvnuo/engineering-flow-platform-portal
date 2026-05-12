@@ -105,6 +105,10 @@ class K8sService:
     def _skills_assets_dir(self) -> str:
         return "/app/skills"
 
+    def _agent_state_root(self, agent) -> str:
+        prefix = self.settings.agents_volume_sub_path_prefix
+        return f"/agent-data/{prefix}/{agent.id}"
+
     def _build_asset_dirs_init_container(self, agent, *, include_opencode_state: bool = False):
         from kubernetes import client
 

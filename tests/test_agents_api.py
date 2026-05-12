@@ -739,8 +739,6 @@ def test_create_opencode_agent_uses_opencode_default_image_and_ignores_tool_defa
         import app.api.agents as agents_api
         monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode")
         monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39-test")
-        monkeypatch.setattr(agents_api.settings, "default_tool_repo_url", "git@github.com:Acme/Tools.git")
-        monkeypatch.setattr(agents_api.settings, "default_tool_branch", "tools-main")
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         response = client.post("/api/agents", json={"name": "opencode-agent", "runtime_type": "opencode"})
         assert response.status_code == 200
