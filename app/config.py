@@ -69,9 +69,6 @@ class Settings(BaseSettings):
         default="master",
         validation_alias="DEFAULT_SKILL_BRANCH",
     )
-    default_tool_repo_url: str = Field(default="", validation_alias="DEFAULT_TOOL_REPO_URL")
-    default_tool_branch: str = Field(default="main", validation_alias="DEFAULT_TOOL_BRANCH")
-    default_native_tools_strict_mode: bool = Field(default=False, validation_alias="DEFAULT_NATIVE_TOOLS_STRICT_MODE")
     default_opencode_permission_mode: str = Field(
         default="workspace_full_access",
         validation_alias="DEFAULT_OPENCODE_PERMISSION_MODE",

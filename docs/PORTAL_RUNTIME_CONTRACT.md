@@ -17,7 +17,6 @@
 
 ## 4) Assets contract
 - Skills directory: `/app/skills`.
-- Tools directory: `/app/tools`.
 - Workspace defaults:
   - native: `/root/.efp`
   - opencode: `/workspace`
@@ -76,9 +75,10 @@ Runtime responsibility:
   - workspace root: `/workspace`
   - runtime checkout root: `/workspace/repos`
   - repository path: `/workspace/repos/<owner>/<repo>`
-- Portal still provisions skills/tools assets with initContainers:
+- Portal provisions skills assets with initContainers:
   - skills clone target: `/app/skills`
-  - tools clone target: `/app/tools`
 - `GIT_TOKEN` remains initContainer-only for asset clone and is not injected into the main runtime container by default.
 - Private business-repo checkout must be authorized by runtime-side provider/runtime-profile credentials (for example GitHub provider token), not by broad Portal/K8s git token injection into runtime.
-- PR creation tool availability is determined by runtime/tools index (for example `efp_github_create_pull_request`), while Portal fallback aliases only prevent control-plane mapping gaps.
+- PR creation / adapter action availability is determined by runtime capability snapshot, built-in runtime tool surface, runtime profile, and permission policy.
+- Portal may keep control-plane fallback aliases to avoid mapping gaps, but aliases must not imply a tools repo, tools index, any Portal-managed tools directory/env or external-tools manifest.
+- Runtime-owned built-in tools and adapter actions are runtime implementation details, not Portal asset provisioning.

@@ -500,8 +500,6 @@ class AgentGroupService:
             branch=runtime_branch,
             skill_repo_url=normalize_git_repo_url(getattr(template_agent, "skill_repo_url", None)),
             skill_branch=getattr(template_agent, "skill_branch", None),
-            tool_repo_url=normalize_git_repo_url(getattr(template_agent, "tool_repo_url", None)),
-            tool_branch=getattr(template_agent, "tool_branch", None),
             cpu=template_agent.cpu,
             memory=template_agent.memory,
             agent_type="task",

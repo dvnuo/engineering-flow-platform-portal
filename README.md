@@ -91,10 +91,8 @@ PYTHONPATH=. pytest -q \
 | `DEFAULT_NATIVE_RUNTIME_IMAGE_TAG` | Native runtime image tag override | falls back to `DEFAULT_AGENT_IMAGE_TAG` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | EFP OpenCode runtime image tag. This is not injected as `OPENCODE_VERSION` and is not used for OpenCode CLI version gating. | `1.14.39` |
-| `DEFAULT_TOOL_REPO_URL` | Default tools repository for native/opencode runtime asset provisioning | (empty) |
 | `DEFAULT_OPENCODE_PERMISSION_MODE` | Default OpenCode runtime permission mode. For workspace coding agents the default is `workspace_full_access`, which asks the runtime adapter to allow workspace file read/write/edit tools. Applied only when `runtime_type=opencode`. | `workspace_full_access` |
 | `DEFAULT_OPENCODE_ALLOW_BASH_ALL` | When true, opencode runtime adapter should generate Bash permission as `{"*": "allow"}` without command-level deny patterns. Adapter/runtime env only; Portal does not execute bash. Applied only when `runtime_type=opencode`. | `true` |
-| `DEFAULT_TOOL_BRANCH` | Default tools repository branch | `main` |
 | `ENABLE_RUNTIME_SOURCE_OVERLAY` | Enable native runtime source overlay clone/mount (`/app/src`, `/app/.git`) | `false` |
 | `DEFAULT_AGENT_RUNTIME_REPO_URL` | Runtime source repository URL used when source overlay is enabled | (empty) |
 | `DEFAULT_AGENT_RUNTIME_BRANCH` | Runtime source branch used when source overlay is enabled | `master` |
@@ -104,19 +102,20 @@ For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth
 Kubernetes runtime provisioning behavior:
 - `native` runtime always mounts workspace/default mount path.
 - `native` mounts `/app/skills` when skill repo/default exists.
-- `native` mounts `/app/tools` (empty dir when tool repo missing).
 - `native` mounts `/app/src` and `/app/.git` only when source overlay is enabled.
 - `opencode` uses packaged runtime image (no `/app/src`, no `/app/.git`).
-- `opencode` mounts `/workspace`, `/app/skills`, `/app/tools`, and opencode state dirs.
+- `opencode` mounts `/workspace`, `/app/skills`, and opencode state dirs.
 - Portal does not parse slash commands and does not clone user-requested business repos at pod startup.
 - OpenCode runtime owns on-demand checkout (for example `/create-pull-request in git repo <url> from branch <head> to <base>`) using:
   - `EFP_WORKSPACE_DIR=/workspace`
   - `EFP_WORKSPACE_REPOS_DIR=/workspace/repos` (checkout path `/workspace/repos/<owner>/<repo>`)
   - `EFP_GIT_CHECKOUT_TIMEOUT_SECONDS=120` (configurable via `OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS`)
-- Skills/tools repos are still cloned by Portal initContainers into `/app/skills` and `/app/tools`.
+- Skills repo is cloned by Portal initContainers into `/app/skills`.
+- Portal does not configure external tools repo/branch/mounts; runtime built-in tools are runtime-owned.
+- Legacy payload fields `tool_repo_url` / `tool_branch` are ignored for backward compatibility.
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
 - Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
-- PR creation runtime tool availability comes from tools repo/runtime tools index; Portal fallback only fills adapter-action alias gaps.
+- Runtime tool availability is runtime-owned (built-in tool surface + runtime profile + permission policy), not Portal repo/branch/mount driven.
 
 Local default is `K8S_ENABLED=false`. Kubernetes manifests set `K8S_ENABLED=true` explicitly. For production Kubernetes, configure storage class/access mode via env or manifests.
 
