@@ -20,9 +20,26 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "/workspace/repos/<owner>/<repo>" in text
     assert "`GIT_TOKEN` remains initContainer-only" in text
 
+    assert "runtime/tools index" not in text
+    assert "tools repo/runtime tools index" not in text
+    assert "tools-index" not in text
+    assert "tools_index" not in text
+    assert "EFP_TOOLS_DIR" not in text
+    assert "OPENCODE_TOOLS_DIR" not in text
+    assert "Portal provisions skills/tools" not in text
+    assert "runtime capability snapshot" in text
+    assert "built-in" in text
+    assert "runtime profile" in text
+    assert "permission policy" in text
+
 
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "docs/PORTAL_RUNTIME_CONTRACT.md" in readme
+    assert "runtime/tools index" not in readme
+    assert "tools repo/runtime tools index" not in readme
+    assert "/app/tools" not in readme
+    assert "EFP_TOOLS_DIR" not in readme
+    assert "OPENCODE_TOOLS_DIR" not in readme
     assert "native runtime clones runtime repo + skill repo via initContainers" not in readme
     assert "DEFAULT_OPENCODE_PERMISSION_MODE" in readme
     assert "DEFAULT_OPENCODE_ALLOW_BASH_ALL" in readme
