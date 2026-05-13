@@ -8627,6 +8627,25 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
   if (focusTarget && typeof focusTarget.focus === 'function') focusTarget.focus();
 }
 
+
+function closeSystemPromptEditor() {
+  var modal = document.getElementById('system-prompt-editor-modal');
+  if (!modal) return;
+
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+
+  if (modal._keyHandler && modal.dataset.keyHandlerAttached === '1') {
+    document.removeEventListener('keydown', modal._keyHandler);
+    modal.dataset.keyHandlerAttached = '0';
+  }
+
+  if (modal._previousActiveElement && typeof modal._previousActiveElement.focus === 'function') {
+    modal._previousActiveElement.focus();
+    modal._previousActiveElement = null;
+  }
+}
+
 function saveSystemPromptSection(agentId, section) {
   var currentAgent = state.mineAgents?.find(a => a.id === agentId);
   var runtimeIsOpenCode = isOpenCodeAgent(currentAgent);
