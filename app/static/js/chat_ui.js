@@ -2601,7 +2601,7 @@ function renderAgentMeta(agent) {
   const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
 
   // Build Skills Repository section if present.
-  // Tools Repository was intentionally removed from Portal agent flows in #318;
+  // Tool repo/branch configuration was intentionally removed from Portal agent flows in #318;
   // do not reintroduce tool repo/branch UI or provisioning here.
   let repoSection = "";
   if (effectiveSkillRepoUrl) {

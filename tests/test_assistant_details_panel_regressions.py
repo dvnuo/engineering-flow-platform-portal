@@ -37,11 +37,17 @@ def test_render_agent_meta_defines_skill_repo_section_before_template_use_withou
     assert "agent-skill-git-commit" in render_agent_meta
     assert "Using configured default" in render_agent_meta
     assert "Branch:" in render_agent_meta
+    assert "${safe(effectiveSkillRepoUrl)}" in render_agent_meta
+    assert "Branch: ${safe(effectiveSkillBranch)}" in render_agent_meta
+    assert "id=\"agent-skill-git-commit\"" in render_agent_meta
+    assert "fetchSkillGitInfo(agent.id)" in render_agent_meta
 
     # #318 intentionally removed Portal tools repo/branch UI/config/provisioning.
     # This regression fix must not reintroduce those fields.
+    assert "tool_repo" not in render_agent_meta
+    assert "tool_branch" not in render_agent_meta
     assert "toolRepoSection" not in render_agent_meta
-    assert "portal-detail-label\">Tools Repository" not in render_agent_meta
+    assert "Tools Repository" not in render_agent_meta
     assert "default_tool_repo_url" not in render_agent_meta
     assert "default_tool_branch" not in render_agent_meta
     assert "agent.tool_repo_url" not in render_agent_meta
