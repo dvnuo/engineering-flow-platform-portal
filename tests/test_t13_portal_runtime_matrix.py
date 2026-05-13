@@ -39,7 +39,6 @@ def test_t13_create_native_and_opencode_agents_select_correct_defaults(monkeypat
     monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/example/efp-opencode-runtime")
     monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39")
     monkeypatch.setattr(agents_api.settings, "default_skill_repo_url", "https://example.com/skills.git")
-    monkeypatch.setattr(agents_api.settings, "default_tool_repo_url", "https://example.com/tools.git")
 
     calls = []
     monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda agent: calls.append(agent.id) or SimpleNamespace(status="running", message=None))
@@ -92,26 +91,26 @@ def test_t13_edit_runtime_type_both_directions_switches_image_mount_and_reprovis
         db_session.close()
 
 
-def test_t13_skill_and_tool_repo_changes_trigger_runtime_rollout(monkeypatch):
+def test_t13_skill_repo_changes_trigger_runtime_rollout_without_tool_repo(monkeypatch):
     db_session = _build_db()
     monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
     seen = {}
-    monkeypatch.setattr(agents_api.k8s_service, "update_agent_runtime", lambda agent: seen.update(skill_repo_url=agent.skill_repo_url, tool_repo_url=agent.tool_repo_url) or SimpleNamespace(status="running", message=None))
+    monkeypatch.setattr(agents_api.k8s_service, "update_agent_runtime", lambda agent: seen.update(skill_repo_url=agent.skill_repo_url) or SimpleNamespace(status="running", message=None))
 
     try:
         created = asyncio.run(agents_api.create_agent(_create_payload("opencode"), _fake_user(), db_session))
         updated = asyncio.run(
             agents_api.update_agent(
                 created.id,
-                agents_api.AgentUpdateRequest(skill_repo_url="https://example.com/new-skills.git", tool_repo_url="https://example.com/new-tools.git"),
+                agents_api.AgentUpdateRequest(skill_repo_url="https://example.com/new-skills.git"),
                 _fake_user(),
                 db_session,
             )
         )
         assert updated.skill_repo_url == "https://example.com/new-skills.git"
-        assert updated.tool_repo_url == "https://example.com/new-tools.git"
         assert seen["skill_repo_url"] == "https://example.com/new-skills.git"
-        assert seen["tool_repo_url"] == "https://example.com/new-tools.git"
+        assert "tool_repo_url" not in updated.model_dump()
+        assert "tool_repo_url" not in seen
     finally:
         db_session.close()
 
@@ -122,8 +121,6 @@ def test_t13_defaults_exposes_native_and_opencode_runtime_choices(monkeypatch):
     monkeypatch.setattr(agents_api.settings, "default_native_runtime_image_tag", "test-native")
     monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/example/efp-opencode-runtime")
     monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39")
-    monkeypatch.setattr(agents_api.settings, "default_tool_repo_url", "https://example.com/tools.git")
-    monkeypatch.setattr(agents_api.settings, "default_tool_branch", "main")
 
     defaults = agents_api.get_agent_defaults(_fake_user())
     assert defaults["default_runtime_type"] == "native"
@@ -137,8 +134,8 @@ def test_t13_defaults_exposes_native_and_opencode_runtime_choices(monkeypatch):
     assert opencode_cfg["image_repo"] == "ghcr.io/example/efp-opencode-runtime"
     assert opencode_cfg["image_tag"] == "1.14.39"
     assert opencode_cfg["default_mount_path"] == "/workspace"
-    assert defaults["default_tool_repo_url"] == "https://example.com/tools.git"
-    assert defaults["default_tool_branch"] == "main"
+    assert "default_tool_repo_url" not in defaults
+    assert "default_tool_branch" not in defaults
 
 
 def test_t13_runtime_profile_sync_uses_internal_apply_contract_for_all_runtime_types(monkeypatch):
