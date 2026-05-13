@@ -2600,6 +2600,32 @@ function renderAgentMeta(agent) {
   const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
   const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
 
+  // Build Skills Repository section if present.
+  // Tools Repository was intentionally removed from Portal agent flows in #318;
+  // do not reintroduce tool repo/branch UI or provisioning here.
+  let repoSection = "";
+  if (effectiveSkillRepoUrl) {
+    const branchLine = effectiveSkillBranch
+      ? `
+        <div class="portal-detail-subtle">Branch: ${safe(effectiveSkillBranch)}</div>
+      `
+      : "";
+    const defaultIndicator = isDefaultSkillRepo
+      ? `
+        <div class="portal-detail-subtle">Using configured default</div>
+      `
+      : "";
+    repoSection = `
+      <div class="portal-detail-row">
+        <div class="portal-detail-label">Skills Repository</div>
+        <div class="portal-detail-value"><code>${safe(effectiveSkillRepoUrl)}</code></div>
+        ${branchLine}
+        ${defaultIndicator}
+        <div id="agent-skill-git-commit" class="portal-detail-subtle">Loading skill commit...</div>
+      </div>
+    `;
+  }
+
   dom.agentMeta.innerHTML = `
     <div class="portal-detail-stack">
       <div class="portal-detail-section">
