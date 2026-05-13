@@ -18,6 +18,10 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt
       - run: pip install pytest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: node --check app/static/js/chat_ui.js
       - run: |
           pytest tests/test_config.py \
                  tests/test_logger.py \
@@ -38,7 +42,9 @@ jobs:
                  tests/test_portal_runtime_contract_docs.py \
                  tests/test_t13_portal_runtime_matrix.py \
                  tests/test_chat_ui_contract.py \
-                 tests/test_assistant_details_panel_regressions.py
+                 tests/test_assistant_details_panel_regressions.py \
+                 tests/test_phase_a_ui_cleanup.py \
+                 tests/test_proxy_system_prompt_permissions.py
 
   portal-docker-smoke:
     runs-on: ubuntu-latest
