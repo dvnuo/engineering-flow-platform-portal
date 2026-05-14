@@ -3231,7 +3231,10 @@ async function submitChatForSelectedAgent() {
     const payload = await resp.json();
     const responseText = finalResponseText(payload);
     if (payload?.ok === false || isNonSuccessFinalPayload(payload)) {
-      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_error_or_incomplete", payload);
+      finalizeIncompleteAssistantRow(agentIdAtSend, requestCtx, payload);
+      mergeFinalThinkingSnapshot(agentIdAtSend, requestCtx, payload);
+      requestCtx.streamIncomplete = true;
+      cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus: true });
       return;
     }
     if (!isCompletedFinalPayload(payload) || !responseText) {
@@ -3652,6 +3655,73 @@ function renderCompletionStateWarning(payload = {}) {
     + `${continuationCount ? `<div><strong>continuation_count:</strong> ${continuationCount}</div>` : ""}`
     + `${progressPreview ? `<div><strong>progress_preview:</strong> ${progressPreview}</div>` : ""}</div>`;
 }
+function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) {
+  if (state.selectedAgentId !== agentId || !dom.messageList) return false;
+  const reqId = requestCtx?.clientRequestId || requestCtx?.requestId || "";
+  const article = (reqId
+    ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
+    : null) || dom.messageList.querySelector('article[data-pending-assistant="1"]');
+  if (!article) return false;
+  const warningHtml = renderCompletionStateWarning(finalPayload);
+  const contextState = finalPayload?.context_state && typeof finalPayload.context_state === "object"
+    ? finalPayload.context_state
+    : {};
+  const contextSummary = [contextState.summary, contextState.current_state, contextState.next_step]
+    .map((v) => String(v || "").trim()).filter(Boolean).join(" • ");
+  const responseText = String(finalPayload?.response || "").trim();
+  article.removeAttribute("data-pending-assistant");
+  article.classList.remove("is-pending", "is-streaming");
+  article.classList.add("is-incomplete");
+  const markdownEl = article.querySelector(".message-markdown") || article.appendChild(document.createElement("div"));
+  markdownEl.className = "message-markdown md-render max-w-none text-sm";
+  markdownEl.innerHTML = "";
+  const warningBlock = document.createElement("div");
+  warningBlock.className = "chat-completion-warning-block";
+  warningBlock.innerHTML = warningHtml + (contextSummary ? `<div><strong>context_state:</strong> ${escapeHtml(contextSummary)}</div>` : "");
+  markdownEl.appendChild(warningBlock);
+  const body = document.createElement("div");
+  body.className = "chat-incomplete-response";
+  body.dataset.md = responseText || "No final assistant response was returned. See Thinking Process for runtime events.";
+  body.dataset.displayBlocks = "[]";
+  markdownEl.appendChild(body);
+  article.querySelector('.assistant-stream-cursor')?.remove();
+  article.querySelector('.assistant-waiting-indicator')?.remove();
+  renderMarkdown(article); decorateToolMessages(article); renderIcons();
+  return true;
+}
+function mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload = {}) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "");
+  const status = ["blocked", "incomplete", "error", "failed", "empty_final"].includes(completionState)
+    ? (completionState === "failed" ? "error" : completionState)
+    : "completed";
+  const existing = chatState.lastThinkingSnapshot || chatState.inflightThinking || { events: [] };
+  const mergedEvents = [...(existing.events || []), ...normalizeEvents(finalPayload?.runtime_events || [])].slice(-100);
+  chatState.lastThinkingSnapshot = {
+    ...existing,
+    completed: true,
+    status,
+    completion_state: completionState || "completed",
+    incomplete_reason: finalPayload?.incomplete_reason || "",
+    continuation_count: finalPayload?.continuation_count ?? null,
+    context_state: finalPayload?.context_state || null,
+    requestId: finalPayload?.request_id || requestCtx?.requestId || requestCtx?.clientRequestId || "",
+    sessionId: finalPayload?.session_id || requestCtx?.sessionIdAtSend || "",
+    latestEventAt: Date.now(),
+    event_count: mergedEvents.length,
+    events: mergedEvents,
+  };
+  chatState.lastCompletedRequestId = chatState.lastThinkingSnapshot.requestId;
+  if (isThinkingPanelActiveForAgent(agentId)) renderThinkingPanelFromClientState(chatState);
+}
+function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = false } = {}) {
+  const chatState = ensureChatState(agentIdAtSend);
+  clearWaitingForRuntimeEventsTimer(requestCtx);
+  setChatSubmittingForAgent(agentIdAtSend, false);
+  if (chatState?.activeRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.activeRequest = null;
+  if (!keepStatus && state.selectedAgentId === agentIdAtSend && !requestCtx?.streamIncomplete && !requestCtx?.streamFailed) setChatStatus("Ready");
+}
 function startWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx) {
   clearWaitingForRuntimeEventsTimer(requestCtx);
   requestCtx.waitingEventTimerId = setTimeout(() => {
@@ -3680,7 +3750,7 @@ function clearWaitingForRuntimeEventsTimer(requestCtx) {
 async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
   const outerType = normalizeChatStreamEventName(eventName);
   const eventData = normalizeChatStreamEventData(data);
-  const embeddedType = normalizeChatStreamEventName(eventData.type || eventData.event_type || eventData.event || "");
+  const embeddedType = normalizeChatStreamEventName(eventData.type || eventData.event_type || eventData?.data?.type || eventData?.data?.event_type || eventData.event || "");
   const localGetCompletionState = (typeof getCompletionState === "function")
     ? getCompletionState
     : (payload) => String(payload?.completion_state || payload?.completionState || "").trim().toLowerCase();
@@ -3722,15 +3792,20 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   if (isChatStreamWrapperEventName(outerType)) {
     requestCtx.sawRuntimeEvent = true;
     clearWaitingForRuntimeEventsTimer(requestCtx);
+    const injectedRequestId = eventData.request_id || requestCtx.requestId || requestCtx.clientRequestId || "";
+    const injectedSessionId = eventData.session_id || requestCtx.sessionIdAtSend || "";
     const streamEventPayload = {
-      event_type: outerType || getChatStreamEventType(eventName, data),
-      request_id: eventData.request_id || requestCtx.clientRequestId,
-      session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+      type: embeddedType || "runtime_event",
+      event_type: embeddedType || "runtime_event",
+      stream_event: outerType || "runtime_event",
+      request_id: injectedRequestId,
+      session_id: injectedSessionId,
       agent_id: eventData.agent_id || agentIdAtSend,
       data: {
         ...eventData,
-        request_id: eventData.request_id || requestCtx.clientRequestId,
-        session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+        stream_event: outerType || "runtime_event",
+        request_id: injectedRequestId,
+        session_id: injectedSessionId,
         agent_id: eventData.agent_id || agentIdAtSend,
       },
     };
@@ -3780,13 +3855,9 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     if (requestCtx.streamCompleted) return "final";
     if (localIsNonSuccessFinalPayload(eventData)) {
       requestCtx.streamIncomplete = true;
-      updatePendingAssistantStreamContent(agentIdAtSend, `${renderCompletionStateWarning(eventData)}\n\n${escapeHtml(localFinalResponseText(eventData) || "No final assistant response was returned.")}`);
-      await localHandleIncompleteChatStream(
-        agentIdAtSend,
-        requestCtx,
-        "runtime_error_or_incomplete",
-        eventData,
-      );
+      finalizeIncompleteAssistantRow(agentIdAtSend, requestCtx, eventData);
+      mergeFinalThinkingSnapshot(agentIdAtSend, requestCtx, eventData);
+      cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus: true });
       return "final_non_success";
     }
     const finalText = localFinalResponseText(eventData);
@@ -3854,14 +3925,10 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
     : "Assistant response stream ended in an incomplete state.";
   const message = statusText || fallbackStatusText;
   if (state.selectedAgentId === agentIdAtSend) {
-    removeTemporaryAssistantRows();
+    finalizeIncompleteAssistantRow(agentIdAtSend, requestCtx, payload);
+    mergeFinalThinkingSnapshot(agentIdAtSend, requestCtx, payload);
     setChatStatus(message, true);
     showToast(message);
-    try {
-      if (finalSessionId) await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
-    } catch (e) {
-      setChatStatus(message, true);
-    }
     syncSelectedAgentChatActionControls();
     addEditButtonsToMessages();
     renderIcons();
@@ -3870,6 +3937,7 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
     markAgentUnread(agentIdAtSend, "completed");
     renderAgentList();
   }
+  cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus: true });
 }
 
 async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
@@ -3914,7 +3982,7 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     }
   } catch (e) { if (sawEvent) throw e; return 'unsupported'; }
   if (requestCtx.streamCompleted || sawFinal) return 'handled';
-  if (requestCtx.completed || requestCtx.streamIncomplete || requestCtx.streamFailed) return "handled";
+  if (requestCtx.streamCompleted || requestCtx.streamIncomplete || requestCtx.streamFailed) return "handled";
   if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate)) {
     const candidate = requestCtx.streamFinalCandidate;
     const candidateText = finalResponseText(candidate) || getChatStreamTextPayload(candidate);

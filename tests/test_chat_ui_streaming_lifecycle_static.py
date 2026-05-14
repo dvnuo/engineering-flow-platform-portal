@@ -20,3 +20,5 @@ def test_stream_cleanup_and_fallback_runtime_events_markers_present():
     assert 'finally {' in src
     assert 'setChatSubmittingForAgent(agentIdAtSend, false)' in src
     assert 'runtime_events: payload?.runtime_events || []' in src
+    assert 'requestCtx.completed' not in src
+    assert 'cleanupChatStreamRequest(' in src
