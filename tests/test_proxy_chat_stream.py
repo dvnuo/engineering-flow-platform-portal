@@ -21,12 +21,14 @@ def test_streaming_headers_whitelist():
 
 def test_internal_runtime_paths_stay_control_plane_only():
     assert proxy._is_control_plane_only_runtime_path('api/internal/sessions') is True
+    assert proxy._is_control_plane_only_runtime_path('api/internal/anything') is True
 
 
 def test_chat_payload_enrichment_applies_metadata_and_model_override():
-    payload = {'message': 'hi', 'model_override': 'gpt-4.1'}
+    payload = {'message': 'hi', 'model_override': 'gpt-4.1', 'request_id': 'req_123'}
     metadata = {'provider': 'openai'}
     class _User: pass
     enriched = proxy._enrich_chat_payload_with_runtime_metadata(payload, metadata, _User(), runtime_type='opencode')
     assert enriched['metadata']['provider'] == 'openai'
     assert 'model' in enriched['metadata']
+    assert enriched['request_id'] == 'req_123'

@@ -8,6 +8,10 @@ def test_thinking_event_types_and_request_id_guards_present():
         'chat.incomplete',
         'chat.blocked',
         'provider.retry',
+        'execution.started',
+        'execution.completed',
+        'execution.failed',
+        'portal.waiting_for_runtime_events',
         'tool.started',
         'permission_request',
     ]:

@@ -1102,7 +1102,11 @@ function disconnectEventSocket() {
 
 function isTrackableThinkingEvent(type) {
   return [
+    "stream.started",
     "execution.started", "execution.completed", "execution.failed",
+    "execution.incomplete", "execution.blocked",
+    "continuation.started", "continuation.completed", "continuation.failed",
+    "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
     "skill_matched", "complete",
     "context_snapshot", "context_compaction_planned", "context_compaction_applied",
@@ -1112,10 +1116,13 @@ function isTrackableThinkingEvent(type) {
     // Active skill contract events
     "skill_runtime_applied", "skill_contract_active",
     "skill_tool_denied", "skill_contract_cleared",
-    "message.started", "message.delta", "message.completed",
+    "message.started", "message.delta", "message.completed", "message.failed",
     "tool.started", "tool.completed", "tool.failed",
-    "permission.requested", "permission.resolved", "skill.loaded",
-    "task.started", "task.completed", "usage.updated"
+    "tool.error",
+    "permission.requested", "permission.resolved", "permission_request", "permission_resolved",
+    "provider.retry", "provider.status",
+    "portal.waiting_for_runtime_events", "portal.stream_disconnected",
+    "skill.loaded", "task.started", "task.completed", "usage.updated"
   ].includes(type);
 }
 
@@ -3112,12 +3119,20 @@ async function submitChatForSelectedAgent() {
     ? globalThis.crypto.randomUUID()
     : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const requestCtx = {
+    requestId: clientRequestId,
     agentId: agentIdAtSend,
     sessionIdAtSend,
     message: requestMessage,
     attachments: attachmentsAtSend,
     clientRequestId,
     startedAt: Date.now(),
+    streamStartedAt: Date.now(),
+    sawRuntimeEvent: false,
+    sawDelta: false,
+    sawFinal: false,
+    streamCompleted: false,
+    streamFailed: false,
+    streamIncomplete: false,
     backupMessage: messageAtSend,
     typewriter: { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false },
     usedStream: false,
@@ -3202,6 +3217,7 @@ async function submitChatForSelectedAgent() {
   setChatStatus("Sending...");
   chatState.activeRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
+  startWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx);
 
   try {
     const streamResult = await trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody);
@@ -3232,6 +3248,8 @@ async function submitChatForSelectedAgent() {
     });
   } catch (error) {
     handleAgentChatFailure(agentIdAtSend, requestCtx, error);
+  } finally {
+    clearWaitingForRuntimeEventsTimer(requestCtx);
   }
 }
 
@@ -3620,6 +3638,44 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   renderMarkdown(article); decorateToolMessages(article); renderIcons();
   return true;
 }
+function renderCompletionStateWarning(payload = {}) {
+  const completionState = escapeHtml(String(payload?.completion_state || payload?.completionState || "unknown"));
+  const incompleteReason = escapeHtml(String(payload?.incomplete_reason || payload?.incompleteReason || ""));
+  const continuationCount = escapeHtml(String(payload?.continuation_count ?? payload?.continuationCount ?? ""));
+  const progressPreview = escapeHtml(String(
+    payload?.progress_preview
+    || payload?._llm_debug?.completion_probe?.diagnostics?.progress_preview
+    || ""
+  ));
+  return `<div class="chat-completion-warning"><strong>completion_state:</strong> ${completionState}`
+    + `${incompleteReason ? `<div><strong>incomplete_reason:</strong> ${incompleteReason}</div>` : ""}`
+    + `${continuationCount ? `<div><strong>continuation_count:</strong> ${continuationCount}</div>` : ""}`
+    + `${progressPreview ? `<div><strong>progress_preview:</strong> ${progressPreview}</div>` : ""}</div>`;
+}
+function startWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx) {
+  clearWaitingForRuntimeEventsTimer(requestCtx);
+  requestCtx.waitingEventTimerId = setTimeout(() => {
+    const chatState = ensureChatState(agentIdAtSend);
+    if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+    if (requestCtx.sawRuntimeEvent || requestCtx.waitingEventEmitted) return;
+    requestCtx.waitingEventEmitted = true;
+    const waitingEvent = {
+      type: "portal.waiting_for_runtime_events",
+      event_type: "portal.waiting_for_runtime_events",
+      session_id: requestCtx.sessionIdAtSend || "",
+      request_id: requestCtx.clientRequestId,
+      created_at: new Date().toISOString(),
+      data: { message: "Portal is connected and waiting for runtime events." },
+    };
+    handleAgentEventMessage(JSON.stringify(waitingEvent), { agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || "", requestId: requestCtx.clientRequestId });
+  }, 15000);
+}
+function clearWaitingForRuntimeEventsTimer(requestCtx) {
+  if (requestCtx?.waitingEventTimerId) {
+    clearTimeout(requestCtx.waitingEventTimerId);
+    requestCtx.waitingEventTimerId = null;
+  }
+}
 
 async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
   const outerType = normalizeChatStreamEventName(eventName);
@@ -3664,6 +3720,8 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const responseText = getChatStreamTextPayload(eventData) || requestCtx.streamedText || "";
 
   if (isChatStreamWrapperEventName(outerType)) {
+    requestCtx.sawRuntimeEvent = true;
+    clearWaitingForRuntimeEventsTimer(requestCtx);
     const streamEventPayload = {
       event_type: outerType || getChatStreamEventType(eventName, data),
       request_id: eventData.request_id || requestCtx.clientRequestId,
@@ -3699,6 +3757,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
 
   if (isChatStreamDeltaEventName(outerType)) {
+    requestCtx.sawDelta = true;
     const deltaText = getChatStreamTextPayload(eventData);
     const associatedEvent = getAssociatedRuntimeDeltaEvent(requestCtx, deltaText);
 
@@ -3713,12 +3772,15 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
 
   if (isChatStreamFinalEventName(outerType) || isDirectCompletionEventName(outerType)) {
+    requestCtx.sawFinal = true;
+    clearWaitingForRuntimeEventsTimer(requestCtx);
     requestCtx.streamSawFinal = true;
     requestCtx.streamFinalPayload = eventData;
     requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
     if (localIsNonSuccessFinalPayload(eventData)) {
-      requestCtx.streamCompleted = false;
+      requestCtx.streamIncomplete = true;
+      updatePendingAssistantStreamContent(agentIdAtSend, `${renderCompletionStateWarning(eventData)}\n\n${escapeHtml(localFinalResponseText(eventData) || "No final assistant response was returned.")}`);
       await localHandleIncompleteChatStream(
         agentIdAtSend,
         requestCtx,
@@ -3738,6 +3800,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
 
   if (outerType === "done") {
+    clearWaitingForRuntimeEventsTimer(requestCtx);
     if (requestCtx.streamCompleted) return "done";
     return "done";
   }
@@ -3764,8 +3827,8 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
 
 async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, payload = {}) {
   const chatState = ensureChatState(agentIdAtSend);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId || requestCtx.completed) return;
-  requestCtx.completed = true;
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId || requestCtx.streamCompleted || requestCtx.streamFailed) return;
+  clearWaitingForRuntimeEventsTimer(requestCtx);
   requestCtx.streamFailed = true;
   cancelAssistantTypewriter(requestCtx);
   requestCtx.streamIncomplete = true;
@@ -3785,7 +3848,7 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
   chatState.pendingThinkingEvents = null;
   chatState.needsReload = true;
   setChatSubmittingForAgent(agentIdAtSend, false);
-  const statusText = String(payload?.response || payload?.error || payload?.detail || "").trim();
+  const statusText = String(payload?.response || payload?.error || payload?.detail || payload?.incomplete_reason || "").trim();
   const fallbackStatusText = reason === "missing_final"
     ? "Stream ended before a final assistant response."
     : "Assistant response stream ended in an incomplete state.";
