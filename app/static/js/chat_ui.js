@@ -1281,7 +1281,17 @@ function getThinkingEventDisplay(event) {
     "tool.completed": { icon: "check-circle-2", title: "Tool Completed", detail: data.message || "Tool completed" },
     "tool.failed": { icon: "x-circle", title: "Tool Failed", detail: data.error || data.message || "Tool failed" },
     "permission.requested": { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
+    permission_request: { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
     "permission.resolved": { icon: "shield-check", title: "Permission Resolved", detail: data.message || "Permission resolved" },
+    permission_resolved: { icon: "shield-check", title: "Permission Resolved", detail: data.message || "Permission resolved" },
+    "stream.started": { icon: "activity", title: "Stream Started", detail: data.message || "Streaming response started" },
+    "continuation.started": { icon: "rotate-cw", title: "Continuation Started", detail: data.message || "Continuing automatically..." },
+    "continuation.completed": { icon: "check-circle-2", title: "Continuation Completed", detail: data.message || "Continuation complete" },
+    "continuation.failed": { icon: "x-circle", title: "Continuation Failed", detail: data.error || data.message || "Continuation failed" },
+    "chat.incomplete": { icon: "alert-triangle", title: "Incomplete", detail: data.incomplete_reason || data.message || "Incomplete after auto-continue" },
+    "chat.blocked": { icon: "shield-alert", title: "Blocked", detail: data.message || "Blocked waiting for permission" },
+    "chat.empty_final": { icon: "alert-triangle", title: "Empty Final", detail: data.message || "Empty final response" },
+    "provider.status": { icon: "activity", title: "Provider Status", detail: data.message || data.status || "Provider status update" },
     "skill.loaded": { icon: "zap", title: "Skill Loaded", detail: data.skill || data.message || "Skill loaded" },
     "skill.detected": { icon: "zap", title: "Skill Detected", detail: data.skill || data.message || "Skill detected" },
     "skill.blocked": { icon: "shield-alert", title: "Skill Blocked", detail: data.reason || data.blocked_reason || data.message || "Skill blocked" },
@@ -3098,7 +3108,9 @@ async function submitChatForSelectedAgent() {
   const requestMessage = messageAtSend || "[attachment]";
   const displayMessage = messageAtSend || "📎 Attachment";
   const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
-  const clientRequestId = `portal-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const clientRequestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
+    ? globalThis.crypto.randomUUID()
+    : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const requestCtx = {
     agentId: agentIdAtSend,
     sessionIdAtSend,
@@ -3118,7 +3130,7 @@ async function submitChatForSelectedAgent() {
     message: requestMessage,
     session_id: sessionIdAtSend || undefined,
     attachments: attachmentsAtSend,
-    client_request_id: clientRequestId,
+    request_id: clientRequestId,
     ...(modelOverride && modelOverride !== defaultModel ? { model_override: modelOverride } : {}),
   };
   const slashInvocation = parseSkillSlashInput(messageAtSend);
@@ -3223,6 +3235,20 @@ async function submitChatForSelectedAgent() {
   }
 }
 
+
+function parseSseEventsFromChunk(buffer, chunkText) {
+  const merged = `${String(buffer || "")}${String(chunkText || "")}`.replace(/\r\n/g, "\n");
+  const events = [];
+  let remaining = merged;
+  let splitIndex = remaining.indexOf("\n\n");
+  while (splitIndex >= 0) {
+    const parsed = parseSseEvent(remaining.slice(0, splitIndex));
+    if (parsed) events.push(parsed);
+    remaining = remaining.slice(splitIndex + 2);
+    splitIndex = remaining.indexOf("\n\n");
+  }
+  return { events, buffer: remaining };
+}
 
 function parseSseEvent(rawEvent) {
   const lines = String(rawEvent || '').replace(/\r\n/g, '\n').split('\n');
@@ -3715,6 +3741,10 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     if (requestCtx.streamCompleted) return "done";
     return "done";
   }
+  if (outerType === "heartbeat") {
+    if (state.selectedAgentId === agentIdAtSend) setChatStatus("Thinking…");
+    return "heartbeat";
+  }
 
   const streamEventPayload = {
     event_type: outerType || getChatStreamEventType(eventName, data),
@@ -3794,10 +3824,31 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   if (!resp.ok) throw new Error(await handleErrorResponse(resp));
   const reader = resp.body.getReader(); const decoder = new TextDecoder();
   let buffer=''; let sawEvent=false; let sawFinal=false; let sawError=false;
-  const flush = async (rawEvent)=>{ const parsed=parseSseEvent(rawEvent); if(!parsed) return; sawEvent=true; const r=await handleChatStreamEvent(agentIdAtSend, requestCtx, parsed.eventName, parsed.data); if(r==='final') sawFinal=true; if(r==='final_non_success' || r==='final_incomplete') sawError=true; };
+  const flushChunk = async (chunkText) => {
+    const parsedBatch = parseSseEventsFromChunk(buffer, chunkText);
+    buffer = parsedBatch.buffer;
+    for (const parsed of parsedBatch.events) {
+      sawEvent = true;
+      const r = await handleChatStreamEvent(agentIdAtSend, requestCtx, parsed.eventName, parsed.data);
+      if (r === "final") sawFinal = true;
+      if (r === "final_non_success" || r === "final_incomplete") sawError = true;
+    }
+  };
   try {
-    while(true){ const {value,done}=await reader.read(); if(done) break; buffer += decoder.decode(value,{stream:true}).replace(/\r\n/g,'\n'); let i; while((i=buffer.indexOf('\n\n'))>=0){ await flush(buffer.slice(0,i)); buffer=buffer.slice(i+2);} }
-    buffer += decoder.decode(); if(buffer.trim()) await flush(buffer);
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      await flushChunk(decoder.decode(value, { stream: true }));
+    }
+    await flushChunk(decoder.decode());
+    if (buffer.trim()) {
+      const parsed = parseSseEvent(buffer);
+      if (parsed) {
+        sawEvent = true;
+        const r = await handleChatStreamEvent(agentIdAtSend, requestCtx, parsed.eventName, parsed.data);
+        if (r === "final") sawFinal = true;
+      }
+    }
   } catch (e) { if (sawEvent) throw e; return 'unsupported'; }
   if (requestCtx.streamCompleted || sawFinal) return 'handled';
   if (requestCtx.completed || requestCtx.streamIncomplete || requestCtx.streamFailed) return "handled";
