@@ -75,3 +75,18 @@ def test_completed_success_and_fallback_paths_clear_busy_state():
     assert 'setChatStatus("Ready")' in success
     assert 'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, payload, "fallback")' in submit
     assert 'await handleAgentChatSuccess(agentIdAtSend, requestCtx' in submit
+
+
+def test_missing_final_guard_respects_stream_failed():
+    src = _src()
+    missing_final = _extract_js_function(src, "handleChatStreamMissingFinal")
+    for marker in [
+        "requestCtx?.streamFailed",
+        "requestCtx?.streamIncomplete",
+        "requestCtx?.streamCompleted",
+        "requestCtx?.sawError",
+    ]:
+        assert marker in missing_final
+    guard_index = missing_final.index("return \"handled\";")
+    incomplete_index = missing_final.index("handleIncompleteChatStream(")
+    assert guard_index < incomplete_index
