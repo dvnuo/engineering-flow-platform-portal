@@ -9,6 +9,7 @@
 - User-facing proxy route: `/a/{agent_id}/api/*`.
 - Portal targets runtime service port `:8000`.
 - OpenCode internal `:4096` is pod-internal only; Portal does not expose `/opencode/*` user routes.
+- For chat UX, Portal should prefer `POST /a/{agent_id}/api/chat/stream` (SSE) over waiting for long blocking JSON responses.
 
 ## 3) Runtime types
 - Allowed runtime types: `native`, `opencode`.
@@ -67,6 +68,11 @@ Runtime responsibility:
 - Generate OpenCode config permission map from those env vars.
 - Never return success with an empty visible assistant response.
 - Return non-success completion states such as `blocked`, `incomplete`, `empty_final`, or `error` when no final visible text is available.
+
+Portal responsibility:
+- Render runtime events (reasoning/tool/permission/continuation/progress) as runtime-origin telemetry in Thinking Process.
+- Render `completion_state` + related diagnostics explicitly in chat UI for non-success outcomes (`blocked`, `incomplete`, `error`, `empty_final`), instead of presenting them as normal success responses.
+- Portal remains control-plane/proxy only; it must not execute tools and must not implement runtime-internal recovery behavior.
 
 ## 10) OpenCode on-demand repository checkout contract
 - Portal does **not** parse slash commands and does **not** clone user-requested business repositories during pod startup.

@@ -1,0 +1,52 @@
+from pathlib import Path
+
+from tests._js_extract_helpers import _extract_js_function
+
+
+SRC = Path('app/static/js/chat_ui.js')
+
+
+def _src():
+    return SRC.read_text(encoding='utf-8')
+
+
+def test_thinking_event_types_and_request_id_guards_present():
+    src = _src()
+    for marker in [
+        'continuation.started',
+        'chat.incomplete',
+        'chat.blocked',
+        'provider.retry',
+        'execution.started',
+        'execution.completed',
+        'execution.failed',
+        'portal.waiting_for_runtime_events',
+        'tool.started',
+        'permission_request',
+    ]:
+        assert marker in src
+    assert 'lastCompletedRequestId' in src
+    assert 'request_id' in src
+    assert 'mergeFinalThinkingSnapshot' in src
+    for marker in ['completion_state', 'incomplete_reason', 'continuation_count', 'context_state']:
+        assert marker in src
+
+
+def test_merge_final_thinking_snapshot_preserves_terminal_diagnostics():
+    src = _src()
+    body = _extract_js_function(src, "mergeFinalThinkingSnapshot")
+    for marker in [
+        'completion_state: completionState || "completed"',
+        'incomplete_reason: finalPayload?.incomplete_reason || ""',
+        'continuation_count: finalPayload?.continuation_count ?? null',
+        'context_state: finalPayload?.context_state || null',
+        'lastCompletedRequestId',
+    ]:
+        assert marker in body
+
+
+def test_stale_event_guard_uses_request_ids_and_last_completed_request_id():
+    src = _src()
+    assert 'lastCompletedRequestId' in src
+    assert 'request_id' in src
+    assert 'expectedRequestId' in src
