@@ -63,3 +63,15 @@ def test_error_path_clears_active_request_is_submitting_and_inflight_thinking():
     assert 'chatState.activeRequest = null' in terminal
     assert 'chatState.isSubmitting = false' in terminal
     assert 'chatState.inflightThinking = null' in terminal
+
+
+def test_completed_success_and_fallback_paths_clear_busy_state():
+    src = _src()
+    success = _extract_js_function(src, "handleAgentChatSuccess")
+    submit = _extract_js_function(src, "submitChatForSelectedAgent")
+    assert 'chatState.activeRequest = null' in success
+    assert 'chatState.inflightThinking = null' in success
+    assert 'setChatSubmittingForAgent(agentIdAtSend, false)' in success
+    assert 'setChatStatus("Ready")' in success
+    assert 'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, payload, "fallback")' in submit
+    assert 'await handleAgentChatSuccess(agentIdAtSend, requestCtx' in submit

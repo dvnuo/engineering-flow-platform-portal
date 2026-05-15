@@ -33,10 +33,13 @@ def test_chat_ui_streaming_does_not_use_eventsource_for_chat_stream():
 
 def test_runtime_event_unwrap_preserves_embedded_type_and_stream_event_marker():
     src = _src()
+    stream_handler = _extract_js_function(src, "handleChatStreamEvent")
     assert 'eventData?.data?.type' in src
     assert 'type: embeddedType || "runtime_event"' in src
     assert 'event_type: embeddedType || "runtime_event"' in src
     assert 'stream_event:' in src
+    assert 'eventData.type || eventData.event_type || eventData?.data?.type || eventData?.data?.event_type || eventData.event' in stream_handler
+    assert 'handleAgentEventMessage(JSON.stringify(streamEventPayload)' in stream_handler
 
 
 def test_request_ctx_and_fallback_non_success_markers():
@@ -57,6 +60,7 @@ def test_finalize_incomplete_row_uses_safe_nested_markdown_container():
     assert 'responseEl.dataset.md = responseText || "No final assistant response was returned. See Thinking Process for runtime events."' in body
     assert 'responseEl.dataset.displayBlocks = "[]"' in body
     assert 'renderMarkdown(responseEl.parentElement)' in body
+    assert 'renderMarkdown(article)' not in body
     assert 'article.dataset.finalizedIncomplete = "1"' in body
     assert 'article.dataset.pendingAssistant = "0"' in body
 
