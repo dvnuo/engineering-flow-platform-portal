@@ -3799,8 +3799,13 @@ function setTerminalCompletionStatus(finalPayload = {}) {
   else setChatStatus(`Finished with non-success state: ${completionState}`, true);
 }
 function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, source = "final") {
-  if (source === "error") requestCtx.streamFailed = true;
-  else requestCtx.streamIncomplete = true;
+  const failureSources = new Set(["error", "stream_error", "runtime_error"]);
+  const completionState = getCompletionState(finalPayload);
+  if (failureSources.has(source) || completionState === "error" || completionState === "failed") {
+    requestCtx.streamFailed = true;
+  } else {
+    requestCtx.streamIncomplete = true;
+  }
   requestCtx.terminalPayload = finalPayload;
   finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload);
   mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload);

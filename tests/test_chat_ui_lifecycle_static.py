@@ -53,6 +53,16 @@ def test_non_success_and_error_paths_set_terminal_status():
         assert marker in status
 
 
+def test_stream_error_source_marks_stream_failed():
+    src = _src()
+    helper = _extract_js_function(src, "finalizeNonSuccessChatResponse")
+    assert '"stream_error"' in helper
+    assert '"runtime_error"' in helper
+    assert "requestCtx.streamFailed = true" in helper
+    assert "requestCtx.streamIncomplete = true" in helper
+    assert helper.index("failureSources.has(source)") < helper.index("requestCtx.streamIncomplete = true")
+
+
 def test_error_path_clears_active_request_is_submitting_and_inflight_thinking():
     src = _src()
     failure = _extract_js_function(src, "handleAgentChatFailure")
