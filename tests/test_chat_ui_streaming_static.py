@@ -96,3 +96,18 @@ def test_non_success_diagnostic_fields_are_rendered_with_escaping():
         'escapeHtml(String(value))',
     ]:
         assert marker in body
+
+
+def test_stream_error_event_is_terminal():
+    src = _src()
+    stream_handler = _extract_js_function(src, "handleChatStreamEvent")
+    for marker in [
+        'outerType === "error"',
+        'requestCtx.sawError = true',
+        'requestCtx.streamFailed = true',
+        'completion_state',
+        'incomplete_reason',
+        'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, "stream_error")',
+        'return "error"',
+    ]:
+        assert marker in stream_handler

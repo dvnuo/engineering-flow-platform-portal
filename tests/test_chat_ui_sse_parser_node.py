@@ -183,3 +183,68 @@ def test_thinking_normalizer_regression_guards():
     assert "mergeThinkingEvents(existing.events || [], finalPayloadEvents)" in merge_final
     assert "const normalizeEvents" not in success
     assert "function normalizePayloadThinkingEvents(events)" in src or "function normalizeThinkingEvents(events)" in src
+
+
+def test_stream_error_event_smoke_terminal_and_no_missing_final():
+    src = SRC.read_text(encoding="utf-8")
+    stream_js = "\n".join(
+        [
+            _extract_js_function(src, "normalizeChatStreamEventName"),
+            _extract_js_function(src, "normalizeChatStreamEventData"),
+            _extract_js_function(src, "getChatStreamTextPayload"),
+            _extract_js_function(src, "getChatStreamEventType"),
+            _extract_js_function(src, "isChatStreamWrapperEventName"),
+            _extract_js_function(src, "isDirectCompletionEventName"),
+            _extract_js_function(src, "isChatStreamDeltaEventName"),
+            _extract_js_function(src, "isChatStreamFinalEventName"),
+            _extract_js_function(src, "handleChatStreamEvent"),
+            _extract_js_function(src, "handleChatStreamMissingFinal"),
+        ]
+    )
+    script = (
+        stream_js
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+            function clearWaitingForRuntimeEventsTimer() {}
+            function getCompletionState(payload) { return String(payload?.completion_state || "").trim().toLowerCase(); }
+            function isCompletedFinalPayload() { return false; }
+            function isNonSuccessFinalPayload() { return true; }
+            function finalResponseText(payload) { return payload?.response || ""; }
+            async function handleIncompleteChatStream() { throw new Error("should not be called"); }
+            function normalizeAssistantMessageIds() { return []; }
+            function handleAgentEventMessage() {}
+            function rememberAssociatedRuntimeDeltaEvent() {}
+            function getAssociatedRuntimeDeltaEvent() { return null; }
+            function shouldIgnoreAssistantStreamDelta() { return false; }
+            function queueAssistantTypewriter() {}
+            function updatePendingAssistantStreamContent() {}
+            async function handleAgentChatSuccess() { throw new Error("should not succeed"); }
+            function finalizeNonSuccessChatResponse(agentId, requestCtx, payload, reason) {
+              calls.push({ agentId, requestCtx, payload, reason });
+            }
+
+            (async () => {
+              const requestCtx = { clientRequestId: "req-1", sessionIdAtSend: "sess-1" };
+              const r = await handleChatStreamEvent("agent-1", requestCtx, "error", {
+                error: "opencode_error",
+                detail: "upstream failed",
+                request_id: "req-1",
+                session_id: "sess-1"
+              });
+              assert.equal(r, "error");
+              assert.equal(requestCtx.streamFailed, true);
+              assert.equal(calls.length, 1);
+              assert.equal(calls[0].reason, "stream_error");
+              const tail = await handleChatStreamMissingFinal("agent-1", requestCtx);
+              assert.equal(tail, "handled");
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr

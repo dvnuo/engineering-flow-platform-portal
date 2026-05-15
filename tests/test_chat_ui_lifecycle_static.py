@@ -53,6 +53,16 @@ def test_non_success_and_error_paths_set_terminal_status():
         assert marker in status
 
 
+def test_stream_error_source_marks_stream_failed():
+    src = _src()
+    helper = _extract_js_function(src, "finalizeNonSuccessChatResponse")
+    assert '"stream_error"' in helper
+    assert '"runtime_error"' in helper
+    assert "requestCtx.streamFailed = true" in helper
+    assert "requestCtx.streamIncomplete = true" in helper
+    assert helper.index("failureSources.has(source)") < helper.index("requestCtx.streamIncomplete = true")
+
+
 def test_error_path_clears_active_request_is_submitting_and_inflight_thinking():
     src = _src()
     failure = _extract_js_function(src, "handleAgentChatFailure")
@@ -75,3 +85,18 @@ def test_completed_success_and_fallback_paths_clear_busy_state():
     assert 'setChatStatus("Ready")' in success
     assert 'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, payload, "fallback")' in submit
     assert 'await handleAgentChatSuccess(agentIdAtSend, requestCtx' in submit
+
+
+def test_missing_final_guard_respects_stream_failed():
+    src = _src()
+    missing_final = _extract_js_function(src, "handleChatStreamMissingFinal")
+    for marker in [
+        "requestCtx?.streamFailed",
+        "requestCtx?.streamIncomplete",
+        "requestCtx?.streamCompleted",
+        "requestCtx?.sawError",
+    ]:
+        assert marker in missing_final
+    guard_index = missing_final.index("return \"handled\";")
+    incomplete_index = missing_final.index("handleIncompleteChatStream(")
+    assert guard_index < incomplete_index

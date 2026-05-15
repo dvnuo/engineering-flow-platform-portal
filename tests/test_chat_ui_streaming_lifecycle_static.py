@@ -54,3 +54,12 @@ def test_stream_loop_handles_malformed_sse_without_leaving_busy_state():
     assert 'await handleChatStreamMissingFinal(agentIdAtSend, requestCtx)' in stream_submit
     assert 'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, reason)' in incomplete
     assert 'clearWaitingForRuntimeEventsTimer(requestCtx)' in cleanup
+
+
+def test_stream_loop_does_not_missing_final_after_error():
+    src = _src()
+    stream_submit = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    assert 'if (r === "error" || r === "final_non_success" || r === "final_incomplete") sawError = true;' in stream_submit
+    assert "requestCtx.streamFailed" in stream_submit
+    assert "sawError" in stream_submit
+    assert stream_submit.index("requestCtx.streamFailed") < stream_submit.index("handleChatStreamMissingFinal(agentIdAtSend, requestCtx)")
