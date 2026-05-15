@@ -1666,11 +1666,15 @@ function mergeThinkingEvents(primaryEvents, secondaryEvents) {
   return merged;
 }
 
-function normalizePayloadThinkingEvents(events) {
+function normalizeThinkingEvents(events) {
   if (!Array.isArray(events)) return [];
   return events
     .map((event) => normalizeRuntimeEvent(event) || event)
     .filter((event) => event && typeof event === "object");
+}
+
+function normalizePayloadThinkingEvents(events) {
+  return normalizeThinkingEvents(events);
 }
 
 // Render thinking events from chat response (non-WebSocket)
@@ -3714,7 +3718,17 @@ function mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload = {}) {
     ? (completionState === "failed" ? "error" : completionState)
     : "completed";
   const existing = chatState.lastThinkingSnapshot || chatState.inflightThinking || { events: [] };
-  const mergedEvents = [...(existing.events || []), ...normalizeEvents(finalPayload?.runtime_events || [])].slice(-100);
+  const finalPayloadEvents = [
+    ...normalizePayloadThinkingEvents(finalPayload?.events || []),
+    ...normalizePayloadThinkingEvents(finalPayload?.runtime_events || []),
+  ];
+  const mergedEvents = mergeThinkingEvents(existing.events || [], finalPayloadEvents).slice(-100);
+  const finalContextState =
+    finalPayload?.context_state ||
+    finalPayload?.contextState ||
+    existing.contextState ||
+    existing.context_state ||
+    null;
   chatState.lastThinkingSnapshot = {
     ...existing,
     completed: true,
@@ -3722,7 +3736,9 @@ function mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload = {}) {
     completion_state: completionState || "completed",
     incomplete_reason: finalPayload?.incomplete_reason || "",
     continuation_count: finalPayload?.continuation_count ?? null,
-    context_state: finalPayload?.context_state || null,
+    continuationCount: finalPayload?.continuation_count ?? null,
+    contextState: finalContextState,
+    context_state: finalContextState,
     requestId: finalPayload?.request_id || requestCtx?.requestId || requestCtx?.clientRequestId || "",
     sessionId: finalPayload?.session_id || requestCtx?.sessionIdAtSend || "",
     latestEventAt: Date.now(),
@@ -4126,12 +4142,9 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     syncSelectedAgentChatActionControls();
     return;
   }
-  const normalizeEvents = (typeof normalizePayloadThinkingEvents === "function")
-    ? normalizePayloadThinkingEvents
-    : (events) => Array.isArray(events) ? events.filter((event) => event && typeof event === "object") : [];
   const payloadThinkingEvents = [
-    ...normalizeEvents(payload?.events || []),
-    ...normalizeEvents(payload?.runtime_events || []),
+    ...normalizePayloadThinkingEvents(payload?.events || []),
+    ...normalizePayloadThinkingEvents(payload?.runtime_events || []),
   ];
   const mergedThinkingEvents = mergeThinkingEvents(
     chatState.inflightThinking?.events || [],

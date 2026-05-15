@@ -39,7 +39,8 @@ def test_merge_final_thinking_snapshot_preserves_terminal_diagnostics():
         'completion_state: completionState || "completed"',
         'incomplete_reason: finalPayload?.incomplete_reason || ""',
         'continuation_count: finalPayload?.continuation_count ?? null',
-        'context_state: finalPayload?.context_state || null',
+        'contextState: finalContextState',
+        'context_state: finalContextState',
         'lastCompletedRequestId',
     ]:
         assert marker in body
