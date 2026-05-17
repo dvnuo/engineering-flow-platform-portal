@@ -46,6 +46,8 @@ PORTAL_MANAGED_FIELD_TREE = {
         "url": True,
         "username": True,
         "password": True,
+        "no_proxy": True,
+        "noProxy": True,
     },
     "jira": {
         "enabled": True,
@@ -386,6 +388,15 @@ def sanitize_runtime_profile_proxy(value) -> dict:
         cleaned = str(value.get(key) or "").strip()
         if cleaned:
             out[key] = cleaned
+    raw_no_proxy = None
+    if "no_proxy" in value:
+        raw_no_proxy = value.get("no_proxy")
+    elif "noProxy" in value:
+        raw_no_proxy = value.get("noProxy")
+    if isinstance(raw_no_proxy, str):
+        cleaned_no_proxy = raw_no_proxy.strip()
+        if cleaned_no_proxy:
+            out["no_proxy"] = cleaned_no_proxy
     return out
 
 

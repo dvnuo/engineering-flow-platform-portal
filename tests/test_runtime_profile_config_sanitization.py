@@ -1,4 +1,10 @@
-from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict, redact_runtime_profile_config_for_public_response
+import json
+
+from app.schemas.runtime_profile import (
+    dump_runtime_profile_config_json,
+    redact_runtime_profile_config_for_public_response,
+    sanitize_runtime_profile_config_dict,
+)
 
 
 def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config():
@@ -17,6 +23,60 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
     assert s["proxy"]["password"] == "secret"
     assert s["git"] == {"user": {"name": "Bot", "email": "bot@example.com"}}
     assert s["debug"]["log_level"] == "INFO"
+
+
+def test_proxy_no_proxy_is_sanitized_and_persisted_in_config_json():
+    raw = {
+        "proxy": {
+            "enabled": True,
+            "url": " http://proxy.local:8080 ",
+            "username": " u ",
+            "password": " p ",
+            "no_proxy": " 127.0.0.1,localhost,.svc,.cluster.local ",
+            "token": "drop",
+            "unknown": "drop",
+        }
+    }
+
+    sanitized = sanitize_runtime_profile_config_dict(raw)
+    assert sanitized["proxy"] == {
+        "enabled": True,
+        "url": "http://proxy.local:8080",
+        "username": "u",
+        "password": "p",
+        "no_proxy": "127.0.0.1,localhost,.svc,.cluster.local",
+    }
+
+    persisted = json.loads(dump_runtime_profile_config_json(raw))
+    assert persisted["proxy"]["no_proxy"] == "127.0.0.1,localhost,.svc,.cluster.local"
+    assert "token" not in persisted["proxy"]
+    assert "unknown" not in persisted["proxy"]
+
+
+def test_proxy_no_proxy_alias_is_normalized_and_canonical_key_takes_priority():
+    alias_only = sanitize_runtime_profile_config_dict(
+        {"proxy": {"noProxy": " localhost, .internal "}}
+    )
+    assert alias_only["proxy"]["no_proxy"] == "localhost, .internal"
+    assert "noProxy" not in alias_only["proxy"]
+
+    with_both = sanitize_runtime_profile_config_dict(
+        {"proxy": {"no_proxy": " canonical.local ", "noProxy": "alias.local"}}
+    )
+    assert with_both["proxy"]["no_proxy"] == "canonical.local"
+    assert "noProxy" not in with_both["proxy"]
+
+
+def test_proxy_no_proxy_rejects_non_string_and_blank_values():
+    non_string = sanitize_runtime_profile_config_dict(
+        {"proxy": {"enabled": True, "no_proxy": ["localhost"], "noProxy": "alias.local"}}
+    )
+    assert "no_proxy" not in non_string["proxy"]
+
+    blank = sanitize_runtime_profile_config_dict(
+        {"proxy": {"enabled": True, "noProxy": "   "}}
+    )
+    assert "no_proxy" not in blank["proxy"]
 
 
 def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
@@ -39,6 +99,21 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
     assert "password" not in red["proxy"] and red["proxy"]["password_present"] is True
     assert "password" not in red["jira"]["instances"][0] and red["jira"]["instances"][0]["password_present"] is True
     assert "token" not in red["confluence"]["instances"][0] and red["confluence"]["instances"][0]["token_present"] is True
+
+
+def test_public_redaction_keeps_proxy_no_proxy_and_hides_password():
+    cfg = {
+        "proxy": {
+            "password": "pw",
+            "no_proxy": "127.0.0.1,localhost",
+        }
+    }
+
+    red = redact_runtime_profile_config_for_public_response(cfg)
+
+    assert red["proxy"]["no_proxy"] == "127.0.0.1,localhost"
+    assert "password" not in red["proxy"]
+    assert red["proxy"]["password_present"] is True
 
 
 def test_alias_fields_are_normalized_to_canonical_shape():
