@@ -113,6 +113,7 @@ def _extract_render_chat_history_dependencies(js_text: str) -> str:
     """Extract renderChatHistory with direct helper dependencies for Node harness tests."""
     helper_names = [
         "formatAttachmentMetaText",
+        "getHistoryUserVisibleContent",
         "getAssistantDisplayGroupKey",
         "groupSessionMessagesForDisplay",
         "getAssistantGroupMessageIds",
@@ -140,6 +141,7 @@ def _extract_render_chat_history_bundle(js_text: str) -> str:
         "getCurrentUserDisplayName",
         "getSelectedAssistantDisplayName",
         "getHistoryMessageDisplayName",
+        "getHistoryUserVisibleContent",
         "formatAttachmentMetaText",
         "getAssistantDisplayGroupKey",
         "groupSessionMessagesForDisplay",
