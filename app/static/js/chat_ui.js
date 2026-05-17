@@ -956,6 +956,21 @@ function getHistoryMessageDisplayName(message, isUser) {
   return getSelectedAssistantDisplayName();
 }
 
+function getHistoryUserVisibleContent(message) {
+  if (!message || typeof message !== "object") return "";
+  const candidates = [
+    message.display_content,
+    message.displayContent,
+    message.metadata?.original_user_message,
+    message.metadata?.originalUserMessage,
+    message.content,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string") return value;
+  }
+  return "";
+}
+
 function buildUserMessageArticle(text, attachments = []) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   let attachmentHtml = "";
@@ -5381,8 +5396,8 @@ function renderChatHistory(messages, metadata = {}) {
       const roleLabel = document.createElement("span"); roleLabel.className = "message-author"; roleLabel.textContent = getHistoryMessageDisplayName(message, true); header.appendChild(roleLabel);
       if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
       container.appendChild(header);
-      const article = document.createElement("article"); article.className = "message-surface message-surface-user"; article.dataset.localUser = "1"; if (message.id) article.dataset.messageId = message.id;
-      const content = document.createElement("div"); content.className = "message-body whitespace-pre-wrap text-sm"; content.textContent = message.content || ""; article.appendChild(content);
+      const article = document.createElement("article"); article.className = "message-surface message-surface-user"; article.dataset.localUser = "1"; if (message.id) article.dataset.messageId = message.id; if (message.metadata?.internal_model_content_hidden) article.dataset.internalModelContentHidden = "1";
+      const content = document.createElement("div"); content.className = "message-body whitespace-pre-wrap text-sm"; content.textContent = getHistoryUserVisibleContent(message); article.appendChild(content);
       const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
       if (normalizedAttachments.length > 0) {
         const attachmentDiv = document.createElement("div"); attachmentDiv.className = "message-attachments";

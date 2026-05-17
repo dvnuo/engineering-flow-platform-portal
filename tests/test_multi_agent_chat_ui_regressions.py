@@ -1486,6 +1486,127 @@ console.log(JSON.stringify({{
     assert data["attachmentDivDatasetAttachments"] in ("", None)
 
 
+def test_get_history_user_visible_content_prefers_runtime_visible_fields():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    helper = _extract_js_function(js_file, "getHistoryUserVisibleContent")
+
+    script = f"""
+{helper}
+const assert = require("node:assert/strict");
+assert.equal(getHistoryUserVisibleContent(null), "");
+assert.equal(getHistoryUserVisibleContent({{ display_content: "/display", content: "internal" }}), "/display");
+assert.equal(getHistoryUserVisibleContent({{ displayContent: "/camel", content: "internal" }}), "/camel");
+assert.equal(getHistoryUserVisibleContent({{ metadata: {{ original_user_message: "/metadata" }}, content: "internal" }}), "/metadata");
+assert.equal(getHistoryUserVisibleContent({{ metadata: {{ originalUserMessage: "/metadataCamel" }}, content: "internal" }}), "/metadataCamel");
+assert.equal(getHistoryUserVisibleContent({{ content: "plain chat" }}), "plain chat");
+console.log(JSON.stringify({{ ok: true }}));
+"""
+    completed = _run_node_script(node_bin, script)
+    data = json.loads(completed.stdout)
+    assert data["ok"] is True
+
+
+def test_render_chat_history_uses_visible_user_content_without_rebuilding_attachments():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    render_history_bundle = _extract_render_chat_history_bundle(js_file)
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  selectedAgentName: "Agent A",
+  currentUserName: "Portal User",
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
+}};
+const appendedRows = [];
+let renderMarkdownCalls = 0;
+const dom = {{
+  messageList: {{
+    innerHTML: "",
+    appendChild(node) {{ appendedRows.push(node); }},
+  }},
+}};
+function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
+function clearMessageListToWelcome() {{}}
+function renderMarkdown() {{ renderMarkdownCalls += 1; }}
+function decorateToolMessages() {{}}
+function attachThinkingToLatestAssistant() {{}}
+function scrollToBottom() {{}}
+function isTrackableThinkingEvent() {{ return false; }}
+const document = {{
+  createElement(tag) {{
+    return {{
+      tag,
+      className: "",
+      dataset: {{}},
+      textContent: "",
+      children: [],
+      appendChild(child) {{ this.children.push(child); }},
+    }};
+  }},
+}};
+{render_history_bundle}
+renderChatHistory([
+  {{
+    role: "user",
+    id: "u1",
+    content: "Run the OpenCode agent skill\\nOriginal user slash command\\nInstructions:\\nAttached files:\\ncase_id,summary",
+    display_content: "/jira-bulk-create-from-csv example: https://jira.company.com/browse/MMGFX-13887",
+    attachments: [
+      {{ file_id: "file_csv", name: "cases.csv", content_type: "text/csv", size: 123, type: "file", parsed: true }},
+    ],
+    metadata: {{
+      display_content_source: "portal_original_user_message",
+      internal_model_content_hidden: true,
+      original_user_message: "/metadata-fallback",
+    }},
+  }},
+  {{ role: "assistant", id: "a1", content: "**done**" }},
+  {{ role: "user", id: "u2", content: "normal chat" }},
+], {{}});
+
+const firstUserArticle = appendedRows[0].children[1];
+const firstUserText = firstUserArticle.children[0].textContent;
+const firstUserChipText = firstUserArticle.children[1].children[0].textContent;
+const assistantArticle = appendedRows[1].children[1];
+const secondUserText = appendedRows[2].children[1].children[0].textContent;
+const forbidden = [
+  "Run the OpenCode agent skill",
+  "Original user slash command",
+  "Instructions:",
+  "Attached files:",
+  "case_id,summary",
+];
+console.log(JSON.stringify({{
+  firstUserText,
+  firstUserChipText,
+  secondUserText,
+  hiddenFlag: firstUserArticle.dataset.internalModelContentHidden || "",
+  assistantMarkdown: assistantArticle.children[0].dataset.md,
+  renderMarkdownCalls,
+  hasForbiddenText: forbidden.some((needle) => firstUserText.includes(needle)),
+  chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
+}}));
+"""
+    completed = _run_node_script(node_bin, script)
+    data = json.loads(completed.stdout)
+    assert data["firstUserText"] == "/jira-bulk-create-from-csv example: https://jira.company.com/browse/MMGFX-13887"
+    assert data["firstUserChipText"].startswith("📄 cases.csv · text/csv · 123 B")
+    assert data["hiddenFlag"] == "1"
+    assert data["hasForbiddenText"] is False
+    assert data["secondUserText"] == "normal chat"
+    assert data["assistantMarkdown"] == "**done**"
+    assert data["renderMarkdownCalls"] == 1
+    assert "attachmentHistory" not in data["chatStateKeys"]
+
+
 def test_build_user_message_article_uses_current_user_display_name():
     node_bin = shutil.which("node")
     if not node_bin:
