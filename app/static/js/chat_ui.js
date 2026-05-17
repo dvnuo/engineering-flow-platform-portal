@@ -7540,7 +7540,7 @@ function truncateDomFromUserArticle(userArticle) {
 }
 
 function getRuntimeMutationErrorMessage(response, result, fallbackMessage = "Failed to update message") {
-  const error = String(result?.error || result?.detail || "").trim();
+  const error = String(result?.detail || result?.error || "").trim();
   if (response?.status === 501 || error === "unsupported_by_opencode_adapter_mvp") {
     return "This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat.";
   }
@@ -7772,64 +7772,87 @@ function bindEvents() {
 
   document.getElementById("message-edit-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const messageId = document.getElementById("edit-message-id").value;
-    const newContent = document.getElementById("edit-message-content").value;
-    const sessionId = document.getElementById("chat-session-id")?.value;
-    
-    if (!messageId || !newContent.trim() || !sessionId) {
+    const form = e.currentTarget;
+    const agentId = state.selectedAgentId;
+    const chatState = getChatState(agentId);
+    const messageId = document.getElementById("edit-message-id")?.value || "";
+    const newContent = document.getElementById("edit-message-content")?.value || "";
+    const sessionId = document.getElementById("chat-session-id")?.value || "";
+
+    if (!agentId) {
+      showToast("Please select an assistant first");
+      return;
+    }
+    if (!sessionId || !messageId) {
       showToast("Invalid session");
       return;
     }
-    
+    if (!newContent.trim()) {
+      showToast("Message content cannot be empty");
+      return;
+    }
+    if (!guardNoActiveChatRequestForAgent(agentId, "edit a message")) return;
+    if (!beginSingleSubmit(form, { pendingText: "Editing...", closeButton: document.getElementById("close-message-edit-modal") })) return;
+
+    const editBody = { content: newContent };
+    if (chatState?.modelOverride) editBody.model = chatState.modelOverride;
+    setChatStatus("Editing message and regenerating response...");
+    setChatSubmittingForAgent(agentId, true);
+
     try {
-      // Use delete-from-here to delete the target message and subsequent messages
-      // Then send a new message with the edited content
-      const response = await fetch(`/a/${state.selectedAgentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/delete-from-here`, {
+      const response = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/edit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({})
+        body: JSON.stringify(editBody)
       });
-      
+
+      const responseForError = response.clone();
       let result = {};
       try {
         result = await response.json();
       } catch (_error) {
-        showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"));
+        result = {};
+      }
+
+      if (!response.ok || result.success !== true) {
+        const hasRuntimeErrorText = String(result?.detail || result?.error || "").trim().length > 0;
+        let message = getRuntimeMutationErrorMessage(response, result, "Failed to edit message");
+        if (!hasRuntimeErrorText && response.status !== 501 && !response.ok) {
+          message = await handleErrorResponse(responseForError);
+        }
+        showToast(message);
+        setChatStatus(message || "Ready", true);
         return;
       }
-      
-      if (!response.ok || !result.success) {
-        showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"));
-        return;
-      }
-      
-      // Close modal
+
       closeEditMessageModal();
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
-      
-      let targetUserArticle = null;
-      if (dom.messageList) {
-        const userArticles = Array.from(dom.messageList.querySelectorAll('article[data-local-user="1"]'));
-        targetUserArticle = userArticles.find((article) => article.dataset.messageId === messageId) || null;
-      }
-      if (targetUserArticle) {
-        truncateDomFromUserArticle(targetUserArticle);
+
+      const finalSessionId = result.session_id || sessionId;
+      updateAgentSession(agentId, finalSessionId);
+      const hiddenSessionInput = document.getElementById("chat-session-id");
+      if (hiddenSessionInput) hiddenSessionInput.value = finalSessionId;
+      setLastSessionId(agentId, finalSessionId);
+
+      if (Array.isArray(result.messages)) {
+        renderChatHistory(result.messages);
       } else {
-        clearMessageListToWelcome();
-        const selectedChatState = getChatState();
+        const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(finalSessionId)}`);
+        renderChatHistory(data.messages || [], data.metadata || {});
       }
-      
-      // Now send the edited message to LLM for processing
-      setChatStatus("Sending edited message to AI...");
-      
-      // Set the chat input to the edited content
-      if (dom.chatInput) {
-        dom.chatInput.value = newContent;
-      }
-      
-      await submitChatForSelectedAgent();
+      addEditButtonsToMessages();
+      renderIcons();
+      scrollToBottom();
+      setChatStatus("Ready");
+      showToast("Message edited");
     } catch (err) {
-      showToast("Error editing message: " + err.message);
+      const message = err?.message || String(err);
+      showToast("Error editing message: " + message);
+      setChatStatus(message || "Ready", true);
+    } finally {
+      setChatSubmittingForAgent(agentId, false);
+      endSingleSubmit(form, { closeButton: document.getElementById("close-message-edit-modal") });
+      syncSelectedAgentChatActionControls();
     }
   });
 
