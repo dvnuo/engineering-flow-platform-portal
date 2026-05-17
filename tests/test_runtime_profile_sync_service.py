@@ -176,6 +176,28 @@ def test_build_apply_payload_from_profile_keeps_shape_and_uses_raw_profile_confi
         db.close()
 
 
+def test_build_apply_payload_from_profile_preserves_proxy_no_proxy():
+    db, rp, _running, _stopped = _build_db()
+    try:
+        rp.config_json = (
+            '{"proxy":{"enabled":true,"url":"http://proxy.local:8080",'
+            '"no_proxy":"127.0.0.1,localhost,.svc,.cluster.local","unknown":"drop"}}'
+        )
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
+
+        assert payload["config"]["proxy"] == {
+            "enabled": True,
+            "url": "http://proxy.local:8080",
+            "no_proxy": "127.0.0.1,localhost,.svc,.cluster.local",
+        }
+    finally:
+        db.close()
+
+
 def test_build_apply_payload_from_sparse_legacy_profile_does_not_backfill_creation_seed():
     db, rp, _running, _stopped = _build_db()
     try:
