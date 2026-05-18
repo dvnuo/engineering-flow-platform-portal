@@ -13,6 +13,15 @@ SECRET_FIELD_NAMES = {
     "refresh_token",
 }
 
+EVENT_TYPE_ALIASES = {
+    "continuation.no_progress_timeout": "continuation.no_progress",
+    "chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted",
+    "timeout_recovery.started": "chat.timeout_recovery.started",
+    "timeout_recovery.poll": "chat.timeout_recovery.poll",
+    "timeout_recovery.recovered": "chat.timeout_recovery.recovered",
+    "timeout_recovery.exhausted": "chat.timeout_recovery.exhausted",
+}
+
 
 def _as_dict(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
@@ -97,6 +106,11 @@ def _first_text(*values: Any) -> str:
     return ""
 
 
+def _normalize_event_type(event_type: Any) -> str:
+    normalized = str(event_type or "event").strip()
+    return EVENT_TYPE_ALIASES.get(normalized, normalized)
+
+
 def _tool_name(data: dict) -> str:
     return _first_text(data.get("tool"), data.get("tool_name"), data.get("name"), data.get("command"))
 
@@ -156,8 +170,19 @@ def _display(
     }
 
 
+def _final_display(data: dict) -> dict:
+    completion_state = str(data.get("completion_state") or data.get("completionState") or "").strip().lower()
+    incomplete_reason = _first_text(data.get("incomplete_reason"), data.get("incompleteReason"))
+    detail = _first_text(incomplete_reason, data.get("message"), data.get("summary"), completion_state, "Final response received")
+    if completion_state in {"error", "failed"}:
+        return _display(icon="flag", title="Final", detail=detail, kind="error")
+    if incomplete_reason or (completion_state and completion_state not in {"success", "completed"}):
+        return _display(icon="flag", title="Final", detail=detail, kind="warning")
+    return _display(icon="flag", title="Final", detail=detail, kind="success")
+
+
 def _build_thinking_event_display(event_type: str, data: dict) -> dict:
-    event_type = str(event_type or "event")
+    event_type = _normalize_event_type(event_type)
     tool = _tool_name(data)
 
     by_type = {
@@ -198,7 +223,7 @@ def _build_thinking_event_display(event_type: str, data: dict) -> dict:
         "chat.incomplete": _display(icon="alert-triangle", title="Chat Incomplete", detail=data.get("incomplete_reason") or data.get("message") or "Chat incomplete", kind="warning"),
         "chat.failed": _display(icon="x-circle", title="Chat Failed", detail=data.get("error") or data.get("message") or "Chat failed", kind="error"),
         "chat.completed": _display(icon="check-circle-2", title="Chat Completed", detail=data.get("message") or "Chat completed", kind="success"),
-        "final": _display(icon="flag", title="Final", detail=data.get("message") or "Final response received", kind="success"),
+        "final": _final_display(data),
         "event_bridge.connected": _display(icon="plug", title="Event Bridge Connected", detail=data.get("message") or "Runtime event bridge connected", kind="success"),
         "event_bridge.disconnected": _display(icon="unplug", title="Event Bridge Disconnected", detail=data.get("message") or "Runtime event bridge disconnected", kind="warning"),
         "event_bridge.reconnected": _display(icon="plug", title="Event Bridge Reconnected", detail=data.get("message") or "Runtime event bridge reconnected", kind="success"),
@@ -517,7 +542,8 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
         for event in source:
             if not isinstance(event, dict):
                 continue
-            event_type = event.get("type") or event.get("event_type") or "event"
+            raw_event_type = event.get("type") or event.get("event_type") or "event"
+            event_type = _normalize_event_type(raw_event_type)
             data = {
                 **_as_dict(event.get("data")),
                 **_as_dict(event.get("detail_payload")),
@@ -536,6 +562,16 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
             metadata = _as_dict(event.get("metadata")) or _as_dict(data.get("metadata"))
             event_source = "replay" if event.get("replayed") or data.get("replayed") or metadata.get("replayed") else source_name
             display = _build_thinking_event_display(event_type, data)
+            safe_detail_data = {
+                "event_type": event_type,
+                **data,
+            }
+            if raw_event_type != event_type:
+                safe_detail_data["raw_event_type"] = raw_event_type
+            if event.get("summary") and not safe_detail_data.get("summary"):
+                safe_detail_data["summary"] = event.get("summary")
+            if metadata and not safe_detail_data.get("metadata"):
+                safe_detail_data["metadata"] = metadata
             normalized = {
                 "type": event_type,
                 "event_type": event_type,
@@ -552,7 +588,7 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
                 "source": event_source,
                 "replayed": event_source == "replay",
                 "summary": event.get("summary") or data.get("summary") or message,
-                "safe_detail_payload": _sanitize_detail_payload(data),
+                "safe_detail_payload": _sanitize_detail_payload(safe_detail_data),
             }
             normalized.update(display)
             key = (
