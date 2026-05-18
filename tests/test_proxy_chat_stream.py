@@ -3,7 +3,9 @@ from app.api import proxy
 
 def test_stream_chat_paths_are_classified_correctly():
     assert proxy._is_direct_chat_execution_path('POST', 'api/chat/stream') is True
+    assert proxy._is_direct_chat_execution_path('POST', '/api/chat/stream') is True
     assert proxy._is_streaming_runtime_path('POST', 'api/chat/stream') is True
+    assert proxy._is_streaming_runtime_path('POST', '/api/chat/stream') is True
 
 
 def test_streaming_headers_whitelist():

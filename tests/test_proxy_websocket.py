@@ -1,4 +1,7 @@
 from pathlib import Path
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
 
 
 def _proxy_source() -> str:
@@ -94,3 +97,58 @@ def test_proxy_websocket_generates_portal_trace_id_instead_of_trusting_browser_h
     assert "trace_id = generate_trace_id()" in fn_source
     assert "websocket.headers.get(\"X-Trace-Id\")" not in fn_source
     assert "websocket.headers.get(\"X-Request-Id\")" not in fn_source
+
+
+def test_proxy_websocket_forwards_filtered_query_params_to_runtime(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=77, username="runtime-user", nickname="Runtime User", role="user", is_active=True)
+    fake_agent = SimpleNamespace(id="agent-1", owner_user_id=77, visibility="private", status="running", name="Agent One")
+    captured = {}
+
+    class _FakeUpstream:
+        def __aiter__(self):
+            self._sent = False
+            return self
+
+        async def __anext__(self):
+            if self._sent:
+                raise StopAsyncIteration
+            self._sent = True
+            return '{"event_type":"heartbeat"}'
+
+        async def send(self, message):
+            captured.setdefault("sent", []).append(message)
+
+    class _FakeConnect:
+        async def __aenter__(self):
+            return _FakeUpstream()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_connect(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return _FakeConnect()
+
+    monkeypatch.setattr(proxy_module, "parse_session_token", lambda token: "user-77")
+    monkeypatch.setattr(proxy_module, "UserRepository", lambda _db: SimpleNamespace(get_by_id=lambda _user_id: fake_user))
+    monkeypatch.setattr(proxy_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
+    monkeypatch.setattr(proxy_module, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(proxy_module.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
+    monkeypatch.setattr(proxy_module.websockets, "connect", _fake_connect)
+
+    client = TestClient(app)
+    with client.websocket_connect(
+        "/a/agent-1/api/events?token=secret&session_id=s1&request_id=r1&replay=1&types=llm_thinking%2Ctool.started"
+    ) as websocket:
+        assert websocket.receive_text() == '{"event_type":"heartbeat"}'
+
+    assert captured["url"] == (
+        "ws://runtime.local:8000/api/events?"
+        "session_id=s1&request_id=r1&replay=1&types=llm_thinking%2Ctool.started"
+    )
+    assert "token=secret" not in captured["url"]
+    assert captured["kwargs"]
