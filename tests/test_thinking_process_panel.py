@@ -948,5 +948,69 @@ def test_thinking_process_view_falls_back_to_circle_for_unknown_event_type():
 
     event = view["events"][0]
     assert event["icon"] == "circle"
-    assert event["display_title"] == "Custom Unknown Event"
-    assert event["display_detail"] == ""
+    assert event["display_title"] == "Runtime event"
+    assert event["display_detail"] == "custom_unknown_event: Something custom"
+    assert event["kind"] == "info"
+    assert event["severity"] == "info"
+
+
+def test_thinking_process_view_maps_opencode_runtime_event_severities():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    event_cases = [
+        ("tool.started", {"tool": "bash"}, "running", "running", "Tool Started"),
+        ("tool.completed", {"tool": "bash"}, "success", "success", "Tool Completed"),
+        ("tool.failed", {"tool": "bash", "error": "nope"}, "error", "error", "Tool Failed"),
+        ("provider.retry", {"message": "retrying"}, "warning", "warning", "Provider Retry"),
+        ("continuation.started", {}, "running", "running", "Continuation Started"),
+        ("continuation.completed", {}, "success", "success", "Continuation Completed"),
+        ("chat.timeout_recovery.started", {}, "running", "warning", "Timeout Recovery Started"),
+        ("chat.timeout_recovery.recovered", {}, "success", "success", "Timeout Recovery Recovered"),
+        ("chat.timeout_recovery.exhausted", {}, "warning", "warning", "Timeout Recovery Exhausted"),
+        ("permission_request", {}, "running", "warning", "Permission Requested"),
+        ("chat.incomplete", {"incomplete_reason": "max turns"}, "warning", "warning", "Chat Incomplete"),
+        ("chat.failed", {"error": "boom"}, "error", "error", "Chat Failed"),
+    ]
+
+    view = build_thinking_process_view(
+        {
+            "runtime_events": [
+                {"event_type": event_type, "detail_payload": payload}
+                for event_type, payload, *_ in event_cases
+            ]
+        }
+    )
+
+    for event, (event_type, _payload, kind, severity, title) in zip(view["events"], event_cases):
+        assert event["type"] == event_type
+        assert event["kind"] == kind
+        assert event["severity"] == severity
+        assert event["display_title"] == title
+        assert event["source"] == "runtime"
+
+
+def test_thinking_process_view_marks_replay_and_redacts_safe_detail_payload():
+    from app.services.thinking_process_view import build_thinking_process_view
+
+    view = build_thinking_process_view(
+        {
+            "runtime_events": [
+                {
+                    "event_type": "opencode.raw",
+                    "metadata": {"replayed": True},
+                    "detail_payload": {
+                        "summary": "raw event",
+                        "authorization": "Bearer secret",
+                        "nested": {"api_key": "sk-secret", "safe": "ok"},
+                    },
+                }
+            ]
+        }
+    )
+
+    event = view["events"][0]
+    assert event["source"] == "replay"
+    assert event["replayed"] is True
+    assert event["safe_detail_payload"]["authorization"] == "[redacted]"
+    assert event["safe_detail_payload"]["nested"]["api_key"] == "[redacted]"
+    assert event["safe_detail_payload"]["nested"]["safe"] == "ok"
