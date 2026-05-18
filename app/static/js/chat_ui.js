@@ -3388,6 +3388,12 @@ async function submitChatForSelectedAgent() {
       const ids = localNormalizeAssistantMessageIds(candidate);
       return String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
     };
+  const localStartWaitingForRuntimeEventsTimer = (typeof startWaitingForRuntimeEventsTimer === "function")
+    ? startWaitingForRuntimeEventsTimer
+    : () => {};
+  const localClearWaitingForRuntimeEventsTimer = (typeof clearWaitingForRuntimeEventsTimer === "function")
+    ? clearWaitingForRuntimeEventsTimer
+    : () => {};
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
@@ -3510,7 +3516,7 @@ async function submitChatForSelectedAgent() {
   setChatStatus("Sending...");
   chatState.activeRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
-  startWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx);
+  localStartWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx);
 
   try {
     const streamResult = await trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody);
@@ -3524,7 +3530,11 @@ async function submitChatForSelectedAgent() {
     const payload = await resp.json();
     const responseText = finalResponseText(payload);
     if (payload?.ok === false || isNonSuccessFinalPayload(payload)) {
-      finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, payload, "fallback");
+      if (typeof handleIncompleteChatStream === "function") {
+        await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_error_or_incomplete", payload);
+      } else if (typeof finalizeNonSuccessChatResponse === "function") {
+        finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, payload, "fallback");
+      }
       return;
     }
     if (!isCompletedFinalPayload(payload) || !responseText) {
@@ -3542,7 +3552,7 @@ async function submitChatForSelectedAgent() {
   } catch (error) {
     handleAgentChatFailure(agentIdAtSend, requestCtx, error);
   } finally {
-    clearWaitingForRuntimeEventsTimer(requestCtx);
+    localClearWaitingForRuntimeEventsTimer(requestCtx);
   }
 }
 
@@ -4168,6 +4178,12 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const localHandleIncompleteChatStream = (typeof handleIncompleteChatStream === "function")
     ? handleIncompleteChatStream
     : async () => {};
+  const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
+    ? finalizeNonSuccessChatResponse
+    : (agentId, ctx, payload, source) => localHandleIncompleteChatStream(agentId, ctx, source || "non_success", payload);
+  const localClearWaitingForRuntimeEventsTimer = (typeof clearWaitingForRuntimeEventsTimer === "function")
+    ? clearWaitingForRuntimeEventsTimer
+    : () => {};
   const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
     ? normalizeAssistantMessageIds
     : (payload = {}) => {
@@ -4181,7 +4197,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
 
   if (isChatStreamWrapperEventName(outerType)) {
     requestCtx.sawRuntimeEvent = true;
-    clearWaitingForRuntimeEventsTimer(requestCtx);
+    localClearWaitingForRuntimeEventsTimer(requestCtx);
     const injectedRequestId = eventData.request_id || requestCtx.requestId || requestCtx.clientRequestId || "";
     const injectedSessionId = eventData.session_id || requestCtx.sessionIdAtSend || "";
     const streamEventPayload = {
@@ -4239,7 +4255,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   if (outerType === "error") {
     requestCtx.sawError = true;
     requestCtx.streamFailed = true;
-    clearWaitingForRuntimeEventsTimer(requestCtx);
+    localClearWaitingForRuntimeEventsTimer(requestCtx);
 
     const normalizedCompletionState = localGetCompletionState(eventData);
     const finalPayload = {
@@ -4262,19 +4278,27 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       events: eventData?.events || [],
     };
 
-    finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, "stream_error");
+    if (typeof finalizeNonSuccessChatResponse === "function") {
+      finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, "stream_error");
+    } else {
+      await localFinalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, "stream_error");
+    }
     return "error";
   }
 
   if (isChatStreamFinalEventName(outerType) || isDirectCompletionEventName(outerType)) {
     requestCtx.sawFinal = true;
-    clearWaitingForRuntimeEventsTimer(requestCtx);
+    localClearWaitingForRuntimeEventsTimer(requestCtx);
     requestCtx.streamSawFinal = true;
     requestCtx.streamFinalPayload = eventData;
     requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
     if (localIsNonSuccessFinalPayload(eventData)) {
-      finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, eventData, "stream_final");
+      if (typeof finalizeNonSuccessChatResponse === "function") {
+        finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, eventData, "stream_final");
+      } else {
+        await localFinalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, eventData, "stream_final");
+      }
       return "final_non_success";
     }
     const finalText = localFinalResponseText(eventData);
@@ -4288,7 +4312,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
 
   if (outerType === "done") {
-    clearWaitingForRuntimeEventsTimer(requestCtx);
+    localClearWaitingForRuntimeEventsTimer(requestCtx);
     if (requestCtx.streamCompleted) return "done";
     return "done";
   }
@@ -4366,7 +4390,10 @@ async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
     agentIdAtSend,
     requestCtx,
     "missing_final",
-    { streamedTextPreview: requestCtx?.streamedText || "" },
+    {
+      incomplete_reason: "Stream ended before a final assistant response.",
+      streamedTextPreview: requestCtx?.streamedText || "",
+    },
   );
 }
 
@@ -4375,10 +4402,22 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   if ([404,405,501].includes(resp.status) || !resp.body) return 'unsupported';
   if (!resp.ok) throw new Error(await handleErrorResponse(resp));
   requestCtx.usedStream = true;
+  const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
+    ? finalizeNonSuccessChatResponse
+    : (agentId, ctx, payload, source) => handleIncompleteChatStream(agentId, ctx, source || "non_success", payload);
+  const localParseSseEventsFromChunk = (typeof parseSseEventsFromChunk === "function")
+    ? parseSseEventsFromChunk
+    : (currentBuffer, chunkText) => {
+      const combined = `${currentBuffer || ""}${chunkText || ""}`;
+      const parts = combined.split(/\r?\n\r?\n/);
+      const nextBuffer = parts.pop() || "";
+      const events = parts.map((part) => parseSseEvent(part)).filter(Boolean);
+      return { events, buffer: nextBuffer };
+    };
   const reader = resp.body.getReader(); const decoder = new TextDecoder();
   let buffer=''; let sawEvent=false; let sawFinal=false; let sawError=false;
   const flushChunk = async (chunkText) => {
-    const parsedBatch = parseSseEventsFromChunk(buffer, chunkText);
+    const parsedBatch = localParseSseEventsFromChunk(buffer, chunkText);
     buffer = parsedBatch.buffer;
     for (const parsed of parsedBatch.events) {
       sawEvent = true;
@@ -4415,7 +4454,7 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     const candidate = requestCtx.streamFinalCandidate;
     const candidateText = finalResponseText(candidate) || getChatStreamTextPayload(candidate);
     if (isNonSuccessFinalPayload(candidate)) {
-      finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, candidate, "candidate_final");
+      await localFinalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, candidate, "candidate_final");
       return "handled";
     }
     if (isCompletedFinalPayload(candidate) && candidateText) {
@@ -4477,6 +4516,9 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
       const ids = localNormalizeAssistantMessageIds(candidate);
       return String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
     };
+  const localNormalizePayloadThinkingEvents = (typeof normalizePayloadThinkingEvents === "function")
+    ? normalizePayloadThinkingEvents
+    : (events) => Array.isArray(events) ? events : [];
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
   if (!localHasRenderableAssistantPayload(payload)) {
@@ -4495,8 +4537,8 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     return;
   }
   const payloadThinkingEvents = [
-    ...normalizePayloadThinkingEvents(payload?.events || []),
-    ...normalizePayloadThinkingEvents(payload?.runtime_events || []),
+    ...localNormalizePayloadThinkingEvents(payload?.events || []),
+    ...localNormalizePayloadThinkingEvents(payload?.runtime_events || []),
   ];
   const mergedThinkingEvents = mergeThinkingEvents(
     chatState.inflightThinking?.events || [],
@@ -4705,7 +4747,14 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   requestCtx.streamFailed = true;
   requestCtx.terminalPayload = finalPayload;
-  finalizeTerminalThinkingState(agentIdAtSend, requestCtx, finalPayload);
+  if (typeof finalizeTerminalThinkingState === "function") finalizeTerminalThinkingState(agentIdAtSend, requestCtx, finalPayload);
+  else {
+    chatState.lastThinkingSnapshot = chatState.lastThinkingSnapshot || (chatState.inflightThinking ? { ...chatState.inflightThinking } : null);
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
+  }
+  chatState.activeRequest = null;
+  setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
     chatState.draftText = restoredMessage;
     chatState.pendingFiles = [];
@@ -4730,7 +4779,8 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   if (typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend)) {
     if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
   }
-  setTerminalCompletionStatus(finalPayload);
+  if (typeof setTerminalCompletionStatus === "function") setTerminalCompletionStatus(finalPayload);
+  else setChatStatus(errorMsg, true);
   if (dom.messageList) {
     const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     dom.messageList.insertAdjacentHTML("beforeend", `
