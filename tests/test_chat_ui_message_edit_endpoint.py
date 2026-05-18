@@ -262,6 +262,22 @@ function syncSelectedAgentChatActionControls() {{ controlsSynced += 1; }}
     return _run_node(script)
 
 
+def _extract_edit_poll_helpers(source: str) -> str:
+    helper_names = [
+        "getRuntimeMessageId",
+        "isRenderableAssistantSessionMessage",
+        "sessionMessageRequestId",
+        "findAssistantAfterEditedUserMessage",
+        "getEditedSessionFailureMessage",
+        "shouldRenderEditedSessionForAgent",
+        "completeEditedMessageRequest",
+        "handleEditedRegenerationFailure",
+        "finalizeEditedSessionMessages",
+        "pollEditedSessionUntilComplete",
+    ]
+    return "\n".join(_extract_js_function(source, name) for name in helper_names)
+
+
 def test_message_edit_handler_uses_async_endpoint():
     handler = _extract_message_edit_submit_handler(_src())
 
@@ -361,19 +377,7 @@ def test_accepted_before_completion_does_not_require_full_assistant_messages():
 
 def test_accepted_then_polling_completion_renders_final_messages_and_clears_busy():
     source = _src()
-    helper_names = [
-        "getRuntimeMessageId",
-        "isRenderableAssistantSessionMessage",
-        "sessionMessageRequestId",
-        "findAssistantAfterEditedUserMessage",
-        "getEditedSessionFailureMessage",
-        "shouldRenderEditedSessionForAgent",
-        "completeEditedMessageRequest",
-        "handleEditedRegenerationFailure",
-        "finalizeEditedSessionMessages",
-        "pollEditedSessionUntilComplete",
-    ]
-    helpers = "\n".join(_extract_js_function(source, name) for name in helper_names)
+    helpers = _extract_edit_poll_helpers(source)
     final_messages = [
         {"role": "user", "content": "hi", "id": "u-1"},
         {"role": "assistant", "content": "hi how can i help", "id": "a-1"},
@@ -474,6 +478,298 @@ function showToast() {{}}
     assert data["editButtons"] == 1
     assert data["icons"] == 1
     assert data["scrolls"] == 1
+
+
+def test_get_edited_session_failure_message_recognizes_edit_failed():
+    helper = _extract_js_function(_src(), "getEditedSessionFailureMessage")
+    direct_payload = {
+        "messages": [
+            {"role": "user", "content": "hi", "id": "u-1"},
+            {"role": "assistant", "content": "hi", "id": "a-1"},
+        ],
+        "metadata": {
+            "latest_event_type": "edit.failed",
+            "latest_event_state": "error",
+            "completion_state": "error",
+            "request_id": "req-edit-1",
+            "error": "simulated resend failure",
+        },
+    }
+    runtime_event_payload = {
+        "messages": [
+            {"role": "user", "content": "hi", "id": "u-1"},
+            {"role": "assistant", "content": "hi", "id": "a-1"},
+        ],
+        "metadata": {
+            "runtime_events": [
+                {
+                    "type": "edit.failed",
+                    "event_type": "edit.failed",
+                    "state": "error",
+                    "data": {"error": "background failed"},
+                }
+            ],
+        },
+    }
+    script = f"""
+{helper}
+console.log(JSON.stringify({{
+  direct: getEditedSessionFailureMessage({json.dumps(direct_payload)}),
+  runtimeEvent: getEditedSessionFailureMessage({json.dumps(runtime_event_payload)}),
+}}));
+"""
+    data = _run_node(script)
+
+    assert data["direct"] == "simulated resend failure"
+    assert data["runtimeEvent"] == "background failed"
+
+
+def test_polling_sees_edit_failed_and_clears_busy_without_rendering_final_messages():
+    source = _src()
+    helpers = _extract_edit_poll_helpers(source)
+    prefix_messages = [
+        {"role": "user", "content": "hi", "id": "u-1"},
+        {"role": "assistant", "content": "hi", "id": "a-1"},
+        {"role": "user", "content": "how are u??", "id": "u-2b"},
+    ]
+    failure_payload = {
+        "messages": prefix_messages,
+        "metadata": {
+            "latest_event_type": "edit.failed",
+            "latest_event_state": "error",
+            "completion_state": "error",
+            "request_id": "req-edit-1",
+            "error": "simulated resend failure",
+        },
+    }
+    script = f"""
+const EDITED_MESSAGE_POLL_INTERVAL_MS = 2000;
+const EDITED_MESSAGE_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+const state = {{ selectedAgentId: "agent-1" }};
+const chatState = {{
+  sessionId: "s1",
+  activeRequest: {{ clientRequestId: "req-edit-1", edit: true }},
+  inflightThinking: {{
+    id: "req-edit-1",
+    requestId: "req-edit-1",
+    sessionId: "s1",
+    completed: false,
+    events: [],
+  }},
+}};
+const agentApiCalls = [];
+const renderCalls = [];
+const chatSubmittingValues = [];
+const finalizerCalls = [];
+let status = [];
+let toast = [];
+let controlsSynced = 0;
+let editButtons = 0;
+let icons = 0;
+let scrolls = 0;
+
+function ensureChatState(agentId) {{
+  if (agentId !== "agent-1") throw new Error("unexpected agent " + agentId);
+  return chatState;
+}}
+function currentSessionIdForAgent(agentId) {{
+  if (agentId !== "agent-1") throw new Error("unexpected current session agent " + agentId);
+  return chatState.sessionId;
+}}
+async function agentApiFor(agentId, path) {{
+  agentApiCalls.push({{ agentId, path }});
+  return {json.dumps(failure_payload)};
+}}
+function renderChatHistory(messages, metadata = {{}}) {{ renderCalls.push({{ messages, metadata }}); }}
+function addEditButtonsToMessages() {{ editButtons += 1; }}
+function renderIcons() {{ icons += 1; }}
+function scrollToBottom() {{ scrolls += 1; }}
+function setChatStatus(value, isError = false) {{ status.push({{ value, isError }}); }}
+function setChatSubmittingForAgent(agentId, active) {{
+  if (agentId !== "agent-1") throw new Error("unexpected submitting agent " + agentId);
+  chatSubmittingValues.push(active);
+  chatState.isSubmitting = active;
+}}
+function syncSelectedAgentChatActionControls() {{ controlsSynced += 1; }}
+function finalizeIncompleteAssistantRow(agentId, requestCtx, payload) {{ finalizerCalls.push({{ agentId, requestId: requestCtx.clientRequestId, payload }}); }}
+function showToast(value) {{ toast.push(value); }}
+
+{helpers}
+
+(async () => {{
+  await pollEditedSessionUntilComplete("agent-1", "s1", "req-edit-1", "u-2b", {{
+    intervalMs: 1,
+    timeoutMs: 1000,
+    requestCtx: {{
+      requestId: "req-edit-1",
+      clientRequestId: "req-edit-1",
+      sessionIdAtSend: "s1",
+      edit: true,
+    }},
+  }});
+  console.log(JSON.stringify({{
+    agentApiCalls,
+    renderCalls,
+    chatSubmittingValues,
+    finalizerCalls,
+    status,
+    toast,
+    activeRequestCleared: chatState.activeRequest === null,
+    inflightThinkingCleared: chatState.inflightThinking === null,
+    lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
+    controlsSynced,
+    editButtons,
+    icons,
+    scrolls,
+  }}));
+}})();
+"""
+    data = _run_node(script)
+
+    assert data["agentApiCalls"] == [{"agentId": "agent-1", "path": "/api/sessions/s1"}]
+    assert data["renderCalls"] == []
+    assert data["chatSubmittingValues"] == [False]
+    assert len(data["finalizerCalls"]) == 1
+    assert data["activeRequestCleared"] is True
+    assert data["inflightThinkingCleared"] is True
+    assert data["lastThinkingCompleted"] is True
+    assert data["status"][-1] == {
+        "value": "Edited message was saved, but regeneration failed: simulated resend failure",
+        "isError": True,
+    }
+    assert data["toast"] == ["Edited message was saved, but regeneration failed: simulated resend failure"]
+    assert data["editButtons"] == 1
+    assert data["icons"] == 1
+    assert data["scrolls"] == 1
+
+
+def test_polling_timeout_clears_busy_and_marks_session_for_reload():
+    source = _src()
+    helpers = _extract_edit_poll_helpers(source)
+    prefix_payload = {
+        "messages": [
+            {"role": "user", "content": "hi", "id": "u-1"},
+            {"role": "assistant", "content": "hi", "id": "a-1"},
+            {"role": "user", "content": "how are u??", "id": "u-2b"},
+        ],
+        "metadata": {"request_id": "req-edit-1"},
+    }
+    script = f"""
+const EDITED_MESSAGE_POLL_INTERVAL_MS = 2000;
+const EDITED_MESSAGE_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+const state = {{ selectedAgentId: "agent-1" }};
+const chatState = {{
+  sessionId: "s1",
+  activeRequest: {{ clientRequestId: "req-edit-1", edit: true }},
+  inflightThinking: {{
+    id: "req-edit-1",
+    requestId: "req-edit-1",
+    sessionId: "s1",
+    completed: false,
+    events: [],
+  }},
+  needsReload: false,
+  backgroundStatus: "",
+}};
+const agentApiCalls = [];
+const renderCalls = [];
+const chatSubmittingValues = [];
+const finalizerCalls = [];
+let status = [];
+let controlsSynced = 0;
+let editButtons = 0;
+let icons = 0;
+let scrolls = 0;
+
+function ensureChatState(agentId) {{
+  if (agentId !== "agent-1") throw new Error("unexpected agent " + agentId);
+  return chatState;
+}}
+function currentSessionIdForAgent(agentId) {{
+  if (agentId !== "agent-1") throw new Error("unexpected current session agent " + agentId);
+  return chatState.sessionId;
+}}
+async function agentApiFor(agentId, path) {{
+  agentApiCalls.push({{ agentId, path }});
+  return {json.dumps(prefix_payload)};
+}}
+function renderChatHistory(messages, metadata = {{}}) {{ renderCalls.push({{ messages, metadata }}); }}
+function addEditButtonsToMessages() {{ editButtons += 1; }}
+function renderIcons() {{ icons += 1; }}
+function scrollToBottom() {{ scrolls += 1; }}
+function setChatStatus(value, isError = false) {{ status.push({{ value, isError }}); }}
+function setChatSubmittingForAgent(agentId, active) {{
+  if (agentId !== "agent-1") throw new Error("unexpected submitting agent " + agentId);
+  chatSubmittingValues.push(active);
+  chatState.isSubmitting = active;
+}}
+function syncSelectedAgentChatActionControls() {{ controlsSynced += 1; }}
+function finalizeIncompleteAssistantRow(agentId, requestCtx, payload) {{ finalizerCalls.push({{ agentId, requestId: requestCtx.clientRequestId, payload }}); }}
+function showToast() {{}}
+
+{helpers}
+
+(async () => {{
+  await pollEditedSessionUntilComplete("agent-1", "s1", "req-edit-1", "u-2b", {{
+    intervalMs: 1,
+    timeoutMs: 5,
+    requestCtx: {{
+      requestId: "req-edit-1",
+      clientRequestId: "req-edit-1",
+      sessionIdAtSend: "s1",
+      edit: true,
+    }},
+  }});
+  console.log(JSON.stringify({{
+    agentApiCallCount: agentApiCalls.length,
+    renderCalls,
+    chatSubmittingValues,
+    finalizerCalls,
+    status,
+    activeRequestCleared: chatState.activeRequest === null,
+    inflightThinkingCleared: chatState.inflightThinking === null,
+    lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
+    needsReload: chatState.needsReload,
+    backgroundStatus: chatState.backgroundStatus,
+    controlsSynced,
+    editButtons,
+    icons,
+    scrolls,
+  }}));
+}})();
+"""
+    data = _run_node(script)
+
+    assert data["agentApiCallCount"] >= 1
+    assert data["renderCalls"] == []
+    assert data["chatSubmittingValues"] == [False]
+    assert len(data["finalizerCalls"]) == 1
+    assert data["activeRequestCleared"] is True
+    assert data["inflightThinkingCleared"] is True
+    assert data["lastThinkingCompleted"] is True
+    assert data["needsReload"] is True
+    assert data["backgroundStatus"] in {"timeout", "needs_reload"}
+    assert data["backgroundStatus"] != "regenerating"
+    assert data["status"][-1] == {
+        "value": "Regeneration is still running or timed out; refresh the session to check the latest result.",
+        "isError": True,
+    }
+    assert "refresh" in data["status"][-1]["value"]
+    assert "latest" in data["status"][-1]["value"]
+    assert data["editButtons"] == 1
+    assert data["icons"] == 1
+    assert data["scrolls"] == 1
+
+
+def test_trackable_thinking_events_include_edit_failed():
+    body = _extract_js_function(_src(), "isTrackableThinkingEvent")
+    script = f"""
+{body}
+console.log(JSON.stringify({{ editFailed: isTrackableThinkingEvent("edit.failed") }}));
+"""
+    data = _run_node(script)
+
+    assert data["editFailed"] is True
 
 
 def test_edit_async_pre_accepted_failure_keeps_modal_and_does_not_touch_dom():

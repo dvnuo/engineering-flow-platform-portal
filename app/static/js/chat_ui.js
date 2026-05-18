@@ -1122,6 +1122,7 @@ function isTrackableThinkingEvent(type) {
     "execution.incomplete", "execution.blocked",
     "continuation.started", "continuation.completed", "continuation.failed",
     "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error",
+    "edit.failed",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
     "skill_matched", "complete",
     "context_snapshot", "context_compaction_planned", "context_compaction_applied",
@@ -1834,6 +1835,18 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   updateThinkingContextFromEvent(chatState.inflightThinking, entry);
   if (isThinkingPanelActiveForAgent(currentAgentId)) {
     scheduleThinkingPanelRefresh(currentAgentId);
+  }
+
+  if (type === "edit.failed" && chatState.activeRequest?.edit && eventMatchesActiveRequest) {
+    const failureMessage = String(
+      entry?.data?.error
+      || entry?.data?.detail
+      || entry?.data?.incomplete_reason
+      || entry?.data?.message
+      || "regeneration failed"
+    );
+    handleEditedRegenerationFailure(currentAgentId, chatState.activeRequest, failureMessage);
+    return;
   }
 
   if (type === "execution.completed" || type === "execution.failed" || type === "skill_complete" || isCompletion || lifecycleType === "execution.completed" || lifecycleType === "execution.failed") {
@@ -7623,22 +7636,44 @@ function findAssistantAfterEditedUserMessage(messages = [], replacementUserMessa
 
 function getEditedSessionFailureMessage(data = {}) {
   const metadata = data?.metadata && typeof data.metadata === "object" ? data.metadata : {};
+  const runtimeEvents = Array.isArray(metadata.runtime_events)
+    ? metadata.runtime_events
+    : (Array.isArray(data?.runtime_events) ? data.runtime_events : []);
+  const lastEvent = runtimeEvents[runtimeEvents.length - 1] || {};
+  const lastEventData = lastEvent?.data && typeof lastEvent.data === "object" ? lastEvent.data : {};
   const completionState = String(
     data?.completion_state
     || data?.completionState
     || metadata.completion_state
     || metadata.latest_completion_state
+    || lastEvent?.completion_state
+    || lastEvent?.completionState
+    || lastEventData.completion_state
+    || lastEventData.completionState
     || ""
   ).trim().toLowerCase();
-  const eventState = String(metadata.latest_event_state || metadata.event_state || "").trim().toLowerCase();
-  const eventType = String(metadata.latest_event_type || metadata.event_type || "").trim().toLowerCase();
+  const eventState = String(
+    metadata.latest_event_state
+    || metadata.event_state
+    || lastEvent?.state
+    || lastEventData.state
+    || ""
+  ).trim().toLowerCase();
+  const eventType = String(
+    metadata.latest_event_type
+    || metadata.event_type
+    || lastEvent?.type
+    || lastEvent?.event_type
+    || lastEventData.type
+    || lastEventData.event_type
+    || ""
+  ).trim().toLowerCase();
   const failed = (
     data?.success === false
     || data?.ok === false
     || ["error", "failed", "blocked"].includes(completionState)
     || ["error", "failed"].includes(eventState)
-    || eventType === "chat.failed"
-    || eventType === "execution.failed"
+    || ["edit.failed", "chat.failed", "execution.failed", "error"].includes(eventType)
   );
   if (!failed) return "";
   return String(
@@ -7648,6 +7683,14 @@ function getEditedSessionFailureMessage(data = {}) {
     || metadata.error
     || metadata.detail
     || metadata.incomplete_reason
+    || metadata.summary
+    || lastEventData.error
+    || lastEventData.detail
+    || lastEventData.incomplete_reason
+    || lastEventData.message
+    || lastEvent?.error
+    || lastEvent?.detail
+    || lastEvent?.incomplete_reason
     || "regeneration failed"
   );
 }
@@ -7779,13 +7822,28 @@ async function pollEditedSessionUntilComplete(agentId, finalSessionId, requestId
 
   const chatState = ensureChatState(agentId);
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestId) return;
+  const message = "Regeneration is still running or timed out; refresh the session to check the latest result.";
   chatState.needsReload = true;
-  chatState.backgroundStatus = "regenerating";
+  chatState.backgroundStatus = "timeout";
+  const finalPayload = {
+    completion_state: "timeout",
+    incomplete_reason: message,
+    response: message,
+    request_id: requestId,
+    session_id: finalSessionId,
+  };
+  completeEditedMessageRequest(agentId, requestCtx, finalPayload, { status: "timeout" });
   if (state.selectedAgentId === agentId) {
-    setChatStatus("Still regenerating; refresh session to check latest result.");
+    finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload);
+    setChatStatus(message, true);
+    addEditButtonsToMessages();
+    renderIcons();
+    scrollToBottom();
     if (lastError) console.warn("Edit regeneration polling timed out after errors", lastError);
+  } else {
+    if (typeof markAgentUnread === "function") markAgentUnread(agentId, "error");
+    if (typeof renderAgentList === "function") renderAgentList();
   }
-  syncSelectedAgentChatActionControls();
 }
 
 async function retryAssistantMessage(row) {
