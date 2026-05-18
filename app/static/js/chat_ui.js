@@ -270,6 +270,8 @@ const state = {
   eventWsAgentId: null,
   eventWsSessionId: null,
   eventWsRequestId: null,
+  eventWsReconnectTimer: null,
+  eventWsReconnectAttempt: 0,
   isComposingInput: false,
   suggestRequestSeq: 0,
   suggestBlurHideTimer: null,
@@ -1105,7 +1107,11 @@ function getLatestOptimisticUserArticle() {
   return optimistic[optimistic.length - 1] || null;
 }
 
-function disconnectEventSocket() {
+function disconnectEventSocket({ clearReconnect = true } = {}) {
+  if (clearReconnect && state.eventWsReconnectTimer) {
+    clearTimeout(state.eventWsReconnectTimer);
+    state.eventWsReconnectTimer = null;
+  }
   if (state.eventWs) {
     try { state.eventWs.close(); } catch {}
   }
@@ -1177,6 +1183,10 @@ function normalizeRuntimeEvent(payload) {
   if (candidate?.session_id && !mergedData.session_id) mergedData.session_id = candidate.session_id;
   if (candidate?.agent_id && !mergedData.agent_id) mergedData.agent_id = candidate.agent_id;
   if (outerType && !mergedData.outer_event_type) mergedData.outer_event_type = outerType;
+  const metadata = (candidate?.metadata && typeof candidate.metadata === "object")
+    ? candidate.metadata
+    : ((mergedData.metadata && typeof mergedData.metadata === "object") ? mergedData.metadata : {});
+  const replayed = Boolean(candidate?.replayed || mergedData.replayed || metadata.replayed);
 
   let ts = candidate?.ts;
   if (ts == null && candidate?.created_at) {
@@ -1221,6 +1231,10 @@ function normalizeRuntimeEvent(payload) {
     agent_id: candidate?.agent_id || mergedData.agent_id || "",
     ts,
     state: candidate?.state || mergedData.state || "",
+    event_id: candidate?.event_id || candidate?.id || mergedData.event_id || mergedData.id || "",
+    created_at: candidate?.created_at || mergedData.created_at || "",
+    summary: candidate?.summary || mergedData.summary || mergedData.message || "",
+    replayed,
   };
 }
 // RUNTIME_EVENT_HELPER_END: normalizeRuntimeEvent
@@ -1694,12 +1708,19 @@ function mergeThinkingEvents(primaryEvents, secondaryEvents) {
   const second = Array.isArray(secondaryEvents) ? secondaryEvents : [];
   const merged = [];
   const seen = new Set();
-  const add = (event) => {
-    if (!event || typeof event !== "object") return;
+  const dedupKey = (event) => {
     const data = (event.data && typeof event.data === "object") ? event.data : {};
+    const eventId = event.event_id || event.id || data.event_id || data.id || "";
+    if (eventId) return `id:${eventId}`;
     const requestId = event.request_id || data.request_id || "";
     const sessionId = event.session_id || data.session_id || "";
-    const key = `${event.type || ""}|${requestId}|${sessionId}|${JSON.stringify(data)}`;
+    const createdAt = event.created_at || data.created_at || event.ts || "";
+    const summary = event.summary || data.summary || data.message || "";
+    return `${event.type || event.event_type || ""}|${requestId}|${sessionId}|${createdAt}|${summary}`;
+  };
+  const add = (event) => {
+    if (!event || typeof event !== "object") return;
+    const key = dedupKey(event);
     if (seen.has(key)) return;
     seen.add(key);
     merged.push(event);
@@ -1852,7 +1873,28 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   if (!chatState.inflightThinking) return;
   chatState.inflightThinking.lastEventAt = Date.now();
   chatState.inflightThinking.lastEventTs = entry.ts || null;
+  chatState.inflightThinking.lastEventCreatedAt = entry.created_at || "";
   chatState.inflightThinking.status = "connected";
+  const entryDedupKey = (() => {
+    const data = entry.data && typeof entry.data === "object" ? entry.data : {};
+    const eventId = entry.event_id || entry.id || data.event_id || data.id || "";
+    if (eventId) return `id:${eventId}`;
+    const createdAt = entry.created_at || data.created_at || entry.ts || "";
+    const summary = entry.summary || data.summary || data.message || "";
+    return `${entry.type || entry.event_type || ""}|${entry.request_id || data.request_id || ""}|${entry.session_id || data.session_id || ""}|${createdAt}|${summary}`;
+  })();
+  const alreadySeen = (chatState.inflightThinking.events || []).some((event) => {
+    const data = event?.data && typeof event.data === "object" ? event.data : {};
+    const eventId = event?.event_id || event?.id || data.event_id || data.id || "";
+    const key = eventId
+      ? `id:${eventId}`
+      : `${event?.type || event?.event_type || ""}|${event?.request_id || data.request_id || ""}|${event?.session_id || data.session_id || ""}|${event?.created_at || data.created_at || event?.ts || ""}|${event?.summary || data.summary || data.message || ""}`;
+    return key === entryDedupKey;
+  });
+  if (alreadySeen) {
+    if (isThinkingPanelActiveForAgent(currentAgentId)) scheduleThinkingPanelRefresh(currentAgentId);
+    return;
+  }
 
   if (!chatState.inflightThinking.started && type !== "execution.started") {
     chatState.inflightThinking.events.push({
@@ -1909,6 +1951,50 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   }
 }
 
+function hasLiveEventSocketWork(agentId, requestId = "") {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return false;
+  if (chatState.activeRequest) {
+    if (!requestId) return true;
+    return [
+      chatState.activeRequest.clientRequestId,
+      chatState.activeRequest.requestId,
+      chatState.activeRequest.runtimeRequestId,
+    ].map((value) => String(value || "")).includes(String(requestId));
+  }
+  return Boolean(chatState.inflightThinking && chatState.inflightThinking.completed === false);
+}
+
+function updateEventSocketStatus(agentId, status) {
+  const chatState = ensureChatState(agentId);
+  const snapshot = chatState?.inflightThinking || chatState?.lastThinkingSnapshot;
+  if (!snapshot) return;
+  snapshot.connectionStatus = status;
+  snapshot.status = status === "reconnecting" ? "reconnecting" : snapshot.status;
+  if (status === "connected") {
+    snapshot.connectedAt = Date.now();
+  } else if (status === "reconnecting") {
+    snapshot.reconnectingAt = Date.now();
+  } else if (status === "disconnected") {
+    snapshot.disconnectedAt = Date.now();
+  }
+  if (isThinkingPanelActiveForAgent(agentId)) scheduleThinkingPanelRefresh(agentId);
+}
+
+function scheduleEventSocketReconnect(agentId, sessionId, requestId = "") {
+  if (!hasLiveEventSocketWork(agentId, requestId)) return;
+  if (state.eventWsReconnectTimer) clearTimeout(state.eventWsReconnectTimer);
+  const attempt = Math.min(state.eventWsReconnectAttempt || 0, 6);
+  const baseDelay = Math.min(30000, 1000 * (2 ** attempt));
+  const jitter = Math.round(baseDelay * 0.2 * Math.random());
+  state.eventWsReconnectAttempt = attempt + 1;
+  updateEventSocketStatus(agentId, "reconnecting");
+  state.eventWsReconnectTimer = setTimeout(() => {
+    state.eventWsReconnectTimer = null;
+    ensureEventSocketForAgent(agentId, sessionId, requestId || null);
+  }, baseDelay + jitter);
+}
+
 function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
   if (!agentId) return;
   const chatState = ensureChatState(agentId);
@@ -1926,18 +2012,43 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
   const params = new URLSearchParams();
   if (session) params.set("session_id", session);
   if (requestId) params.set("request_id", requestId);
+  params.set("replay", "1");
+  const lastEventAt = chatState?.inflightThinking?.lastEventCreatedAt
+    || chatState?.lastThinkingSnapshot?.lastEventCreatedAt
+    || "";
+  if (lastEventAt) params.set("last_event_at", lastEventAt);
   const query = params.toString();
   const wsUrl = `${protocol}//${window.location.host}/a/${agentId}/api/events${query ? `?${query}` : ""}`;
+  if (state.eventWsReconnectTimer) {
+    clearTimeout(state.eventWsReconnectTimer);
+    state.eventWsReconnectTimer = null;
+  }
   const ws = new WebSocket(wsUrl);
   state.eventWs = ws;
   state.eventWsAgentId = agentId;
   state.eventWsSessionId = session || "";
   state.eventWsRequestId = requestId || "";
+  ws.onopen = () => {
+    state.eventWsReconnectAttempt = 0;
+    updateEventSocketStatus(agentId, "connected");
+  };
   ws.onmessage = (event) => handleAgentEventMessage(event.data, { agentId, sessionId: session, requestId });
   ws.onclose = () => {
-    if (state.eventWs === ws) disconnectEventSocket();
+    if (state.eventWs === ws) {
+      state.eventWs = null;
+      state.eventWsAgentId = null;
+      state.eventWsSessionId = null;
+      state.eventWsRequestId = null;
+      if (hasLiveEventSocketWork(agentId, requestId || "")) {
+        scheduleEventSocketReconnect(agentId, session, requestId || "");
+      } else {
+        updateEventSocketStatus(agentId, "disconnected");
+      }
+    }
   };
-  ws.onerror = () => {};
+  ws.onerror = () => {
+    updateEventSocketStatus(agentId, "reconnecting");
+  };
 }
 
 function ensureEventSocketForSelectedAgent() {

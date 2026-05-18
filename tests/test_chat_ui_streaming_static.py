@@ -70,6 +70,22 @@ def test_chat_started_can_adopt_runtime_request_id():
     assert 'ensureEventSocketForAgent(currentAgentId, entry.session_id || currentSessionId, entry.request_id)' in handle_event
 
 
+def test_events_websocket_uses_replay_reconnect_and_dedup():
+    src = _src()
+    ensure_socket = _extract_js_function(src, "ensureEventSocketForAgent")
+    merge_events = _extract_js_function(src, "mergeThinkingEvents")
+    normalize_event = _extract_js_function(src, "normalizeRuntimeEvent")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    assert 'params.set("replay", "1")' in ensure_socket
+    assert 'last_event_at' in ensure_socket
+    assert 'scheduleEventSocketReconnect(agentId, session, requestId || "")' in ensure_socket
+    assert 'state.eventWsReconnectAttempt' in src
+    assert 'metadata.replayed' in normalize_event
+    assert 'event_id' in normalize_event
+    assert 'const dedupKey = (event) =>' in merge_events
+    assert 'const entryDedupKey = (() =>' in handle_event
+
+
 def test_chat_ui_streaming_does_not_use_eventsource_for_chat_stream():
     src = _src()
     assert 'EventSource(' not in src
