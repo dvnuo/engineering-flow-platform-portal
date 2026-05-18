@@ -35,6 +35,7 @@ def test_thinking_process_view_maps_required_runtime_events():
         ("continuation.max_turns_reached", {}, "warning", "warning", "Max Turns Reached"),
         ("continuation.wall_timeout", {}, "warning", "warning", "Continuation Timeout"),
         ("continuation.no_progress", {}, "warning", "warning", "No Progress"),
+        ("continuation.suppressed", {"metadata": {"reason": "auto_continue_disabled"}}, "warning", "warning", "Continuation suppressed"),
         ("chat.timeout_recovery.started", {}, "running", "warning", "Timeout Recovery Started"),
         ("chat.timeout_recovery.poll", {}, "running", "running", "Timeout Recovery Poll"),
         ("chat.timeout_recovery.recovered", {}, "success", "success", "Timeout Recovery Recovered"),
@@ -61,6 +62,31 @@ def test_thinking_process_view_maps_required_runtime_events():
         assert event["source"] == "runtime"
         assert event["subtitle"] == event["display_detail"]
         assert event["safe_detail_payload"]["event_type"] == event_type
+
+
+def test_thinking_process_view_maps_continuation_suppressed_summary_and_metadata():
+    view = build_thinking_process_view({
+        "runtime_events": [
+            _event(
+                "continuation.suppressed",
+                {},
+                summary="Timeout recovery exhausted while runtime is still running",
+                metadata={
+                    "reason": "auto_continue_disabled",
+                    "authorization": "Bearer hidden",
+                },
+            )
+        ],
+    })
+
+    event = view["events"][0]
+    assert event["type"] == "continuation.suppressed"
+    assert event["display_title"] == "Continuation suppressed"
+    assert event["display_detail"] == "Timeout recovery exhausted while runtime is still running"
+    assert event["kind"] == "warning"
+    assert event["severity"] == "warning"
+    assert event["safe_detail_payload"]["metadata"]["reason"] == "auto_continue_disabled"
+    assert event["safe_detail_payload"]["metadata"]["authorization"] == "[redacted]"
 
 
 def test_thinking_process_view_normalizes_runtime_event_aliases():

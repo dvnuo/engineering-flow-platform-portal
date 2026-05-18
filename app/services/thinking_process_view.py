@@ -216,6 +216,7 @@ def _build_thinking_event_display(event_type: str, data: dict) -> dict:
         "continuation.max_turns_reached": _display(icon="alert-triangle", title="Max Turns Reached", detail=data.get("message") or "Continuation reached max turns", kind="warning"),
         "continuation.wall_timeout": _display(icon="clock", title="Continuation Timeout", detail=data.get("message") or "Continuation hit wall timeout", kind="warning"),
         "continuation.no_progress": _display(icon="alert-triangle", title="No Progress", detail=data.get("message") or "Continuation stopped without progress", kind="warning"),
+        "continuation.suppressed": _display(icon="alert-triangle", title="Continuation suppressed", detail=_first_text(data.get("summary"), _as_dict(data.get("metadata")).get("reason"), data.get("reason"), data.get("message"), "Continuation suppressed"), kind="warning"),
         "chat.timeout_recovery.started": _display(icon="clock", title="Timeout Recovery Started", detail=data.get("message") or "Runtime started timeout recovery", kind="running", severity="warning"),
         "chat.timeout_recovery.poll": _display(icon="activity", title="Timeout Recovery Poll", detail=data.get("message") or "Polling runtime recovery", kind="running"),
         "chat.timeout_recovery.recovered": _display(icon="check-circle-2", title="Timeout Recovery Recovered", detail=data.get("message") or "Runtime recovered", kind="success"),
@@ -561,7 +562,12 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
             agent_id = event.get("agent_id") or data.get("agent_id") or ""
             metadata = _as_dict(event.get("metadata")) or _as_dict(data.get("metadata"))
             event_source = "replay" if event.get("replayed") or data.get("replayed") or metadata.get("replayed") else source_name
-            display = _build_thinking_event_display(event_type, data)
+            display_data = dict(data)
+            if event.get("summary") and not display_data.get("summary"):
+                display_data["summary"] = event.get("summary")
+            if metadata and not display_data.get("metadata"):
+                display_data["metadata"] = metadata
+            display = _build_thinking_event_display(event_type, display_data)
             safe_detail_data = {
                 "event_type": event_type,
                 **data,

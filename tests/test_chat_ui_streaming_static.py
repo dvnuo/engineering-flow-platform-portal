@@ -54,6 +54,7 @@ def test_chat_ui_streaming_supports_opencode_runtime_event_types():
         'continuation.max_turns_reached',
         'continuation.wall_timeout',
         'continuation.no_progress',
+        'continuation.suppressed',
         'chat.timeout_recovery.started',
         'chat.timeout_recovery.poll',
         'chat.timeout_recovery.recovered',
@@ -142,19 +143,50 @@ def test_chat_stream_main_path_does_not_use_tasks():
     assert "task mode" not in submit_stream.lower()
 
 
+def test_opencode_long_chat_does_not_use_task_mode_or_direct_opencode():
+    src = _src()
+    proxy_src = Path("app/api/proxy.py").read_text(encoding="utf-8")
+    submit_stream = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+
+    assert "`/a/${agentIdAtSend}/api/chat/stream`" in submit_stream
+    for forbidden in [
+        "/api/tasks",
+        "task mode",
+        ":4096",
+        "localhost:4096",
+        "127.0.0.1:4096",
+    ]:
+        assert forbidden not in submit_stream
+    assert "/api/tasks" not in submit_chat
+    assert ":4096" not in proxy_src
+    assert "localhost:4096" not in proxy_src
+    assert "127.0.0.1:4096" not in proxy_src
+    assert "def _is_control_plane_only_runtime_path" in proxy_src
+    assert "if _is_control_plane_only_runtime_path(subpath):" in proxy_src
+    assert "Runtime internal endpoints are not exposed via the user-facing Portal proxy." in proxy_src
+
+
 def test_runtime_events_append_to_live_timeline_before_final():
     src = _src()
     trackable = _extract_js_function(src, "isTrackableThinkingEvent")
     handle_event = _extract_js_function(src, "handleAgentEventMessage")
     render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    display = _extract_js_function(src, "getThinkingEventDisplay")
     for event_type in [
         "continuation.prompt_sent",
         "continuation.no_progress",
+        "continuation.suppressed",
         "chat.timeout_recovery.exhausted",
         "final",
     ]:
         assert event_type in trackable
+    assert '"continuation.suppressed"' in display
+    assert "Continuation suppressed" in display
+    assert "data.metadata?.reason" in display
     assert "chatState.inflightThinking.events.push(entry)" in handle_event
+    terminal_clause = handle_event[handle_event.rfind('if (type === "execution.completed"'):]
+    assert "continuation.suppressed" not in terminal_clause
     assert "visibleEvents.map((event) =>" in render_panel
     assert "getThinkingEventDisplay(event)" in render_panel
     assert "portal-completion-banner" in render_panel
