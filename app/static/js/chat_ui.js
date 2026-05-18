@@ -1121,7 +1121,21 @@ function disconnectEventSocket({ clearReconnect = true } = {}) {
   state.eventWsRequestId = null;
 }
 
+function normalizeRuntimeEventTypeAlias(type) {
+  const normalized = String(type || "").trim();
+  const aliases = {
+    "continuation.no_progress_timeout": "continuation.no_progress",
+    "chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted",
+    "timeout_recovery.started": "chat.timeout_recovery.started",
+    "timeout_recovery.poll": "chat.timeout_recovery.poll",
+    "timeout_recovery.recovered": "chat.timeout_recovery.recovered",
+    "timeout_recovery.exhausted": "chat.timeout_recovery.exhausted",
+  };
+  return aliases[normalized] || normalized;
+}
+
 function isTrackableThinkingEvent(type) {
+  const normalizedType = normalizeRuntimeEventTypeAlias(type);
   return [
     "stream.started",
     "chat.started", "heartbeat", "status",
@@ -1129,7 +1143,7 @@ function isTrackableThinkingEvent(type) {
     "execution.incomplete", "execution.blocked",
     "continuation.started", "continuation.prompt_sent", "continuation.completed", "continuation.failed",
     "continuation.max_turns_reached", "continuation.wall_timeout", "continuation.no_progress",
-    "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error",
+    "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error", "final",
     "chat.timeout_recovery.started", "chat.timeout_recovery.poll", "chat.timeout_recovery.recovered", "chat.timeout_recovery.exhausted",
     "edit.failed",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
@@ -1150,7 +1164,7 @@ function isTrackableThinkingEvent(type) {
     "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "opencode.raw",
     "portal.waiting_for_runtime_events", "portal.stream_disconnected",
     "skill.loaded", "task.started", "task.completed", "usage.updated"
-  ].includes(type);
+  ].includes(normalizedType);
 }
 
 // RUNTIME_EVENT_HELPER_START: normalizeRuntimeEvent
@@ -1163,9 +1177,10 @@ function normalizeRuntimeEvent(payload) {
   const outerType = String(candidate?.event_type || candidate?.type || "").toLowerCase();
   const baseData = (candidate?.data && typeof candidate.data === "object") ? candidate.data : {};
   const embeddedType = String(baseData.event_type || baseData.type || baseData.event || "").toLowerCase();
-  const rawType = (wrapperTypes.has(outerType) && embeddedType)
+  const rawTypeValue = (wrapperTypes.has(outerType) && embeddedType)
     ? embeddedType
     : (candidate?.event_type || candidate?.type || "");
+  const rawType = normalizeRuntimeEventTypeAlias(rawTypeValue);
   if (!rawType) return null;
 
   const detailPayload = (candidate?.detail_payload && typeof candidate.detail_payload === "object")
@@ -1183,6 +1198,7 @@ function normalizeRuntimeEvent(payload) {
   if (candidate?.session_id && !mergedData.session_id) mergedData.session_id = candidate.session_id;
   if (candidate?.agent_id && !mergedData.agent_id) mergedData.agent_id = candidate.agent_id;
   if (outerType && !mergedData.outer_event_type) mergedData.outer_event_type = outerType;
+  if (rawTypeValue && rawTypeValue !== rawType && !mergedData.raw_event_type) mergedData.raw_event_type = rawTypeValue;
   const metadata = (candidate?.metadata && typeof candidate.metadata === "object")
     ? candidate.metadata
     : ((mergedData.metadata && typeof mergedData.metadata === "object") ? mergedData.metadata : {});
@@ -1222,7 +1238,7 @@ function normalizeRuntimeEvent(payload) {
 
   return {
     type: normalizedType,
-    raw_type: rawType,
+    raw_type: rawTypeValue || rawType,
     lifecycle_type: lifecycleType,
     data: mergedData,
     outer_event_type: outerType,
@@ -1231,7 +1247,8 @@ function normalizeRuntimeEvent(payload) {
     agent_id: candidate?.agent_id || mergedData.agent_id || "",
     ts,
     state: candidate?.state || mergedData.state || "",
-    event_id: candidate?.event_id || candidate?.id || mergedData.event_id || mergedData.id || "",
+    event_id: candidate?.runtime_event_id || candidate?.event_id || candidate?.id || mergedData.runtime_event_id || mergedData.event_id || mergedData.id || "",
+    runtime_event_id: candidate?.runtime_event_id || mergedData.runtime_event_id || "",
     created_at: candidate?.created_at || mergedData.created_at || "",
     summary: candidate?.summary || mergedData.summary || mergedData.message || "",
     replayed,
@@ -1247,7 +1264,7 @@ function isCompletionRuntimeState(state) {
 // RUNTIME_EVENT_HELPER_END: completionRuntimeState
 
 function getThinkingEventDisplay(event) {
-  const type = event?.type || "event";
+  const type = normalizeRuntimeEventTypeAlias(event?.type || "event");
   const data = event?.data || {};
   const contextBudget = (data.budget && typeof data.budget === "object")
     ? data.budget
@@ -1344,6 +1361,7 @@ function getThinkingEventDisplay(event) {
     "chat.empty_final": { icon: "alert-triangle", title: "Empty Final", detail: data.message || "Empty final response" },
     "chat.failed": { icon: "x-circle", title: "Chat Failed", detail: data.error || data.message || "Chat failed" },
     "chat.completed": { icon: "check-circle-2", title: "Chat Completed", detail: data.message || "Chat completed" },
+    final: { icon: "flag", title: "Final", detail: data.incomplete_reason || data.message || data.completion_state || "Final response received" },
     "chat.timeout_recovery.started": { icon: "clock-alert", title: "Timeout Recovery Started", detail: data.message || "Runtime started timeout recovery" },
     "chat.timeout_recovery.poll": { icon: "activity", title: "Timeout Recovery Poll", detail: data.message || "Polling runtime recovery" },
     "chat.timeout_recovery.recovered": { icon: "check-circle-2", title: "Timeout Recovery Recovered", detail: data.message || "Runtime recovered" },
@@ -1671,7 +1689,7 @@ function renderThinkingPanelFromClientState(chatState) {
       ? `<details class="portal-event-detail"><summary>Details</summary><pre class="portal-panel-pre">${safe(detailText)}</pre></details>`
       : "";
     const kind = String(event.kind || view.kind || "").trim().toLowerCase();
-    const running = kind === "running" || ["tool.started", "continuation.started", "chat.timeout_recovery.started", "heartbeat"].includes(event.type);
+    const running = kind === "running" || ["tool.started", "continuation.started", "continuation.prompt_sent", "chat.timeout_recovery.started", "chat.timeout_recovery.poll", "heartbeat"].includes(event.type);
     const replayed = Boolean(event.replayed);
     const badges = [
       running ? '<span class="portal-live-chip is-running">Running</span>' : "",
@@ -1799,24 +1817,58 @@ async function openThinkingProcessPanel() {
   await loadPersistedThinkingPanel(currentSessionId);
 }
 
+function runtimeEventSummaryHash(value) {
+  const text = String(value || "");
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function runtimeEventUniqueId(event) {
+  const data = (event?.data && typeof event.data === "object") ? event.data : {};
+  return String(
+    event?.runtime_event_id
+    || event?.event_id
+    || event?.id
+    || data.runtime_event_id
+    || data.event_id
+    || data.id
+    || ""
+  );
+}
+
+function runtimeEventDedupKey(event) {
+  if (!event || typeof event !== "object") return "";
+  const data = (event.data && typeof event.data === "object") ? event.data : {};
+  const eventId = runtimeEventUniqueId(event);
+  if (eventId) return `id:${eventId}`;
+  const eventType = normalizeRuntimeEventTypeAlias(event.type || event.event_type || data.type || data.event_type || "");
+  const createdAt = event.created_at || data.created_at || event.ts || "";
+  const summary = event.summary || data.summary || data.message || "";
+  return `${eventType}|${createdAt}|${runtimeEventSummaryHash(summary)}`;
+}
+
 function mergeThinkingEvents(primaryEvents, secondaryEvents) {
   const first = Array.isArray(primaryEvents) ? primaryEvents : [];
   const second = Array.isArray(secondaryEvents) ? secondaryEvents : [];
   const merged = [];
   const seen = new Set();
-  const dedupKey = (event) => {
-    const data = (event.data && typeof event.data === "object") ? event.data : {};
-    const eventId = event.event_id || event.id || data.event_id || data.id || "";
-    if (eventId) return `id:${eventId}`;
-    const requestId = event.request_id || data.request_id || "";
-    const sessionId = event.session_id || data.session_id || "";
-    const createdAt = event.created_at || data.created_at || event.ts || "";
-    const summary = event.summary || data.summary || data.message || "";
-    return `${event.type || event.event_type || ""}|${requestId}|${sessionId}|${createdAt}|${summary}`;
-  };
+  const localRuntimeEventDedupKey = (typeof runtimeEventDedupKey === "function")
+    ? runtimeEventDedupKey
+    : (event) => {
+      const data = (event?.data && typeof event.data === "object") ? event.data : {};
+      const eventId = event?.runtime_event_id || event?.event_id || event?.id || data.runtime_event_id || data.event_id || data.id || "";
+      if (eventId) return `id:${eventId}`;
+      const createdAt = event?.created_at || data.created_at || event?.ts || "";
+      const summary = event?.summary || data.summary || data.message || "";
+      return `${event?.type || event?.event_type || ""}|${createdAt}|${summary}`;
+    };
   const add = (event) => {
     if (!event || typeof event !== "object") return;
-    const key = dedupKey(event);
+    const key = localRuntimeEventDedupKey(event);
     if (seen.has(key)) return;
     seen.add(key);
     merged.push(event);
@@ -1971,20 +2023,9 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   chatState.inflightThinking.lastEventTs = entry.ts || null;
   chatState.inflightThinking.lastEventCreatedAt = entry.created_at || "";
   chatState.inflightThinking.status = "connected";
-  const entryDedupKey = (() => {
-    const data = entry.data && typeof entry.data === "object" ? entry.data : {};
-    const eventId = entry.event_id || entry.id || data.event_id || data.id || "";
-    if (eventId) return `id:${eventId}`;
-    const createdAt = entry.created_at || data.created_at || entry.ts || "";
-    const summary = entry.summary || data.summary || data.message || "";
-    return `${entry.type || entry.event_type || ""}|${entry.request_id || data.request_id || ""}|${entry.session_id || data.session_id || ""}|${createdAt}|${summary}`;
-  })();
+  const entryDedupKey = runtimeEventDedupKey(entry);
   const alreadySeen = (chatState.inflightThinking.events || []).some((event) => {
-    const data = event?.data && typeof event.data === "object" ? event.data : {};
-    const eventId = event?.event_id || event?.id || data.event_id || data.id || "";
-    const key = eventId
-      ? `id:${eventId}`
-      : `${event?.type || event?.event_type || ""}|${event?.request_id || data.request_id || ""}|${event?.session_id || data.session_id || ""}|${event?.created_at || data.created_at || event?.ts || ""}|${event?.summary || data.summary || data.message || ""}`;
+    const key = runtimeEventDedupKey(event);
     return key === entryDedupKey;
   });
   if (alreadySeen) {

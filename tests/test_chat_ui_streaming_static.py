@@ -32,24 +32,68 @@ def test_chat_ui_streaming_supports_opencode_runtime_event_types():
     for event_type in [
         'chat.started',
         'heartbeat',
+        'status',
         'llm_thinking',
         'message.delta',
         'tool.started',
         'tool.completed',
         'tool.failed',
+        'tool_call',
+        'tool_result',
         'permission_request',
         'permission_resolved',
+        'permission.denied',
+        'permission.allowed',
         'provider.retry',
+        'provider.rate_limit',
+        'model.retry',
         'continuation.started',
+        'continuation.prompt_sent',
         'continuation.completed',
         'continuation.failed',
+        'continuation.max_turns_reached',
+        'continuation.wall_timeout',
+        'continuation.no_progress',
         'chat.timeout_recovery.started',
         'chat.timeout_recovery.poll',
         'chat.timeout_recovery.recovered',
+        'chat.timeout_recovery.exhausted',
         'chat.incomplete',
         'chat.failed',
+        'final',
     ]:
         assert event_type in src
+
+
+def test_runtime_event_aliases_and_dedup_are_handled_by_helpers():
+    src = _src()
+    alias_helper = _extract_js_function(src, "normalizeRuntimeEventTypeAlias")
+    normalize_event = _extract_js_function(src, "normalizeRuntimeEvent")
+    dedup_id = _extract_js_function(src, "runtimeEventUniqueId")
+    dedup_key = _extract_js_function(src, "runtimeEventDedupKey")
+    merge_events = _extract_js_function(src, "mergeThinkingEvents")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+
+    for marker in [
+        '"continuation.no_progress_timeout": "continuation.no_progress"',
+        '"chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted"',
+        '"timeout_recovery.started": "chat.timeout_recovery.started"',
+        '"timeout_recovery.poll": "chat.timeout_recovery.poll"',
+        '"timeout_recovery.recovered": "chat.timeout_recovery.recovered"',
+        '"timeout_recovery.exhausted": "chat.timeout_recovery.exhausted"',
+    ]:
+        assert marker in alias_helper
+
+    assert "normalizeRuntimeEventTypeAlias(rawTypeValue)" in normalize_event
+    assert "runtime_event_id" in dedup_id
+    assert "event?.runtime_event_id" in dedup_id
+    assert "data.runtime_event_id" in dedup_id
+    assert "runtimeEventSummaryHash(summary)" in dedup_key
+    assert "const createdAt = event.created_at || data.created_at || event.ts || \"\"" in dedup_key
+    assert "const eventType = normalizeRuntimeEventTypeAlias" in dedup_key
+    assert "const localRuntimeEventDedupKey" in merge_events
+    assert "localRuntimeEventDedupKey(event)" in merge_events
+    assert "runtimeEventDedupKey(entry)" in handle_event
 
 
 def test_chat_stream_heartbeat_updates_live_thinking_state():
@@ -82,8 +126,38 @@ def test_events_websocket_uses_replay_reconnect_and_dedup():
     assert 'state.eventWsReconnectAttempt' in src
     assert 'metadata.replayed' in normalize_event
     assert 'event_id' in normalize_event
-    assert 'const dedupKey = (event) =>' in merge_events
-    assert 'const entryDedupKey = (() =>' in handle_event
+    assert 'runtime_event_id' in normalize_event
+    assert 'localRuntimeEventDedupKey(event)' in merge_events
+    assert 'const entryDedupKey = runtimeEventDedupKey(entry);' in handle_event
+
+
+def test_chat_stream_main_path_does_not_use_tasks():
+    src = _src()
+    submit_stream = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+
+    assert "`/a/${agentIdAtSend}/api/chat/stream`" in submit_stream
+    assert "/api/tasks" not in submit_stream
+    assert "/api/tasks" not in submit_chat
+    assert "task mode" not in submit_stream.lower()
+
+
+def test_runtime_events_append_to_live_timeline_before_final():
+    src = _src()
+    trackable = _extract_js_function(src, "isTrackableThinkingEvent")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    for event_type in [
+        "continuation.prompt_sent",
+        "continuation.no_progress",
+        "chat.timeout_recovery.exhausted",
+        "final",
+    ]:
+        assert event_type in trackable
+    assert "chatState.inflightThinking.events.push(entry)" in handle_event
+    assert "visibleEvents.map((event) =>" in render_panel
+    assert "getThinkingEventDisplay(event)" in render_panel
+    assert "portal-completion-banner" in render_panel
 
 
 def test_live_thinking_panel_renders_status_banner_and_safe_details():
