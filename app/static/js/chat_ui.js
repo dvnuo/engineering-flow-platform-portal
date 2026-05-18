@@ -4405,8 +4405,11 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
     ? finalizeNonSuccessChatResponse
     : (agentId, ctx, payload, source) => handleIncompleteChatStream(agentId, ctx, source || "non_success", payload);
-  const localParseSseEventsFromChunk = (typeof parseSseEventsFromChunk === "function")
-    ? parseSseEventsFromChunk
+  const parseSseEventsFromChunk = (
+    typeof globalThis !== "undefined"
+    && typeof globalThis.parseSseEventsFromChunk === "function"
+  )
+    ? globalThis.parseSseEventsFromChunk
     : (currentBuffer, chunkText) => {
       const combined = `${currentBuffer || ""}${chunkText || ""}`;
       const parts = combined.split(/\r?\n\r?\n/);
@@ -4417,7 +4420,7 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   const reader = resp.body.getReader(); const decoder = new TextDecoder();
   let buffer=''; let sawEvent=false; let sawFinal=false; let sawError=false;
   const flushChunk = async (chunkText) => {
-    const parsedBatch = localParseSseEventsFromChunk(buffer, chunkText);
+    const parsedBatch = parseSseEventsFromChunk(buffer, chunkText);
     buffer = parsedBatch.buffer;
     for (const parsed of parsedBatch.events) {
       sawEvent = true;
