@@ -103,14 +103,23 @@ def _extract_message_edit_submit_handler(js_text: str) -> str:
     return js_text[start:body_end + 1]
 
 
-def _run_message_edit_handler_with_payload(edit_payload: str, fallback_payload: str = "null") -> dict:
+def _run_message_edit_handler_with_payload(
+    edit_payload: str,
+    *,
+    ok: bool = True,
+    status_code: int = 200,
+) -> dict:
     handler = _extract_message_edit_submit_handler(_src())
     script = f"""
 const events = {{}};
+const optimisticArticles = [];
+const appendedHtml = [];
 const elements = {{
   "message-edit-form": {{
     dataset: {{}},
     addEventListener(type, callback) {{ events[type] = callback; }},
+    removeAttribute(name) {{ delete this[name]; }},
+    setAttribute(name, value) {{ this[name] = value; }},
   }},
   "edit-message-id": {{ value: "u-2" }},
   "edit-message-content": {{ value: "how are u??" }},
@@ -125,14 +134,31 @@ const elements = {{
 const document = {{
   getElementById(id) {{ return elements[id] || null; }},
 }};
+const dom = {{
+  chatModelSelect: {{ value: "" }},
+  messageList: {{
+    insertAdjacentHTML(_position, html) {{
+      appendedHtml.push(html);
+      if (html.includes("message-surface-user")) {{
+        optimisticArticles.push({{
+          dataset: {{ localUser: "1", optimisticUser: "1" }},
+          closest() {{ return null; }},
+        }});
+      }}
+    }},
+  }},
+}};
 const state = {{ selectedAgentId: "agent-1" }};
-const chatState = {{ modelOverride: "" }};
+const chatState = {{ sessionId: "s1", modelOverride: "" }};
 const fetchCalls = [];
-const agentApiCalls = [];
 const renderCalls = [];
 const submitCalls = [];
 const truncateCalls = [];
 const chatSubmittingValues = [];
+const beginCalls = [];
+const endCalls = [];
+const eventSocketCalls = [];
+const pollCalls = [];
 let status = [];
 let toast = [];
 let closed = false;
@@ -140,14 +166,18 @@ let updatedSession = null;
 let lastSession = null;
 let controlsSynced = 0;
 let editPayload = {edit_payload};
-let fallbackPayload = {fallback_payload};
 
-function makeJsonResponse(payload, ok = true, status = 200) {{
+Object.defineProperty(globalThis, "crypto", {{
+  value: {{ randomUUID() {{ return "req-client-1"; }} }},
+  configurable: true,
+}});
+
+function makeJsonResponse(payload, responseOk = true, responseStatus = 200) {{
   return {{
-    ok,
-    status,
+    ok: responseOk,
+    status: responseStatus,
     headers: {{ get() {{ return "application/json"; }} }},
-    clone() {{ return makeJsonResponse(payload, ok, status); }},
+    clone() {{ return makeJsonResponse(payload, responseOk, responseStatus); }},
     async json() {{ return payload; }},
     async text() {{ return JSON.stringify(payload); }},
   }};
@@ -161,30 +191,35 @@ function guardNoActiveChatRequestForAgent(agentId, actionLabel) {{
   if (actionLabel !== "edit a message") throw new Error("unexpected guard label " + actionLabel);
   return true;
 }}
-function beginSingleSubmit() {{ return true; }}
-function endSingleSubmit() {{}}
+function beginSingleSubmit(_form, options) {{ beginCalls.push(options); return true; }}
+function endSingleSubmit(_form, options) {{ endCalls.push(options); }}
 function setChatStatus(value, isError = false) {{ status.push({{ value, isError }}); }}
 function setChatSubmittingForAgent(agentId, active) {{
   if (agentId !== "agent-1") throw new Error("unexpected submitting agent " + agentId);
   chatSubmittingValues.push(active);
+  chatState.isSubmitting = active;
 }}
 async function fetch(url, options) {{
   fetchCalls.push({{ url, options, body: JSON.parse(options.body) }});
-  return makeJsonResponse(editPayload);
+  return makeJsonResponse(editPayload, {str(ok).lower()}, {status_code});
 }}
 function closeEditMessageModal() {{ closed = true; }}
-function updateAgentSession(agentId, sessionId) {{ updatedSession = {{ agentId, sessionId }}; }}
+function updateAgentSession(agentId, sessionId) {{ updatedSession = {{ agentId, sessionId }}; chatState.sessionId = sessionId; }}
 function setLastSessionId(agentId, sessionId) {{ lastSession = {{ agentId, sessionId }}; }}
 function renderChatHistory(messages, metadata = {{}}) {{ renderCalls.push({{ messages, metadata }}); }}
-async function agentApiFor(agentId, path) {{
-  agentApiCalls.push({{ agentId, path }});
-  return fallbackPayload;
-}}
+function removeWelcomeMessageIfPresent() {{}}
+function buildUserMessageArticle(text) {{ return `<div class="message-row-user"><article class="message-surface-user" data-local-user="1" data-optimistic-user="1">${{text}}</article></div>`; }}
+function buildPendingAssistantArticle(requestId, text) {{ return `<div class="message-row-assistant"><article class="pending-assistant" data-client-request-id="${{requestId}}">${{text}}</article></div>`; }}
+function getLatestOptimisticUserArticle() {{ return optimisticArticles[optimisticArticles.length - 1] || null; }}
 function addEditButtonsToMessages() {{}}
 function renderIcons() {{}}
 function scrollToBottom() {{}}
+function ensureEventSocketForAgent(agentId, sessionId, requestId) {{ eventSocketCalls.push({{ agentId, sessionId, requestId }}); }}
+function pollEditedSessionUntilComplete(agentId, sessionId, requestId, replacementUserMessageId, options) {{ pollCalls.push({{ agentId, sessionId, requestId, replacementUserMessageId, hasRequestCtx: !!options.requestCtx }}); }}
 function showToast(value) {{ toast.push(value); }}
 async function handleErrorResponse() {{ return "handled error"; }}
+function getRuntimeMutationErrorMessage(_response, result, fallbackMessage) {{ return result?.detail || result?.error || fallbackMessage; }}
+function handleEditedRegenerationFailure(_agentId, _requestCtx, message) {{ toast.push("post-accepted failure: " + message); }}
 async function submitChatForSelectedAgent() {{
   submitCalls.push(true);
   throw new Error("submitChatForSelectedAgent should not be called by edit handler");
@@ -201,36 +236,44 @@ function syncSelectedAgentChatActionControls() {{ controlsSynced += 1; }}
   await events.submit({{ preventDefault() {{}}, currentTarget: elements["message-edit-form"] }});
   console.log(JSON.stringify({{
     fetchCalls,
-    agentApiCalls,
     renderCalls,
     submitCalls,
     truncateCalls,
     chatSubmittingValues,
+    beginCalls,
+    endCalls,
     status,
     toast,
     closed,
     updatedSession,
     lastSession,
     hiddenSessionValue: elements["chat-session-id"].value,
-    modalAriaHidden: elements["message-edit-modal"]["aria-hidden"],
+    modalAriaHidden: elements["message-edit-modal"]["aria-hidden"] || null,
     controlsSynced,
+    appendedHtml,
+    optimisticMessageId: optimisticArticles[0]?.dataset?.messageId || "",
+    eventSocketCalls,
+    pollCalls,
+    activeRequest: chatState.activeRequest || null,
+    inflightThinking: chatState.inflightThinking || null,
   }}));
 }})();
 """
     return _run_node(script)
 
 
-def test_message_edit_handler_uses_runtime_edit_endpoint():
+def test_message_edit_handler_uses_async_endpoint():
     handler = _extract_message_edit_submit_handler(_src())
 
-    assert "/messages/${encodeURIComponent(messageId)}/edit" in handler
+    assert "/messages/${encodeURIComponent(messageId)}/edit/async" in handler
     assert 'method: "POST"' in handler
     assert '"Content-Type": "application/json"' in handler
+    assert "request_id" in handler
     assert "content: newContent" in handler
     assert "delete-from-here" not in handler
     assert "truncateDomFromUserArticle" not in handler
-    assert "dom.chatInput.value = newContent" not in handler
     assert "submitChatForSelectedAgent()" not in handler
+    assert 'pendingText: "Editing..."' not in handler
 
 
 def test_message_edit_handler_does_not_replace_regular_submit_flow():
@@ -242,69 +285,212 @@ def test_message_edit_handler_does_not_replace_regular_submit_flow():
     assert "submitChatForSelectedAgent()" not in handler
 
 
-def test_message_edit_handler_renders_runtime_source_of_truth_messages():
-    handler = _extract_message_edit_submit_handler(_src())
-
-    assert "Array.isArray(result.messages)" in handler
-    assert "renderChatHistory(result.messages)" in handler
-    assert "updateAgentSession(agentId, finalSessionId)" in handler
-    assert "setLastSessionId(agentId, finalSessionId)" in handler
-    assert "agentApiFor(agentId, `/api/sessions/${encodeURIComponent(finalSessionId)}`)" in handler
-
-
-def test_message_edit_handler_runtime_success_renders_four_returned_messages():
-    returned_messages = [
+def test_accepted_response_closes_modal_before_llm_final_and_appends_pending_ui():
+    prefix_messages = [
         {"role": "user", "content": "hi", "id": "u-1"},
         {"role": "assistant", "content": "hi, how can i help", "id": "a-1"},
-        {"role": "user", "content": "how are u??", "id": "u-2b"},
-        {"role": "assistant", "content": "doing well，how can i help?", "id": "a-2b"},
     ]
     data = _run_message_edit_handler_with_payload(
-        json.dumps({"success": True, "session_id": "s1", "messages": returned_messages})
+        json.dumps({
+            "success": True,
+            "accepted": True,
+            "async": True,
+            "completion_state": "pending",
+            "session_id": "s1",
+            "request_id": "req-edit-1",
+            "replacement_user_message_id": "u-2b",
+            "messages": prefix_messages,
+        })
     )
 
     assert len(data["fetchCalls"]) == 1
     fetch_call = data["fetchCalls"][0]
-    assert fetch_call["url"] == "/a/agent-1/api/sessions/s1/messages/u-2/edit"
+    assert fetch_call["url"] == "/a/agent-1/api/sessions/s1/messages/u-2/edit/async"
     assert fetch_call["options"]["method"] == "POST"
-    assert fetch_call["body"] == {"content": "how are u??"}
+    assert fetch_call["body"]["content"] == "how are u??"
+    assert fetch_call["body"]["request_id"] == "req-client-1"
 
-    assert data["agentApiCalls"] == []
+    assert data["closed"] is True
+    assert data["modalAriaHidden"] == "true"
+    assert data["renderCalls"] == [{"messages": prefix_messages, "metadata": {}}]
+    assert any("how are u??" in html for html in data["appendedHtml"])
+    assert any("Regenerating response..." in html for html in data["appendedHtml"])
+    assert data["optimisticMessageId"] == "u-2b"
+    assert data["chatSubmittingValues"] == [True]
+    assert data["status"][-1] == {"value": "Regenerating response...", "isError": False}
     assert data["submitCalls"] == []
     assert data["truncateCalls"] == []
-    assert len(data["renderCalls"]) == 1
-    rendered = data["renderCalls"][0]["messages"]
-    assert rendered == returned_messages
-    assert len(rendered) == 4
-    assert rendered[1] == {"role": "assistant", "content": "hi, how can i help", "id": "a-1"}
+    assert data["eventSocketCalls"] == [{"agentId": "agent-1", "sessionId": "s1", "requestId": "req-edit-1"}]
+    assert data["pollCalls"] == [{
+        "agentId": "agent-1",
+        "sessionId": "s1",
+        "requestId": "req-edit-1",
+        "replacementUserMessageId": "u-2b",
+        "hasRequestCtx": True,
+    }]
+    assert data["activeRequest"]["clientRequestId"] == "req-edit-1"
+    assert data["activeRequest"]["edit"] is True
+    assert data["inflightThinking"]["completed"] is False
+    assert data["beginCalls"][0]["pendingText"] == "Saving..."
+    assert len(data["endCalls"]) == 1
+
+
+def test_accepted_before_completion_does_not_require_full_assistant_messages():
+    data = _run_message_edit_handler_with_payload(
+        json.dumps({
+            "success": True,
+            "accepted": True,
+            "async": True,
+            "completion_state": "pending",
+            "session_id": "s1",
+            "request_id": "req-edit-1",
+            "replacement_user_message_id": "u-2b",
+            "messages": [
+                {"role": "user", "content": "hi", "id": "u-1"},
+                {"role": "assistant", "content": "hi, how can i help", "id": "a-1"},
+            ],
+        })
+    )
+
     assert data["closed"] is True
-    assert data["updatedSession"] == {"agentId": "agent-1", "sessionId": "s1"}
-    assert data["lastSession"] == {"agentId": "agent-1", "sessionId": "s1"}
-    assert data["hiddenSessionValue"] == "s1"
     assert data["modalAriaHidden"] == "true"
-    assert data["chatSubmittingValues"] == [True, False]
+    assert len(data["renderCalls"][0]["messages"]) == 2
+    assert any("Regenerating response..." in html for html in data["appendedHtml"])
+    assert data["chatSubmittingValues"] == [True]
 
 
-def test_message_edit_handler_fallback_reload_renders_session_messages():
-    fallback_messages = [
+def test_accepted_then_polling_completion_renders_final_messages_and_clears_busy():
+    source = _src()
+    helper_names = [
+        "getRuntimeMessageId",
+        "isRenderableAssistantSessionMessage",
+        "sessionMessageRequestId",
+        "findAssistantAfterEditedUserMessage",
+        "getEditedSessionFailureMessage",
+        "shouldRenderEditedSessionForAgent",
+        "completeEditedMessageRequest",
+        "handleEditedRegenerationFailure",
+        "finalizeEditedSessionMessages",
+        "pollEditedSessionUntilComplete",
+    ]
+    helpers = "\n".join(_extract_js_function(source, name) for name in helper_names)
+    final_messages = [
         {"role": "user", "content": "hi", "id": "u-1"},
-        {"role": "assistant", "content": "hi, how can i help", "id": "a-1"},
+        {"role": "assistant", "content": "hi how can i help", "id": "a-1"},
         {"role": "user", "content": "how are u??", "id": "u-2b"},
         {"role": "assistant", "content": "doing well，how can i help?", "id": "a-2b"},
     ]
+    script = f"""
+const EDITED_MESSAGE_POLL_INTERVAL_MS = 2000;
+const EDITED_MESSAGE_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+const state = {{ selectedAgentId: "agent-1" }};
+const chatState = {{
+  sessionId: "s1",
+  activeRequest: {{ clientRequestId: "req-edit-1" }},
+  inflightThinking: {{
+    id: "req-edit-1",
+    requestId: "req-edit-1",
+    sessionId: "s1",
+    completed: false,
+    events: [],
+  }},
+}};
+const agentApiCalls = [];
+const renderCalls = [];
+const chatSubmittingValues = [];
+let status = [];
+let controlsSynced = 0;
+let editButtons = 0;
+let icons = 0;
+let scrolls = 0;
+
+function ensureChatState(agentId) {{
+  if (agentId !== "agent-1") throw new Error("unexpected agent " + agentId);
+  return chatState;
+}}
+function currentSessionIdForAgent(agentId) {{
+  if (agentId !== "agent-1") throw new Error("unexpected current session agent " + agentId);
+  return chatState.sessionId;
+}}
+async function agentApiFor(agentId, path) {{
+  agentApiCalls.push({{ agentId, path }});
+  return {{ messages: {json.dumps(final_messages)}, metadata: {{ source: "poll" }} }};
+}}
+function renderChatHistory(messages, metadata = {{}}) {{ renderCalls.push({{ messages, metadata }}); }}
+function addEditButtonsToMessages() {{ editButtons += 1; }}
+function renderIcons() {{ icons += 1; }}
+function scrollToBottom() {{ scrolls += 1; }}
+function setChatStatus(value, isError = false) {{ status.push({{ value, isError }}); }}
+function setChatSubmittingForAgent(agentId, active) {{
+  if (agentId !== "agent-1") throw new Error("unexpected submitting agent " + agentId);
+  chatSubmittingValues.push(active);
+  chatState.isSubmitting = active;
+}}
+function syncSelectedAgentChatActionControls() {{ controlsSynced += 1; }}
+function finalizeIncompleteAssistantRow() {{}}
+function showToast() {{}}
+
+{helpers}
+
+(async () => {{
+  await pollEditedSessionUntilComplete("agent-1", "s1", "req-edit-1", "u-2b", {{
+    intervalMs: 1,
+    timeoutMs: 1000,
+    requestCtx: {{
+      requestId: "req-edit-1",
+      clientRequestId: "req-edit-1",
+      sessionIdAtSend: "s1",
+      edit: true,
+    }},
+  }});
+  console.log(JSON.stringify({{
+    agentApiCalls,
+    renderCalls,
+    chatSubmittingValues,
+    status,
+    activeRequestCleared: chatState.activeRequest === null,
+    inflightThinkingCleared: chatState.inflightThinking === null,
+    lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
+    controlsSynced,
+    editButtons,
+    icons,
+    scrolls,
+  }}));
+}})();
+"""
+    data = _run_node(script)
+
+    assert data["agentApiCalls"] == [{"agentId": "agent-1", "path": "/api/sessions/s1"}]
+    assert len(data["renderCalls"]) == 1
+    rendered = data["renderCalls"][0]["messages"]
+    assert rendered == final_messages
+    assert rendered[1] == {"role": "assistant", "content": "hi how can i help", "id": "a-1"}
+    assert data["renderCalls"][0]["metadata"] == {"source": "poll"}
+    assert data["chatSubmittingValues"] == [False]
+    assert data["activeRequestCleared"] is True
+    assert data["inflightThinkingCleared"] is True
+    assert data["lastThinkingCompleted"] is True
+    assert data["status"] == [{"value": "Ready", "isError": False}]
+    assert data["editButtons"] == 1
+    assert data["icons"] == 1
+    assert data["scrolls"] == 1
+
+
+def test_edit_async_pre_accepted_failure_keeps_modal_and_does_not_touch_dom():
     data = _run_message_edit_handler_with_payload(
-        json.dumps({"success": True, "session_id": "s1"}),
-        json.dumps({"messages": fallback_messages, "metadata": {"source": "fallback"}}),
+        json.dumps({"success": False, "detail": "conflict"}),
+        ok=False,
+        status_code=409,
     )
 
     assert len(data["fetchCalls"]) == 1
-    assert data["fetchCalls"][0]["url"] == "/a/agent-1/api/sessions/s1/messages/u-2/edit"
-    assert data["fetchCalls"][0]["body"] == {"content": "how are u??"}
-    assert data["agentApiCalls"] == [{"agentId": "agent-1", "path": "/api/sessions/s1"}]
+    assert data["fetchCalls"][0]["url"] == "/a/agent-1/api/sessions/s1/messages/u-2/edit/async"
+    assert data["closed"] is False
+    assert data["modalAriaHidden"] is None
+    assert data["renderCalls"] == []
+    assert data["appendedHtml"] == []
+    assert data["chatSubmittingValues"] == [False]
+    assert data["toast"] == ["conflict"]
+    assert data["status"][-1] == {"value": "conflict", "isError": True}
     assert data["submitCalls"] == []
     assert data["truncateCalls"] == []
-    assert len(data["renderCalls"]) == 1
-    assert data["renderCalls"][0]["messages"] == fallback_messages
-    assert data["renderCalls"][0]["metadata"] == {"source": "fallback"}
-    assert data["renderCalls"][0]["messages"][1]["content"] == "hi, how can i help"
-    assert data["chatSubmittingValues"] == [True, False]

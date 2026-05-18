@@ -1053,11 +1053,11 @@ function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
   });
 }
 
-function buildPendingAssistantArticle(clientRequestId = "") {
+function buildPendingAssistantArticle(clientRequestId = "", pendingText = "Thinking") {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = getSelectedAssistantDisplayName();
   const clientRequestAttr = clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(clientRequestId)}"` : "";
-  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">Thinking<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render max-w-none text-sm" data-md="" data-display-blocks="[]"></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(pendingText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render max-w-none text-sm" data-md="" data-display-blocks="[]"></div></article></div>`;
 }
 
 function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant", messageId = "", options = {}) {
@@ -7563,6 +7563,231 @@ function getRuntimeMutationErrorMessage(response, result, fallbackMessage = "Fai
   return fallbackMessage;
 }
 
+const EDITED_MESSAGE_POLL_INTERVAL_MS = 2000;
+const EDITED_MESSAGE_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+
+function getRuntimeMessageId(message = {}) {
+  return String(
+    message?.id
+    || message?.message_id
+    || message?.messageId
+    || message?.metadata?.opencode_message_id
+    || ""
+  );
+}
+
+function isRenderableAssistantSessionMessage(message = {}) {
+  if (message?.role !== "assistant") return false;
+  if (String(message?.content || "").trim()) return true;
+  if (Array.isArray(message?.display_blocks) && message.display_blocks.length > 0) return true;
+  const state = String(message?.completion_state || message?.completionState || "").trim().toLowerCase();
+  return state === "completed" || state === "success";
+}
+
+function sessionMessageRequestId(message = {}) {
+  const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : {};
+  return String(
+    message?.request_id
+    || message?.client_request_id
+    || metadata.request_id
+    || metadata.client_request_id
+    || ""
+  );
+}
+
+function findAssistantAfterEditedUserMessage(messages = [], replacementUserMessageId = "", requestId = "") {
+  const normalizedMessages = Array.isArray(messages) ? messages : [];
+  const replacementId = String(replacementUserMessageId || "");
+  const normalizedRequestId = String(requestId || "");
+
+  if (replacementId) {
+    const editedUserIndex = normalizedMessages.findIndex((message) => (
+      message?.role === "user" && getRuntimeMessageId(message) === replacementId
+    ));
+    if (editedUserIndex >= 0) {
+      return normalizedMessages
+        .slice(editedUserIndex + 1)
+        .find((message) => isRenderableAssistantSessionMessage(message)) || null;
+    }
+  }
+
+  if (normalizedRequestId) {
+    return normalizedMessages.find((message) => (
+      isRenderableAssistantSessionMessage(message)
+      && sessionMessageRequestId(message) === normalizedRequestId
+    )) || null;
+  }
+
+  return null;
+}
+
+function getEditedSessionFailureMessage(data = {}) {
+  const metadata = data?.metadata && typeof data.metadata === "object" ? data.metadata : {};
+  const completionState = String(
+    data?.completion_state
+    || data?.completionState
+    || metadata.completion_state
+    || metadata.latest_completion_state
+    || ""
+  ).trim().toLowerCase();
+  const eventState = String(metadata.latest_event_state || metadata.event_state || "").trim().toLowerCase();
+  const eventType = String(metadata.latest_event_type || metadata.event_type || "").trim().toLowerCase();
+  const failed = (
+    data?.success === false
+    || data?.ok === false
+    || ["error", "failed", "blocked"].includes(completionState)
+    || ["error", "failed"].includes(eventState)
+    || eventType === "chat.failed"
+    || eventType === "execution.failed"
+  );
+  if (!failed) return "";
+  return String(
+    data?.detail
+    || data?.error
+    || data?.incomplete_reason
+    || metadata.error
+    || metadata.detail
+    || metadata.incomplete_reason
+    || "regeneration failed"
+  );
+}
+
+function shouldRenderEditedSessionForAgent(agentId, sessionId) {
+  return (
+    state.selectedAgentId === agentId
+    && currentSessionIdForAgent(agentId) === String(sessionId || "")
+  );
+}
+
+function completeEditedMessageRequest(agentId, requestCtx, finalPayload = {}, { status = "completed" } = {}) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  const requestId = requestCtx?.clientRequestId || requestCtx?.requestId || finalPayload?.request_id || "";
+  if (chatState.inflightThinking && (!requestId || chatState.inflightThinking.requestId === requestId || chatState.inflightThinking.id === requestId)) {
+    chatState.inflightThinking.completed = true;
+    chatState.inflightThinking.status = status;
+    chatState.inflightThinking.completion_state = finalPayload?.completion_state || (status === "error" ? "error" : "completed");
+    chatState.lastThinkingSnapshot = {
+      ...chatState.inflightThinking,
+      completed: true,
+      completedAt: Date.now(),
+      requestId,
+      sessionId: finalPayload?.session_id || requestCtx?.sessionIdAtSend || chatState.sessionId || "",
+    };
+    chatState.inflightThinking = null;
+  }
+  chatState.pendingThinkingEvents = null;
+  if (chatState.activeRequest?.clientRequestId === requestId) chatState.activeRequest = null;
+  setChatSubmittingForAgent(agentId, false);
+  syncSelectedAgentChatActionControls();
+}
+
+function handleEditedRegenerationFailure(agentId, requestCtx, message = "regeneration failed") {
+  const finalPayload = {
+    completion_state: "error",
+    incomplete_reason: message,
+    response: message,
+    request_id: requestCtx?.clientRequestId || requestCtx?.requestId || "",
+    session_id: requestCtx?.sessionIdAtSend || "",
+  };
+  completeEditedMessageRequest(agentId, requestCtx, finalPayload, { status: "error" });
+  const fullMessage = `Edited message was saved, but regeneration failed: ${message}`;
+  if (state.selectedAgentId === agentId) {
+    finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload);
+    setChatStatus(fullMessage, true);
+    showToast(fullMessage);
+    addEditButtonsToMessages();
+    renderIcons();
+    scrollToBottom();
+  } else {
+    const chatState = ensureChatState(agentId);
+    if (chatState) {
+      chatState.needsReload = true;
+      chatState.backgroundStatus = "error";
+    }
+    if (typeof markAgentUnread === "function") markAgentUnread(agentId, "error");
+    if (typeof renderAgentList === "function") renderAgentList();
+  }
+}
+
+function finalizeEditedSessionMessages(agentId, sessionId, requestCtx, data = {}) {
+  const messages = Array.isArray(data?.messages) ? data.messages : [];
+  const chatState = ensureChatState(agentId);
+  if (chatState) {
+    chatState.needsReload = false;
+    chatState.backgroundStatus = "";
+  }
+
+  if (shouldRenderEditedSessionForAgent(agentId, sessionId)) {
+    renderChatHistory(messages, data.metadata || {});
+    addEditButtonsToMessages();
+    renderIcons();
+    scrollToBottom();
+    setChatStatus("Ready");
+  } else {
+    if (chatState) {
+      chatState.needsReload = true;
+      chatState.backgroundStatus = "completed";
+    }
+    if (typeof markAgentUnread === "function") markAgentUnread(agentId, "completed");
+    if (typeof renderAgentList === "function") renderAgentList();
+  }
+
+  completeEditedMessageRequest(agentId, requestCtx, {
+    completion_state: "completed",
+    request_id: requestCtx?.clientRequestId || requestCtx?.requestId || "",
+    session_id: sessionId,
+  });
+}
+
+async function pollEditedSessionUntilComplete(agentId, finalSessionId, requestId, replacementUserMessageId, options = {}) {
+  const intervalMs = Number(options.intervalMs || EDITED_MESSAGE_POLL_INTERVAL_MS);
+  const timeoutMs = Number(options.timeoutMs || EDITED_MESSAGE_POLL_TIMEOUT_MS);
+  const startedAt = Date.now();
+  const requestCtx = options.requestCtx || {
+    requestId,
+    clientRequestId: requestId,
+    sessionIdAtSend: finalSessionId,
+    edit: true,
+  };
+  let lastError = null;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const chatState = ensureChatState(agentId);
+    if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestId) return;
+
+    try {
+      const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(finalSessionId)}`);
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+      const assistant = findAssistantAfterEditedUserMessage(messages, replacementUserMessageId, requestId);
+      if (assistant) {
+        finalizeEditedSessionMessages(agentId, finalSessionId, requestCtx, data);
+        return;
+      }
+
+      const failureMessage = getEditedSessionFailureMessage(data);
+      if (failureMessage) {
+        handleEditedRegenerationFailure(agentId, requestCtx, failureMessage);
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  const chatState = ensureChatState(agentId);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestId) return;
+  chatState.needsReload = true;
+  chatState.backgroundStatus = "regenerating";
+  if (state.selectedAgentId === agentId) {
+    setChatStatus("Still regenerating; refresh session to check latest result.");
+    if (lastError) console.warn("Edit regeneration polling timed out after errors", lastError);
+  }
+  syncSelectedAgentChatActionControls();
+}
+
 async function retryAssistantMessage(row) {
   const agentId = state.selectedAgentId;
   const sessionId = document.getElementById("chat-session-id")?.value || currentSessionIdForAgent(agentId);
@@ -7787,11 +8012,11 @@ function bindEvents() {
 
   document.getElementById("message-edit-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const form = e.currentTarget;
+    const form = e.currentTarget || e.target;
     const agentId = state.selectedAgentId;
     const chatState = getChatState(agentId);
     const messageId = document.getElementById("edit-message-id")?.value || "";
-    const newContent = document.getElementById("edit-message-content")?.value || "";
+    const newContent = (document.getElementById("edit-message-content")?.value || "").trim();
     const sessionId = document.getElementById("chat-session-id")?.value || "";
 
     if (!agentId) {
@@ -7807,15 +8032,23 @@ function bindEvents() {
       return;
     }
     if (!guardNoActiveChatRequestForAgent(agentId, "edit a message")) return;
-    if (!beginSingleSubmit(form, { pendingText: "Editing...", closeButton: document.getElementById("close-message-edit-modal") })) return;
+    const clientRequestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
+      ? globalThis.crypto.randomUUID()
+      : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    if (!beginSingleSubmit(form, { pendingText: "Saving...", closeButton: document.getElementById("close-message-edit-modal") })) return;
 
-    const editBody = { content: newContent };
-    if (chatState?.modelOverride) editBody.model = chatState.modelOverride;
-    setChatStatus("Editing message and regenerating response...");
-    setChatSubmittingForAgent(agentId, true);
+    const editBody = {
+      content: newContent,
+      request_id: clientRequestId,
+    };
+    const modelOverride = String(chatState?.modelOverride || dom.chatModelSelect?.value || "").trim();
+    const defaultModel = String(chatState?.profileDefaultModel || "").trim();
+    if (modelOverride && modelOverride !== defaultModel) editBody.model = modelOverride;
+    setChatStatus("Saving edited message...");
+    let accepted = false;
 
     try {
-      const response = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/edit`, {
+      const response = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/edit/async`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editBody)
@@ -7840,34 +8073,96 @@ function bindEvents() {
         return;
       }
 
+      if (result.accepted !== true) {
+        const message = getRuntimeMutationErrorMessage(response, result, "Failed to edit message");
+        showToast(message);
+        setChatStatus(message || "Ready", true);
+        return;
+      }
+
+      accepted = true;
       closeEditMessageModal();
       document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "true");
+      endSingleSubmit(form, { closeButton: document.getElementById("close-message-edit-modal") });
 
       const finalSessionId = result.session_id || sessionId;
+      const requestId = result.request_id || clientRequestId;
+      const replacementUserMessageId = result.replacement_user_message_id || "";
+      const requestCtx = {
+        requestId,
+        agentId,
+        sessionIdAtSend: finalSessionId,
+        message: newContent,
+        clientRequestId: requestId,
+        originalClientRequestId: clientRequestId,
+        startedAt: Date.now(),
+        usedStream: false,
+        edit: true,
+        replacementUserMessageId,
+      };
       updateAgentSession(agentId, finalSessionId);
-      const hiddenSessionInput = document.getElementById("chat-session-id");
-      if (hiddenSessionInput) hiddenSessionInput.value = finalSessionId;
+      if (state.selectedAgentId === agentId) {
+        const hiddenSessionInput = document.getElementById("chat-session-id");
+        if (hiddenSessionInput) hiddenSessionInput.value = finalSessionId;
+      }
       setLastSessionId(agentId, finalSessionId);
 
-      if (Array.isArray(result.messages)) {
-        renderChatHistory(result.messages);
-      } else {
-        const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(finalSessionId)}`);
-        renderChatHistory(data.messages || [], data.metadata || {});
+      if (state.selectedAgentId === agentId) {
+        if (Array.isArray(result.messages)) {
+          renderChatHistory(result.messages);
+        }
+        removeWelcomeMessageIfPresent();
+        if (dom.messageList) {
+          dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(newContent));
+          const optimisticUserArticle = getLatestOptimisticUserArticle();
+          if (optimisticUserArticle && replacementUserMessageId) {
+            optimisticUserArticle.dataset.messageId = replacementUserMessageId;
+          }
+          dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestId, "Regenerating response..."));
+        }
+        addEditButtonsToMessages();
+        renderIcons();
+        scrollToBottom();
+      } else if (chatState) {
+        chatState.needsReload = true;
+        chatState.backgroundStatus = "regenerating";
       }
-      addEditButtonsToMessages();
-      renderIcons();
-      scrollToBottom();
-      setChatStatus("Ready");
-      showToast("Message edited");
+
+      chatState.activeRequest = requestCtx;
+      chatState.inflightThinking = {
+        id: requestId,
+        requestId,
+        sessionId: finalSessionId,
+        events: [],
+        completed: false,
+        started: false,
+        contextState: null,
+        contextBudget: null,
+        startedAt: Date.now(),
+      };
+      ensureEventSocketForAgent(agentId, finalSessionId, requestId);
+      setChatSubmittingForAgent(agentId, true);
+      setChatStatus("Regenerating response...");
+      pollEditedSessionUntilComplete(agentId, finalSessionId, requestId, replacementUserMessageId, { requestCtx });
     } catch (err) {
       const message = err?.message || String(err);
-      showToast("Error editing message: " + message);
-      setChatStatus(message || "Ready", true);
+      if (accepted) {
+        handleEditedRegenerationFailure(agentId, {
+          requestId: clientRequestId,
+          clientRequestId,
+          sessionIdAtSend: sessionId,
+          edit: true,
+        }, message);
+      } else {
+        showToast("Error editing message: " + message);
+        setChatStatus(message || "Ready", true);
+      }
     } finally {
-      setChatSubmittingForAgent(agentId, false);
-      endSingleSubmit(form, { closeButton: document.getElementById("close-message-edit-modal") });
-      syncSelectedAgentChatActionControls();
+      if (!accepted) {
+        setChatSubmittingForAgent(agentId, false);
+        endSingleSubmit(form, { closeButton: document.getElementById("close-message-edit-modal") });
+        syncSelectedAgentChatActionControls();
+      }
     }
   });
 
