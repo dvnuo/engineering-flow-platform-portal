@@ -229,3 +229,66 @@ async function fetch() {{ return fetchQueue.shift(); }}
     assert data["caseG"]["success"] == 1
     assert data["caseG"]["response"] == "Agenda summary ..."
     assert data["caseG"]["incomplete"] == 0
+
+
+def test_runtime_event_alias_and_dedup_helpers_handle_live_timeline_events():
+    js = _js_source()
+    script = f"""
+const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+{_extract_js_function(js, "normalizeRuntimeEventTypeAlias")}
+{_extract_js_function(js, "isTrackableThinkingEvent")}
+{_extract_js_function(js, "isCompletionRuntimeState")}
+{_extract_js_function(js, "normalizeRuntimeEvent")}
+{_extract_js_function(js, "runtimeEventSummaryHash")}
+{_extract_js_function(js, "runtimeEventUniqueId")}
+{_extract_js_function(js, "runtimeEventDedupKey")}
+{_extract_js_function(js, "mergeThinkingEvents")}
+
+const normalized = normalizeRuntimeEvent({{
+  event_type: "continuation.no_progress_timeout",
+  runtime_event_id: "runtime-1",
+  created_at: "2026-05-18T12:00:00Z",
+  detail_payload: {{ message: "No progress" }},
+}});
+const duplicateByRuntimeId = {{
+  type: "continuation.no_progress",
+  runtime_event_id: "runtime-1",
+  created_at: "2026-05-18T12:00:01Z",
+  summary: "different summary",
+  data: {{ message: "different summary" }},
+}};
+const fallbackA = {{
+  type: "chat.timeout_recovery.exhausted",
+  created_at: "2026-05-18T12:00:02Z",
+  summary: "still stuck",
+  data: {{ message: "still stuck" }},
+}};
+const fallbackB = {{
+  type: "timeout_recovery.exhausted",
+  created_at: "2026-05-18T12:00:02Z",
+  summary: "still stuck",
+  data: {{ message: "still stuck" }},
+}};
+const merged = mergeThinkingEvents([normalized, fallbackA], [duplicateByRuntimeId, fallbackB]);
+console.log(JSON.stringify({{
+  normalizedType: normalized.type,
+  rawType: normalized.raw_type,
+  runtimeEventId: normalized.runtime_event_id,
+  trackableAlias: isTrackableThinkingEvent("timeout_recovery.exhausted"),
+  trackableFinal: isTrackableThinkingEvent("final"),
+  keyById: runtimeEventDedupKey(normalized),
+  fallbackKeysMatch: runtimeEventDedupKey(fallbackA) === runtimeEventDedupKey(fallbackB),
+  mergedTypes: merged.map((event) => event.type),
+  mergedCount: merged.length,
+}}));
+"""
+    data = _run_node(script)
+    assert data["normalizedType"] == "continuation.no_progress"
+    assert data["rawType"] == "continuation.no_progress_timeout"
+    assert data["runtimeEventId"] == "runtime-1"
+    assert data["trackableAlias"] is True
+    assert data["trackableFinal"] is True
+    assert data["keyById"] == "id:runtime-1"
+    assert data["fallbackKeysMatch"] is True
+    assert data["mergedTypes"] == ["continuation.no_progress", "chat.timeout_recovery.exhausted"]
+    assert data["mergedCount"] == 2

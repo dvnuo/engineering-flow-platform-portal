@@ -1,9 +1,17 @@
 from app.api import proxy
 
 
+def _proxy_source() -> str:
+    from pathlib import Path
+
+    return Path("app/api/proxy.py").read_text(encoding="utf-8")
+
+
 def test_stream_chat_paths_are_classified_correctly():
     assert proxy._is_direct_chat_execution_path('POST', 'api/chat/stream') is True
+    assert proxy._is_direct_chat_execution_path('POST', '/api/chat/stream') is True
     assert proxy._is_streaming_runtime_path('POST', 'api/chat/stream') is True
+    assert proxy._is_streaming_runtime_path('POST', '/api/chat/stream') is True
 
 
 def test_streaming_headers_whitelist():
@@ -17,6 +25,21 @@ def test_streaming_headers_whitelist():
     assert selected['cache-control'] == 'no-cache'
     assert selected['x-accel-buffering'] == 'no'
     assert 'x-extra' not in selected
+
+
+def test_chat_stream_proxy_does_not_buffer():
+    source = _proxy_source()
+    streaming_start = source.index("if _is_streaming_runtime_path(request.method, subpath):")
+    streaming_end = source.index("filtered_query_items = _filter_proxy_query_items", streaming_start)
+    streaming_block = source[streaming_start:streaming_end]
+
+    assert "httpx.AsyncClient(timeout=None)" in streaming_block
+    assert "client.stream(" in streaming_block
+    assert "async for chunk in upstream_response.aiter_raw():" in streaming_block
+    assert "yield chunk" in streaming_block
+    assert "StreamingResponse(" in streaming_block
+    assert ".content" not in streaming_block
+    assert "api/tasks" not in streaming_block
 
 
 def test_internal_runtime_paths_stay_control_plane_only():

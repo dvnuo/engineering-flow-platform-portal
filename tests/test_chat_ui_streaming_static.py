@@ -24,6 +24,196 @@ def test_chat_ui_streaming_contract_markers():
     assert 'mergeFinalThinkingSnapshot' in src
     assert 'context_state' in src
     assert 'handleAgentEventMessage' in src
+    assert 'requestCtx.usedStream = true' in src
+
+
+def test_chat_ui_streaming_supports_opencode_runtime_event_types():
+    src = _src()
+    for event_type in [
+        'chat.started',
+        'heartbeat',
+        'status',
+        'llm_thinking',
+        'message.delta',
+        'tool.started',
+        'tool.completed',
+        'tool.failed',
+        'tool_call',
+        'tool_result',
+        'permission_request',
+        'permission_resolved',
+        'permission.denied',
+        'permission.allowed',
+        'provider.retry',
+        'provider.rate_limit',
+        'model.retry',
+        'continuation.started',
+        'continuation.prompt_sent',
+        'continuation.completed',
+        'continuation.failed',
+        'continuation.max_turns_reached',
+        'continuation.wall_timeout',
+        'continuation.no_progress',
+        'continuation.suppressed',
+        'chat.timeout_recovery.started',
+        'chat.timeout_recovery.poll',
+        'chat.timeout_recovery.recovered',
+        'chat.timeout_recovery.exhausted',
+        'chat.incomplete',
+        'chat.failed',
+        'final',
+    ]:
+        assert event_type in src
+
+
+def test_runtime_event_aliases_and_dedup_are_handled_by_helpers():
+    src = _src()
+    alias_helper = _extract_js_function(src, "normalizeRuntimeEventTypeAlias")
+    normalize_event = _extract_js_function(src, "normalizeRuntimeEvent")
+    dedup_id = _extract_js_function(src, "runtimeEventUniqueId")
+    dedup_key = _extract_js_function(src, "runtimeEventDedupKey")
+    merge_events = _extract_js_function(src, "mergeThinkingEvents")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+
+    for marker in [
+        '"continuation.no_progress_timeout": "continuation.no_progress"',
+        '"chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted"',
+        '"timeout_recovery.started": "chat.timeout_recovery.started"',
+        '"timeout_recovery.poll": "chat.timeout_recovery.poll"',
+        '"timeout_recovery.recovered": "chat.timeout_recovery.recovered"',
+        '"timeout_recovery.exhausted": "chat.timeout_recovery.exhausted"',
+    ]:
+        assert marker in alias_helper
+
+    assert "normalizeRuntimeEventTypeAlias(rawTypeValue)" in normalize_event
+    assert "runtime_event_id" in dedup_id
+    assert "event?.runtime_event_id" in dedup_id
+    assert "data.runtime_event_id" in dedup_id
+    assert "runtimeEventSummaryHash(summary)" in dedup_key
+    assert "const createdAt = event.created_at || data.created_at || event.ts || \"\"" in dedup_key
+    assert "const eventType = normalizeRuntimeEventTypeAlias" in dedup_key
+    assert "const localRuntimeEventDedupKey" in merge_events
+    assert "localRuntimeEventDedupKey(event)" in merge_events
+    assert "runtimeEventDedupKey(entry)" in handle_event
+
+
+def test_chat_stream_heartbeat_updates_live_thinking_state():
+    src = _src()
+    stream_handler = _extract_js_function(src, "handleChatStreamEvent")
+    assert 'outerType === "heartbeat"' in stream_handler
+    assert 'requestCtx.lastHeartbeatAt = Date.now()' in stream_handler
+    assert 'event_type: "heartbeat"' in stream_handler
+    assert 'handleAgentEventMessage(JSON.stringify(heartbeatPayload)' in stream_handler
+
+
+def test_chat_started_can_adopt_runtime_request_id():
+    src = _src()
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    assert 'type === "chat.started"' in handle_event
+    assert 'chatState.activeRequest.runtimeRequestId = entry.request_id' in handle_event
+    assert 'chatState.activeRequest.requestId = entry.request_id' in handle_event
+    assert 'ensureEventSocketForAgent(currentAgentId, entry.session_id || currentSessionId, entry.request_id)' in handle_event
+
+
+def test_events_websocket_uses_replay_reconnect_and_dedup():
+    src = _src()
+    ensure_socket = _extract_js_function(src, "ensureEventSocketForAgent")
+    merge_events = _extract_js_function(src, "mergeThinkingEvents")
+    normalize_event = _extract_js_function(src, "normalizeRuntimeEvent")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    assert 'params.set("replay", "1")' in ensure_socket
+    assert 'last_event_at' in ensure_socket
+    assert 'scheduleEventSocketReconnect(agentId, session, requestId || "")' in ensure_socket
+    assert 'state.eventWsReconnectAttempt' in src
+    assert 'metadata.replayed' in normalize_event
+    assert 'event_id' in normalize_event
+    assert 'runtime_event_id' in normalize_event
+    assert 'localRuntimeEventDedupKey(event)' in merge_events
+    assert 'const entryDedupKey = runtimeEventDedupKey(entry);' in handle_event
+
+
+def test_chat_stream_main_path_does_not_use_tasks():
+    src = _src()
+    submit_stream = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+
+    assert "`/a/${agentIdAtSend}/api/chat/stream`" in submit_stream
+    assert "/api/tasks" not in submit_stream
+    assert "/api/tasks" not in submit_chat
+    assert "task mode" not in submit_stream.lower()
+
+
+def test_opencode_long_chat_does_not_use_task_mode_or_direct_opencode():
+    src = _src()
+    proxy_src = Path("app/api/proxy.py").read_text(encoding="utf-8")
+    submit_stream = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+
+    assert "`/a/${agentIdAtSend}/api/chat/stream`" in submit_stream
+    for forbidden in [
+        "/api/tasks",
+        "task mode",
+        ":4096",
+        "localhost:4096",
+        "127.0.0.1:4096",
+    ]:
+        assert forbidden not in submit_stream
+    assert "/api/tasks" not in submit_chat
+    assert ":4096" not in proxy_src
+    assert "localhost:4096" not in proxy_src
+    assert "127.0.0.1:4096" not in proxy_src
+    assert "def _is_control_plane_only_runtime_path" in proxy_src
+    assert "if _is_control_plane_only_runtime_path(subpath):" in proxy_src
+    assert "Runtime internal endpoints are not exposed via the user-facing Portal proxy." in proxy_src
+
+
+def test_runtime_events_append_to_live_timeline_before_final():
+    src = _src()
+    trackable = _extract_js_function(src, "isTrackableThinkingEvent")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    display = _extract_js_function(src, "getThinkingEventDisplay")
+    for event_type in [
+        "continuation.prompt_sent",
+        "continuation.no_progress",
+        "continuation.suppressed",
+        "chat.timeout_recovery.exhausted",
+        "final",
+    ]:
+        assert event_type in trackable
+    assert '"continuation.suppressed"' in display
+    assert "Continuation suppressed" in display
+    assert "data.metadata?.reason" in display
+    assert "chatState.inflightThinking.events.push(entry)" in handle_event
+    terminal_clause = handle_event[handle_event.rfind('if (type === "execution.completed"'):]
+    assert "continuation.suppressed" not in terminal_clause
+    assert "visibleEvents.map((event) =>" in render_panel
+    assert "getThinkingEventDisplay(event)" in render_panel
+    assert "portal-completion-banner" in render_panel
+
+
+def test_live_thinking_panel_renders_status_banner_and_safe_details():
+    src = _src()
+    render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    assert "Thinking Process Live" in render_panel
+    assert "portal-live-status" in render_panel
+    assert "Elapsed:" in render_panel
+    assert "Last event:" in render_panel
+    assert "portal-completion-banner" in render_panel
+    assert 'You can send "continue"' in render_panel
+    assert "Still running. Live events will continue to appear here." in render_panel
+    assert "Historical" in render_panel
+    assert "portal-event-detail" in render_panel
+    assert "sanitizeEventDetailPayload" in render_panel
+
+
+def test_live_thinking_detail_sanitizer_redacts_secret_fields():
+    src = _src()
+    sanitizer = _extract_js_function(src, "sanitizeEventDetailPayload")
+    secret_name = _extract_js_function(src, "isSecretEventFieldName")
+    assert "authorization" in secret_name
+    assert "api_key" in secret_name
+    assert '"[redacted]"' in sanitizer
 
 
 def test_chat_ui_streaming_does_not_use_eventsource_for_chat_stream():

@@ -2,6 +2,27 @@ import json
 from typing import Any
 
 
+SECRET_FIELD_NAMES = {
+    "token",
+    "password",
+    "api_key",
+    "apikey",
+    "authorization",
+    "secret",
+    "access_token",
+    "refresh_token",
+}
+
+EVENT_TYPE_ALIASES = {
+    "continuation.no_progress_timeout": "continuation.no_progress",
+    "chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted",
+    "timeout_recovery.started": "chat.timeout_recovery.started",
+    "timeout_recovery.poll": "chat.timeout_recovery.poll",
+    "timeout_recovery.recovered": "chat.timeout_recovery.recovered",
+    "timeout_recovery.exhausted": "chat.timeout_recovery.exhausted",
+}
+
+
 def _as_dict(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
 
@@ -77,157 +98,157 @@ def _format_context_event_detail(data: dict, fallback: str) -> str:
     return " · ".join(pieces) or fallback
 
 
-def _build_thinking_event_display(event_type: str, data: dict) -> dict:
-    event_type = str(event_type or "event")
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
-    by_type = {
-        "execution.started": {
-            "icon": "play-circle",
-            "display_title": "Execution Started",
-            "display_detail": data.get("message") or "Execution started",
-        },
-        "execution.completed": {
-            "icon": "flag",
-            "display_title": "Execution Completed",
-            "display_detail": data.get("message") or "Execution complete",
-        },
-        "execution.failed": {
-            "icon": "x-circle",
-            "display_title": "Execution Failed",
-            "display_detail": data.get("error") or data.get("message") or "Execution failed",
-        },
-        "iteration_start": {
-            "icon": "rotate-cw",
-            "display_title": "Iteration Start",
-            "display_detail": f"Iteration {data.get('iteration') or 1}"
-            f"{('/' + str(data.get('total'))) if data.get('total') else ''}",
-        },
-        "llm_thinking": {
-            "icon": "brain",
-            "display_title": "LLM Thinking",
-            "display_detail": data.get("message")
-            or data.get("thinking")
-            or "Model is reasoning",
-        },
-        "tool_call": {
-            "icon": "wrench",
-            "display_title": "Tool Call",
-            "display_detail": (
-                f"Calling {data.get('tool')}" if data.get("tool") else "Calling tool"
-            ),
-        },
-        "tool_result": {
-            "icon": "x-circle" if data.get("success") is False else "check-circle-2",
-            "display_title": "Tool Result",
-            "display_detail": (
-                data.get("error") or "Tool failed"
-            ) if data.get("success") is False else (
-                f"{data.get('tool')} completed" if data.get("tool") else "Tool completed"
-            ),
-        },
-        "skill_matched": {
-            "icon": "zap",
-            "display_title": "Skill Matched",
-            "display_detail": _normalize_skill_label(data.get("skill")) or "Skill matched",
-        },
-        "complete": {
-            "icon": "flag",
-            "display_title": "Complete",
-            "display_detail": "Execution complete",
-        },
-        "context_snapshot": {
-            "icon": "gauge",
-            "display_title": "Context Snapshot",
-            "display_detail": _format_context_event_detail(data, "Context updated"),
-        },
-        "context_compaction_planned": {
-            "icon": "scissors",
-            "display_title": "Compaction Planned",
-            "display_detail": _format_context_event_detail(data, "Compaction planned"),
-        },
-        "context_compaction_applied": {
-            "icon": "archive",
-            "display_title": "Context Compaction Applied",
-            "display_detail": _format_context_event_detail(data, "Context compaction applied"),
-        },
-        "skill_mode_start": {
-            "icon": "play-circle",
-            "display_title": "Skill Mode",
-            "display_detail": f"Starting: {data.get('skill') or 'Skill'}",
-        },
-        "skill_step": {
-            "icon": "list-checks",
-            "display_title": f"Step: {data.get('step') or 'Step'}",
-            "display_detail": data.get("detail") or "",
-        },
-        "skill_session_start": {
-            "icon": "clipboard-list",
-            "display_title": "Skill Session",
-            "display_detail": f"Goal: {data.get('goal') or ''}",
-        },
-        "skill_compaction": {
-            "icon": "archive" if data.get("status") == "completed" else "scissors",
-            "display_title": "Compaction",
-            "display_detail": (
-                f"Steps: {data.get('remaining_steps')}"
-                if data.get("status") == "completed"
-                else f"Tokens: {data.get('current_tokens')}"
-            ),
-        },
-        "skill_complete": {
-            "icon": "check-square",
-            "display_title": (
-                "Skill Finished"
-                if data.get("reason") == "finish"
-                else "Skill Awaiting Input"
-            ),
-            "display_detail": data.get("result") or data.get("question") or "",
-        },
-        "skill_runtime_applied": {
-            "icon": "layers",
-            "display_title": "Skill Runtime Applied",
-            "display_detail": (
-                f"Using {data.get('skill')}"
-                if data.get("skill")
-                else "Skill runtime applied"
-            ),
-        },
-        "skill_contract_active": {
-            "icon": "pin",
-            "display_title": "Active Skill",
-            "display_detail": (
-                f"{data.get('skill')}{(' · ' + str(data.get('reason'))) if data.get('reason') else ''}"
-                if data.get("skill")
-                else "Active skill"
-            ),
-        },
-        "skill_tool_denied": {
-            "icon": "shield-alert",
-            "display_title": "Skill Tool Denied",
-            "display_detail": (
-                f"{data.get('tool')} denied by {data.get('skill') or 'active skill'}"
-                if data.get("tool")
-                else "Tool denied by active skill"
-            ),
-        },
-        "skill_contract_cleared": {
-            "icon": "x-circle",
-            "display_title": "Active Skill Cleared",
-            "display_detail": (
-                f"{data.get('skill')} cleared"
-                if data.get("skill")
-                else "Active skill cleared"
-            ),
-        },
+
+def _normalize_event_type(event_type: Any) -> str:
+    normalized = str(event_type or "event").strip()
+    return EVENT_TYPE_ALIASES.get(normalized, normalized)
+
+
+def _tool_name(data: dict) -> str:
+    return _first_text(data.get("tool"), data.get("tool_name"), data.get("name"), data.get("command"))
+
+
+def _limit_text(value: Any, max_length: int = 1200) -> str:
+    text = str(value or "")
+    if len(text) <= max_length:
+        return text
+    return f"{text[:max_length]}..."
+
+
+def _is_secret_key(key: Any) -> bool:
+    normalized = str(key or "").strip().lower().replace("-", "_")
+    return normalized in SECRET_FIELD_NAMES or any(part in normalized for part in ("password", "api_key", "authorization", "access_token"))
+
+
+def _sanitize_detail_payload(value: Any, depth: int = 0) -> Any:
+    if depth > 4:
+        return "[truncated]"
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in list(value.items())[:40]:
+            if _is_secret_key(key):
+                sanitized[str(key)] = "[redacted]"
+            else:
+                sanitized[str(key)] = _sanitize_detail_payload(item, depth + 1)
+        if len(value) > 40:
+            sanitized["..."] = f"{len(value) - 40} more fields"
+        return sanitized
+    if isinstance(value, list):
+        items = [_sanitize_detail_payload(item, depth + 1) for item in value[:30]]
+        if len(value) > 30:
+            items.append(f"... {len(value) - 30} more items")
+        return items
+    if isinstance(value, str):
+        return _limit_text(value)
+    return value
+
+
+def _display(
+    *,
+    icon: str,
+    title: str,
+    detail: Any = "",
+    kind: str = "info",
+    severity: str | None = None,
+) -> dict:
+    detail_text = _limit_text(detail)
+    severity = severity or kind
+    return {
+        "icon": icon,
+        "display_title": title,
+        "display_detail": detail_text,
+        "subtitle": detail_text,
+        "kind": kind,
+        "severity": severity,
     }
 
+
+def _final_display(data: dict) -> dict:
+    completion_state = str(data.get("completion_state") or data.get("completionState") or "").strip().lower()
+    incomplete_reason = _first_text(data.get("incomplete_reason"), data.get("incompleteReason"))
+    detail = _first_text(incomplete_reason, data.get("message"), data.get("summary"), completion_state, "Final response received")
+    if completion_state in {"error", "failed"}:
+        return _display(icon="flag", title="Final", detail=detail, kind="error")
+    if incomplete_reason or (completion_state and completion_state not in {"success", "completed"}):
+        return _display(icon="flag", title="Final", detail=detail, kind="warning")
+    return _display(icon="flag", title="Final", detail=detail, kind="success")
+
+
+def _build_thinking_event_display(event_type: str, data: dict) -> dict:
+    event_type = _normalize_event_type(event_type)
+    tool = _tool_name(data)
+
+    by_type = {
+        "execution.started": _display(icon="play-circle", title="Execution Started", detail=data.get("message") or "Execution started", kind="running"),
+        "execution.completed": _display(icon="flag", title="Execution Completed", detail=data.get("message") or "Execution complete", kind="success"),
+        "execution.failed": _display(icon="x-circle", title="Execution Failed", detail=data.get("error") or data.get("message") or "Execution failed", kind="error"),
+        "iteration_start": _display(icon="rotate-cw", title="Iteration Start", detail=f"Iteration {data.get('iteration') or 1}{('/' + str(data.get('total'))) if data.get('total') else ''}", kind="running"),
+        "chat.started": _display(icon="play-circle", title="Chat Started", detail=data.get("message") or "Chat request started", kind="running"),
+        "llm_thinking": _display(icon="brain", title="LLM Thinking", detail=data.get("message") or data.get("thinking") or "Model is reasoning", kind="running"),
+        "message.delta": _display(icon="message-square", title="Message Streaming", detail=data.get("message") or data.get("delta") or "Assistant message streaming", kind="running"),
+        "status": _display(icon="activity", title="Runtime Status", detail=data.get("message") or data.get("status") or "Runtime status", kind="info"),
+        "heartbeat": _display(icon="activity", title="Heartbeat", detail=data.get("message") or "Runtime heartbeat", kind="running"),
+        "tool_call": _display(icon="wrench", title="Tool Call", detail=f"Calling {tool}" if tool else "Calling tool", kind="running"),
+        "tool_result": _display(icon="x-circle" if data.get("success") is False else "check-circle-2", title="Tool Result", detail=(data.get("error") or "Tool failed") if data.get("success") is False else (f"{tool} completed" if tool else "Tool completed"), kind="error" if data.get("success") is False else "success"),
+        "tool.started": _display(icon="wrench", title="Tool Started", detail=data.get("message") or (f"{tool} started" if tool else "Tool started"), kind="running"),
+        "tool.completed": _display(icon="check-circle-2", title="Tool Completed", detail=data.get("message") or (f"{tool} completed" if tool else "Tool completed"), kind="success"),
+        "tool.failed": _display(icon="x-circle", title="Tool Failed", detail=data.get("error") or data.get("message") or (f"{tool} failed" if tool else "Tool failed"), kind="error"),
+        "permission_request": _display(icon="shield", title="Permission Requested", detail=data.get("message") or data.get("reason") or "Permission requested", kind="running", severity="warning"),
+        "permission.requested": _display(icon="shield", title="Permission Requested", detail=data.get("message") or data.get("reason") or "Permission requested", kind="running", severity="warning"),
+        "permission_resolved": _display(icon="shield-check", title="Permission Resolved", detail=data.get("message") or "Permission resolved", kind="success"),
+        "permission.resolved": _display(icon="shield-check", title="Permission Resolved", detail=data.get("message") or "Permission resolved", kind="success"),
+        "permission.denied": _display(icon="shield-alert", title="Permission Denied", detail=data.get("message") or data.get("reason") or "Permission denied", kind="error"),
+        "permission.allowed": _display(icon="shield-check", title="Permission Allowed", detail=data.get("message") or "Permission allowed", kind="success"),
+        "provider.retry": _display(icon="refresh-cw", title="Provider Retry", detail=data.get("message") or "Provider API retrying", kind="warning"),
+        "provider.rate_limit": _display(icon="clock", title="Provider Rate Limited", detail=data.get("message") or "Provider rate limit", kind="warning"),
+        "model.retry": _display(icon="refresh-cw", title="Model Retry", detail=data.get("message") or "Model retrying", kind="warning"),
+        "continuation.started": _display(icon="rotate-cw", title="Continuation Started", detail=data.get("message") or "Continuing automatically", kind="running"),
+        "continuation.prompt_sent": _display(icon="send", title="Continuation Prompt Sent", detail=data.get("message") or "Continuation prompt sent", kind="running"),
+        "continuation.completed": _display(icon="check-circle-2", title="Continuation Completed", detail=data.get("message") or "Continuation complete", kind="success"),
+        "continuation.failed": _display(icon="x-circle", title="Continuation Failed", detail=data.get("error") or data.get("message") or "Continuation failed", kind="error"),
+        "continuation.max_turns_reached": _display(icon="alert-triangle", title="Max Turns Reached", detail=data.get("message") or "Continuation reached max turns", kind="warning"),
+        "continuation.wall_timeout": _display(icon="clock", title="Continuation Timeout", detail=data.get("message") or "Continuation hit wall timeout", kind="warning"),
+        "continuation.no_progress": _display(icon="alert-triangle", title="No Progress", detail=data.get("message") or "Continuation stopped without progress", kind="warning"),
+        "continuation.suppressed": _display(icon="alert-triangle", title="Continuation suppressed", detail=_first_text(data.get("summary"), _as_dict(data.get("metadata")).get("reason"), data.get("reason"), data.get("message"), "Continuation suppressed"), kind="warning"),
+        "chat.timeout_recovery.started": _display(icon="clock", title="Timeout Recovery Started", detail=data.get("message") or "Runtime started timeout recovery", kind="running", severity="warning"),
+        "chat.timeout_recovery.poll": _display(icon="activity", title="Timeout Recovery Poll", detail=data.get("message") or "Polling runtime recovery", kind="running"),
+        "chat.timeout_recovery.recovered": _display(icon="check-circle-2", title="Timeout Recovery Recovered", detail=data.get("message") or "Runtime recovered", kind="success"),
+        "chat.timeout_recovery.exhausted": _display(icon="alert-triangle", title="Timeout Recovery Exhausted", detail=data.get("message") or "Runtime recovery exhausted", kind="warning"),
+        "chat.incomplete": _display(icon="alert-triangle", title="Chat Incomplete", detail=data.get("incomplete_reason") or data.get("message") or "Chat incomplete", kind="warning"),
+        "chat.failed": _display(icon="x-circle", title="Chat Failed", detail=data.get("error") or data.get("message") or "Chat failed", kind="error"),
+        "chat.completed": _display(icon="check-circle-2", title="Chat Completed", detail=data.get("message") or "Chat completed", kind="success"),
+        "final": _final_display(data),
+        "event_bridge.connected": _display(icon="plug", title="Event Bridge Connected", detail=data.get("message") or "Runtime event bridge connected", kind="success"),
+        "event_bridge.disconnected": _display(icon="unplug", title="Event Bridge Disconnected", detail=data.get("message") or "Runtime event bridge disconnected", kind="warning"),
+        "event_bridge.reconnected": _display(icon="plug", title="Event Bridge Reconnected", detail=data.get("message") or "Runtime event bridge reconnected", kind="success"),
+        "opencode.raw": _display(icon="terminal", title="OpenCode Event", detail=data.get("summary") or data.get("message") or "OpenCode runtime event", kind="info"),
+        "skill_matched": _display(icon="zap", title="Skill Matched", detail=_normalize_skill_label(data.get("skill")) or "Skill matched"),
+        "complete": _display(icon="flag", title="Complete", detail="Execution complete", kind="success"),
+        "context_snapshot": _display(icon="gauge", title="Context Snapshot", detail=_format_context_event_detail(data, "Context updated")),
+        "context_compaction_planned": _display(icon="scissors", title="Compaction Planned", detail=_format_context_event_detail(data, "Compaction planned"), kind="warning"),
+        "context_compaction_applied": _display(icon="archive", title="Context Compaction Applied", detail=_format_context_event_detail(data, "Context compaction applied"), kind="success"),
+        "skill_mode_start": _display(icon="play-circle", title="Skill Mode", detail=f"Starting: {data.get('skill') or 'Skill'}", kind="running"),
+        "skill_step": _display(icon="list-checks", title=f"Step: {data.get('step') or 'Step'}", detail=data.get("detail") or "", kind="running"),
+        "skill_session_start": _display(icon="clipboard-list", title="Skill Session", detail=f"Goal: {data.get('goal') or ''}", kind="running"),
+        "skill_compaction": _display(icon="archive" if data.get("status") == "completed" else "scissors", title="Compaction", detail=f"Steps: {data.get('remaining_steps')}" if data.get("status") == "completed" else f"Tokens: {data.get('current_tokens')}", kind="success" if data.get("status") == "completed" else "running"),
+        "skill_complete": _display(icon="check-square", title="Skill Finished" if data.get("reason") == "finish" else "Skill Awaiting Input", detail=data.get("result") or data.get("question") or "", kind="success"),
+        "skill_runtime_applied": _display(icon="layers", title="Skill Runtime Applied", detail=f"Using {data.get('skill')}" if data.get("skill") else "Skill runtime applied"),
+        "skill_contract_active": _display(icon="pin", title="Active Skill", detail=f"{data.get('skill')}{(' · ' + str(data.get('reason'))) if data.get('reason') else ''}" if data.get("skill") else "Active skill"),
+        "skill_tool_denied": _display(icon="shield-alert", title="Skill Tool Denied", detail=f"{data.get('tool')} denied by {data.get('skill') or 'active skill'}" if data.get("tool") else "Tool denied by active skill", kind="warning"),
+        "skill_contract_cleared": _display(icon="x-circle", title="Active Skill Cleared", detail=f"{data.get('skill')} cleared" if data.get("skill") else "Active skill cleared"),
+    }
+
+    summary = _first_text(data.get("summary"), data.get("message"), event_type)
     return by_type.get(
         event_type,
-        {
-            "icon": "circle",
-            "display_title": event_type.replace("_", " ").replace(".", " ").title(),
-            "display_detail": "",
-        },
+        _display(icon="circle", title="Runtime event", detail=f"{event_type}: {summary}", kind="info"),
     )
 
 
@@ -512,17 +533,18 @@ def _pick_context(chatlog: dict, metadata: dict, events: list, metadata_dict: di
 def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list:
     merged = []
     seen = set()
-    for source in (
-        _as_list(chatlog.get("events")),
-        _as_list(chatlog.get("runtime_events")),
-        _as_list(chatlog.get("thinking_events")),
-        _as_list(llm_debug.get("thinking_events")),
-        metadata_events,
+    for source_name, source in (
+        ("chatlog", _as_list(chatlog.get("events"))),
+        ("runtime", _as_list(chatlog.get("runtime_events"))),
+        ("runtime", _as_list(chatlog.get("thinking_events"))),
+        ("runtime", _as_list(llm_debug.get("thinking_events"))),
+        ("metadata", metadata_events),
     ):
         for event in source:
             if not isinstance(event, dict):
                 continue
-            event_type = event.get("type") or event.get("event_type") or "event"
+            raw_event_type = event.get("type") or event.get("event_type") or "event"
+            event_type = _normalize_event_type(raw_event_type)
             data = {
                 **_as_dict(event.get("data")),
                 **_as_dict(event.get("detail_payload")),
@@ -538,6 +560,24 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
             request_id = event.get("request_id") or data.get("request_id") or ""
             session_id = event.get("session_id") or data.get("session_id") or ""
             agent_id = event.get("agent_id") or data.get("agent_id") or ""
+            metadata = _as_dict(event.get("metadata")) or _as_dict(data.get("metadata"))
+            event_source = "replay" if event.get("replayed") or data.get("replayed") or metadata.get("replayed") else source_name
+            display_data = dict(data)
+            if event.get("summary") and not display_data.get("summary"):
+                display_data["summary"] = event.get("summary")
+            if metadata and not display_data.get("metadata"):
+                display_data["metadata"] = metadata
+            display = _build_thinking_event_display(event_type, display_data)
+            safe_detail_data = {
+                "event_type": event_type,
+                **data,
+            }
+            if raw_event_type != event_type:
+                safe_detail_data["raw_event_type"] = raw_event_type
+            if event.get("summary") and not safe_detail_data.get("summary"):
+                safe_detail_data["summary"] = event.get("summary")
+            if metadata and not safe_detail_data.get("metadata"):
+                safe_detail_data["metadata"] = metadata
             normalized = {
                 "type": event_type,
                 "event_type": event_type,
@@ -545,13 +585,23 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
                 "message": message,
                 "data": data,
                 "ts": event.get("ts") or event.get("created_at") or "",
+                "timestamp": event.get("ts") or event.get("created_at") or "",
+                "created_at": event.get("created_at") or data.get("created_at") or "",
                 "state": event.get("state") or data.get("state") or "",
                 "request_id": request_id,
                 "session_id": session_id,
                 "agent_id": agent_id,
+                "source": event_source,
+                "replayed": event_source == "replay",
+                "summary": event.get("summary") or data.get("summary") or message,
+                "safe_detail_payload": _sanitize_detail_payload(safe_detail_data),
             }
-            normalized.update(_build_thinking_event_display(event_type, data))
-            key = f"{normalized['type']}|{request_id}|{session_id}|{normalized['ts']}|{json.dumps(data, sort_keys=True, default=str)}"
+            normalized.update(display)
+            key = (
+                f"{normalized['type']}|{request_id}|{session_id}|"
+                f"{event.get('event_id') or event.get('id') or data.get('event_id') or data.get('id') or normalized['ts']}|"
+                f"{normalized.get('summary')}"
+            )
             if key in seen:
                 continue
             seen.add(key)

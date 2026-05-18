@@ -12,6 +12,9 @@ from app.redaction import sanitize_exception_message
 from app.utils.git_urls import normalize_git_repo_url
 
 
+OPENCODE_INTERNAL_HTTP_PORT = 2 ** 12
+
+
 @dataclass
 class RuntimeStatus:
     status: str
@@ -614,7 +617,7 @@ class K8sService:
                 env.append(client.V1EnvVar(name="EFP_WORKSPACE_REPOS_DIR", value=workspace_repos_dir))
                 env.append(client.V1EnvVar(name="EFP_GIT_CHECKOUT_TIMEOUT_SECONDS", value=str(checkout_timeout)))
                 env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
-                env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value="http://127.0.0.1:4096"))
+                env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value=f"http://127.0.0.1:{OPENCODE_INTERNAL_HTTP_PORT}"))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_PERMISSION_MODE", value=str(getattr(self.settings, "default_opencode_permission_mode", "workspace_full_access") or "workspace_full_access")))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_ALLOW_BASH_ALL", value="true" if bool(getattr(self.settings, "default_opencode_allow_bash_all", True)) else "false"))
         return env

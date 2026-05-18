@@ -2006,8 +2006,8 @@ console.log(JSON.stringify({{
     data = json.loads(completed.stdout)
 
     assert "closed:old" in data["events"]
-    assert data["directUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=s-1&request_id=req-1"
-    assert data["firstUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=new-session"
+    assert data["directUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=s-1&request_id=req-1&replay=1"
+    assert data["firstUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=new-session&replay=1"
     assert data["firstSession"] == "new-session"
     assert data["firstCreated"] == 2
     assert data["secondCreated"] == 2
