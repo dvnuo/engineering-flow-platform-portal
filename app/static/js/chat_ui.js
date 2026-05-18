@@ -1118,10 +1118,13 @@ function disconnectEventSocket() {
 function isTrackableThinkingEvent(type) {
   return [
     "stream.started",
+    "chat.started", "heartbeat", "status",
     "execution.started", "execution.completed", "execution.failed",
     "execution.incomplete", "execution.blocked",
-    "continuation.started", "continuation.completed", "continuation.failed",
+    "continuation.started", "continuation.prompt_sent", "continuation.completed", "continuation.failed",
+    "continuation.max_turns_reached", "continuation.wall_timeout", "continuation.no_progress",
     "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error",
+    "chat.timeout_recovery.started", "chat.timeout_recovery.poll", "chat.timeout_recovery.recovered", "chat.timeout_recovery.exhausted",
     "edit.failed",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
     "skill_matched", "complete",
@@ -1136,7 +1139,9 @@ function isTrackableThinkingEvent(type) {
     "tool.started", "tool.completed", "tool.failed",
     "tool.error",
     "permission.requested", "permission.resolved", "permission_request", "permission_resolved",
-    "provider.retry", "provider.status",
+    "permission.denied", "permission.allowed",
+    "provider.retry", "provider.status", "provider.rate_limit", "model.retry",
+    "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "opencode.raw",
     "portal.waiting_for_runtime_events", "portal.stream_disconnected",
     "skill.loaded", "task.started", "task.completed", "usage.updated"
   ].includes(type);
@@ -1303,17 +1308,39 @@ function getThinkingEventDisplay(event) {
     "tool.started": { icon: "wrench", title: "Tool Started", detail: data.message || "Tool started" },
     "tool.completed": { icon: "check-circle-2", title: "Tool Completed", detail: data.message || "Tool completed" },
     "tool.failed": { icon: "x-circle", title: "Tool Failed", detail: data.error || data.message || "Tool failed" },
+    "chat.started": { icon: "play-circle", title: "Chat Started", detail: data.message || "Chat request started" },
+    heartbeat: { icon: "activity", title: "Heartbeat", detail: data.message || "Runtime heartbeat" },
+    status: { icon: "activity", title: "Status", detail: data.message || data.status || "Runtime status" },
     "permission.requested": { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
     permission_request: { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
     "permission.resolved": { icon: "shield-check", title: "Permission Resolved", detail: data.message || "Permission resolved" },
     permission_resolved: { icon: "shield-check", title: "Permission Resolved", detail: data.message || "Permission resolved" },
+    "permission.denied": { icon: "shield-alert", title: "Permission Denied", detail: data.message || data.reason || "Permission denied" },
+    "permission.allowed": { icon: "shield-check", title: "Permission Allowed", detail: data.message || "Permission allowed" },
     "stream.started": { icon: "activity", title: "Stream Started", detail: data.message || "Streaming response started" },
     "continuation.started": { icon: "rotate-cw", title: "Continuation Started", detail: data.message || "Continuing automatically..." },
+    "continuation.prompt_sent": { icon: "send", title: "Continuation Prompt Sent", detail: data.message || "Continuation prompt sent" },
     "continuation.completed": { icon: "check-circle-2", title: "Continuation Completed", detail: data.message || "Continuation complete" },
     "continuation.failed": { icon: "x-circle", title: "Continuation Failed", detail: data.error || data.message || "Continuation failed" },
+    "continuation.max_turns_reached": { icon: "alert-triangle", title: "Max Turns Reached", detail: data.message || "Continuation reached max turns" },
+    "continuation.wall_timeout": { icon: "clock-alert", title: "Continuation Timeout", detail: data.message || "Continuation hit wall timeout" },
+    "continuation.no_progress": { icon: "alert-triangle", title: "No Progress", detail: data.message || "Continuation stopped without progress" },
     "chat.incomplete": { icon: "alert-triangle", title: "Incomplete", detail: data.incomplete_reason || data.message || "Incomplete after auto-continue" },
     "chat.blocked": { icon: "shield-alert", title: "Blocked", detail: data.message || "Blocked waiting for permission" },
     "chat.empty_final": { icon: "alert-triangle", title: "Empty Final", detail: data.message || "Empty final response" },
+    "chat.failed": { icon: "x-circle", title: "Chat Failed", detail: data.error || data.message || "Chat failed" },
+    "chat.completed": { icon: "check-circle-2", title: "Chat Completed", detail: data.message || "Chat completed" },
+    "chat.timeout_recovery.started": { icon: "clock-alert", title: "Timeout Recovery Started", detail: data.message || "Runtime started timeout recovery" },
+    "chat.timeout_recovery.poll": { icon: "activity", title: "Timeout Recovery Poll", detail: data.message || "Polling runtime recovery" },
+    "chat.timeout_recovery.recovered": { icon: "check-circle-2", title: "Timeout Recovery Recovered", detail: data.message || "Runtime recovered" },
+    "chat.timeout_recovery.exhausted": { icon: "alert-triangle", title: "Timeout Recovery Exhausted", detail: data.message || "Runtime recovery exhausted" },
+    "provider.retry": { icon: "refresh-cw", title: "Provider Retry", detail: data.message || "Provider API retrying" },
+    "provider.rate_limit": { icon: "clock-alert", title: "Provider Rate Limit", detail: data.message || "Provider rate limit" },
+    "model.retry": { icon: "refresh-cw", title: "Model Retry", detail: data.message || "Model retrying" },
+    "event_bridge.connected": { icon: "plug", title: "Event Bridge Connected", detail: data.message || "Runtime event bridge connected" },
+    "event_bridge.disconnected": { icon: "unplug", title: "Event Bridge Disconnected", detail: data.message || "Runtime event bridge disconnected" },
+    "event_bridge.reconnected": { icon: "plug-zap", title: "Event Bridge Reconnected", detail: data.message || "Runtime event bridge reconnected" },
+    "opencode.raw": { icon: "terminal", title: "OpenCode Event", detail: data.summary || data.message || "OpenCode runtime event" },
     "provider.status": { icon: "activity", title: "Provider Status", detail: data.message || data.status || "Provider status update" },
     "skill.loaded": { icon: "zap", title: "Skill Loaded", detail: data.skill || data.message || "Skill loaded" },
     "skill.detected": { icon: "zap", title: "Skill Detected", detail: data.skill || data.message || "Skill detected" },
@@ -1718,16 +1745,37 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
-  const activeRequestId = chatState.activeRequest?.clientRequestId || "";
+  const activeRequestIds = new Set([
+    chatState.activeRequest?.clientRequestId,
+    chatState.activeRequest?.requestId,
+    chatState.activeRequest?.runtimeRequestId,
+    chatState.inflightThinking?.requestId,
+    chatState.inflightThinking?.id,
+  ].map((value) => String(value || "")).filter(Boolean));
+  const activeRequestId = chatState.activeRequest?.runtimeRequestId
+    || chatState.activeRequest?.requestId
+    || chatState.activeRequest?.clientRequestId
+    || "";
   const socketRequestId = socketCtx.requestId || "";
   const currentRequestId = socketRequestId || activeRequestId;
-  if (entry.request_id && currentRequestId && entry.request_id !== currentRequestId) return;
-  const eventMatchesActiveRequest = Boolean(
-    entry.request_id && activeRequestId && entry.request_id === activeRequestId
-  );
+  const type = entry.type;
+  const eventMatchesActiveRequest = Boolean(entry.request_id && activeRequestIds.has(entry.request_id));
   const eventMatchesSocketRequest = Boolean(
     entry.request_id && socketRequestId && entry.request_id === socketRequestId
   );
+  const canAdoptRuntimeRequestId = Boolean(
+    type === "chat.started"
+    && entry.request_id
+    && chatState.activeRequest
+    && !eventMatchesActiveRequest
+    && (!entry.session_id || !currentSessionId || entry.session_id === currentSessionId)
+  );
+  if (entry.request_id && currentRequestId && !eventMatchesActiveRequest && !eventMatchesSocketRequest && !canAdoptRuntimeRequestId) return;
+  if (canAdoptRuntimeRequestId) {
+    chatState.activeRequest.runtimeRequestId = entry.request_id;
+    chatState.activeRequest.requestId = entry.request_id;
+    activeRequestIds.add(entry.request_id);
+  }
   const eventMatchesLastCompletedRequest = Boolean(
     entry.request_id
     && chatState.lastCompletedRequestId
@@ -1736,7 +1784,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   if (
     entry.session_id
     && !currentSessionId
-    && !(eventMatchesActiveRequest || eventMatchesSocketRequest || eventMatchesLastCompletedRequest)
+    && !(eventMatchesActiveRequest || eventMatchesSocketRequest || eventMatchesLastCompletedRequest || canAdoptRuntimeRequestId)
   ) {
     // Drop unmatched stale events when no current session is bound.
     // Otherwise they can recreate inflightThinking and cause false busy/session pollution.
@@ -1745,7 +1793,6 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
 
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
-  const type = entry.type;
   const lifecycleType = entry.lifecycle_type;
 
   if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
@@ -1780,9 +1827,10 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       contextState: null,
       contextBudget: null,
       startedAt: Date.now(),
+      lastEventAt: Date.now(),
     };
   }
-  if (entry.request_id && !chatState.inflightThinking.requestId) {
+  if (entry.request_id && (!chatState.inflightThinking.requestId || type === "chat.started")) {
     chatState.inflightThinking.requestId = entry.request_id;
     chatState.inflightThinking.id = chatState.inflightThinking.id || entry.request_id;
   }
@@ -1792,7 +1840,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   if (
     entry.session_id
     && !chatState.sessionId
-    && (eventMatchesActiveRequest || eventMatchesSocketRequest)
+    && (eventMatchesActiveRequest || eventMatchesSocketRequest || canAdoptRuntimeRequestId)
   ) {
     chatState.sessionId = entry.session_id;
     state.agentSessionIds.set(currentAgentId, entry.session_id);
@@ -1802,6 +1850,9 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   }
 
   if (!chatState.inflightThinking) return;
+  chatState.inflightThinking.lastEventAt = Date.now();
+  chatState.inflightThinking.lastEventTs = entry.ts || null;
+  chatState.inflightThinking.status = "connected";
 
   if (!chatState.inflightThinking.started && type !== "execution.started") {
     chatState.inflightThinking.events.push({
@@ -1833,6 +1884,9 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   }
 
   updateThinkingContextFromEvent(chatState.inflightThinking, entry);
+  if (entry.request_id && canAdoptRuntimeRequestId && state.eventWsRequestId !== entry.request_id) {
+    ensureEventSocketForAgent(currentAgentId, entry.session_id || currentSessionId, entry.request_id);
+  }
   if (isThinkingPanelActiveForAgent(currentAgentId)) {
     scheduleThinkingPanelRefresh(currentAgentId);
   }
@@ -4032,6 +4086,24 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     return "done";
   }
   if (outerType === "heartbeat") {
+    requestCtx.lastHeartbeatAt = Date.now();
+    const heartbeatPayload = {
+      event_type: "heartbeat",
+      request_id: eventData.request_id || requestCtx.requestId || requestCtx.clientRequestId,
+      session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+      agent_id: eventData.agent_id || agentIdAtSend,
+      data: {
+        ...eventData,
+        request_id: eventData.request_id || requestCtx.requestId || requestCtx.clientRequestId,
+        session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+        agent_id: eventData.agent_id || agentIdAtSend,
+      },
+    };
+    handleAgentEventMessage(JSON.stringify(heartbeatPayload), {
+      agentId: agentIdAtSend,
+      sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "",
+      requestId: requestCtx.requestId || requestCtx.clientRequestId,
+    });
     if (state.selectedAgentId === agentIdAtSend) setChatStatus("Thinking…");
     return "heartbeat";
   }
@@ -4095,6 +4167,7 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   const resp = await fetch(`/a/${agentIdAtSend}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
   if ([404,405,501].includes(resp.status) || !resp.body) return 'unsupported';
   if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+  requestCtx.usedStream = true;
   const reader = resp.body.getReader(); const decoder = new TextDecoder();
   let buffer=''; let sawEvent=false; let sawFinal=false; let sawError=false;
   const flushChunk = async (chunkText) => {

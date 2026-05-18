@@ -24,6 +24,50 @@ def test_chat_ui_streaming_contract_markers():
     assert 'mergeFinalThinkingSnapshot' in src
     assert 'context_state' in src
     assert 'handleAgentEventMessage' in src
+    assert 'requestCtx.usedStream = true' in src
+
+
+def test_chat_ui_streaming_supports_opencode_runtime_event_types():
+    src = _src()
+    for event_type in [
+        'chat.started',
+        'heartbeat',
+        'llm_thinking',
+        'message.delta',
+        'tool.started',
+        'tool.completed',
+        'tool.failed',
+        'permission_request',
+        'permission_resolved',
+        'provider.retry',
+        'continuation.started',
+        'continuation.completed',
+        'continuation.failed',
+        'chat.timeout_recovery.started',
+        'chat.timeout_recovery.poll',
+        'chat.timeout_recovery.recovered',
+        'chat.incomplete',
+        'chat.failed',
+    ]:
+        assert event_type in src
+
+
+def test_chat_stream_heartbeat_updates_live_thinking_state():
+    src = _src()
+    stream_handler = _extract_js_function(src, "handleChatStreamEvent")
+    assert 'outerType === "heartbeat"' in stream_handler
+    assert 'requestCtx.lastHeartbeatAt = Date.now()' in stream_handler
+    assert 'event_type: "heartbeat"' in stream_handler
+    assert 'handleAgentEventMessage(JSON.stringify(heartbeatPayload)' in stream_handler
+
+
+def test_chat_started_can_adopt_runtime_request_id():
+    src = _src()
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    assert 'type === "chat.started"' in handle_event
+    assert 'chatState.activeRequest.runtimeRequestId = entry.request_id' in handle_event
+    assert 'chatState.activeRequest.requestId = entry.request_id' in handle_event
+    assert 'ensureEventSocketForAgent(currentAgentId, entry.session_id || currentSessionId, entry.request_id)' in handle_event
 
 
 def test_chat_ui_streaming_does_not_use_eventsource_for_chat_stream():
