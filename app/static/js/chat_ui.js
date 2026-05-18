@@ -1135,7 +1135,22 @@ function normalizeRuntimeEventTypeAlias(type) {
 }
 
 function isTrackableThinkingEvent(type) {
-  const normalizedType = normalizeRuntimeEventTypeAlias(type);
+  const localNormalizeRuntimeEventTypeAlias = (value) => {
+    if (typeof normalizeRuntimeEventTypeAlias === "function") {
+      return normalizeRuntimeEventTypeAlias(value);
+    }
+    const normalized = String(value || "").trim();
+    const aliases = {
+      "continuation.no_progress_timeout": "continuation.no_progress",
+      "chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted",
+      "timeout_recovery.started": "chat.timeout_recovery.started",
+      "timeout_recovery.poll": "chat.timeout_recovery.poll",
+      "timeout_recovery.recovered": "chat.timeout_recovery.recovered",
+      "timeout_recovery.exhausted": "chat.timeout_recovery.exhausted",
+    };
+    return aliases[normalized] || normalized;
+  };
+  const normalizedType = localNormalizeRuntimeEventTypeAlias(type);
   return [
     "stream.started",
     "chat.started", "heartbeat", "status",
@@ -1173,6 +1188,21 @@ function normalizeRuntimeEvent(payload) {
 
   // Runtime may wrap the event or send the event at top-level.
   const candidate = payload.event || payload.payload || payload;
+  const localNormalizeRuntimeEventTypeAlias = (value) => {
+    if (typeof normalizeRuntimeEventTypeAlias === "function") {
+      return normalizeRuntimeEventTypeAlias(value);
+    }
+    const normalized = String(value || "").trim();
+    const aliases = {
+      "continuation.no_progress_timeout": "continuation.no_progress",
+      "chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted",
+      "timeout_recovery.started": "chat.timeout_recovery.started",
+      "timeout_recovery.poll": "chat.timeout_recovery.poll",
+      "timeout_recovery.recovered": "chat.timeout_recovery.recovered",
+      "timeout_recovery.exhausted": "chat.timeout_recovery.exhausted",
+    };
+    return aliases[normalized] || normalized;
+  };
   const wrapperTypes = new Set(["runtime_event", "event", "progress"]);
   const outerType = String(candidate?.event_type || candidate?.type || "").toLowerCase();
   const baseData = (candidate?.data && typeof candidate.data === "object") ? candidate.data : {};
@@ -1180,7 +1210,9 @@ function normalizeRuntimeEvent(payload) {
   const rawTypeValue = (wrapperTypes.has(outerType) && embeddedType)
     ? embeddedType
     : (candidate?.event_type || candidate?.type || "");
-  const rawType = normalizeRuntimeEventTypeAlias(rawTypeValue);
+  const rawType = (typeof normalizeRuntimeEventTypeAlias === "function")
+    ? normalizeRuntimeEventTypeAlias(rawTypeValue)
+    : localNormalizeRuntimeEventTypeAlias(rawTypeValue);
   if (!rawType) return null;
 
   const detailPayload = (candidate?.detail_payload && typeof candidate.detail_payload === "object")
@@ -2023,6 +2055,17 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   chatState.inflightThinking.lastEventTs = entry.ts || null;
   chatState.inflightThinking.lastEventCreatedAt = entry.created_at || "";
   chatState.inflightThinking.status = "connected";
+  const runtimeEventDedupKey = (typeof globalThis !== "undefined" && typeof globalThis.runtimeEventDedupKey === "function")
+    ? globalThis.runtimeEventDedupKey
+    : (event) => {
+      const data = (event?.data && typeof event.data === "object") ? event.data : {};
+      const eventId = event?.runtime_event_id || event?.event_id || event?.id || data.runtime_event_id || data.event_id || data.id || "";
+      if (eventId) return `id:${eventId}`;
+      const eventType = event?.type || event?.event_type || data.type || data.event_type || "";
+      const createdAt = event?.created_at || data.created_at || event?.ts || "";
+      const summary = event?.summary || data.summary || data.message || "";
+      return `${eventType}|${createdAt}|${summary}`;
+    };
   const entryDedupKey = runtimeEventDedupKey(entry);
   const alreadySeen = (chatState.inflightThinking.events || []).some((event) => {
     const key = runtimeEventDedupKey(event);
