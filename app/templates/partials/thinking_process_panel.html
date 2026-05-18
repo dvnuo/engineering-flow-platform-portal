@@ -19,7 +19,10 @@
   <div class="portal-inline-state is-error">{{ error }}</div>
 {% else %}
   <div class="portal-panel-section">
-    <div class="portal-panel-title">Thinking Process</div>
+    <div class="portal-live-header">
+      <div class="portal-panel-title">Thinking Process</div>
+      <span class="portal-live-status is-{{ (v.get('status') or 'unknown')|lower }}">{{ v.get('status') or 'unknown' }}</span>
+    </div>
     {% if v.get('warning') %}<div class="portal-inline-state">{{ v.get('warning') }}</div>{% endif %}
     <div class="portal-panel-note">Session ID: {{ v.get('session_id') or session_id or '—' }}</div>
     <div class="portal-panel-note">Request ID: {{ v.get('request_id') or '—' }}</div>
@@ -286,14 +289,23 @@
   <div class="portal-panel-section">
     <div class="portal-panel-title">Execution Timeline ({{ events|length }})</div>
     {% for event in events[-100:] %}
-      <div class="portal-timeline-event">
-        <span class="portal-timeline-event-icon"><i data-lucide="{{ event.get('icon') or 'circle' }}"></i></span>
+      <div class="portal-timeline-event{% if event.get('kind') %} is-{{ event.get('kind') }}{% endif %}{% if event.get('replayed') %} is-replayed{% endif %}">
+        <span class="portal-timeline-event-icon">
+          <i data-lucide="{{ event.get('icon') or 'circle' }}"></i>
+        </span>
         <div class="portal-timeline-event-body">
-          <div class="portal-panel-title">{{ event.get('display_title') or event.get('title') or event.get('type') }}</div>
+          <div class="portal-panel-title">
+            {{ event.get('display_title') or event.get('title') or event.get('type') }}
+            {% if event.get('kind') == 'running' %}<span class="portal-live-chip is-running">Running</span>{% endif %}
+            {% if event.get('replayed') %}<span class="portal-live-chip is-replay">Historical</span>{% endif %}
+          </div>
           <div class="portal-panel-note">{{ event.get('type') }}{% if event.get('display_detail') %} · {{ event.get('display_detail') }}{% elif event.get('title') %} · {{ event.get('title') }}{% endif %}</div>
           {% if event.get('message') %}<pre class="portal-panel-pre">{{ event.get('message')[:800] }}</pre>{% endif %}
-          {% if event.get('data') and event.get('type') in ['context_snapshot', 'context_compaction_planned', 'context_compaction_applied'] %}
-            <pre class="portal-panel-pre">{{ event.get('data')|tojson }}</pre>
+          {% if event.get('safe_detail_payload') %}
+            <details class="portal-event-detail">
+              <summary>Details</summary>
+              <pre class="portal-panel-pre">{{ event.get('safe_detail_payload')|tojson }}</pre>
+            </details>
           {% endif %}
         </div>
       </div>

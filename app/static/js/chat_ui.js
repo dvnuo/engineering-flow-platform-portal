@@ -1543,6 +1543,73 @@ function truncateThinkingText(value, max = 700) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+function formatElapsedDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  if (minutes) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  return `${seconds}s`;
+}
+
+function formatThinkingTimestamp(value) {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function isNonSuccessCompletionState(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return Boolean(normalized && !["success", "completed", "complete", "done"].includes(normalized));
+}
+
+function isSecretEventFieldName(key) {
+  const normalized = String(key || "").trim().toLowerCase().replaceAll("-", "_");
+  return (
+    normalized === "token"
+    || normalized === "password"
+    || normalized === "api_key"
+    || normalized === "apikey"
+    || normalized === "authorization"
+    || normalized.includes("password")
+    || normalized.includes("api_key")
+    || normalized.includes("access_token")
+  );
+}
+
+function sanitizeEventDetailPayload(value, depth = 0) {
+  if (depth > 4) return "[truncated]";
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 30).map((item) => sanitizeEventDetailPayload(item, depth + 1));
+    if (value.length > 30) items.push(`... ${value.length - 30} more items`);
+    return items;
+  }
+  if (value && typeof value === "object") {
+    const result = {};
+    Object.entries(value).slice(0, 40).forEach(([key, item]) => {
+      result[key] = isSecretEventFieldName(key) ? "[redacted]" : sanitizeEventDetailPayload(item, depth + 1);
+    });
+    if (Object.keys(value).length > 40) result["..."] = `${Object.keys(value).length - 40} more fields`;
+    return result;
+  }
+  if (typeof value === "string") return truncateThinkingText(value, 1200);
+  return value;
+}
+
+function getThinkingSnapshotStatus(snapshot) {
+  const completionState = String(snapshot?.completion_state || "").trim().toLowerCase();
+  if (snapshot?.completed) {
+    if (completionState === "failed" || completionState === "error") return "Failed";
+    if (isNonSuccessCompletionState(completionState) || snapshot?.incomplete_reason) return "Incomplete";
+    return "Completed";
+  }
+  if (snapshot?.connectionStatus === "reconnecting" || snapshot?.status === "reconnecting") return "Reconnecting";
+  if (snapshot?.connectionStatus === "disconnected") return "Disconnected";
+  return "Connected";
+}
+
 function renderThinkingPanelFromClientState(chatState) {
   if (!dom.toolPanelBody) return;
   const snapshot = getActiveThinkingSnapshot(chatState);
@@ -1568,6 +1635,18 @@ function renderThinkingPanelFromClientState(chatState) {
   const skillData = latestSkillEvent?.data || {};
   const visibleEvents = events.slice(-100);
   const capNote = events.length > 100 ? `<div class="portal-panel-note">showing latest 100 of ${events.length} events</div>` : "";
+  const now = Date.now();
+  const startedAt = Number(snapshot.startedAt || snapshot.createdAt || now);
+  const elapsedMs = snapshot.completed && snapshot.completedAt
+    ? Number(snapshot.completedAt) - startedAt
+    : now - startedAt;
+  const lastEventAt = Number(snapshot.lastEventAt || 0);
+  const lastEventLabel = lastEventAt ? formatThinkingTimestamp(lastEventAt) : "—";
+  const liveStatus = getThinkingSnapshotStatus(snapshot);
+  const completionState = String(snapshot.completion_state || snapshot.completionState || "").trim();
+  const incompleteReason = String(snapshot.incomplete_reason || snapshot.incompleteReason || "").trim();
+  const showNonSuccess = isNonSuccessCompletionState(completionState) || Boolean(incompleteReason);
+  const stillRunning = !snapshot.completed && elapsedMs >= 10 * 60 * 1000;
   const contextSourceLabel = snapshot.completed
     ? (snapshot.contextSource === "last_observed_live"
         ? "Last observed live snapshot — persisted snapshot pending"
@@ -1583,22 +1662,39 @@ function renderThinkingPanelFromClientState(chatState) {
 
   const timeline = visibleEvents.map((event) => {
     const view = getThinkingEventDisplay(event);
-    const payload = view.args ?? view.result ?? view.output ?? null;
-    const detailJson = (payload && (typeof payload === "string" || typeof payload === "object"))
-      ? `<pre class="portal-panel-pre">${safe(truncateThinkingText(typeof payload === "string" ? payload : JSON.stringify(payload, null, 2), 800))}</pre>`
+    const payload = view.args ?? view.result ?? view.output ?? event.safe_detail_payload ?? event.data ?? null;
+    const safePayload = sanitizeEventDetailPayload(payload);
+    const detailText = (safePayload && (typeof safePayload === "string" || typeof safePayload === "object"))
+      ? truncateThinkingText(typeof safePayload === "string" ? safePayload : JSON.stringify(safePayload, null, 2), 1200)
       : "";
-    return `<div class="portal-timeline-event"><span class="portal-timeline-event-icon"><i data-lucide="${safe(view.icon)}"></i></span><div class="portal-timeline-event-body"><div class="portal-panel-title">${safe(view.title)}</div><div class="portal-panel-note">${safe(view.detail || "")}</div>${detailJson}</div></div>`;
+    const detailJson = detailText
+      ? `<details class="portal-event-detail"><summary>Details</summary><pre class="portal-panel-pre">${safe(detailText)}</pre></details>`
+      : "";
+    const kind = String(event.kind || view.kind || "").trim().toLowerCase();
+    const running = kind === "running" || ["tool.started", "continuation.started", "chat.timeout_recovery.started", "heartbeat"].includes(event.type);
+    const replayed = Boolean(event.replayed);
+    const badges = [
+      running ? '<span class="portal-live-chip is-running">Running</span>' : "",
+      replayed ? '<span class="portal-live-chip is-replay">Historical</span>' : "",
+    ].filter(Boolean).join("");
+    return `<div class="portal-timeline-event ${kind ? `is-${safe(kind)}` : ""} ${replayed ? "is-replayed" : ""}"><span class="portal-timeline-event-icon"><i data-lucide="${safe(view.icon)}"></i></span><div class="portal-timeline-event-body"><div class="portal-panel-title">${safe(view.title)}${badges ? ` ${badges}` : ""}</div><div class="portal-panel-note">${safe(view.detail || "")}</div>${detailJson}</div></div>`;
   }).join("");
 
   dom.toolPanelBody.innerHTML = `
     <div class="portal-panel-stack portal-live-thinking" data-live-thinking-panel="1">
       <div class="portal-panel-section">
-        <div class="portal-panel-title">Thinking Process · ${snapshot.completed ? "Completed" : "Live"}</div>
-        <div class="portal-panel-note">Status: ${snapshot.completed ? "completed" : "running"}</div>
+        <div class="portal-live-header">
+          <div class="portal-panel-title">Thinking Process Live</div>
+          <span class="portal-live-status is-${safe(liveStatus.toLowerCase())}">${safe(liveStatus)}</span>
+        </div>
+        <div class="portal-panel-note">Elapsed: ${safe(formatElapsedDuration(elapsedMs))}</div>
+        <div class="portal-panel-note">Last event: ${safe(lastEventLabel)}</div>
         <div class="portal-panel-note">Request ID: ${safe(snapshot.requestId || snapshot.id || "—")}</div>
         <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
         <div class="portal-panel-note">Events: ${events.length}</div>
       </div>
+      ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>You can send "continue" to ask the runtime to resume, or inspect the event details here.</div></div>` : ""}
+      ${stillRunning ? '<div class="portal-inline-state">Still running. Live events will continue to appear here.</div>' : ""}
       ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div>${untilSoft != null ? `<div class="portal-panel-note">Until soft threshold: ${safe(String(untilSoft))} tokens</div>` : ""}${untilHard != null ? `<div class="portal-panel-note">Until hard threshold: ${safe(String(untilHard))} tokens</div>` : ""}${nextPruningPolicy ? `<div class="portal-panel-note">Pruning policy: ${safe(truncateThinkingText(nextPruningPolicy, 500))}</div>` : ""}</div>` : ""}
       <div class="portal-panel-section">
         <div class="portal-panel-title">Context Contents</div>

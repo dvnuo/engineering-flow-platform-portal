@@ -1014,3 +1014,29 @@ def test_thinking_process_view_marks_replay_and_redacts_safe_detail_payload():
     assert event["safe_detail_payload"]["authorization"] == "[redacted]"
     assert event["safe_detail_payload"]["nested"]["api_key"] == "[redacted]"
     assert event["safe_detail_payload"]["nested"]["safe"] == "ok"
+
+
+def test_thinking_process_panel_renders_running_replay_and_safe_details(monkeypatch):
+    chatlog = {
+        "session_id": "s-1",
+        "runtime_events": [
+            {
+                "event_type": "tool.started",
+                "metadata": {"replayed": True},
+                "detail_payload": {
+                    "tool": "bash",
+                    "authorization": "Bearer secret",
+                },
+            },
+        ],
+    }
+    client = _setup_thinking_panel_client(monkeypatch, chatlog)
+
+    response = client.get("/app/agents/agent-1/thinking/panel?session_id=s-1")
+
+    assert response.status_code == 200
+    assert "Running" in response.text
+    assert "Historical" in response.text
+    assert "Details" in response.text
+    assert "[redacted]" in response.text
+    assert "Bearer secret" not in response.text

@@ -86,6 +86,30 @@ def test_events_websocket_uses_replay_reconnect_and_dedup():
     assert 'const entryDedupKey = (() =>' in handle_event
 
 
+def test_live_thinking_panel_renders_status_banner_and_safe_details():
+    src = _src()
+    render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    assert "Thinking Process Live" in render_panel
+    assert "portal-live-status" in render_panel
+    assert "Elapsed:" in render_panel
+    assert "Last event:" in render_panel
+    assert "portal-completion-banner" in render_panel
+    assert 'You can send "continue"' in render_panel
+    assert "Still running. Live events will continue to appear here." in render_panel
+    assert "Historical" in render_panel
+    assert "portal-event-detail" in render_panel
+    assert "sanitizeEventDetailPayload" in render_panel
+
+
+def test_live_thinking_detail_sanitizer_redacts_secret_fields():
+    src = _src()
+    sanitizer = _extract_js_function(src, "sanitizeEventDetailPayload")
+    secret_name = _extract_js_function(src, "isSecretEventFieldName")
+    assert "authorization" in secret_name
+    assert "api_key" in secret_name
+    assert '"[redacted]"' in sanitizer
+
+
 def test_chat_ui_streaming_does_not_use_eventsource_for_chat_stream():
     src = _src()
     assert 'EventSource(' not in src
