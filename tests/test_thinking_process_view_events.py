@@ -18,6 +18,7 @@ def test_thinking_process_view_maps_required_runtime_events():
         ("chat.run.completed", {}, "success", "success", "Run Completed"),
         ("chat.run.incomplete", {"incomplete_reason": "max turns"}, "warning", "warning", "Run Incomplete"),
         ("chat.run.failed", {"error": "boom"}, "error", "error", "Run Failed"),
+        ("chat.run.abort_failed", {"error": "abort boom"}, "error", "error", "Run Abort Failed"),
         ("chat.run.stale", {}, "warning", "warning", "Run Stale"),
         ("chat.run.aborted", {}, "warning", "warning", "Run Aborted"),
         ("heartbeat", {}, "running", "running", "Heartbeat"),
@@ -68,6 +69,8 @@ def test_thinking_process_view_maps_required_runtime_events():
         ("event_bridge.reconnected", {}, "success", "success", "Event Bridge Reconnected"),
         ("opencode.raw", {}, "info", "info", "OpenCode Event"),
         ("opencode.session.aborted", {}, "success", "success", "OpenCode Session Aborted"),
+        ("opencode.session.abort_failed", {"error": "abort boom"}, "error", "error", "OpenCode Session Abort Failed"),
+        ("opencode.session.missing", {}, "warning", "warning", "OpenCode Session Missing"),
         ("opencode.status.inactive", {}, "warning", "warning", "OpenCode Inactive"),
     ]
     view = build_thinking_process_view({

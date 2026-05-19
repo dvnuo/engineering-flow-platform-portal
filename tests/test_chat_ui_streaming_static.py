@@ -37,6 +37,7 @@ def test_chat_ui_streaming_supports_opencode_runtime_event_types():
         'chat.run.completed',
         'chat.run.incomplete',
         'chat.run.failed',
+        'chat.run.abort_failed',
         'chat.run.stale',
         'chat.run.aborted',
         'assistant.message.started',
@@ -52,6 +53,7 @@ def test_chat_ui_streaming_supports_opencode_runtime_event_types():
         'portal.abort.completed',
         'portal.abort.failed',
         'opencode.session.aborted',
+        'opencode.session.abort_failed',
         'opencode.session.missing',
         'opencode.status.validated',
         'opencode.status.inactive',
@@ -421,7 +423,9 @@ def test_abort_active_chat_request_uses_runtime_abort_endpoints():
     assert "function abortActiveChatRequestForSelectedAgent" in src
     assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
     assert '`/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_fn
-    assert 'clearStaleActiveRequest(agentId, requestCtx, "user_aborted")' in abort_fn
+    assert "runtimeAbortSucceeded(result)" in abort_fn
+    assert "runtimeAbortIndicatesInactive(result)" in abort_fn
+    assert 'clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted")' in abort_fn
     assert '"portal.abort.started"' in abort_fn
     assert '"portal.abort.completed"' in abort_fn
     assert '"portal.abort.failed"' in abort_fn
@@ -430,6 +434,37 @@ def test_abort_active_chat_request_uses_runtime_abort_endpoints():
     assert 'id="abort-chat-run-btn"' in template
     assert "Stop run" in template
     assert "shouldShowAbortChatRunButton(agentId)" in sync_controls
+
+
+def test_abort_active_chat_request_checks_runtime_abort_result():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    success_helper = _extract_js_function(src, "runtimeAbortSucceeded")
+    inactive_helper = _extract_js_function(src, "runtimeAbortIndicatesInactive")
+
+    assert "result.success === false" in success_helper
+    assert "abortResult.success === false" in success_helper
+    assert "Array.isArray(abortResult.errors) && abortResult.errors.length" in success_helper
+    assert "result.success === true || abortResult.success === true || result.stale === true" in success_helper
+    assert "missing_session_ids" in inactive_helper
+    assert '"aborted", "stale", "completed", "incomplete", "failed", "cancelled", "canceled"' in inactive_helper
+    assert "if (!runtimeAbortSucceeded(result))" in abort_fn
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in abort_fn
+
+
+def test_abort_failure_does_not_clear_active_request():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    failure_start = abort_fn.index("if (!runtimeAbortSucceeded(result))")
+    failure_end = abort_fn.index("return;", failure_start)
+    failure_branch = abort_fn[failure_start:failure_end]
+
+    assert '"portal.abort.failed"' in failure_branch
+    assert 'setChatStatus("Unable to stop current run.", true)' in failure_branch
+    assert "showToast(\"Unable to stop current run: \" + message)" in failure_branch
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in failure_branch
+    assert "syncSelectedAgentChatActionControls()" in failure_branch
+    assert "clearStaleActiveRequest" not in failure_branch
 
 
 def test_remove_temporary_assistant_rows_is_request_scoped_and_content_safe():

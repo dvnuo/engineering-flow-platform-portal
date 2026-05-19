@@ -488,6 +488,8 @@ def test_abort_active_chat_request_clears_active_request_node_smoke():
                 _extract_js_function(src, "activeRequestMatchesRequestContext"),
                 _extract_js_function(src, "fallbackRequestContextForAgent"),
                 _extract_js_function(src, "clearStaleActiveRequest"),
+                _extract_js_function(src, "runtimeAbortSucceeded"),
+                _extract_js_function(src, "runtimeAbortIndicatesInactive"),
                 _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
             ]
         )
@@ -524,7 +526,7 @@ def test_abort_active_chat_request_clears_active_request_node_smoke():
             function showToast(message) { calls.push(["toast", message]); }
             async function agentApiFor(agentId, path, options) {
               calls.push(["api", path, options.method]);
-              return { ok: true };
+              return { success: true, abort_result: { success: true }, run: { status: "aborted" } };
             }
 
             (async () => {
@@ -535,6 +537,69 @@ def test_abort_active_chat_request_clears_active_request_node_smoke():
               assert.ok(calls.some((item) => item[0] === "api" && item[1] === "/api/chat/runs/runtime-1/abort" && item[2] === "POST"));
               assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.abort.completed"));
               assert.ok(calls.some((item) => item[0] === "toast" && item[1] === "Stopped current run."));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_abort_active_chat_request_failure_keeps_active_request_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "runtimeAbortSucceeded"),
+                _extract_js_function(src, "runtimeAbortIndicatesInactive"),
+                _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "runtime-1",
+              runtimeRequestId: "runtime-1",
+              sessionIdAtSend: "sess-1",
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: false,
+              sessionId: "sess-1",
+              inflightThinking: { id: "client-1", requestId: "client-1", sessionId: "sess-1", completed: false },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function setChatStatus(message, isError) { calls.push(["status", message, isError]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type, data) { calls.push(["event", type, data]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["syncControls"]); }
+            function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", agentId, ctx.clientRequestId, options?.immediate]); }
+            function showToast(message) { calls.push(["toast", message]); }
+            async function agentApiFor(agentId, path, options) {
+              calls.push(["api", path, options.method]);
+              return { success: false, abort_result: { success: false, errors: ["opencode refused abort"] } };
+            }
+
+            (async () => {
+              await abortActiveChatRequestForSelectedAgent();
+              assert.equal(chatState.activeRequest, requestCtx);
+              assert.equal(chatState.inflightThinking.completed, false);
+              assert.ok(calls.some((item) => item[0] === "api" && item[1] === "/api/chat/runs/runtime-1/abort" && item[2] === "POST"));
+              assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.abort.failed"));
+              assert.ok(calls.some((item) => item[0] === "status" && item[1] === "Unable to stop current run." && item[2] === true));
+              assert.ok(calls.some((item) => item[0] === "toast" && item[1].startsWith("Unable to stop current run:")));
+              assert.ok(calls.some((item) => item[0] === "reconcile" && item[1] === "agent-1" && item[3] === true));
+              assert.ok(!calls.some((item) => item[0] === "event" && item[1] === "portal.abort.completed"));
+              assert.ok(!calls.some((item) => item[0] === "toast" && item[1] === "Stopped current run."));
             })();
             """
         )

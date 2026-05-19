@@ -1260,7 +1260,7 @@ function isTrackableThinkingEvent(type) {
   return [
     "stream.started",
     "chat.stream_attached", "chat.stream_detached",
-    "chat.run.started", "chat.run.completed", "chat.run.incomplete", "chat.run.failed", "chat.run.stale", "chat.run.aborted",
+    "chat.run.started", "chat.run.completed", "chat.run.incomplete", "chat.run.failed", "chat.run.abort_failed", "chat.run.stale", "chat.run.aborted",
     "chat.started", "heartbeat", "status",
     "execution.started", "execution.completed", "execution.failed",
     "execution.incomplete", "execution.blocked",
@@ -1285,7 +1285,7 @@ function isTrackableThinkingEvent(type) {
     "permission.denied", "permission.allowed",
     "provider.retry", "provider.status", "provider.rate_limit", "model.retry",
     "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "opencode.raw",
-    "opencode.session.aborted", "opencode.session.missing", "opencode.status.validated", "opencode.status.inactive",
+    "opencode.session.aborted", "opencode.session.abort_failed", "opencode.session.missing", "opencode.status.validated", "opencode.status.inactive",
     "assistant.message.started", "assistant.message.updated", "assistant.message.completed",
     "portal.waiting_for_runtime_events", "portal.stream_disconnected", "portal.stream_detached",
     "portal.reconcile.started", "portal.reconcile.updated", "portal.reconcile.completed", "portal.reconcile.failed",
@@ -1499,6 +1499,7 @@ function getThinkingEventDisplay(event) {
     "chat.run.completed": { icon: "check-circle-2", title: "Run Completed", detail: data.message || "Chat run completed" },
     "chat.run.incomplete": { icon: "alert-triangle", title: "Run Incomplete", detail: data.incomplete_reason || data.message || "Chat run incomplete", kind: "warning" },
     "chat.run.failed": { icon: "x-circle", title: "Run Failed", detail: data.error || data.message || "Chat run failed", kind: "error" },
+    "chat.run.abort_failed": { icon: "x-circle", title: "Run Abort Failed", detail: data.error || data.message || "Chat run abort failed", kind: "error" },
     "chat.run.stale": { icon: "alert-triangle", title: "Run Stale", detail: data.message || "Chat run is no longer active", kind: "warning" },
     "chat.run.aborted": { icon: "square", title: "Run Aborted", detail: data.message || "Chat run was aborted", kind: "warning" },
     "continuation.started": { icon: "rotate-cw", title: "Continuation Started", detail: data.message || "Continuing automatically..." },
@@ -1527,6 +1528,7 @@ function getThinkingEventDisplay(event) {
     "event_bridge.reconnected": { icon: "plug-zap", title: "Event Bridge Reconnected", detail: data.message || "Runtime event bridge reconnected" },
     "opencode.raw": { icon: "terminal", title: "OpenCode Event", detail: data.summary || data.message || "OpenCode runtime event" },
     "opencode.session.aborted": { icon: "square", title: "OpenCode Session Aborted", detail: data.message || "OpenCode session was aborted", kind: "success" },
+    "opencode.session.abort_failed": { icon: "x-circle", title: "OpenCode Session Abort Failed", detail: data.error || data.message || "OpenCode session abort failed", kind: "error" },
     "opencode.session.missing": { icon: "alert-triangle", title: "OpenCode Session Missing", detail: data.message || "OpenCode session is missing", kind: "warning" },
     "opencode.status.validated": { icon: "shield-check", title: "OpenCode Status Validated", detail: data.message || "OpenCode active status validated" },
     "opencode.status.inactive": { icon: "alert-triangle", title: "OpenCode Inactive", detail: data.message || "OpenCode is not active", kind: "warning" },
@@ -4806,6 +4808,26 @@ function clearStaleActiveRequest(agentId, requestCtx, reason = "opencode_not_act
   }
 }
 
+function runtimeAbortSucceeded(result = {}) {
+  if (!result || typeof result !== "object") return false;
+  if (result.success === false) return false;
+  const abortResult = result.abort_result || result.abortResult || {};
+  if (abortResult && typeof abortResult === "object") {
+    if (abortResult.success === false) return false;
+    if (Array.isArray(abortResult.errors) && abortResult.errors.length) return false;
+  }
+  return result.success === true || abortResult.success === true || result.stale === true;
+}
+
+function runtimeAbortIndicatesInactive(result = {}) {
+  const abortResult = result?.abort_result || result?.abortResult || {};
+  if (result?.stale === true) return true;
+  if (Array.isArray(abortResult?.missing_session_ids) && abortResult.missing_session_ids.length && !(abortResult.errors || []).length) return true;
+  const run = result?.run || {};
+  const status = String(run.status || run.state || "").toLowerCase();
+  return ["aborted", "stale", "completed", "incomplete", "failed", "cancelled", "canceled"].includes(status);
+}
+
 async function abortActiveChatRequestForSelectedAgent() {
   const agentId = state.selectedAgentId;
   const chatState = ensureChatState(agentId);
@@ -4840,12 +4862,29 @@ async function abortActiveChatRequestForSelectedAgent() {
       });
     }
 
+    if (!runtimeAbortSucceeded(result)) {
+      const message = String(result?.error || result?.detail || "Runtime could not stop the OpenCode run.");
+      appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.failed", {
+        message,
+        result,
+      });
+      setChatStatus("Unable to stop current run.", true);
+      showToast("Unable to stop current run: " + message);
+      startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+      syncSelectedAgentChatActionControls();
+      return;
+    }
+
     appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.completed", {
       message: "Current OpenCode run was stopped.",
       result,
     });
 
-    clearStaleActiveRequest(agentId, requestCtx, "user_aborted");
+    if (runtimeAbortIndicatesInactive(result)) {
+      clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted");
+    } else {
+      startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+    }
     showToast("Stopped current run.");
   } catch (error) {
     appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.failed", {
@@ -4854,6 +4893,8 @@ async function abortActiveChatRequestForSelectedAgent() {
     });
     setChatStatus("Unable to stop current run.", true);
     showToast("Unable to stop current run: " + (error?.message || error));
+    startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+    syncSelectedAgentChatActionControls();
   }
 }
 
