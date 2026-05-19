@@ -99,9 +99,10 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(calls, ["patch_deployment", "patch_service_metadata", "scale"])
         self.assertEqual(scale_calls[0]["body"], {"spec": {"replicas": 1}})
 
-    def test_start_agent_does_not_scale_when_patch_fails(self):
+    def test_start_agent_scales_when_patch_fails(self):
         self.service.enabled = True
         calls = []
+        scale_calls = []
         agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents")
 
         def _patch_deployment(_agent):
@@ -111,8 +112,9 @@ class K8sServiceNoopTest(unittest.TestCase):
         def _patch_service_metadata(_agent):
             calls.append("patch_service_metadata")
 
-        def _scale(**_kwargs):
+        def _scale(**kwargs):
             calls.append("scale")
+            scale_calls.append(kwargs)
 
         self.service._patch_deployment = _patch_deployment
         self.service._patch_service_metadata = _patch_service_metadata
@@ -120,9 +122,66 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         status = self.service.start_agent(agent)
 
-        self.assertEqual(status.status, "failed")
+        self.assertEqual(status.status, "running")
+        self.assertIn("Deployment scaled to 1", status.message)
         self.assertIn("bad skill subdir", status.message)
-        self.assertEqual(calls, ["patch_deployment"])
+        self.assertIn("scale", calls)
+        self.assertEqual(scale_calls[0]["body"], {"spec": {"replicas": 1}})
+
+    def test_restart_agent_does_not_scale_to_zero_and_rolls_out(self):
+        self.service.enabled = True
+        calls = []
+        scale_calls = []
+        deployment_patch_calls = []
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents")
+
+        def _patch_deployment(_agent):
+            calls.append("patch_deployment")
+
+        def _patch_service_metadata(_agent):
+            calls.append("patch_service_metadata")
+
+        def _scale(**kwargs):
+            calls.append("scale")
+            scale_calls.append(kwargs)
+
+        def _patch_namespaced_deployment(**kwargs):
+            calls.append("rollout_patch")
+            deployment_patch_calls.append(kwargs)
+
+        self.service._patch_deployment = _patch_deployment
+        self.service._patch_service_metadata = _patch_service_metadata
+        self.service.apps_api = SimpleNamespace(
+            patch_namespaced_deployment_scale=_scale,
+            patch_namespaced_deployment=_patch_namespaced_deployment,
+        )
+
+        status = self.service.restart_agent(agent)
+
+        self.assertEqual(status.status, "running")
+        self.assertTrue(scale_calls)
+        self.assertTrue(all(call["body"] == {"spec": {"replicas": 1}} for call in scale_calls))
+        self.assertFalse(any(call["body"] == {"spec": {"replicas": 0}} for call in scale_calls))
+        self.assertTrue(deployment_patch_calls)
+        body = deployment_patch_calls[-1]["body"]
+        self.assertIn("efp.dvnuo.io/restarted-at", body["spec"]["template"]["metadata"]["annotations"])
+
+    def test_runtime_status_uses_spec_replicas_for_desired_state(self):
+        self.service.enabled = True
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents", status="stopped", last_error=None)
+
+        deploy = SimpleNamespace(
+            spec=SimpleNamespace(replicas=1),
+            status=SimpleNamespace(replicas=0, available_replicas=0),
+        )
+
+        self.service.apps_api = SimpleNamespace(
+            read_namespaced_deployment_status=lambda **_kwargs: deploy,
+        )
+
+        status = self.service.get_agent_runtime_status(agent)
+
+        self.assertEqual(status.status, "creating")
 
     def test_skill_clone_shell_accepts_directory_skill_and_copies_resources(self):
         def _build(repo: Path):
