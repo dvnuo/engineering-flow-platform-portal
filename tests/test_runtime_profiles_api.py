@@ -181,7 +181,7 @@ def test_runtime_profile_get_sanitizes_legacy_provider_automation_fields(monkeyp
         resp = client.get(f"/api/runtime-profiles/{legacy.id}")
         assert resp.status_code == 200
         cfg = json.loads(resp.json()["config_json"])
-        assert cfg["github"] == {"enabled": True}
+        assert cfg["github"] == {"enabled": True, "api_token_present": False}
         assert cfg["jira"] == {"enabled": True}
         assert cfg["confluence"] == {"enabled": True}
     finally:
@@ -211,7 +211,7 @@ def test_runtime_profile_list_sanitizes_legacy_provider_automation_fields(monkey
         assert resp.status_code == 200
         by_id = {item["id"]: item for item in resp.json()}
         cfg = json.loads(by_id[legacy.id]["config_json"])
-        assert cfg["github"] == {"enabled": True}
+        assert cfg["github"] == {"enabled": True, "api_token_present": False}
         assert cfg["jira"] == {"enabled": True}
         assert cfg["confluence"] == {"enabled": True}
     finally:
@@ -227,9 +227,9 @@ def test_runtime_profile_api_redacts_llm_oauth_secrets_in_response(monkeypatch):
         assert resp.status_code == 200
         assert "gho_A" not in resp.text and "gho_R" not in resp.text
         cfg = json.loads(resp.json()["config_json"])
-        assert cfg["llm"]["oauth"].get("present") is True
-        assert "access" not in cfg["llm"]["oauth"]
-        assert "refresh" not in cfg["llm"]["oauth"]
+        assert cfg["llm"]["api_key_present"] is True
+        assert "api_key" not in cfg["llm"]
+        assert "oauth" not in cfg["llm"]
     finally:
         cleanup()
 

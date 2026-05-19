@@ -7,7 +7,6 @@ from app.models.runtime_profile import RuntimeProfile
 from app.models.user import User
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
-from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 
 
 class RuntimeProfileService:
@@ -122,7 +121,6 @@ class RuntimeProfileService:
         never a default-materialized view payload.
         """
         parsed = parse_runtime_profile_config_json(config_json, fallback_to_empty=True)
-        parsed = canonicalize_portal_runtime_profile_config(parsed)
         return dump_runtime_profile_config_json(parsed)
 
     @staticmethod

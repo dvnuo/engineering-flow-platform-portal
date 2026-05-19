@@ -117,6 +117,8 @@ class AgentResponse(BaseModel):
     branch: Optional[str] = None
     skill_repo_url: Optional[str] = None
     skill_branch: Optional[str] = None
+    tool_repo_url: Optional[str] = None
+    tool_branch: Optional[str] = None
     effective_skill_repo_url: Optional[str] = None
     effective_skill_branch: Optional[str] = None
     owner_user_id: int
@@ -132,7 +134,7 @@ class AgentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("repo_url", "skill_repo_url", mode="before")
+    @field_validator("repo_url", "skill_repo_url", "tool_repo_url", mode="before")
     @classmethod
     def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
         return normalize_git_repo_url(value)

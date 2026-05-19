@@ -987,6 +987,13 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         llm.pop("oauth", None)
         llm.pop("oauth_by_runtime", None)
 
+        temperature_text = (form.get("llm_temperature") or "").strip()
+        if "llm_temperature" in form:
+            if temperature_text:
+                llm["temperature"] = temperature_text
+            else:
+                llm.pop("temperature", None)
+
         max_tokens_text = (form.get("llm_max_tokens") or "").strip()
         if "llm_max_tokens" in form:
             if not max_tokens_text:

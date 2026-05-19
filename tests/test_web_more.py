@@ -1447,7 +1447,7 @@ def test_start_copilot_auth_uses_portal_endpoints_and_stops_on_declined():
     get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
     stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
     get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
-    copilot_card_fn = _extract_js_function(js_file, "copilotCard")
+    set_summary_fn = _extract_js_function(js_file, "setCopilotResultSummary")
     get_github_base_fn = _extract_js_function(js_file, "getManagedGithubBaseUrl")
     finish_fn = _extract_js_function(js_file, "finishCopilotAuthWithMessage")
     start_copilot_fn = _extract_js_function(js_file, "startCopilotAuth")
@@ -1474,55 +1474,30 @@ global.clearInterval = clearIntervalStub;
 function safe(v) {{ return String(v || ""); }}
 function showToast(msg) {{ toasts.push(msg); }}
 function markManagedSectionTouched() {{}}
-function setCopilotOAuthFields() {{}}
 function makeClassList() {{ return {{ add() {{}}, remove() {{}}, toggle() {{}} }}; }}
-function makeCopilotCard(elements) {{
-  return {{
-    querySelector(sel) {{
-      if (sel === "[data-copilot-auth-status]") return elements.authStatus;
-      if (sel === "[data-copilot-instructions]") return elements.instructions;
-      if (sel === "[data-copilot-status-text]") return elements.statusText;
-      if (sel === "[data-copilot-verify-link]") return elements.verifyLink;
-      if (sel === "[data-copilot-device-link]") return elements.deviceLink;
-      if (sel === "[data-copilot-user-code]") return elements.userCode;
-      if (sel === "[data-copilot-timer]") return elements.timer;
-      return null;
-    }}
-  }};
-}}
 function makeRoot(runtimeKey = "native") {{
   const elements = {{
-    authStatus: {{ classList: makeClassList() }},
     instructions: {{ classList: makeClassList() }},
-    statusText: {{ textContent: "" }},
+    summary: {{ textContent: "", classList: makeClassList() }},
     verifyLink: {{ href: "", textContent: "" }},
     deviceLink: {{ href: "", classList: makeClassList() }},
     userCode: {{ textContent: "" }},
     timer: {{ textContent: "" }},
     apiKey: {{ value: "" }},
     githubBase: {{ value: "https://github.company.com" }},
-    oauthType: {{ value: "" }}, oauthAccess: {{ value: "" }}, oauthRefresh: {{ value: "" }},
-    oauthExpires: {{ value: "" }}, oauthEnterprise: {{ value: "" }}, oauthAccount: {{ value: "" }},
-    oauthPresent: {{ value: "" }}, oauthClear: {{ value: "" }},
   }};
-  const nativeCard = makeCopilotCard(elements);
-  const opencodeCard = makeCopilotCard(elements);
   return {{
     elements,
     dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
     querySelector(sel) {{
-      if (sel === '[data-copilot-auth-card="native"]') return nativeCard;
-      if (sel === '[data-copilot-auth-card="opencode"]') return opencodeCard;
+      if (sel === "[data-copilot-instructions]") return elements.instructions;
+      if (sel === "[data-copilot-result-summary]") return elements.summary;
+      if (sel === "[data-copilot-verify-link]") return elements.verifyLink;
+      if (sel === "[data-copilot-device-link]") return elements.deviceLink;
+      if (sel === "[data-copilot-user-code]") return elements.userCode;
+      if (sel === "[data-copilot-timer]") return elements.timer;
       if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
       if (sel === 'input[name="github_base_url"]') return elements.githubBase;
-      if (sel === `input[name="llm_oauth_${{runtimeKey}}_type"]`) return elements.oauthType;
-      if (sel === `input[name="llm_oauth_${{runtimeKey}}_access"]`) return elements.oauthAccess;
-      if (sel === `input[name="llm_oauth_${{runtimeKey}}_refresh"]`) return elements.oauthRefresh;
-      if (sel === `input[name="llm_oauth_${{runtimeKey}}_expires"]`) return elements.oauthExpires;
-      if (sel === `input[name="llm_oauth_${{runtimeKey}}_enterprise_url"]`) return elements.oauthEnterprise;
-      if (sel === `input[name="llm_oauth_${{runtimeKey}}_account_id"]`) return elements.oauthAccount;
-      if (sel === `input[name="llm_oauth_${{runtimeKey}}_present"]`) return elements.oauthPresent;
-      if (sel === `input[name="llm_oauth_${{runtimeKey}}_clear"]`) return elements.oauthClear;
       return null;
     }}
   }};
@@ -1559,7 +1534,7 @@ global.fetch = fetch;
 {get_state_fn}
 {stop_polling_fn}
 {get_auth_base_fn}
-{copilot_card_fn}
+{set_summary_fn}
 {get_github_base_fn}
 {finish_fn}
 {start_copilot_fn}
@@ -1573,7 +1548,7 @@ global.fetch = fetch;
     intervalMs: intervalCalls.map((x) => x.ms),
     clearedIntervals,
     toasts,
-    statusText: root.elements.statusText.textContent,
+    summaryText: root.elements.summary.textContent,
     startBody: JSON.parse(fetchCalls[0].options.body),
   }}));
 }})().catch((error) => {{
@@ -1590,7 +1565,7 @@ global.fetch = fetch;
     assert data["startBody"]["runtime_type"] == "opencode"
     assert 7000 in data["intervalMs"]
     assert data["fetchCalls"][1]["url"] == "/api/copilot/auth/check"
-    assert data["statusText"] == "nope"
+    assert data["summaryText"] == "nope"
     assert len(data["clearedIntervals"]) >= 2
 
 
@@ -1604,7 +1579,7 @@ def test_start_copilot_auth_stops_on_check_http_error_or_missing_status():
     get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
     stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
     get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
-    copilot_card_fn = _extract_js_function(js_file, "copilotCard")
+    set_summary_fn = _extract_js_function(js_file, "setCopilotResultSummary")
     get_github_base_fn = _extract_js_function(js_file, "getManagedGithubBaseUrl")
     finish_fn = _extract_js_function(js_file, "finishCopilotAuthWithMessage")
     start_copilot_fn = _extract_js_function(js_file, "startCopilotAuth")
@@ -1631,47 +1606,26 @@ async function runScenario(mode) {{
   function safe(v) {{ return String(v || ""); }}
   function showToast(_msg) {{}}
   function markManagedSectionTouched() {{}}
-  function setCopilotOAuthFields() {{}}
   function makeClassList() {{ return {{ add() {{}}, remove() {{}}, toggle() {{}} }}; }}
-  function makeCopilotCard(elements) {{
-    return {{ querySelector(sel) {{
-      if (sel === "[data-copilot-auth-status]") return elements.authStatus;
-      if (sel === "[data-copilot-instructions]") return elements.instructions;
-      if (sel === "[data-copilot-status-text]") return elements.statusText;
-      if (sel === "[data-copilot-verify-link]") return elements.verifyLink;
-      if (sel === "[data-copilot-device-link]") return elements.deviceLink;
-      if (sel === "[data-copilot-user-code]") return elements.userCode;
-      if (sel === "[data-copilot-timer]") return elements.timer;
-      return null;
-    }} }};
-  }}
   function makeRoot(runtimeKey = "native") {{
     const elements = {{
-      authStatus: {{ classList: makeClassList() }}, instructions: {{ classList: makeClassList() }},
-      statusText: {{ textContent: "" }}, verifyLink: {{ href: "", textContent: "" }},
+      instructions: {{ classList: makeClassList() }},
+      summary: {{ textContent: "", classList: makeClassList() }},
+      verifyLink: {{ href: "", textContent: "" }},
       deviceLink: {{ href: "", classList: makeClassList() }}, userCode: {{ textContent: "" }},
       timer: {{ textContent: "" }}, apiKey: {{ value: "" }}, githubBase: {{ value: "https://github.company.com" }},
-      oauthType: {{ value: "" }}, oauthAccess: {{ value: "" }}, oauthRefresh: {{ value: "" }},
-      oauthExpires: {{ value: "" }}, oauthEnterprise: {{ value: "" }}, oauthAccount: {{ value: "" }},
-      oauthPresent: {{ value: "" }}, oauthClear: {{ value: "" }},
     }};
-    const nativeCard = makeCopilotCard(elements);
-    const opencodeCard = makeCopilotCard(elements);
     return {{
       elements, dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
       querySelector(sel) {{
-        if (sel === '[data-copilot-auth-card="native"]') return nativeCard;
-        if (sel === '[data-copilot-auth-card="opencode"]') return opencodeCard;
+        if (sel === "[data-copilot-instructions]") return elements.instructions;
+        if (sel === "[data-copilot-result-summary]") return elements.summary;
+        if (sel === "[data-copilot-verify-link]") return elements.verifyLink;
+        if (sel === "[data-copilot-device-link]") return elements.deviceLink;
+        if (sel === "[data-copilot-user-code]") return elements.userCode;
+        if (sel === "[data-copilot-timer]") return elements.timer;
         if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
         if (sel === 'input[name="github_base_url"]') return elements.githubBase;
-        if (sel === `input[name="llm_oauth_${{runtimeKey}}_type"]`) return elements.oauthType;
-        if (sel === `input[name="llm_oauth_${{runtimeKey}}_access"]`) return elements.oauthAccess;
-        if (sel === `input[name="llm_oauth_${{runtimeKey}}_refresh"]`) return elements.oauthRefresh;
-        if (sel === `input[name="llm_oauth_${{runtimeKey}}_expires"]`) return elements.oauthExpires;
-        if (sel === `input[name="llm_oauth_${{runtimeKey}}_enterprise_url"]`) return elements.oauthEnterprise;
-        if (sel === `input[name="llm_oauth_${{runtimeKey}}_account_id"]`) return elements.oauthAccount;
-        if (sel === `input[name="llm_oauth_${{runtimeKey}}_present"]`) return elements.oauthPresent;
-        if (sel === `input[name="llm_oauth_${{runtimeKey}}_clear"]`) return elements.oauthClear;
         return null;
       }}
     }};
@@ -1708,7 +1662,7 @@ async function runScenario(mode) {{
   {get_state_fn}
   {stop_polling_fn}
   {get_auth_base_fn}
-  {copilot_card_fn}
+  {set_summary_fn}
   {get_github_base_fn}
   {finish_fn}
   {start_copilot_fn}
@@ -1719,7 +1673,7 @@ async function runScenario(mode) {{
   return {{
     fetchCalls,
     clearedIntervals,
-    statusText: root.elements.statusText.textContent,
+    summaryText: root.elements.summary.textContent,
     startBody: JSON.parse(fetchCalls[0].options.body),
   }};
 }}
@@ -1738,13 +1692,13 @@ async function runScenario(mode) {{
     data = json.loads(completed.stdout)
 
     assert len(data["httpError"]["clearedIntervals"]) >= 2
-    assert data["httpError"]["statusText"] != "Waiting for authorization..."
-    assert "Authorization not found or expired" in data["httpError"]["statusText"]
+    assert data["httpError"]["summaryText"] != "Waiting for authorization..."
+    assert "Authorization not found or expired" in data["httpError"]["summaryText"]
     assert data["httpError"]["startBody"]["runtime_type"] == "native"
 
     assert len(data["missingStatus"]["clearedIntervals"]) >= 2
-    assert data["missingStatus"]["statusText"] != "Waiting for authorization..."
-    assert "missing status" in data["missingStatus"]["statusText"]
+    assert data["missingStatus"]["summaryText"] != "Waiting for authorization..."
+    assert "missing status" in data["missingStatus"]["summaryText"]
     assert data["missingStatus"]["startBody"]["runtime_type"] == "native"
 
 
@@ -2029,8 +1983,7 @@ def test_start_copilot_auth_authorized_updates_hidden_fields_and_masked_summary(
         "getManagedCopilotState",
         "stopCopilotPolling",
         "getManagedCopilotAuthBase",
-        "copilotCard",
-        "setCopilotOAuthFields",
+        "setCopilotApiKeyField",
         "getManagedGithubBaseUrl",
         "finishCopilotAuthWithMessage",
         "startCopilotAuth",
@@ -2049,53 +2002,42 @@ function safe(v) {{ return String(v || ""); }}
 function showToast(msg) {{ toasts.push(msg); }}
 function markManagedSectionTouched() {{}}
 function makeClassList() {{ return {{ add() {{}}, remove() {{}}, toggle() {{}} }}; }}
-
-function makeCopilotCard(elements) {{
-  return {{
-    querySelector(sel) {{
-      if (sel === "[data-copilot-auth-status]") return elements.authStatus;
-      if (sel === "[data-copilot-instructions]") return elements.instructions;
-      if (sel === "[data-copilot-status-text]") return elements.statusText;
-      if (sel === "[data-copilot-result-summary]") return elements.summary;
-      if (sel === "[data-copilot-verify-link]") return elements.verifyLink;
-      if (sel === "[data-copilot-device-link]") return elements.deviceLink;
-      if (sel === "[data-copilot-user-code]") return elements.userCode;
-      if (sel === "[data-copilot-timer]") return elements.timer;
-      return null;
-    }}
-  }};
-}}
+const touchFlag = {{ value: "0" }};
 
 const elements = {{
-  authStatus: {{ classList: makeClassList() }},
   instructions: {{ classList: makeClassList() }},
-  statusText: {{ textContent: "" }},
   summary: {{ textContent: "", classList: makeClassList() }},
   verifyLink: {{ href: "", textContent: "" }},
   deviceLink: {{ href: "", classList: makeClassList() }},
   userCode: {{ textContent: "" }},
   timer: {{ textContent: "" }},
-  apiKey: {{ value: "existing-api-key" }},
+  apiKey: {{
+    value: "existing-api-key",
+    dispatchEvent() {{}},
+    closest(sel) {{
+      if (sel !== "form") return null;
+      return {{
+        querySelector(query) {{
+          if (query === 'input[data-touch-flag="llm"], input[name="__touch_llm"]') return touchFlag;
+          return null;
+        }}
+      }};
+    }}
+  }},
   githubBase: {{ value: "" }},
-  oauthType: {{ value: "" }}, oauthAccess: {{ value: "" }}, oauthRefresh: {{ value: "" }},
-  oauthExpires: {{ value: "" }}, oauthPresent: {{ value: "" }}, oauthClear: {{ value: "" }},
 }};
 
-const opencodeCard = makeCopilotCard(elements);
-const nativeCard = makeCopilotCard(elements);
 const root = {{
   dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
   querySelector(sel) {{
-    if (sel === '[data-copilot-auth-card="opencode"]') return opencodeCard;
-    if (sel === '[data-copilot-auth-card="native"]') return nativeCard;
+    if (sel === "[data-copilot-instructions]") return elements.instructions;
+    if (sel === "[data-copilot-result-summary]") return elements.summary;
+    if (sel === "[data-copilot-verify-link]") return elements.verifyLink;
+    if (sel === "[data-copilot-device-link]") return elements.deviceLink;
+    if (sel === "[data-copilot-user-code]") return elements.userCode;
+    if (sel === "[data-copilot-timer]") return elements.timer;
     if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
     if (sel === 'input[name="github_base_url"]') return elements.githubBase;
-    if (sel === 'input[name="llm_oauth_opencode_type"]') return elements.oauthType;
-    if (sel === 'input[name="llm_oauth_opencode_access"]') return elements.oauthAccess;
-    if (sel === 'input[name="llm_oauth_opencode_refresh"]') return elements.oauthRefresh;
-    if (sel === 'input[name="llm_oauth_opencode_expires"]') return elements.oauthExpires;
-    if (sel === 'input[name="llm_oauth_opencode_present"]') return elements.oauthPresent;
-    if (sel === 'input[name="llm_oauth_opencode_clear"]') return elements.oauthClear;
     return null;
   }}
 }};
@@ -2125,14 +2067,9 @@ global.fetch = fetch;
   await startCopilotAuth(root, 'opencode');
   await intervalCalls.find((x) => x.ms === 2000).fn();
   console.log(JSON.stringify({{
-    statusText: elements.statusText.textContent,
     summaryText: elements.summary.textContent,
-    oauthType: elements.oauthType.value,
-    oauthAccess: elements.oauthAccess.value,
-    oauthRefresh: elements.oauthRefresh.value,
-    oauthPresent: elements.oauthPresent.value,
-    oauthClear: elements.oauthClear.value,
     apiKey: elements.apiKey.value,
+    touchFlag: touchFlag.value,
     toasts,
   }}));
 }})().catch((err) => {{ console.error(err); process.exit(1); }});
@@ -2140,14 +2077,7 @@ global.fetch = fetch;
     completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
     data = json.loads(completed.stdout)
 
-    assert data["statusText"] == "Authorized (unsaved)"
-    assert data["oauthAccess"] == "gho_SECRET1234"
-    assert data["oauthRefresh"] == "gho_SECRET1234"
-    assert data["oauthType"] == "oauth"
-    assert data["oauthPresent"] == "1"
-    assert data["oauthClear"] == ""
-    assert data["apiKey"] == ""
-    assert "Credential captured for OpenCode Runtime" in data["summaryText"]
-    assert "gho_…1234" in data["summaryText"]
-    assert "gho_SECRET1234" not in data["summaryText"]
+    assert data["apiKey"] == "gho_SECRET1234"
+    assert data["touchFlag"] == "1"
+    assert data["summaryText"] == "Authorization complete. API Key field has been filled. Click Save Settings to persist."
     assert any("Click Save Settings to persist" in msg for msg in data["toasts"])

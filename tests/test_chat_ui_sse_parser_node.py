@@ -312,3 +312,298 @@ def test_missing_final_detaches_and_starts_reconcile_node_smoke():
 
     result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
+
+
+def _active_run_reconcile_js(src: str) -> str:
+    return "\n".join(
+        [
+            _extract_js_function(src, "isActiveRequestBlocking"),
+            _extract_js_function(src, "hasIncompleteInflightThinking"),
+            _extract_js_function(src, "hasActiveChatRequestForAgent"),
+            _extract_js_function(src, "normalizeChatRunStatus"),
+            _extract_js_function(src, "isChatRunRunningStatus"),
+            _extract_js_function(src, "isRuntimeRunActuallyActive"),
+            _extract_js_function(src, "isValidatedRuntimeActiveRun"),
+            _extract_js_function(src, "isChatRunCompletedStatus"),
+            _extract_js_function(src, "isChatRunNonSuccessStatus"),
+            _extract_js_function(src, "isUnsupportedRunLookupError"),
+            _extract_js_function(src, "getChatRunObject"),
+            _extract_js_function(src, "isNullOrStaleRunPayload"),
+            _extract_js_function(src, "getActiveRunFromPayload"),
+            _extract_js_function(src, "runPayloadHasTerminalStatus"),
+            _extract_js_function(src, "requestContextIdCandidates"),
+            _extract_js_function(src, "activeRequestMatchesRequestContext"),
+            _extract_js_function(src, "fallbackRequestContextForAgent"),
+            _extract_js_function(src, "clearStaleActiveRequest"),
+            _extract_js_function(src, "applySessionProjectionThenClearStaleRun"),
+            _extract_js_function(src, "reconcileChatRunOnce"),
+        ]
+    )
+
+
+def test_reconcile_active_run_null_clears_busy_state_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        _active_run_reconcile_js(src)
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "runtime-1",
+              runtimeRequestId: "runtime-1",
+              sessionIdAtSend: "sess-1",
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: true,
+              sessionId: "sess-1",
+              inflightThinking: { id: "client-1", requestId: "client-1", sessionId: "sess-1", completed: false },
+            };
+            const dom = {
+              sendChatBtn: { disabled: true },
+              abortChatRunBtn: { classList: { toggle() {}, add() {} }, setAttribute() {}, disabled: false },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function syncSelectedAgentChatActionControls() {
+              dom.sendChatBtn.disabled = hasActiveChatRequestForAgent("agent-1");
+            }
+            function setChatSubmittingForAgent(agentId, active) {
+              assert.equal(agentId, "agent-1");
+              chatState.isSubmitting = active;
+              syncSelectedAgentChatActionControls();
+            }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function cancelAssistantTypewriter() {}
+            function stopChatRunReconcileLoop(ctx) { ctx.reconcileStopped = true; }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function buildChatRunProjection() { return { status: "", run: {}, activeRun: null, text: "", displayBlocks: [] }; }
+            async function applyChatRunProjection() { return "running"; }
+            async function agentApiFor(agentId, path) {
+              calls.push(["api", path]);
+              if (path.includes("/api/chat/runs/")) return { run: null };
+              if (path.includes("/active-run")) return { run: null };
+              if (path.includes("/api/sessions/")) return { metadata: { active_run: null }, messages: [] };
+              throw new Error("unexpected path " + path);
+            }
+
+            (async () => {
+              const result = await reconcileChatRunOnce("agent-1", requestCtx);
+              assert.equal(result, "terminal");
+              assert.equal(chatState.activeRequest, null);
+              assert.equal(chatState.inflightThinking.completed, true);
+              assert.equal(chatState.inflightThinking.stale, true);
+              assert.equal(dom.sendChatBtn.disabled, false);
+              assert.equal(hasActiveChatRequestForAgent("agent-1"), false);
+              assert.ok(calls.some((item) => item[0] === "api" && item[1].includes("?validate=opencode")));
+              assert.ok(calls.some((item) => item[0] === "api" && item[1].endsWith("/api/sessions/sess-1/active-run")));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_reconcile_stream_detached_without_opencode_active_releases_busy_lock_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        _active_run_reconcile_js(src)
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "runtime-1",
+              runtimeRequestId: "runtime-1",
+              sessionIdAtSend: "sess-1",
+              streamDetached: true,
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: false,
+              sessionId: "sess-1",
+              inflightThinking: { id: "client-1", requestId: "client-1", sessionId: "sess-1", completed: false },
+            };
+            const dom = { sendChatBtn: { disabled: true }, abortChatRunBtn: { classList: { toggle() {}, add() {} }, setAttribute() {}, disabled: false } };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+
+            function ensureChatState() { return chatState; }
+            function syncSelectedAgentChatActionControls() { dom.sendChatBtn.disabled = hasActiveChatRequestForAgent("agent-1"); }
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; syncSelectedAgentChatActionControls(); }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function cancelAssistantTypewriter() {}
+            function stopChatRunReconcileLoop(ctx) { ctx.reconcileStopped = true; }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function buildChatRunProjection() { return { status: "", run: {}, activeRun: null, text: "", displayBlocks: [] }; }
+            async function applyChatRunProjection() { return "running"; }
+            async function agentApiFor(agentId, path) {
+              calls.push(["api", path]);
+              if (path.includes("/api/chat/runs/")) {
+                return { run: { request_id: "runtime-1", status: "stream_detached", opencode_active: false, source_of_truth: "opencode" } };
+              }
+              if (path.includes("/active-run")) return { run: null };
+              if (path.includes("/api/sessions/")) return { metadata: { active_run: null }, messages: [] };
+              throw new Error("unexpected path " + path);
+            }
+
+            (async () => {
+              const result = await reconcileChatRunOnce("agent-1", requestCtx);
+              assert.equal(result, "terminal");
+              assert.equal(chatState.activeRequest, null);
+              assert.equal(dom.sendChatBtn.disabled, false);
+              assert.equal(hasActiveChatRequestForAgent("agent-1"), false);
+              assert.ok(calls.some((item) => item[0] === "event" && item[1] === "chat.run.stale"));
+              assert.ok(calls.some((item) => item[0] === "event" && item[1] === "opencode.status.inactive"));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_abort_active_chat_request_clears_active_request_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "isActiveRequestBlocking"),
+                _extract_js_function(src, "hasIncompleteInflightThinking"),
+                _extract_js_function(src, "hasActiveChatRequestForAgent"),
+                _extract_js_function(src, "requestContextIdCandidates"),
+                _extract_js_function(src, "activeRequestMatchesRequestContext"),
+                _extract_js_function(src, "fallbackRequestContextForAgent"),
+                _extract_js_function(src, "clearStaleActiveRequest"),
+                _extract_js_function(src, "runtimeAbortSucceeded"),
+                _extract_js_function(src, "runtimeAbortIndicatesInactive"),
+                _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "runtime-1",
+              runtimeRequestId: "runtime-1",
+              sessionIdAtSend: "sess-1",
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: false,
+              sessionId: "sess-1",
+              inflightThinking: { id: "client-1", requestId: "client-1", sessionId: "sess-1", completed: false },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function cancelAssistantTypewriter() {}
+            function stopChatRunReconcileLoop(ctx) { ctx.reconcileStopped = true; }
+            function syncSelectedAgentChatActionControls() {}
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function showToast(message) { calls.push(["toast", message]); }
+            async function agentApiFor(agentId, path, options) {
+              calls.push(["api", path, options.method]);
+              return { success: true, abort_result: { success: true }, run: { status: "aborted" } };
+            }
+
+            (async () => {
+              await abortActiveChatRequestForSelectedAgent();
+              assert.equal(chatState.activeRequest, null);
+              assert.equal(chatState.inflightThinking.completed, true);
+              assert.equal(chatState.inflightThinking.stale, true);
+              assert.ok(calls.some((item) => item[0] === "api" && item[1] === "/api/chat/runs/runtime-1/abort" && item[2] === "POST"));
+              assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.abort.completed"));
+              assert.ok(calls.some((item) => item[0] === "toast" && item[1] === "Stopped current run."));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_abort_active_chat_request_failure_keeps_active_request_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "runtimeAbortSucceeded"),
+                _extract_js_function(src, "runtimeAbortIndicatesInactive"),
+                _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "runtime-1",
+              runtimeRequestId: "runtime-1",
+              sessionIdAtSend: "sess-1",
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: false,
+              sessionId: "sess-1",
+              inflightThinking: { id: "client-1", requestId: "client-1", sessionId: "sess-1", completed: false },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function setChatStatus(message, isError) { calls.push(["status", message, isError]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type, data) { calls.push(["event", type, data]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["syncControls"]); }
+            function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", agentId, ctx.clientRequestId, options?.immediate]); }
+            function showToast(message) { calls.push(["toast", message]); }
+            async function agentApiFor(agentId, path, options) {
+              calls.push(["api", path, options.method]);
+              return { success: false, abort_result: { success: false, errors: ["opencode refused abort"] } };
+            }
+
+            (async () => {
+              await abortActiveChatRequestForSelectedAgent();
+              assert.equal(chatState.activeRequest, requestCtx);
+              assert.equal(chatState.inflightThinking.completed, false);
+              assert.ok(calls.some((item) => item[0] === "api" && item[1] === "/api/chat/runs/runtime-1/abort" && item[2] === "POST"));
+              assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.abort.failed"));
+              assert.ok(calls.some((item) => item[0] === "status" && item[1] === "Unable to stop current run." && item[2] === true));
+              assert.ok(calls.some((item) => item[0] === "toast" && item[1].startsWith("Unable to stop current run:")));
+              assert.ok(calls.some((item) => item[0] === "reconcile" && item[1] === "agent-1" && item[3] === true));
+              assert.ok(!calls.some((item) => item[0] === "event" && item[1] === "portal.abort.completed"));
+              assert.ok(!calls.some((item) => item[0] === "toast" && item[1] === "Stopped current run."));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr

@@ -47,9 +47,19 @@ def test_git_info_injects_trusted_portal_identity_headers(monkeypatch):
     assert response.status_code == 200
     assert response.json()["commit_id"] == "abc123"
     assert captured["subpath"] == "api/git-info"
-    assert captured["extra_headers"] == {
+    assert {
+        key: captured["extra_headers"][key]
+        for key in [
+            "X-Portal-Author-Source",
+            "X-Portal-User-Id",
+            "X-Portal-User-Name",
+            "X-Portal-Agent-Name",
+        ]
+    } == {
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "88",
         "X-Portal-User-Name": "Owner",
         "X-Portal-Agent-Name": "Agent One",
     }
+    assert captured["extra_headers"].get("X-Trace-Id")
+    assert captured["extra_headers"].get("X-Span-Id")

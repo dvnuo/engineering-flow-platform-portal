@@ -97,3 +97,75 @@ def test_reconcile_lifecycle_finalizes_only_after_runtime_terminal_state():
     assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, finalPayload, { completed: true })" in apply_projection
     assert "await handleAgentChatSuccess(agentId, requestCtx, finalPayload)" in apply_projection
     assert "finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload, \"reconcile\")" in apply_projection
+
+
+def test_reconcile_lifecycle_clears_inactive_active_run_null_and_stale_runs():
+    src = _src()
+    reconcile_once = _extract_js_function(src, "reconcileChatRunOnce")
+    session_clear = _extract_js_function(src, "applySessionProjectionThenClearStaleRun")
+    reconcile_projection = _extract_js_function(src, "reconcileActiveRequestProjection")
+
+    assert '`/api/chat/runs/${encodeURIComponent(requestId)}?validate=opencode`' in reconcile_once
+    assert '`/api/sessions/${encodeURIComponent(sessionId)}/active-run`' in reconcile_once
+    assert '"chat.run.stale"' in reconcile_once
+    assert '"opencode.status.inactive"' in reconcile_once
+    assert 'activeRun ? "opencode_not_active" : "active_run_null"' in reconcile_once
+    assert 'metadata: {' in session_clear
+    assert 'active_run: null' in session_clear
+    assert 'clearStaleActiveRequest(agentId, requestCtx, reason)' in session_clear
+    assert 'activeRun ? "opencode_not_active" : "metadata_active_run_null"' in reconcile_projection
+
+
+def test_user_abort_and_agent_lifecycle_clear_active_request():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    action_fn = _extract_js_function(src, "action")
+    parser = _extract_js_function(src, "parseAgentLifecycleAction")
+
+    assert 'setChatStatus("Stopping current run…")' in abort_fn
+    assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
+    assert '`/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_fn
+    assert "if (!runtimeAbortSucceeded(result))" in abort_fn
+    assert "runtimeAbortIndicatesInactive(result)" in abort_fn
+    assert 'clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted")' in abort_fn
+    assert "parseAgentLifecycleAction(path)" in action_fn
+    assert "clearStaleActiveRequest(" in action_fn
+    assert '"agent_stopped"' in action_fn
+    assert '"agent_restarted"' in action_fn
+    assert "loadSessionForAgent(lifecycle.agentId, chatState.sessionId" in action_fn
+    assert "(stop|restart)" in parser
+
+
+def test_abort_failed_keeps_active_request_and_reconcile_continues():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    failure_start = abort_fn.index("if (!runtimeAbortSucceeded(result))")
+    failure_end = abort_fn.index("return;", failure_start)
+    failure_branch = abort_fn[failure_start:failure_end]
+
+    assert '"portal.abort.failed"' in failure_branch
+    assert 'setChatStatus("Unable to stop current run.", true)' in failure_branch
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in failure_branch
+    assert "syncSelectedAgentChatActionControls()" in failure_branch
+    assert "clearStaleActiveRequest" not in failure_branch
+
+
+def test_abort_success_clears_only_when_runtime_indicates_inactive():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    success_start = abort_fn.index("appendPortalChatRuntimeEvent(agentId, requestCtx, \"portal.abort.completed\"")
+    success_branch = abort_fn[success_start:]
+
+    assert "if (runtimeAbortIndicatesInactive(result))" in success_branch
+    assert 'clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted")' in success_branch
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in success_branch
+
+
+def test_abort_missing_session_clears_as_stale():
+    src = _src()
+    inactive_helper = _extract_js_function(src, "runtimeAbortIndicatesInactive")
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+
+    assert "missing_session_ids" in inactive_helper
+    assert "!(abortResult.errors || []).length" in inactive_helper
+    assert '"opencode_session_missing_after_abort"' in abort_fn

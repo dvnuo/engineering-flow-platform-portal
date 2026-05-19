@@ -37,6 +37,9 @@ def test_chat_ui_streaming_supports_opencode_runtime_event_types():
         'chat.run.completed',
         'chat.run.incomplete',
         'chat.run.failed',
+        'chat.run.abort_failed',
+        'chat.run.stale',
+        'chat.run.aborted',
         'assistant.message.started',
         'assistant.message.updated',
         'assistant.message.completed',
@@ -45,6 +48,15 @@ def test_chat_ui_streaming_supports_opencode_runtime_event_types():
         'portal.reconcile.updated',
         'portal.reconcile.completed',
         'portal.reconcile.failed',
+        'portal.active_request.cleared',
+        'portal.abort.started',
+        'portal.abort.completed',
+        'portal.abort.failed',
+        'opencode.session.aborted',
+        'opencode.session.abort_failed',
+        'opencode.session.missing',
+        'opencode.status.validated',
+        'opencode.status.inactive',
         'heartbeat',
         'status',
         'llm_thinking',
@@ -155,6 +167,25 @@ def test_chat_stream_main_path_does_not_use_tasks():
     assert "/api/tasks" not in submit_stream
     assert "/api/tasks" not in submit_chat
     assert "task mode" not in submit_stream.lower()
+
+
+def test_active_request_busy_state_uses_runtime_blocking_helper():
+    src = _src()
+    has_active = _extract_js_function(src, "hasActiveChatRequestForAgent")
+    blocking = _extract_js_function(src, "isActiveRequestBlocking")
+
+    assert "isActiveRequestBlocking(chatState)" in has_active
+    assert "hasIncompleteInflightThinking(chatState)" in has_active
+    for marker in [
+        "req.aborted",
+        "req.stale",
+        "req.completed",
+        "req.failed",
+        "req.runtimeInactive",
+        "req.opencodeInactive",
+    ]:
+        assert marker in blocking
+    assert "chatState.activeRequest" not in has_active.replace("isActiveRequestBlocking(chatState)", "")
 
 
 def test_opencode_long_chat_does_not_use_task_mode_or_direct_opencode():
@@ -353,13 +384,87 @@ def test_reconcile_loop_contract_and_runtime_paths():
     assert "6 * 60 * 60 * 1000" in start_loop
     assert "document.hidden" in start_loop
     assert "clearTimeout(requestCtx.reconcileTimerId)" in stop_loop
-    assert '`/api/chat/runs/${encodeURIComponent(requestId)}`' in reconcile_once
+    assert '`/api/chat/runs/${encodeURIComponent(requestId)}?validate=opencode`' in reconcile_once
+    assert '`/api/sessions/${encodeURIComponent(sessionId)}/active-run`' in reconcile_once
     assert '`/api/sessions/${encodeURIComponent(sessionId)}`' in reconcile_once
     assert "isUnsupportedRunLookupError(error)" in reconcile_once
+    assert "isRuntimeRunActuallyActive" in reconcile_once
+    assert "applySessionProjectionThenClearStaleRun" in reconcile_once
+    assert "clearStaleActiveRequest(agentId, requestCtx" in src
     assert 'setChatStatus(projection.status === "stream_detached" ? "Still running. Reconnecting…" : "Still running…")' in apply_projection
     assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true })" in apply_projection
     assert "handleAgentChatSuccess(agentId, requestCtx, finalPayload)" in apply_projection
     assert "finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload, \"reconcile\")" in apply_projection
+
+
+def test_reconcile_clears_runtime_inactive_runs_and_stream_detached_without_opencode_active():
+    src = _src()
+    apply_projection = _extract_js_function(src, "applyChatRunProjection")
+    runtime_active = _extract_js_function(src, "isRuntimeRunActuallyActive")
+    clear_stale = _extract_js_function(src, "clearStaleActiveRequest")
+
+    assert 'status === "stream_detached" && run.opencode_active !== true' in runtime_active
+    assert "return false" in runtime_active
+    assert "isChatRunRunningStatus(projection.status) && !runtimeRunActive" in apply_projection
+    assert '"opencode.status.inactive"' in apply_projection
+    assert 'clearStaleActiveRequest(agentId, requestCtx, "opencode_not_active")' in apply_projection
+    assert "chatState.activeRequest = null" in clear_stale
+    assert "chatState.inflightThinking.completed = true" in clear_stale
+    assert "chatState.inflightThinking.stale = true" in clear_stale
+    assert '"portal.active_request.cleared"' in clear_stale
+
+
+def test_abort_active_chat_request_uses_runtime_abort_endpoints():
+    src = _src()
+    template = Path("app/templates/app.html").read_text(encoding="utf-8")
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    sync_controls = _extract_js_function(src, "syncSelectedAgentChatActionControls")
+
+    assert "function abortActiveChatRequestForSelectedAgent" in src
+    assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
+    assert '`/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_fn
+    assert "runtimeAbortSucceeded(result)" in abort_fn
+    assert "runtimeAbortIndicatesInactive(result)" in abort_fn
+    assert 'clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted")' in abort_fn
+    assert '"portal.abort.started"' in abort_fn
+    assert '"portal.abort.completed"' in abort_fn
+    assert '"portal.abort.failed"' in abort_fn
+    assert "/api/tasks" not in abort_fn
+    assert ":4096" not in abort_fn
+    assert 'id="abort-chat-run-btn"' in template
+    assert "Stop run" in template
+    assert "shouldShowAbortChatRunButton(agentId)" in sync_controls
+
+
+def test_abort_active_chat_request_checks_runtime_abort_result():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    success_helper = _extract_js_function(src, "runtimeAbortSucceeded")
+    inactive_helper = _extract_js_function(src, "runtimeAbortIndicatesInactive")
+
+    assert "result.success === false" in success_helper
+    assert "abortResult.success === false" in success_helper
+    assert "Array.isArray(abortResult.errors) && abortResult.errors.length" in success_helper
+    assert "result.success === true || abortResult.success === true || result.stale === true" in success_helper
+    assert "missing_session_ids" in inactive_helper
+    assert '"aborted", "stale", "completed", "incomplete", "failed", "cancelled", "canceled"' in inactive_helper
+    assert "if (!runtimeAbortSucceeded(result))" in abort_fn
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in abort_fn
+
+
+def test_abort_failure_does_not_clear_active_request():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    failure_start = abort_fn.index("if (!runtimeAbortSucceeded(result))")
+    failure_end = abort_fn.index("return;", failure_start)
+    failure_branch = abort_fn[failure_start:failure_end]
+
+    assert '"portal.abort.failed"' in failure_branch
+    assert 'setChatStatus("Unable to stop current run.", true)' in failure_branch
+    assert "showToast(\"Unable to stop current run: \" + message)" in failure_branch
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in failure_branch
+    assert "syncSelectedAgentChatActionControls()" in failure_branch
+    assert "clearStaleActiveRequest" not in failure_branch
 
 
 def test_remove_temporary_assistant_rows_is_request_scoped_and_content_safe():
@@ -414,8 +519,10 @@ def test_session_render_hydrates_active_run_and_replays_events():
     assert "renderChatHistory(data.messages || [], data.metadata || {})" in load_session
     assert "reconcileActiveRequestProjection(agentId, normalized, data.metadata || {}, data.messages || [])" in load_session
     assert "metadata.active_run" in reconcile_projection
+    assert "isValidatedRuntimeActiveRun(activeRun)" in reconcile_projection
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata)" in reconcile_projection
     assert "ensureEventSocketForAgent(agentId, sessionId" in reconcile_projection
     assert "startChatRunReconcileLoop(agentId, requestCtx" in reconcile_projection
     assert 'setChatStatus(activeStatus === "stream_detached" ? "Still running. Reconnecting…" : "Still running. Syncing…")' in reconcile_projection
+    assert 'clearStaleActiveRequest(agentId, requestCtx, activeRun ? "opencode_not_active" : "metadata_active_run_null")' in reconcile_projection
     assert "streamDetached" in hydrate
