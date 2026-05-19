@@ -29,33 +29,29 @@ def _section_html(template_html: str, section_name: str) -> str:
         "app/templates/partials/settings_panel.html",
     ],
 )
-def test_top_level_runtime_provider_enabled_toggles_are_left_of_titles(template_path):
+def test_top_level_runtime_provider_enabled_toggles_render_below_titles(template_path):
     html = Path(template_path).read_text(encoding="utf-8")
 
     for section_name, input_name, title, checked_condition in TARGET_SECTIONS:
         section = _section_html(html, section_name)
 
         assert "portal-settings-section-head--leading-toggle" in section
-        assert "portal-settings-title-with-toggle" in section
-        assert "portal-section-enable-switch" in section
-        assert "portal-section-enable-text" in section
+        assert "portal-settings-title-with-toggle" not in section
+        assert "portal-section-enable-switch" not in section
+        assert "portal-section-enable-text" not in section
 
         assert section.count(f'name="{input_name}"') == 1
         assert f"<h6>{title}</h6>" in section
-        assert section.index(f'name="{input_name}"') < section.index(f"<h6>{title}</h6>")
+        assert section.index(f"<h6>{title}</h6>") < section.index(f'name="{input_name}"')
         assert checked_condition in section
-
-        old_right_side_toggle = (
-            f'<div class="portal-checkbox-row"><label class="toggle-switch">'
-            f'<input type="checkbox" name="{input_name}"'
-        )
-        assert old_right_side_toggle not in section
 
         input_pos = section.index(f'name="{input_name}"')
         label_start = section.rfind("<label", 0, input_pos)
         assert label_start != -1
         label_open = section[label_start : section.find(">", label_start) + 1]
-        assert "toggle-switch portal-section-enable-switch" in label_open
+        assert "toggle-switch" in label_open
+        assert "portal-section-enable-switch" not in label_open
+        assert "<span>Enabled</span>" in section
 
 
 def test_leading_toggle_css_classes_exist():

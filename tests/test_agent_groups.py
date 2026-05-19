@@ -714,8 +714,8 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert created["runtime_type"] == "opencode"
         assert created["skill_repo_url"] == specialist_template.skill_repo_url
         assert created["skill_branch"] == specialist_template.skill_branch
-        assert created["tool_repo_url"] == "https://github.com/Acme/Tools.git"
-        assert created["tool_branch"] == "tools-main"
+        assert "tool_repo_url" not in created
+        assert "tool_branch" not in created
         assert created["effective_skill_repo_url"] == specialist_template.skill_repo_url
         assert created["effective_skill_branch"] == specialist_template.skill_branch
         agent_detail = client.get(f"/api/agents/{created['id']}")
@@ -725,8 +725,8 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert agent_detail.json()["runtime_type"] == "opencode"
         assert agent_detail.json()["skill_repo_url"] == specialist_template.skill_repo_url
         assert agent_detail.json()["skill_branch"] == specialist_template.skill_branch
-        assert agent_detail.json()["tool_repo_url"] == "https://github.com/Acme/Tools.git"
-        assert agent_detail.json()["tool_branch"] == "tools-main"
+        assert "tool_repo_url" not in agent_detail.json()
+        assert "tool_branch" not in agent_detail.json()
         persisted_agent = db.get(Agent, created["id"])
         assert persisted_agent is not None
         assert persisted_agent.repo_url == runtime_repo
@@ -734,8 +734,8 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert persisted_agent.runtime_type == "opencode"
         assert persisted_agent.skill_repo_url == specialist_template.skill_repo_url
         assert persisted_agent.skill_branch == specialist_template.skill_branch
-        assert persisted_agent.tool_repo_url == "https://github.com/Acme/Tools.git"
-        assert persisted_agent.tool_branch == "tools-main"
+        assert persisted_agent.tool_repo_url is None
+        assert persisted_agent.tool_branch is None
         assert persisted_agent.template_agent_id == specialist_template.id
         assert persisted_agent.task_scope_label == "runtime-scope"
         assert persisted_agent.task_cleanup_policy == "delete_on_done"

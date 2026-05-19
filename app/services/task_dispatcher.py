@@ -217,8 +217,6 @@ class TaskDispatcherService:
         delegation_result, error = self._extract_delegation_result(normalized_result_payload_json)
         if error:
             mapped_status = self._delegation_status_from_task_status(terminal_status)
-            if terminal_status == "done":
-                mapped_status = "failed"
             delegation.status = mapped_status
             if terminal_status == "pending_restart":
                 delegation.result_summary = "Runtime reported pending_restart; restart is required before this delegation can complete."

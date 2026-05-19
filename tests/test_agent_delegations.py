@@ -817,7 +817,7 @@ def test_group_shared_context_detail_endpoint_and_not_found(monkeypatch):
         cleanup()
 
 
-def test_malformed_runtime_delegation_result_marks_failed_but_keeps_task_result(monkeypatch):
+def test_malformed_runtime_delegation_result_keeps_done_status_and_task_result(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
@@ -840,7 +840,7 @@ def test_malformed_runtime_delegation_result_marks_failed_but_keeps_task_result(
         delegation = db.get(AgentDelegation, body["id"])
         task = db.get(AgentTask, body["agent_task_id"])
 
-        assert delegation.status == "failed"
+        assert delegation.status == "done"
         assert task.status == "done"
         assert json.loads(task.result_payload_json)["status"] == "success"
     finally:
@@ -1196,7 +1196,11 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
         assert board.status_code == 200
         runs = {item["coordination_run_id"]: item for item in board.json()["runs"]}
         assert "run-z" in runs
-        blocked_target = db.query(AgentDelegation).filter(AgentDelegation.coordination_run_id == "run-z", AgentDelegation.status == "failed").first()
+        blocked_target = db.query(AgentDelegation).filter(
+            AgentDelegation.coordination_run_id == "run-z",
+            AgentDelegation.objective == "run round 2",
+        ).first()
+        assert blocked_target is not None
         blocked_target.status = "blocked"
         db.add(blocked_target)
         db.commit()
@@ -1283,7 +1287,7 @@ def test_internal_coordination_run_read_endpoints(monkeypatch):
         cleanup()
 
 
-def test_coordination_run_status_updates_to_failed_on_terminal_failure(monkeypatch):
+def test_coordination_run_status_updates_to_done_on_terminal_done_with_malformed_delegation_result(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         class _MalformedResp:
@@ -1314,7 +1318,7 @@ def test_coordination_run_status_updates_to_failed_on_terminal_failure(monkeypat
         assert create.status_code == 200
         run_row = db.query(AgentCoordinationRun).filter(AgentCoordinationRun.coordination_run_id == "run-failed-1").first()
         assert run_row is not None
-        assert run_row.status == "failed"
+        assert run_row.status == "done"
         assert run_row.completed_at is not None
     finally:
         cleanup()
