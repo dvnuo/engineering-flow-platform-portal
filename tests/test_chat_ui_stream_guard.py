@@ -16,9 +16,11 @@ def test_chat_ui_does_not_success_from_streamed_text_only():
 def test_chat_ui_has_incomplete_stream_handler():
     src = _source()
     assert "handleIncompleteChatStream" in src
+    assert "handleChatStreamDetached" in src
     assert "completion_state" in src or "completionState" in src
     assert "missing_final" in src
-    assert "Stream ended before a final assistant response." in src
+    assert "portal.stream_detached" in src
+    assert "The live stream ended before final response; the runtime may still be running." in src
 
 
 def test_chat_ui_final_success_requires_final_event():
@@ -34,7 +36,7 @@ def test_non_success_final_calls_incomplete_handler_inside_final_branch():
     assert final_start != -1
     final_snippet = src[final_start:final_start + 1800]
     assert "localIsNonSuccessFinalPayload(eventData)" in final_snippet
-    assert "await localHandleIncompleteChatStream(" in final_snippet or "await handleIncompleteChatStream(" in final_snippet
+    assert 'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, eventData, "stream_final")' in final_snippet
     assert 'return "final_non_success"' in final_snippet
 
 
@@ -95,4 +97,4 @@ def test_current_empty_success_keeps_reload_fallback_contract():
     assert "Completed without a visible assistant response. Reloading session" in fn_snippet
     assert "loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true })" in fn_snippet
     assert "chatState.needsReload = true" in fn_snippet
-    assert "removeTemporaryAssistantRows()" in fn_snippet
+    assert "removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true })" in fn_snippet
