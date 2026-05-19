@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 import logging
+from uuid import uuid4
 
 from app.config import get_settings
 from app.contracts.runtime_types import InvalidRuntimeType, normalize_runtime_type, normalize_runtime_type_or_default
@@ -440,6 +441,15 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         except Exception:
             db.rollback()
             logger.exception("failed to enqueue runtime profile sync after agent update agent_id=%s", agent.id)
+
+    skill_runtime_fields = {"skill_repo_url", "skill_branch"}
+    if any(field in changes for field in skill_runtime_fields):
+        # Skill assets are materialized by Kubernetes initContainers at Pod start.
+        # Saving the same repo/branch after new commits land would otherwise leave
+        # the Deployment Pod template unchanged, so the Pod would not restart and
+        # skills-git-clone would not re-run. K8sService already maps this transient
+        # attribute to the efp/skill-asset-version Pod template annotation.
+        setattr(agent, "skill_asset_version", f"agent-skill-save-{uuid4()}")
 
     k8s_reprovision_fields = {
         "runtime_type",
