@@ -8,6 +8,6 @@ def test_temperature_gating_hooks_present_in_chat_ui_js():
     assert 'if (event.target?.id === "llm_model") updateTemperatureInputState(root);' in source
 
 
-def test_runtime_profile_temperature_input_has_data_hook():
+def test_runtime_profile_temperature_input_is_not_rendered_in_profile_panel():
     source = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
-    assert "data-llm-temperature-input" in source
+    assert "data-llm-temperature-input" not in source
