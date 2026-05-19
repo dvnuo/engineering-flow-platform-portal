@@ -69,6 +69,14 @@ class Settings(BaseSettings):
         default="master",
         validation_alias="DEFAULT_SKILL_BRANCH",
     )
+    default_skill_repo_subdir: str = Field(
+        default="",
+        validation_alias="DEFAULT_SKILL_REPO_SUBDIR",
+    )
+    default_skill_asset_version: str = Field(
+        default="",
+        validation_alias="DEFAULT_SKILL_ASSET_VERSION",
+    )
     default_opencode_permission_mode: str = Field(
         default="workspace_full_access",
         validation_alias="DEFAULT_OPENCODE_PERMISSION_MODE",

@@ -89,6 +89,30 @@ class K8sService:
     def _skill_branch(self, agent) -> str:
         return (getattr(agent, "skill_branch", None) or self.settings.default_skill_branch or "master").strip() or "master"
 
+    def _skill_repo_subdir(self, agent) -> str:
+        raw = (
+            getattr(agent, "skill_repo_subdir", None)
+            or getattr(self.settings, "default_skill_repo_subdir", "")
+            or ""
+        )
+        return self._normalize_skill_repo_subdir(raw)
+
+    def _normalize_skill_repo_subdir(self, raw: str) -> str:
+        value = str(raw or "").strip().strip("/")
+        if not value:
+            return ""
+        parts = [part for part in value.split("/") if part]
+        if any(part in {".", ".."} for part in parts):
+            raise ValueError(f"Invalid DEFAULT_SKILL_REPO_SUBDIR: {raw!r}")
+        return "/".join(parts)
+
+    def _skill_asset_version(self, agent) -> str:
+        return str(
+            getattr(agent, "skill_asset_version", None)
+            or getattr(self.settings, "default_skill_asset_version", "")
+            or ""
+        ).strip()
+
     def _runtime_type(self, agent) -> str:
         raw = getattr(agent, "runtime_type", None)
         try:
@@ -168,6 +192,7 @@ class K8sService:
         runtime_branch = self._runtime_branch()
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
+        skill_repo_subdir = self._skill_repo_subdir(agent)
 
         if runtime_repo_url:
             runtime_sub_path = f"{prefix}/{agent.id}/runtime-code"
@@ -190,8 +215,8 @@ class K8sService:
                     name="skills-git-clone",
                     image=git_image,
                     command=["sh", "-c"],
-                    args=[self._git_clone_shell_command("/skills-code")],
-                    env=self._build_git_clone_env(skill_repo_url, skill_branch),
+                    args=[self._skill_git_clone_shell_command("/skills-code")],
+                    env=self._build_skill_git_clone_env(skill_repo_url, skill_branch, skill_repo_subdir),
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/skills-code", sub_path=skills_sub_path)],
                 )
             )
@@ -231,6 +256,7 @@ class K8sService:
         init_containers = [self._build_asset_dirs_init_container(agent, include_opencode_state=True)]
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
+        skill_repo_subdir = self._skill_repo_subdir(agent)
         if skill_repo_url:
             skills_sub_path = f"{prefix}/{agent.id}/skills-code"
             init_containers.append(
@@ -238,8 +264,8 @@ class K8sService:
                     name="skills-git-clone",
                     image=git_image,
                     command=["sh", "-c"],
-                    args=[self._git_clone_shell_command("/skills-code")],
-                    env=self._build_git_clone_env(skill_repo_url, skill_branch),
+                    args=[self._skill_git_clone_shell_command("/skills-code")],
+                    env=self._build_skill_git_clone_env(skill_repo_url, skill_branch, skill_repo_subdir),
                     volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/skills-code", sub_path=skills_sub_path)],
                 )
             )
@@ -318,6 +344,8 @@ class K8sService:
         if not self.enabled:
             return RuntimeStatus(status="running")
         try:
+            self._patch_deployment(agent)
+            self._patch_service_metadata(agent)
             self.apps_api.patch_namespaced_deployment_scale(
                 name=agent.deployment_name,
                 namespace=agent.namespace,
@@ -325,6 +353,7 @@ class K8sService:
             )
             return RuntimeStatus(status="running")
         except Exception as exc:
+            logger.exception("Failed to start agent")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def stop_agent(self, agent) -> RuntimeStatus:
@@ -445,6 +474,8 @@ class K8sService:
         runtime_type = self._runtime_type(agent)
         runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
+        skill_subdir = self._skill_repo_subdir(agent)
+        skill_asset_version = self._skill_asset_version(agent)
         annotations = {}
         annotations["efp/runtime-type"] = runtime_type
         if runtime_meta["raw_repo_url"]:
@@ -457,18 +488,26 @@ class K8sService:
         if skill_meta["raw_branch"]:
             annotations["efp/skill-git-branch"] = skill_meta["raw_branch"]
             annotations["efp/git-branch"] = skill_meta["raw_branch"]
+        if skill_subdir:
+            annotations["efp/skill-git-subdir"] = skill_subdir
+        if skill_asset_version:
+            annotations["efp/skill-asset-version"] = skill_asset_version
         return annotations
 
     def _agent_patch_annotations(self, agent) -> dict[str, Optional[str]]:
         runtime_type = self._runtime_type(agent)
         runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
+        skill_subdir = self._skill_repo_subdir(agent)
+        skill_asset_version = self._skill_asset_version(agent)
         return {
             "efp/runtime-type": runtime_type,
             "efp/runtime-git-repo-url": runtime_meta["raw_repo_url"] or None,
             "efp/runtime-git-branch": runtime_meta["raw_branch"] or None,
             "efp/skill-git-repo-url": skill_meta["raw_repo_url"] or None,
             "efp/skill-git-branch": skill_meta["raw_branch"] or None,
+            "efp/skill-git-subdir": skill_subdir or None,
+            "efp/skill-asset-version": skill_asset_version or None,
             "efp/git-repo-url": skill_meta["raw_repo_url"] or None,
             "efp/git-branch": skill_meta["raw_branch"] or None,
         }
@@ -571,6 +610,13 @@ class K8sService:
         )
         return env
 
+    def _build_skill_git_clone_env(self, repo_url: Optional[str], branch: str, subdir: str):
+        from kubernetes import client
+
+        env = self._build_git_clone_env(repo_url, branch)
+        env.append(client.V1EnvVar(name="SKILL_REPO_SUBDIR", value=subdir))
+        return env
+
     def _build_agent_container_env(self, agent=None):
         from kubernetes import client
 
@@ -647,6 +693,66 @@ class K8sService:
             "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
             f"find \"{target_dir}\" -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} + && cp -a /tmp/git-clone-work/. \"{target_dir}/\" && "
             "rm -f /tmp/git-askpass.sh"
+        )
+
+    def _skill_git_clone_shell_command(self, target_dir: str) -> str:
+        return "\n".join(
+            [
+                "set -eu",
+                "trap 'rm -f /tmp/git-askpass.sh' EXIT",
+                f'mkdir -p "{target_dir}"',
+                "rm -rf /tmp/git-clone-work",
+                "mkdir -p /tmp/git-clone-work",
+                "cd /tmp/git-clone-work",
+                'SKILL_REPO_SUBDIR="${SKILL_REPO_SUBDIR:-}"',
+                'if [ -n "${GIT_TOKEN:-}" ]; then',
+                "  ASKPASS_SCRIPT=/tmp/git-askpass.sh",
+                "  printf '%s\\n' '#!/bin/sh' 'case \"$1\" in' '  *Username*|*username*) echo \"x-access-token\" ;;' '  *) echo \"${GIT_TOKEN}\" ;;' 'esac' > \"${ASKPASS_SCRIPT}\"",
+                '  chmod 700 "${ASKPASS_SCRIPT}"',
+                '  export GIT_ASKPASS="${ASKPASS_SCRIPT}"',
+                "  export GIT_TERMINAL_PROMPT=0",
+                "fi",
+                'git clone --depth 1 --branch "${GIT_BRANCH}" "${GIT_REPO_URL}" .',
+                'SOURCE_DIR="/tmp/git-clone-work"',
+                'if [ -n "${SKILL_REPO_SUBDIR}" ]; then',
+                '  SOURCE_DIR="/tmp/git-clone-work/${SKILL_REPO_SUBDIR}"',
+                "fi",
+                'if [ ! -d "${SOURCE_DIR}" ]; then',
+                '  echo "Skill repo source directory not found: ${SOURCE_DIR}" >&2',
+                '  echo "Set DEFAULT_SKILL_REPO_SUBDIR to the directory containing skill packages, or leave it empty for repo root." >&2',
+                "  find /tmp/git-clone-work -maxdepth 3 -type d -print >&2 || true",
+                "  exit 35",
+                "fi",
+                f'find "{target_dir}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +',
+                f'cp -a "${{SOURCE_DIR}}"/. "{target_dir}"/',
+                "has_flat_skill_md() {",
+                f'  for f in "{target_dir}"/*.md; do',
+                '    [ -f "$f" ] || continue',
+                "    awk '",
+                "      BEGIN { in_fm=0; started=0; found_close=0; seen_name=0; seen_description=0 }",
+                "      {",
+                "        if (!started && $0 ~ /^[[:space:]]*$/) { next }",
+                "        if (!started && $0 == \"---\") { started=1; in_fm=1; next }",
+                "        if (!started) { exit 1 }",
+                "        if (in_fm && $0 == \"---\") { found_close=1; exit (seen_name && seen_description ? 0 : 1) }",
+                "        if (in_fm && $0 ~ /^name:[[:space:]]*[^[:space:]]/) { seen_name=1 }",
+                "        if (in_fm && $0 ~ /^description:[[:space:]]*[^[:space:]]/) { seen_description=1 }",
+                "      }",
+                "      END { if (!found_close) exit 1 }",
+                "    ' \"$f\" && return 0",
+                "  done",
+                "  return 1",
+                "}",
+                f'if ! find "{target_dir}" -mindepth 2 -maxdepth 2 \\( -name SKILL.md -o -name skill.md \\) -type f | grep -q . \\',
+                "   && ! has_flat_skill_md; then",
+                f'  echo "No skill entries found after cloning skills repo into {target_dir}" >&2',
+                '  echo "Expected either <skill-name>/SKILL.md, <skill-name>/skill.md, or top-level *.md with name/description frontmatter." >&2',
+                '  echo "Actual files:" >&2',
+                f'  find "{target_dir}" -maxdepth 4 -type f -print | sort >&2 || true',
+                "  exit 36",
+                "fi",
+                "rm -f /tmp/git-askpass.sh",
+            ]
         )
 
     def _ensure_service(self, agent) -> None:
