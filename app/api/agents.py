@@ -559,25 +559,14 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
 async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, agent = _load_writable_agent(agent_id, user, db)
 
-    # Restart = stop then start, with same state-machine checks as /stop and /start
-    if agent.status == "running":
-        if not can_transition(agent.status, "stopped"):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Cannot stop agent from status '{agent.status}'",
-            )
-        runtime = k8s_service.stop_agent(agent)
-        agent.status = runtime.status
-        agent.last_error = runtime.message
-        repo.save(agent)
-
-    # Always enforce state-machine guard before starting
-    if not can_transition(agent.status, "running"):
+    restartable_statuses = {"running", "stopped", "failed"}
+    if agent.status not in restartable_statuses:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot start agent from status '{agent.status}'",
+            detail=f"Cannot restart agent from status '{agent.status}'",
         )
-    runtime = k8s_service.start_agent(agent)
+
+    runtime = k8s_service.restart_agent(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
     repo.save(agent)

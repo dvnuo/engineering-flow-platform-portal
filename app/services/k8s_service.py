@@ -343,32 +343,79 @@ class K8sService:
     def start_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="running")
+
+        patch_error = None
         try:
             self._patch_deployment(agent)
             self._patch_service_metadata(agent)
-            self.apps_api.patch_namespaced_deployment_scale(
-                name=agent.deployment_name,
-                namespace=agent.namespace,
-                body={"spec": {"replicas": 1}},
-            )
-            return RuntimeStatus(status="running")
         except Exception as exc:
-            logger.exception("Failed to start agent")
+            patch_error = exc
+            logger.exception("Failed to patch agent runtime before start; scaling existing deployment anyway")
+
+        try:
+            self._scale_agent_deployment(agent, 1)
+        except Exception as exc:
+            logger.exception("Failed to scale agent deployment to 1")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
+
+        if patch_error is not None:
+            return RuntimeStatus(
+                status="running",
+                message=f"Deployment scaled to 1, but config patch failed: {sanitize_exception_message(patch_error)}",
+            )
+
+        return RuntimeStatus(status="running")
+
+    def _scale_agent_deployment(self, agent, replicas: int) -> None:
+        self.apps_api.patch_namespaced_deployment_scale(
+            name=agent.deployment_name,
+            namespace=agent.namespace,
+            body={"spec": {"replicas": replicas}},
+        )
 
     def stop_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="stopped")
         try:
-            self.apps_api.patch_namespaced_deployment_scale(
-                name=agent.deployment_name,
-                namespace=agent.namespace,
-                body={"spec": {"replicas": 0}},
-            )
+            self._scale_agent_deployment(agent, 0)
             return RuntimeStatus(status="stopped")
         except Exception as exc:
             logger.exception("Failed to stop agent")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
+
+    def restart_agent(self, agent) -> RuntimeStatus:
+        if not self.enabled:
+            return RuntimeStatus(status="running")
+
+        start_runtime = self.start_agent(agent)
+        if start_runtime.status == "failed":
+            return start_runtime
+
+        try:
+            from datetime import datetime, timezone
+
+            restarted_at = datetime.now(timezone.utc).isoformat()
+            self.apps_api.patch_namespaced_deployment(
+                name=agent.deployment_name,
+                namespace=agent.namespace,
+                body={
+                    "spec": {
+                        "template": {
+                            "metadata": {
+                                "annotations": {
+                                    "efp.dvnuo.io/restarted-at": restarted_at,
+                                }
+                            }
+                        }
+                    }
+                },
+                _content_type="application/merge-patch+json",
+            )
+        except Exception as exc:
+            logger.exception("Failed to roll restart agent deployment")
+            return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
+
+        return RuntimeStatus(status="running", message=start_runtime.message)
 
     def delete_agent_runtime(self, agent, destroy_data: bool = False) -> RuntimeStatus:
         if not self.enabled:
@@ -398,9 +445,10 @@ class K8sService:
 
         try:
             deploy = self.apps_api.read_namespaced_deployment_status(name=agent.deployment_name, namespace=agent.namespace)
-            replicas = deploy.status.replicas or 0
+            desired = deploy.spec.replicas or 0
+            current = deploy.status.replicas or 0
             available = deploy.status.available_replicas or 0
-            if replicas == 0:
+            if desired == 0:
                 return RuntimeStatus(status="stopped", cpu_usage="0", memory_usage="0")
             if available > 0:
                 return RuntimeStatus(status="running", cpu_usage="N/A", memory_usage="N/A")

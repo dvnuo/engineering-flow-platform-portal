@@ -613,8 +613,15 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         monkeypatch.setattr("app.api.agents.k8s_service.start_agent", lambda _agent: SimpleNamespace(status="running", message=None))
-        monkeypatch.setattr("app.api.agents.k8s_service.stop_agent", lambda _agent: SimpleNamespace(status="stopped", message=None))
-        calls = {"enqueue": 0}
+        calls = {"enqueue": 0, "restart": 0}
+
+        def _stop_agent(_agent):
+            raise AssertionError("restart endpoint must not stop the agent")
+
+        def _restart_agent(agent):
+            calls["restart"] += 1
+            assert agent.status == "running"
+            return SimpleNamespace(status="running", message=None)
 
         def _enqueue(_db, _agent, *, reason):
             calls["enqueue"] += 1
@@ -623,6 +630,8 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
         async def _unexpected(*_args, **_kwargs):
             raise AssertionError("start/restart should not use sync helper")
 
+        monkeypatch.setattr("app.api.agents.k8s_service.stop_agent", _stop_agent)
+        monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", _restart_agent)
         monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
         monkeypatch.setattr("app.api.agents._sync_runtime_profile_to_running_agent_or_record_warning", _unexpected)
 
@@ -630,6 +639,8 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
         agent_id = create_ok.json()["id"]
         restart_resp = client.post(f"/api/agents/{agent_id}/restart")
         assert restart_resp.status_code == 200
+        assert restart_resp.json()["status"] == "running"
+        assert calls["restart"] == 1
         assert calls["enqueue"] >= 1
     finally:
         cleanup()
