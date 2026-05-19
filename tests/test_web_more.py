@@ -1816,13 +1816,14 @@ def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
     assert "if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate))" in js
 
 
-def test_chat_stream_missing_final_branch_clears_active_request_source_marker():
+def test_chat_stream_missing_final_branch_detaches_and_reconciles_source_marker():
     js = _chat_ui_js_source()
     assert "async function handleChatStreamMissingFinal" in js
-    assert "chatState.activeRequest = null" in js
+    assert "async function handleChatStreamDetached" in js
     assert "setChatSubmittingForAgent(agentIdAtSend, false)" in js
-    assert "removeTemporaryAssistantRows()" in js
-    assert "await loadSessionForAgent(agentIdAtSend, finalSessionId" in js
+    assert "requestCtx.streamDetached = true" in js
+    assert "portal.stream_detached" in js
+    assert "startChatRunReconcileLoop(agentIdAtSend, requestCtx" in js
     assert "await handleChatStreamMissingFinal(agentIdAtSend, requestCtx)" in js
 
 

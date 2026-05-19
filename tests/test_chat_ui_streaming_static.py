@@ -31,6 +31,20 @@ def test_chat_ui_streaming_supports_opencode_runtime_event_types():
     src = _src()
     for event_type in [
         'chat.started',
+        'chat.stream_attached',
+        'chat.stream_detached',
+        'chat.run.started',
+        'chat.run.completed',
+        'chat.run.incomplete',
+        'chat.run.failed',
+        'assistant.message.started',
+        'assistant.message.updated',
+        'assistant.message.completed',
+        'portal.stream_detached',
+        'portal.reconcile.started',
+        'portal.reconcile.updated',
+        'portal.reconcile.completed',
+        'portal.reconcile.failed',
         'heartbeat',
         'status',
         'llm_thinking',
@@ -301,3 +315,107 @@ def test_stream_error_event_is_terminal():
         'return "error"',
     ]:
         assert marker in stream_handler
+
+
+def test_missing_final_detaches_instead_of_terminal_incomplete():
+    src = _src()
+    missing_final = _extract_js_function(src, "handleChatStreamMissingFinal")
+    detached = _extract_js_function(src, "handleChatStreamDetached")
+    stream_submit = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+
+    assert "handleIncompleteChatStream" not in missing_final
+    assert "handleChatStreamDetached(agentIdAtSend, requestCtx" in missing_final
+    assert "requestCtx.streamDetached = true" in detached
+    assert "requestCtx.streamIncomplete = false" in detached
+    assert "requestCtx.streamFailed = false" in detached
+    assert "finalizeTerminalThinkingState" not in detached
+    assert "chatState.activeRequest = null" not in detached
+    assert 'setChatStatus("Still running. Reconnecting…")' in detached
+    assert '"portal.stream_detached"' in detached
+    assert "ensureEventSocketForAgent(" in detached
+    assert "startChatRunReconcileLoop(agentIdAtSend, requestCtx" in detached
+    assert 'return "detached";' in stream_submit
+    assert 'if (streamResult === "detached") return;' in submit_chat
+    assert submit_chat.index('if (streamResult === "detached") return;') < submit_chat.index('fetch(`/a/${agentIdAtSend}/api/chat`')
+
+
+def test_reconcile_loop_contract_and_runtime_paths():
+    src = _src()
+    start_loop = _extract_js_function(src, "startChatRunReconcileLoop")
+    stop_loop = _extract_js_function(src, "stopChatRunReconcileLoop")
+    reconcile_once = _extract_js_function(src, "reconcileChatRunOnce")
+    apply_projection = _extract_js_function(src, "applyChatRunProjection")
+
+    assert "requestCtx.reconcileTimerId" in start_loop
+    assert "requestCtx.reconcileAttempt" in start_loop
+    assert "requestCtx.lastReconcileAt" in reconcile_once
+    assert "6 * 60 * 60 * 1000" in start_loop
+    assert "document.hidden" in start_loop
+    assert "clearTimeout(requestCtx.reconcileTimerId)" in stop_loop
+    assert '`/api/chat/runs/${encodeURIComponent(requestId)}`' in reconcile_once
+    assert '`/api/sessions/${encodeURIComponent(sessionId)}`' in reconcile_once
+    assert "isUnsupportedRunLookupError(error)" in reconcile_once
+    assert 'setChatStatus(projection.status === "stream_detached" ? "Still running. Reconnecting…" : "Still running…")' in apply_projection
+    assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true })" in apply_projection
+    assert "handleAgentChatSuccess(agentId, requestCtx, finalPayload)" in apply_projection
+    assert "finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload, \"reconcile\")" in apply_projection
+
+
+def test_remove_temporary_assistant_rows_is_request_scoped_and_content_safe():
+    src = _src()
+    helper = _extract_js_function(src, "removeTemporaryAssistantRows")
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+    update_pending = _extract_js_function(src, "updatePendingAssistantStreamContent")
+    update_or_create = _extract_js_function(src, "updateOrCreateAssistantRowForRequest")
+
+    assert "options = {}" in helper
+    assert "options.requestId || options.clientRequestId" in helper
+    assert "options.forceAll === true" in helper
+    assert "options.onlyEmpty !== false" in helper
+    assert "assistantRowMatchesRequest(row, requestId)" in helper
+    assert "assistantArticleHasVisibleContent(article)" in helper
+    assert "removeTemporaryAssistantRows({ requestId: clientRequestId, onlyEmpty: true })" in submit_chat
+    assert 'article.dataset.hasVisibleContent = "1"' in update_pending
+    assert 'row.dataset.hasVisibleContent = "1"' in update_or_create
+
+
+def test_events_update_assistant_bubble_and_do_not_show_hidden_reasoning():
+    src = _src()
+    trackable = _extract_js_function(src, "isTrackableThinkingEvent")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    predicate = _extract_js_function(src, "isAssistantMessageRuntimeEvent")
+    assistant_handler = _extract_js_function(src, "handleAssistantMessageRuntimeEvent")
+    guard = _extract_js_function(src, "shouldIgnoreAssistantStreamDelta")
+
+    for event_type in [
+        "assistant.message.started",
+        "assistant.message.updated",
+        "assistant.message.completed",
+        "message.delta",
+        "message.completed",
+    ]:
+        assert event_type in trackable
+        assert event_type in predicate
+    assert "handleAssistantMessageRuntimeEvent(currentAgentId, chatState, entry" in handle_event
+    assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true })" in assistant_handler
+    assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { completed: true })" in assistant_handler
+    assert "requestCtx.streamedText" in assistant_handler
+    assert 'role === "user"' in guard
+    assert 'rawType === "message.part.updated"' in guard
+
+
+def test_session_render_hydrates_active_run_and_replays_events():
+    src = _src()
+    load_session = _extract_js_function(src, "loadSessionForAgent")
+    reconcile_projection = _extract_js_function(src, "reconcileActiveRequestProjection")
+    hydrate = _extract_js_function(src, "hydrateActiveRequestFromRun")
+
+    assert "renderChatHistory(data.messages || [], data.metadata || {})" in load_session
+    assert "reconcileActiveRequestProjection(agentId, normalized, data.metadata || {}, data.messages || [])" in load_session
+    assert "metadata.active_run" in reconcile_projection
+    assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata)" in reconcile_projection
+    assert "ensureEventSocketForAgent(agentId, sessionId" in reconcile_projection
+    assert "startChatRunReconcileLoop(agentId, requestCtx" in reconcile_projection
+    assert 'setChatStatus(activeStatus === "stream_detached" ? "Still running. Reconnecting…" : "Still running. Syncing…")' in reconcile_projection
+    assert "streamDetached" in hydrate

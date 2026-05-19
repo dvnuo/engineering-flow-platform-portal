@@ -248,3 +248,67 @@ def test_stream_error_event_smoke_terminal_and_no_missing_final():
 
     result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_missing_final_detaches_and_starts_reconcile_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    stream_js = "\n".join(
+        [
+            _extract_js_function(src, "handleChatStreamMissingFinal"),
+            _extract_js_function(src, "handleChatStreamDetached"),
+        ]
+    )
+    script = (
+        stream_js
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const chatState = {
+              activeRequest: null,
+              sessionId: "sess-1",
+              inflightThinking: { events: [], completed: false },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function clearWaitingForRuntimeEventsTimer(ctx) { calls.push(["clear", ctx.clientRequestId]); }
+            function cancelAssistantTypewriter(ctx) { calls.push(["cancel", ctx.clientRequestId]); }
+            function setChatSubmittingForAgent(agentId, active) { calls.push(["submitting", agentId, active]); }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type, data) { calls.push(["event", agentId, type, data.reason]); }
+            function ensureEventSocketForAgent(agentId, sessionId, requestId) { calls.push(["events", agentId, sessionId, requestId]); }
+            function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", agentId, ctx.clientRequestId, options.immediate]); }
+            async function handleIncompleteChatStream() { throw new Error("should not mark incomplete"); }
+
+            (async () => {
+              const requestCtx = {
+                clientRequestId: "client-1",
+                requestId: "client-1",
+                sessionIdAtSend: "sess-1",
+                streamCompleted: false,
+                streamFailed: false,
+                streamIncomplete: false,
+              };
+              chatState.activeRequest = requestCtx;
+              const result = await handleChatStreamMissingFinal("agent-1", requestCtx);
+
+              assert.equal(result, "detached");
+              assert.equal(requestCtx.streamDetached, true);
+              assert.equal(requestCtx.streamIncomplete, false);
+              assert.equal(requestCtx.streamFailed, false);
+              assert.deepEqual(calls.find((item) => item[0] === "status"), ["status", "Still running. Reconnecting…"]);
+              assert.deepEqual(calls.find((item) => item[0] === "event").slice(0, 3), ["event", "agent-1", "portal.stream_detached"]);
+              assert.deepEqual(calls.find((item) => item[0] === "reconcile"), ["reconcile", "agent-1", "client-1", true]);
+              assert.equal(chatState.activeRequest, requestCtx);
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr

@@ -98,5 +98,5 @@ def test_missing_final_guard_respects_stream_failed():
     ]:
         assert marker in missing_final
     guard_index = missing_final.index("return \"handled\";")
-    incomplete_index = missing_final.index("handleIncompleteChatStream(")
-    assert guard_index < incomplete_index
+    detached_index = missing_final.index("handleChatStreamDetached(")
+    assert guard_index < detached_index

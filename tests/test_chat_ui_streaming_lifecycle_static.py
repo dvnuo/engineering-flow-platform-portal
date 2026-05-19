@@ -47,12 +47,13 @@ def test_sse_parser_carries_buffer_and_catches_malformed_json():
 def test_stream_loop_handles_malformed_sse_without_leaving_busy_state():
     src = _src()
     stream_submit = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
-    incomplete = _extract_js_function(src, "handleIncompleteChatStream")
+    detached = _extract_js_function(src, "handleChatStreamDetached")
     cleanup = _extract_js_function(src, "cleanupChatStreamRequest")
     assert 'const parsedBatch = parseSseEventsFromChunk(buffer, chunkText)' in stream_submit
     assert 'const parsed = parseSseEvent(buffer)' in stream_submit
     assert 'await handleChatStreamMissingFinal(agentIdAtSend, requestCtx)' in stream_submit
-    assert 'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, reason)' in incomplete
+    assert 'requestCtx.streamDetached = true' in detached
+    assert 'startChatRunReconcileLoop(agentIdAtSend, requestCtx' in detached
     assert 'clearWaitingForRuntimeEventsTimer(requestCtx)' in cleanup
 
 
@@ -63,3 +64,36 @@ def test_stream_loop_does_not_missing_final_after_error():
     assert "requestCtx.streamFailed" in stream_submit
     assert "sawError" in stream_submit
     assert stream_submit.index("requestCtx.streamFailed") < stream_submit.index("handleChatStreamMissingFinal(agentIdAtSend, requestCtx)")
+
+
+def test_missing_final_detached_lifecycle_keeps_active_request_and_reconnects():
+    src = _src()
+    stream_submit = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    missing_final = _extract_js_function(src, "handleChatStreamMissingFinal")
+    detached = _extract_js_function(src, "handleChatStreamDetached")
+
+    assert 'return handleChatStreamDetached(agentIdAtSend, requestCtx, "missing_final"' in missing_final
+    assert 'return "detached";' in stream_submit
+    assert "chatState.activeRequest = null" not in detached
+    assert "chatState.inflightThinking = null" not in detached
+    assert "finalizeTerminalThinkingState" not in detached
+    assert 'setChatStatus("Still running. Reconnecting…")' in detached
+    assert '"portal.stream_detached"' in detached
+    assert "ensureEventSocketForAgent(" in detached
+    assert "startChatRunReconcileLoop(agentIdAtSend, requestCtx, { immediate: true })" in detached
+
+
+def test_reconcile_lifecycle_finalizes_only_after_runtime_terminal_state():
+    src = _src()
+    apply_projection = _extract_js_function(src, "applyChatRunProjection")
+
+    running_idx = apply_projection.index("isChatRunRunningStatus(projection.status)")
+    completed_idx = apply_projection.index("isChatRunCompletedStatus(projection.status)")
+    non_success_idx = apply_projection.index("isChatRunNonSuccessStatus(projection.status)")
+
+    assert running_idx < completed_idx < non_success_idx
+    assert 'setChatStatus(projection.status === "stream_detached" ? "Still running. Reconnecting…" : "Still running…")' in apply_projection
+    assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true })" in apply_projection
+    assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, finalPayload, { completed: true })" in apply_projection
+    assert "await handleAgentChatSuccess(agentId, requestCtx, finalPayload)" in apply_projection
+    assert "finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload, \"reconcile\")" in apply_projection

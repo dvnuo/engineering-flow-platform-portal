@@ -37,6 +37,7 @@ def _base_functions(js: str) -> str:
         "finalResponseText",
         "handleChatStreamEvent",
         "handleChatStreamMissingFinal",
+        "handleChatStreamDetached",
         "trySubmitChatStreamForSelectedAgent",
     ]
     return "\n".join(_extract_js_function(js, name) for name in names)
@@ -68,6 +69,11 @@ function renderAgentList() {{}}
 function markAgentUnread() {{}}
 function setChatSubmittingForAgent() {{}}
 function ensureChatState() {{ return chatState; }}
+function clearWaitingForRuntimeEventsTimer() {{}}
+function cancelAssistantTypewriter() {{}}
+function appendPortalChatRuntimeEvent() {{}}
+function ensureEventSocketForAgent() {{}}
+function startChatRunReconcileLoop() {{}}
 async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ successCalls.push(payload); chatState.activeRequest = null; }}
 async function handleIncompleteChatStream(agentId, requestCtx, reason, payload) {{ incompleteCalls.push({{ reason, payload }}); requestCtx.completed = true; requestCtx.streamFailed = true; chatState.activeRequest = null; activeRequestCleared = true; }}
 async function handleErrorResponse() {{ return "bad"; }}
@@ -93,7 +99,7 @@ const chatState = {{ activeRequest: null, sessionId: "s1", inflightThinking: nul
     }}
   }});
   await trySubmitChatStreamForSelectedAgent("agent-1", reqA, {{}});
-  const caseA = {{ success: successCalls.length, incomplete: incompleteCalls.length, reason: incompleteCalls[0]?.reason || "", cleared: activeRequestCleared }};
+  const caseA = {{ success: successCalls.length, incomplete: incompleteCalls.length, detached: reqA.streamDetached === true, cleared: activeRequestCleared, active: chatState.activeRequest === reqA }};
 
   // B: final completed wins over streamedText
   successCalls = []; incompleteCalls = [];
@@ -135,8 +141,10 @@ const chatState = {{ activeRequest: null, sessionId: "s1", inflightThinking: nul
 """
     data = _run_node(script)
     assert data["caseA"]["success"] == 0
-    assert data["caseA"]["incomplete"] == 1
-    assert data["caseA"]["cleared"] is True
+    assert data["caseA"]["incomplete"] == 0
+    assert data["caseA"]["detached"] is True
+    assert data["caseA"]["cleared"] is False
+    assert data["caseA"]["active"] is True
 
     assert data["caseB"]["success"] == 1
     assert data["caseB"]["response"] == "Agenda summary ..."

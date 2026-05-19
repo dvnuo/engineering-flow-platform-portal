@@ -346,15 +346,24 @@ function hasActiveChatRequestForAgent(agentId) {
   );
 }
 
-function activeChatRequestMessage(actionLabel = "perform this action") {
+function activeChatRequestMessage(agentId, actionLabel = "perform this action") {
+  const activeRequest = ensureChatState(agentId)?.activeRequest;
+  if (activeRequest?.streamDetached) {
+    return "The previous message is still running. Reconnecting and syncing. Wait for it to finish before sending another message.";
+  }
   return `This assistant is still working in the current session. Please wait until it finishes before you ${actionLabel}.`;
 }
 
 function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this action") {
   if (!hasActiveChatRequestForAgent(agentId)) return true;
-  const message = activeChatRequestMessage(actionLabel);
+  const activeRequest = ensureChatState(agentId)?.activeRequest;
+  const message = activeChatRequestMessage(agentId, actionLabel);
   showToast(message);
-  setChatStatus(message, true);
+  if (activeRequest?.streamDetached) {
+    setChatStatus("Previous message still running…");
+  } else {
+    setChatStatus(message, true);
+  }
   return false;
 }
 
@@ -1059,7 +1068,7 @@ function buildPendingAssistantArticle(clientRequestId = "", pendingText = "Think
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = getSelectedAssistantDisplayName();
   const clientRequestAttr = clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(clientRequestId)}"` : "";
-  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(pendingText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render max-w-none text-sm" data-md="" data-display-blocks="[]"></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"${clientRequestAttr}><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(pendingText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render max-w-none text-sm" data-md="" data-display-blocks="[]"></div></article></div>`;
 }
 
 function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant", messageId = "", options = {}) {
@@ -1077,11 +1086,50 @@ function buildAssistantMessageArticle(content, displayBlocks = [], authorName = 
   const clientRequestIdAttr = options.clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(options.clientRequestId)}"` : "";
   const copyTextAttr = typeof options.copyText === "string" ? ` data-copy-text="${escapeHtmlAttr(options.copyText)}"` : "";
   const streamingClass = options.isStreaming ? " is-streaming" : "";
-  return `<div class="message-row message-row-assistant"><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
+  const hasVisibleContent = String(content || "").trim() || (displayBlocks || []).length ? ` data-has-visible-content="1"` : "";
+  return `<div class="message-row message-row-assistant"${hasVisibleContent}><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}${hasVisibleContent}><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
 
-function removeTemporaryAssistantRows() {
+function parseAssistantDisplayBlocksFromDataset(article) {
+  const markdownEl = article?.querySelector?.(".message-markdown");
+  const raw = markdownEl?.dataset?.displayBlocks || article?.dataset?.displayBlocks || "[]";
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function assistantArticleHasVisibleContent(article) {
+  if (!article) return false;
+  if (article.dataset.hasVisibleContent === "1") return true;
+  if (article.dataset.messageId || article.dataset.primaryMessageId) return true;
+  const markdownEl = article.querySelector(".message-markdown");
+  if (String(markdownEl?.dataset?.md || "").trim()) return true;
+  if (String(markdownEl?.textContent || "").trim()) return true;
+  const blocks = parseAssistantDisplayBlocksFromDataset(article);
+  return blocks.some((block) => (typeof hasRenderableDisplayBlock === "function")
+    ? hasRenderableDisplayBlock(block)
+    : !!(block && typeof block === "object" && String(block.text || block.content || block.value || "").trim()));
+}
+
+function assistantRowMatchesRequest(row, requestId) {
+  if (!row || !requestId) return false;
+  const normalized = String(requestId || "");
+  const articles = Array.from(row.querySelectorAll("article.assistant-message, article[data-pending-assistant='1']"));
+  if (row.dataset.clientRequestId === normalized || row.dataset.requestId === normalized) return true;
+  return articles.some((article) => (
+    article.dataset.clientRequestId === normalized
+    || article.dataset.requestId === normalized
+  ));
+}
+
+function removeTemporaryAssistantRows(options = {}) {
   if (!dom.messageList) return;
+  const requestId = String(options.requestId || options.clientRequestId || "");
+  const forceAll = options.forceAll === true;
+  const onlyEmpty = options.onlyEmpty !== false;
   const tempRows = new Set();
   dom.messageList
     .querySelectorAll('article[data-pending-assistant="1"]')
@@ -1092,7 +1140,18 @@ function removeTemporaryAssistantRows() {
   dom.messageList
     .querySelectorAll('.message-row[data-thinking-fallback="1"], .message-row[data-temporary-assistant="1"]')
     .forEach((row) => tempRows.add(row));
-  tempRows.forEach((row) => row.remove());
+  tempRows.forEach((row) => {
+    if (forceAll) {
+      row.remove();
+      return;
+    }
+    if (requestId && !assistantRowMatchesRequest(row, requestId)) return;
+    if (onlyEmpty) {
+      const article = row.querySelector('article[data-pending-assistant="1"], article.assistant-message');
+      if (assistantArticleHasVisibleContent(article)) return;
+    }
+    row.remove();
+  });
 }
 
 function removeLatestOptimisticUserRow() {
@@ -1153,6 +1212,8 @@ function isTrackableThinkingEvent(type) {
   const normalizedType = localNormalizeRuntimeEventTypeAlias(type);
   return [
     "stream.started",
+    "chat.stream_attached", "chat.stream_detached",
+    "chat.run.started", "chat.run.completed", "chat.run.incomplete", "chat.run.failed",
     "chat.started", "heartbeat", "status",
     "execution.started", "execution.completed", "execution.failed",
     "execution.incomplete", "execution.blocked",
@@ -1177,7 +1238,9 @@ function isTrackableThinkingEvent(type) {
     "permission.denied", "permission.allowed",
     "provider.retry", "provider.status", "provider.rate_limit", "model.retry",
     "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "opencode.raw",
-    "portal.waiting_for_runtime_events", "portal.stream_disconnected",
+    "assistant.message.started", "assistant.message.updated", "assistant.message.completed",
+    "portal.waiting_for_runtime_events", "portal.stream_disconnected", "portal.stream_detached",
+    "portal.reconcile.started", "portal.reconcile.updated", "portal.reconcile.completed", "portal.reconcile.failed",
     "skill.loaded", "task.started", "task.completed", "usage.updated"
   ].includes(normalizedType);
 }
@@ -1381,6 +1444,12 @@ function getThinkingEventDisplay(event) {
     "permission.denied": { icon: "shield-alert", title: "Permission Denied", detail: data.message || data.reason || "Permission denied" },
     "permission.allowed": { icon: "shield-check", title: "Permission Allowed", detail: data.message || "Permission allowed" },
     "stream.started": { icon: "activity", title: "Stream Started", detail: data.message || "Streaming response started" },
+    "chat.stream_attached": { icon: "plug", title: "Stream Attached", detail: data.message || "Live stream attached" },
+    "chat.stream_detached": { icon: "unplug", title: "Stream Detached", detail: data.message || "Live stream detached; runtime may still be running", kind: "warning" },
+    "chat.run.started": { icon: "play-circle", title: "Run Started", detail: data.message || "Chat run started" },
+    "chat.run.completed": { icon: "check-circle-2", title: "Run Completed", detail: data.message || "Chat run completed" },
+    "chat.run.incomplete": { icon: "alert-triangle", title: "Run Incomplete", detail: data.incomplete_reason || data.message || "Chat run incomplete", kind: "warning" },
+    "chat.run.failed": { icon: "x-circle", title: "Run Failed", detail: data.error || data.message || "Chat run failed", kind: "error" },
     "continuation.started": { icon: "rotate-cw", title: "Continuation Started", detail: data.message || "Continuing automatically..." },
     "continuation.prompt_sent": { icon: "send", title: "Continuation Prompt Sent", detail: data.message || "Continuation prompt sent" },
     "continuation.completed": { icon: "check-circle-2", title: "Continuation Completed", detail: data.message || "Continuation complete" },
@@ -1406,6 +1475,14 @@ function getThinkingEventDisplay(event) {
     "event_bridge.disconnected": { icon: "unplug", title: "Event Bridge Disconnected", detail: data.message || "Runtime event bridge disconnected" },
     "event_bridge.reconnected": { icon: "plug-zap", title: "Event Bridge Reconnected", detail: data.message || "Runtime event bridge reconnected" },
     "opencode.raw": { icon: "terminal", title: "OpenCode Event", detail: data.summary || data.message || "OpenCode runtime event" },
+    "assistant.message.started": { icon: "message-square", title: "Assistant Message Started", detail: data.message || "Assistant message started" },
+    "assistant.message.updated": { icon: "message-square", title: "Assistant Message Updated", detail: data.message || data.delta || "Assistant message updated" },
+    "assistant.message.completed": { icon: "message-square-check", title: "Assistant Message Completed", detail: data.message || "Assistant message completed" },
+    "portal.stream_detached": { icon: "unplug", title: "Stream Detached", detail: data.message || "The live stream ended before final response", kind: "warning" },
+    "portal.reconcile.started": { icon: "refresh-cw", title: "Reconcile Started", detail: data.message || "Syncing chat run" },
+    "portal.reconcile.updated": { icon: "refresh-cw", title: "Reconcile Updated", detail: data.message || "Chat run synced" },
+    "portal.reconcile.completed": { icon: "check-circle-2", title: "Reconcile Completed", detail: data.message || "Chat run completed" },
+    "portal.reconcile.failed": { icon: "x-circle", title: "Reconcile Failed", detail: data.error || data.message || "Chat run reconcile failed", kind: "error" },
     "provider.status": { icon: "activity", title: "Provider Status", detail: data.message || data.status || "Provider status update" },
     "skill.loaded": { icon: "zap", title: "Skill Loaded", detail: data.skill || data.message || "Skill loaded" },
     "skill.detected": { icon: "zap", title: "Skill Detected", detail: data.skill || data.message || "Skill detected" },
@@ -1935,6 +2012,75 @@ function escapeHtml(str) {
 
 // Note: Event rendering is handled by thinking tool panel live renderer.
 
+function isAssistantMessageRuntimeEvent(type) {
+  return [
+    "assistant.message.started",
+    "assistant.message.updated",
+    "assistant.message.completed",
+    "message.delta",
+    "message.completed",
+  ].includes(String(type || ""));
+}
+
+function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatchesActiveRequest, eventMatchesSocketRequest) {
+  if (!chatState?.activeRequest || !isAssistantMessageRuntimeEvent(entry?.type)) return;
+  const requestCtx = chatState.activeRequest;
+  const canUseEvent = eventMatchesActiveRequest || eventMatchesSocketRequest || !entry.request_id;
+  if (!canUseEvent) return;
+  const data = entry.data && typeof entry.data === "object" ? entry.data : {};
+  const type = entry.type;
+  if ((type === "message.delta" || type === "assistant.message.updated") && shouldIgnoreAssistantStreamDelta(data, requestCtx)) {
+    return;
+  }
+  const deltaText = getChatStreamTextPayload(data);
+  let visibleText = extractAssistantVisibleText(data);
+  if (type === "message.delta" && deltaText) {
+    requestCtx.streamedText = `${requestCtx.streamedText || ""}${deltaText}`;
+    visibleText = requestCtx.streamedText;
+  } else if (visibleText) {
+    requestCtx.streamedText = visibleText;
+  } else {
+    visibleText = requestCtx.streamedText || "";
+  }
+  const displayBlocks = extractAssistantDisplayBlocks(data);
+  const rowPayload = {
+    ...data,
+    request_id: entry.request_id || data.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
+    session_id: entry.session_id || data.session_id || requestCtx.sessionIdAtSend || chatState.sessionId || "",
+    response: visibleText,
+    display_blocks: displayBlocks,
+  };
+  if ((type === "assistant.message.updated" || type === "message.delta") && (visibleText || displayBlocks.length)) {
+    updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true });
+  }
+  if (type === "assistant.message.completed" || type === "message.completed") {
+    updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { completed: true });
+    const runStatus = normalizeChatRunStatus(data.run_status || data.status || data.completion_state || data.state || "");
+    if (isChatRunCompletedStatus(runStatus)) {
+      const finalPayload = {
+        ...rowPayload,
+        completion_state: getCompletionState(rowPayload) || "completed",
+        assistant_message_ids: normalizeAssistantMessageIds(rowPayload),
+        runtime_events: [],
+        events: [],
+      };
+      void handleAgentChatSuccess(agentId, requestCtx, finalPayload);
+    } else {
+      startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+    }
+  }
+}
+
+function maybeStartStalledAssistantReconcile(agentId, chatState) {
+  const requestCtx = chatState?.activeRequest;
+  if (!requestCtx || requestCtx.reconcileTimerId || requestCtx.reconcileInFlight) return;
+  if (Date.now() - Number(requestCtx.startedAt || requestCtx.streamStartedAt || 0) < 10000) return;
+  if (!(chatState.inflightThinking?.events || []).length) return;
+  const article = findAssistantArticleForRequest(requestCtx, {});
+  if (assistantArticleHasVisibleContent(article)) return;
+  startChatRunReconcileLoop(agentId, requestCtx);
+}
+
 function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
@@ -1966,7 +2112,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     entry.request_id && socketRequestId && entry.request_id === socketRequestId
   );
   const canAdoptRuntimeRequestId = Boolean(
-    type === "chat.started"
+    (type === "chat.started" || type === "chat.run.started" || type === "assistant.message.started")
     && entry.request_id
     && chatState.activeRequest
     && !eventMatchesActiveRequest
@@ -2112,6 +2258,13 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   }
   if (isThinkingPanelActiveForAgent(currentAgentId)) {
     scheduleThinkingPanelRefresh(currentAgentId);
+  }
+
+  if (typeof handleAssistantMessageRuntimeEvent === "function") {
+    handleAssistantMessageRuntimeEvent(currentAgentId, chatState, entry, eventMatchesActiveRequest, eventMatchesSocketRequest);
+  }
+  if (typeof maybeStartStalledAssistantReconcile === "function") {
+    maybeStartStalledAssistantReconcile(currentAgentId, chatState);
   }
 
   if (type === "edit.failed" && chatState.activeRequest?.edit && eventMatchesActiveRequest) {
@@ -3564,7 +3717,7 @@ async function submitChatForSelectedAgent() {
     };
   }
   removeWelcomeMessageIfPresent();
-  removeTemporaryAssistantRows();
+  removeTemporaryAssistantRows({ requestId: clientRequestId, onlyEmpty: true });
   hideSuggest();
   if (agentIdAtSend === state.selectedAgentId && dom.messageList) {
     const displayAttachments = chatState.pendingFiles.map((pf) => ({
@@ -3606,6 +3759,7 @@ async function submitChatForSelectedAgent() {
   try {
     const streamResult = await trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody);
     if (streamResult === "handled") return;
+    if (streamResult === "detached") return;
     const resp = await fetch(`/a/${agentIdAtSend}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3826,7 +3980,7 @@ function shouldIgnoreAssistantStreamDelta(eventData, requestCtx, associatedEvent
   if (role === "user") return true;
 
   const rawType = getChatStreamRawType(source);
-  if (rawType === "message.part.updated") return true;
+  if (rawType === "message.part.updated" && !getChatStreamTextPayload(source)) return true;
 
   const origin = String(source?.source || source?.origin || "").trim().toLowerCase();
   if (origin === "user" || origin === "client_user") return true;
@@ -3945,14 +4099,14 @@ async function flushAssistantTypewriter(agentId, requestCtx, finalText, { maxWai
 function normalizeAssistantMessageIds(payload = {}) {
   const rawIds = Array.isArray(payload?.assistant_message_ids) ? payload.assistant_message_ids : [];
   const ids = rawIds.map((id) => String(id || "")).filter(Boolean);
-  const primary = String(payload?.assistant_message_id || ids[ids.length - 1] || "");
+  const primary = String(payload?.assistant_message_id || payload?.message_id || payload?.id || payload?.assistant_projection?.assistant_message_id || payload?.final_payload?.assistant_message_id || ids[ids.length - 1] || "");
   if (primary && !ids.includes(primary)) ids.push(primary);
   return ids;
 }
 
 function getPrimaryAssistantMessageId(payload = {}) {
   const ids = normalizeAssistantMessageIds(payload);
-  return String(payload?.assistant_message_id || ids[ids.length - 1] || "");
+  return String(payload?.assistant_message_id || payload?.message_id || payload?.id || payload?.assistant_projection?.assistant_message_id || payload?.final_payload?.assistant_message_id || ids[ids.length - 1] || "");
 }
 
 function hasRenderableAssistantPayload(payload) {
@@ -3960,6 +4114,244 @@ function hasRenderableAssistantPayload(payload) {
   if (text) return true;
   const blocks = Array.isArray(payload?.display_blocks) ? payload.display_blocks : [];
   return blocks.some((block) => hasRenderableDisplayBlock(block));
+}
+
+function extractAssistantVisibleText(payload = {}) {
+  if (!payload || typeof payload !== "object") return "";
+  const role = getChatStreamRoleMarker(payload);
+  if (role === "user") return "";
+  const candidates = [
+    payload.response,
+    payload.text,
+    payload.content,
+    payload.message,
+    payload.delta,
+    payload.response_delta,
+    payload.last_response_text,
+    payload.assistant_text,
+    payload.assistant_message,
+    payload.assistant_projection?.text,
+    payload.assistant_projection?.response,
+    payload.assistant_projection?.content,
+    payload.assistant_projection?.message,
+    payload.final_payload?.response,
+    payload.final_payload?.text,
+    payload.final_payload?.message,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.length) return value;
+  }
+  const nestedMessage = payload.message && typeof payload.message === "object" ? payload.message : null;
+  if (nestedMessage && getChatStreamRoleMarker(nestedMessage) !== "user") {
+    return extractAssistantVisibleText(nestedMessage);
+  }
+  return "";
+}
+
+function extractAssistantDisplayBlocks(payload = {}) {
+  const candidates = [
+    payload?.display_blocks,
+    payload?.displayBlocks,
+    payload?.assistant_projection?.display_blocks,
+    payload?.assistant_projection?.displayBlocks,
+    payload?.final_payload?.display_blocks,
+    payload?.final_payload?.displayBlocks,
+  ];
+  for (const blocks of candidates) {
+    if (Array.isArray(blocks)) return blocks;
+  }
+  return [];
+}
+
+function getRequestIdCandidatesForAssistantRow(requestCtx = {}, payload = {}) {
+  return [
+    requestCtx.clientRequestId,
+    requestCtx.requestId,
+    requestCtx.runtimeRequestId,
+    payload.client_request_id,
+    payload.clientRequestId,
+    payload.request_id,
+    payload.requestId,
+    payload.run_id,
+    payload.runId,
+    payload.assistant_projection?.request_id,
+    payload.final_payload?.request_id,
+  ].map((value) => String(value || "")).filter(Boolean);
+}
+
+function getAssistantMessageIdCandidates(payload = {}) {
+  return [
+    payload.assistant_message_id,
+    payload.assistantMessageId,
+    payload.message_id,
+    payload.messageId,
+    payload.id,
+    payload.assistant_projection?.assistant_message_id,
+    payload.assistant_projection?.message_id,
+    payload.final_payload?.assistant_message_id,
+  ].map((value) => String(value || "")).filter(Boolean);
+}
+
+function articleContainsAssistantMessageId(article, messageId) {
+  if (!article || !messageId) return false;
+  if (article.dataset.messageId === messageId || article.dataset.primaryMessageId === messageId) return true;
+  try {
+    const ids = JSON.parse(article.dataset.messageIds || "[]");
+    return Array.isArray(ids) && ids.map((id) => String(id || "")).includes(messageId);
+  } catch {
+    return String(article.dataset.messageIds || "").includes(messageId);
+  }
+}
+
+function findAssistantArticleForRequest(requestCtx = {}, payload = {}) {
+  if (!dom.messageList) return null;
+  const requestIds = getRequestIdCandidatesForAssistantRow(requestCtx, payload);
+  for (const requestId of requestIds) {
+    const escaped = CSS.escape(requestId);
+    const byClient = dom.messageList.querySelector(`article[data-client-request-id="${escaped}"]`);
+    if (byClient) return byClient;
+    const byRequest = dom.messageList.querySelector(`article[data-request-id="${escaped}"]`);
+    if (byRequest) return byRequest;
+  }
+  const messageIds = getAssistantMessageIdCandidates(payload);
+  for (const messageId of messageIds) {
+    const escaped = CSS.escape(messageId);
+    const byMessageId = dom.messageList.querySelector(`article[data-message-id="${escaped}"], article[data-primary-message-id="${escaped}"]`);
+    if (byMessageId) return byMessageId;
+    const containing = Array.from(dom.messageList.querySelectorAll("article[data-message-ids]"))
+      .find((article) => articleContainsAssistantMessageId(article, messageId));
+    if (containing) return containing;
+  }
+  const selectedChatState = ensureChatState(state.selectedAgentId);
+  if (requestCtx?.clientRequestId && selectedChatState?.activeRequest?.clientRequestId === requestCtx.clientRequestId) {
+    return dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(requestCtx.clientRequestId)}"]`);
+  }
+  return null;
+}
+
+function findUserRowForAssistantRequest(requestCtx = {}, payload = {}) {
+  if (!dom.messageList) return null;
+  const userIds = [
+    payload.user_message_id,
+    payload.userMessageId,
+    payload.assistant_projection?.user_message_id,
+    payload.final_payload?.user_message_id,
+    requestCtx.userMessageId,
+  ].map((value) => String(value || "")).filter(Boolean);
+  for (const userId of userIds) {
+    const article = dom.messageList.querySelector(`article[data-local-user="1"][data-message-id="${CSS.escape(userId)}"]`);
+    if (article) return article.closest(".message-row");
+  }
+  const optimistic = getLatestOptimisticUserArticle();
+  return optimistic?.closest(".message-row") || null;
+}
+
+function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, options = {}) {
+  if (state.selectedAgentId !== agentId || !dom.messageList || !requestCtx) return null;
+  const text = String(options.text ?? extractAssistantVisibleText(payload) ?? "");
+  const displayBlocks = Array.isArray(options.displayBlocks) ? options.displayBlocks : extractAssistantDisplayBlocks(payload);
+  const hasVisible = text.trim() || displayBlocks.some((block) => (typeof hasRenderableDisplayBlock === "function")
+    ? hasRenderableDisplayBlock(block)
+    : !!(block && typeof block === "object" && String(block.text || block.content || block.value || "").trim()));
+  let article = findAssistantArticleForRequest(requestCtx, payload);
+  if (!article) {
+    const requestId = payload?.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
+    const clientRequestId = requestCtx.clientRequestId || payload?.client_request_id || "";
+    const messageIds = normalizeAssistantMessageIds(payload);
+    const primaryMessageId = getPrimaryAssistantMessageId(payload);
+    const assistantHtml = buildAssistantMessageArticle(
+      text,
+      displayBlocks,
+      getSelectedAssistantDisplayName(payload?.author_name || "Assistant"),
+      primaryMessageId,
+      {
+        messageIds,
+        primaryMessageId,
+        requestId,
+        clientRequestId,
+        userMessageId: payload?.user_message_id || requestCtx.userMessageId || "",
+        isStreaming: options.partial === true && options.completed !== true,
+        copyText: text,
+      },
+    );
+    const userRow = findUserRowForAssistantRequest(requestCtx, payload);
+    if (userRow) userRow.insertAdjacentHTML("afterend", assistantHtml);
+    else dom.messageList.insertAdjacentHTML("beforeend", assistantHtml);
+    article = findAssistantArticleForRequest(requestCtx, payload)
+      || dom.messageList.querySelector("article.assistant-message:last-of-type")
+      || Array.from(dom.messageList.querySelectorAll("article.assistant-message")).pop();
+    if (article && options.partial === true && options.completed !== true) {
+      article.dataset.pendingAssistant = "1";
+      article.classList.add("is-pending", "pending-assistant", "is-streaming");
+      const row = article.closest(".message-row");
+      if (row) {
+        row.dataset.temporaryAssistant = "1";
+        row.classList.add("is-streaming");
+      }
+    }
+  }
+  if (!article) return null;
+
+  const row = article.closest(".message-row");
+  const markdownEl = article.querySelector(".message-markdown") || (() => {
+    const created = document.createElement("div");
+    created.className = "message-markdown md-render max-w-none text-sm";
+    article.appendChild(created);
+    return created;
+  })();
+  if (hasVisible) {
+    article.querySelector(".assistant-waiting-indicator")?.remove();
+    article.dataset.hasVisibleContent = "1";
+    if (row) row.dataset.hasVisibleContent = "1";
+  }
+  markdownEl.className = "message-markdown md-render max-w-none text-sm";
+  markdownEl.dataset.md = text;
+  markdownEl.dataset.displayBlocks = JSON.stringify(displayBlocks || []);
+  article.dataset.copyText = text;
+
+  const messageIds = normalizeAssistantMessageIds(payload);
+  const primaryMessageId = getPrimaryAssistantMessageId(payload);
+  if (primaryMessageId) {
+    article.dataset.messageId = primaryMessageId;
+    article.dataset.primaryMessageId = primaryMessageId;
+  }
+  if (messageIds.length) article.dataset.messageIds = JSON.stringify(messageIds);
+  const requestId = payload?.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
+  if (requestId) article.dataset.requestId = requestId;
+  if (requestCtx.clientRequestId) article.dataset.clientRequestId = requestCtx.clientRequestId;
+  if (payload?.user_message_id || requestCtx.userMessageId) {
+    article.dataset.userMessageId = payload?.user_message_id || requestCtx.userMessageId;
+  }
+
+  if (options.completed === true) {
+    article.removeAttribute("data-pending-assistant");
+    article.dataset.pendingAssistant = "0";
+    article.classList.remove("is-streaming", "is-pending", "pending-assistant");
+    article.classList.add("is-complete");
+    article.querySelector(".assistant-stream-cursor")?.remove();
+    article.querySelector(".assistant-waiting-indicator")?.remove();
+    row?.classList.remove("is-streaming", "is-pending");
+    row?.removeAttribute("data-temporary-assistant");
+  } else if (options.partial === true) {
+    article.dataset.pendingAssistant = "1";
+    article.classList.add("is-streaming");
+    row?.classList.add("is-streaming");
+    let cursor = article.querySelector(".assistant-stream-cursor");
+    if (!cursor) {
+      cursor = document.createElement("span");
+      cursor.className = "assistant-stream-cursor";
+      cursor.setAttribute("aria-hidden", "true");
+      cursor.textContent = "▌";
+      markdownEl.insertAdjacentElement("afterend", cursor);
+    }
+  }
+
+  renderMarkdown(article);
+  decorateToolMessages(article);
+  renderIcons();
+  addEditButtonsToMessages();
+  scrollToBottom();
+  return article;
 }
 
 function updatePendingAssistantStreamContent(agentId, markdownText, options = {}) {
@@ -3974,6 +4366,10 @@ function updatePendingAssistantStreamContent(agentId, markdownText, options = {}
   if (waiting) waiting.remove();
   article.classList.add('is-streaming');
   row?.classList.add('is-streaming');
+  if (String(markdownText || "").trim()) {
+    article.dataset.hasVisibleContent = "1";
+    if (row) row.dataset.hasVisibleContent = "1";
+  }
   const markdownEl = article.querySelector('.message-markdown') || (() => {
     const created = document.createElement('div');
     created.className = 'message-markdown md-render max-w-none text-sm';
@@ -4014,6 +4410,12 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   article.dataset.messageIds = JSON.stringify(messageIds);
   article.dataset.userMessageId = payload?.user_message_id || nearestUser || '';
   article.dataset.requestId = payload?.request_id || requestCtx?.clientRequestId || '';
+  article.dataset.clientRequestId = requestCtx?.clientRequestId || requestCtx?.requestId || reqId;
+  article.dataset.hasVisibleContent = "1";
+  if (row) {
+    row.dataset.hasVisibleContent = "1";
+    row.removeAttribute("data-temporary-assistant");
+  }
   article.classList.remove('is-pending', 'is-streaming');
   row?.classList.remove('is-streaming');
   article.classList.add('is-complete');
@@ -4140,6 +4542,7 @@ function terminalStatusFromCompletionState(completionState) {
 function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
+  if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
   const requestId = finalPayload?.request_id || requestCtx?.requestId || requestCtx?.clientRequestId || "";
   const sessionId = finalPayload?.session_id || requestCtx?.sessionIdAtSend || chatState.sessionId || "";
   const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "");
@@ -4204,6 +4607,7 @@ function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = fals
     finalizeTerminalThinkingState(agentIdAtSend, requestCtx, requestCtx?.terminalPayload || requestCtx?.streamFinalPayload || {});
   }
   setChatSubmittingForAgent(agentIdAtSend, false);
+  if (!requestCtx?.streamDetached && typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
   if (chatState?.activeRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.activeRequest = null;
   if (!keepStatus && state.selectedAgentId === agentIdAtSend && !requestCtx?.streamIncomplete && !requestCtx?.streamFailed) setChatStatus("Ready");
 }
@@ -4229,6 +4633,309 @@ function clearWaitingForRuntimeEventsTimer(requestCtx) {
   if (requestCtx?.waitingEventTimerId) {
     clearTimeout(requestCtx.waitingEventTimerId);
     requestCtx.waitingEventTimerId = null;
+  }
+}
+
+function appendPortalChatRuntimeEvent(agentId, requestCtx, type, data = {}) {
+  if (!requestCtx || typeof handleAgentEventMessage !== "function") return;
+  const requestId = requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
+  const sessionId = requestCtx.sessionIdAtSend || ensureChatState(agentId)?.sessionId || "";
+  const payload = {
+    type,
+    event_type: type,
+    request_id: requestId,
+    session_id: sessionId,
+    agent_id: agentId,
+    created_at: new Date().toISOString(),
+    data: {
+      ...data,
+      request_id: requestId,
+      session_id: sessionId,
+      agent_id: agentId,
+    },
+  };
+  handleAgentEventMessage(JSON.stringify(payload), {
+    agentId,
+    sessionId,
+    requestId: requestCtx.clientRequestId || requestId,
+  });
+}
+
+function stopChatRunReconcileLoop(requestCtx) {
+  if (!requestCtx) return;
+  if (requestCtx.reconcileTimerId) {
+    clearTimeout(requestCtx.reconcileTimerId);
+    requestCtx.reconcileTimerId = null;
+  }
+  requestCtx.reconcileStopped = true;
+}
+
+function chatRunReconcileDelayMs(attempt) {
+  const delays = [2000, 3000, 5000, 10000, 15000];
+  return delays[Math.min(Math.max(Number(attempt || 0), 0), delays.length - 1)] || 15000;
+}
+
+function startChatRunReconcileLoop(agentId, requestCtx, options = {}) {
+  if (!agentId || !requestCtx) return;
+  const chatState = ensureChatState(agentId);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  requestCtx.reconcileStopped = false;
+  if (!requestCtx.reconcileStartedAt) {
+    requestCtx.reconcileStartedAt = Date.now();
+    requestCtx.reconcileAttempt = 0;
+    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.started", {
+      message: "Reconnecting and syncing chat run state.",
+    });
+  }
+  if (requestCtx.reconcileTimerId) return;
+  const ageMs = Date.now() - requestCtx.reconcileStartedAt;
+  if (ageMs > 6 * 60 * 60 * 1000) {
+    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.failed", {
+      message: "Stopped syncing after 6 hours without a terminal run state.",
+    });
+    return;
+  }
+  const immediate = options.immediate === true && !requestCtx.reconcileImmediateFired;
+  if (immediate) requestCtx.reconcileImmediateFired = true;
+  let delay = immediate ? 0 : chatRunReconcileDelayMs(requestCtx.reconcileAttempt || 0);
+  if (document.hidden) delay = Math.max(delay, Math.min(30000, delay * 2));
+  requestCtx.reconcileTimerId = setTimeout(async () => {
+    requestCtx.reconcileTimerId = null;
+    if (requestCtx.reconcileStopped) return;
+    requestCtx.reconcileAttempt = (requestCtx.reconcileAttempt || 0) + 1;
+    const result = await reconcileChatRunOnce(agentId, requestCtx);
+    if (result === "terminal" || requestCtx.reconcileStopped) return;
+    const latestChatState = ensureChatState(agentId);
+    if (latestChatState?.activeRequest?.clientRequestId === requestCtx.clientRequestId) {
+      startChatRunReconcileLoop(agentId, requestCtx);
+    }
+  }, delay);
+}
+
+function normalizeChatRunStatus(status) {
+  return String(status || "").trim().toLowerCase();
+}
+
+function isChatRunRunningStatus(status) {
+  return ["running", "stream_detached", "stream_attached", "pending", "started", "in_progress", "working"].includes(normalizeChatRunStatus(status));
+}
+
+function isChatRunCompletedStatus(status) {
+  return ["completed", "success", "done", "finished"].includes(normalizeChatRunStatus(status));
+}
+
+function isChatRunNonSuccessStatus(status) {
+  return ["incomplete", "failed", "error", "blocked", "empty_final"].includes(normalizeChatRunStatus(status));
+}
+
+function isUnsupportedRunLookupError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return ["404", "405", "501", "unsupported", "not found"].some((marker) => message.includes(marker));
+}
+
+function getChatRunObject(payload = {}) {
+  if (!payload || typeof payload !== "object") return {};
+  if (payload.run && typeof payload.run === "object") return payload.run;
+  if (payload.data && typeof payload.data === "object" && (payload.data.status || payload.data.request_id)) return payload.data;
+  if (payload.status || payload.state || payload.request_id || payload.final_payload || payload.assistant_projection) return payload;
+  return {};
+}
+
+function getSessionRunMetadata(sessionPayload = {}) {
+  const metadata = sessionPayload?.metadata && typeof sessionPayload.metadata === "object" ? sessionPayload.metadata : {};
+  return {
+    metadata,
+    activeRun: metadata.active_run && typeof metadata.active_run === "object" ? metadata.active_run : null,
+    latestRun: metadata.latest_run && typeof metadata.latest_run === "object" ? metadata.latest_run : null,
+    assistantProjection: metadata.assistant_projection && typeof metadata.assistant_projection === "object" ? metadata.assistant_projection : null,
+    finalPayload: metadata.final_payload && typeof metadata.final_payload === "object" ? metadata.final_payload : null,
+  };
+}
+
+function messageRequestId(message = {}) {
+  const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : {};
+  return String(message.request_id || message.client_request_id || metadata.request_id || metadata.client_request_id || metadata.run_id || "");
+}
+
+function findAssistantMessageForRequest(messages = [], requestCtx = {}) {
+  const requestIds = new Set(getRequestIdCandidatesForAssistantRow(requestCtx, {}));
+  const assistants = (Array.isArray(messages) ? messages : []).filter((message) => message?.role === "assistant");
+  const matched = assistants.find((message) => requestIds.has(messageRequestId(message)));
+  return matched || assistants[assistants.length - 1] || null;
+}
+
+function buildChatRunProjection(runPayload = null, sessionPayload = null, requestCtx = {}) {
+  const sessionInfo = getSessionRunMetadata(sessionPayload || {});
+  const run = getChatRunObject(runPayload || {}) || sessionInfo.activeRun || sessionInfo.latestRun || {};
+  const activeRun = sessionInfo.activeRun || ((run && isChatRunRunningStatus(run.status || run.state)) ? run : null);
+  const latestRun = sessionInfo.latestRun || run || {};
+  const assistantProjection = run.assistant_projection || sessionInfo.assistantProjection || {};
+  const finalPayload = run.final_payload || run.finalPayload || sessionInfo.finalPayload || {};
+  const messages = Array.isArray(sessionPayload?.messages) ? sessionPayload.messages : [];
+  const assistantMessage = findAssistantMessageForRequest(messages, requestCtx);
+  const messagePayload = assistantMessage ? {
+    response: assistantMessage.content || assistantMessage.display_content || "",
+    display_blocks: assistantMessage.display_blocks || [],
+    assistant_message_id: assistantMessage.id || assistantMessage.message_id || "",
+    request_id: messageRequestId(assistantMessage),
+  } : {};
+  const merged = {
+    ...latestRun,
+    ...run,
+    assistant_projection: assistantProjection,
+    final_payload: finalPayload,
+  };
+  const status = normalizeChatRunStatus(
+    run.status
+    || run.state
+    || finalPayload.completion_state
+    || sessionInfo.metadata.active_run_status
+    || sessionInfo.metadata.latest_run_status
+    || "",
+  );
+  const text = extractAssistantVisibleText(merged) || extractAssistantVisibleText(messagePayload);
+  const displayBlocks = extractAssistantDisplayBlocks(merged).length
+    ? extractAssistantDisplayBlocks(merged)
+    : extractAssistantDisplayBlocks(messagePayload);
+  return {
+    status,
+    run,
+    activeRun,
+    latestRun,
+    assistantProjection,
+    finalPayload,
+    assistantMessage,
+    text,
+    displayBlocks,
+    requestId: run.request_id || latestRun.request_id || finalPayload.request_id || messagePayload.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "",
+    sessionId: run.session_id || latestRun.session_id || finalPayload.session_id || sessionPayload?.session_id || requestCtx.sessionIdAtSend || "",
+    assistantMessageId: run.assistant_message_id || finalPayload.assistant_message_id || messagePayload.assistant_message_id || assistantProjection.assistant_message_id || "",
+    userMessageId: run.user_message_id || finalPayload.user_message_id || assistantProjection.user_message_id || "",
+  };
+}
+
+function buildFinalPayloadFromProjection(projection = {}, requestCtx = {}, completionState = "completed") {
+  const finalPayload = projection.finalPayload && typeof projection.finalPayload === "object" ? projection.finalPayload : {};
+  const response = extractAssistantVisibleText(finalPayload) || projection.text || "";
+  return {
+    ...finalPayload,
+    response,
+    display_blocks: Array.isArray(finalPayload.display_blocks) ? finalPayload.display_blocks : (projection.displayBlocks || []),
+    completion_state: getCompletionState(finalPayload) || completionState,
+    request_id: finalPayload.request_id || projection.requestId || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "",
+    session_id: finalPayload.session_id || projection.sessionId || requestCtx.sessionIdAtSend || "",
+    user_message_id: finalPayload.user_message_id || projection.userMessageId || "",
+    assistant_message_id: finalPayload.assistant_message_id || projection.assistantMessageId || "",
+    assistant_message_ids: normalizeAssistantMessageIds({
+      ...finalPayload,
+      assistant_message_id: finalPayload.assistant_message_id || projection.assistantMessageId || "",
+    }),
+    runtime_events: finalPayload.runtime_events || [],
+    events: finalPayload.events || [],
+  };
+}
+
+async function applyChatRunProjection(agentId, requestCtx, projection = {}) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return "stopped";
+  if (projection.requestId && projection.requestId !== requestCtx.clientRequestId) {
+    requestCtx.runtimeRequestId = projection.requestId;
+    requestCtx.requestId = projection.requestId;
+  }
+  if (projection.sessionId) {
+    requestCtx.sessionIdAtSend = projection.sessionId;
+    updateAgentSession(agentId, projection.sessionId);
+  }
+  const rowPayload = {
+    ...projection.run,
+    ...projection.finalPayload,
+    request_id: projection.requestId,
+    session_id: projection.sessionId,
+    user_message_id: projection.userMessageId,
+    assistant_message_id: projection.assistantMessageId,
+    response: projection.text,
+    display_blocks: projection.displayBlocks || [],
+    assistant_projection: projection.assistantProjection,
+  };
+  if (isChatRunRunningStatus(projection.status)) {
+    setChatStatus(projection.status === "stream_detached" ? "Still running. Reconnecting…" : "Still running…");
+    if (projection.text || (projection.displayBlocks || []).length) {
+      updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true });
+    }
+    ensureEventSocketForAgent(agentId, projection.sessionId || requestCtx.sessionIdAtSend || "", projection.requestId || requestCtx.clientRequestId);
+    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.updated", {
+      message: "Chat run is still running.",
+      status: projection.status,
+    });
+    return "running";
+  }
+  if (isChatRunCompletedStatus(projection.status) || (!projection.activeRun && projection.assistantMessage && projection.text)) {
+    const finalPayload = buildFinalPayloadFromProjection(projection, requestCtx, "completed");
+    updateOrCreateAssistantRowForRequest(agentId, requestCtx, finalPayload, { completed: true });
+    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.completed", {
+      message: "Chat run completed.",
+      status: projection.status || "completed",
+    });
+    if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
+    await handleAgentChatSuccess(agentId, requestCtx, finalPayload);
+    return "terminal";
+  }
+  if (isChatRunNonSuccessStatus(projection.status)) {
+    const finalPayload = buildFinalPayloadFromProjection(projection, requestCtx, projection.status);
+    finalPayload.completion_state = getCompletionState(finalPayload) || projection.status;
+    finalPayload.incomplete_reason = finalPayload.incomplete_reason || finalPayload.error || finalPayload.detail || projection.status;
+    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.completed", {
+      message: `Chat run ended with ${projection.status}.`,
+      status: projection.status,
+    });
+    if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
+    finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload, "reconcile");
+    return "terminal";
+  }
+  if (projection.text || (projection.displayBlocks || []).length) {
+    updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true });
+  }
+  setChatStatus("Still running. Syncing…");
+  return "running";
+}
+
+async function reconcileChatRunOnce(agentId, requestCtx) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx?.clientRequestId) return "stopped";
+  if (requestCtx.reconcileInFlight) return "running";
+  requestCtx.reconcileInFlight = true;
+  requestCtx.lastReconcileAt = Date.now();
+  const requestId = requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
+  const sessionId = requestCtx.sessionIdAtSend || chatState.sessionId || "";
+  try {
+    let runPayload = null;
+    let sessionPayload = null;
+    if (requestId) {
+      try {
+        runPayload = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}`);
+      } catch (error) {
+        if (!isUnsupportedRunLookupError(error)) {
+          appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.failed", {
+            message: "Run lookup failed; falling back to session sync.",
+            error: String(error?.message || error || ""),
+          });
+        }
+      }
+    }
+    if (!runPayload && sessionId) {
+      sessionPayload = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
+    }
+    const projection = buildChatRunProjection(runPayload, sessionPayload, requestCtx);
+    return await applyChatRunProjection(agentId, requestCtx, projection);
+  } catch (error) {
+    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.failed", {
+      message: "Unable to sync chat run yet; will retry.",
+      error: String(error?.message || error || ""),
+    });
+    setChatStatus("Still running. Reconnecting…");
+    return "running";
+  } finally {
+    requestCtx.reconcileInFlight = false;
   }
 }
 
@@ -4471,15 +5178,34 @@ async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
   if (requestCtx?.streamFailed || requestCtx?.streamIncomplete || requestCtx?.streamCompleted || requestCtx?.sawError) {
     return "handled";
   }
-  return handleIncompleteChatStream(
+  return handleChatStreamDetached(agentIdAtSend, requestCtx, "missing_final", {
+    streamedTextPreview: requestCtx?.streamedText || "",
+  });
+}
+
+async function handleChatStreamDetached(agentIdAtSend, requestCtx, reason = "stream_detached", payload = {}) {
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return "handled";
+  requestCtx.streamDetached = true;
+  requestCtx.streamIncomplete = false;
+  requestCtx.streamFailed = false;
+  requestCtx.detachedReason = reason;
+  requestCtx.detachedPayload = payload || {};
+  clearWaitingForRuntimeEventsTimer(requestCtx);
+  cancelAssistantTypewriter(requestCtx);
+  setChatSubmittingForAgent(agentIdAtSend, false);
+  if (state.selectedAgentId === agentIdAtSend) setChatStatus("Still running. Reconnecting…");
+  appendPortalChatRuntimeEvent(agentIdAtSend, requestCtx, "portal.stream_detached", {
+    reason,
+    message: "The live stream ended before final response; the runtime may still be running. Reconnecting and syncing session.",
+  });
+  ensureEventSocketForAgent(
     agentIdAtSend,
-    requestCtx,
-    "missing_final",
-    {
-      incomplete_reason: "Stream ended before a final assistant response.",
-      streamedTextPreview: requestCtx?.streamedText || "",
-    },
+    requestCtx.sessionIdAtSend || chatState.sessionId || "",
+    requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
   );
+  startChatRunReconcileLoop(agentIdAtSend, requestCtx, { immediate: true });
+  return "detached";
 }
 
 async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
@@ -4573,7 +5299,7 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   }
   if (sawEvent) {
     await handleChatStreamMissingFinal(agentIdAtSend, requestCtx);
-    return "handled";
+    return "detached";
   }
   return 'unsupported';
 }
@@ -4611,7 +5337,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
   if (!localHasRenderableAssistantPayload(payload)) {
     const finalSessionId = payload?.session_id || requestCtx?.sessionIdAtSend || chatState?.sessionId || "";
-    removeTemporaryAssistantRows();
+    removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true });
     chatState.activeRequest = null;
     chatState.inflightThinking = null;
     chatState.pendingThinkingEvents = null;
@@ -4708,6 +5434,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   };
   chatState.lastThinkingSnapshot = finalThinkingSnapshot;
   const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
+  if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
   chatState.activeRequest = null;
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
   chatState.inflightThinking = null;
@@ -4765,16 +5492,19 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     await flushAssistantTypewriter(agentIdAtSend, requestCtx, payload.response || "");
     const finalized = finalizePendingAssistantRow(agentIdAtSend, requestCtx, payload);
     if (!finalized) {
-      const assistantHtml = buildAssistantMessageArticle(
-        payload.response || "",
-        payload.display_blocks || [],
-        getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
-        payload.assistant_message_id || "",
-      );
-      dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
+      const updated = updateOrCreateAssistantRowForRequest(agentIdAtSend, requestCtx, payload, { completed: true });
+      if (!updated) {
+        const assistantHtml = buildAssistantMessageArticle(
+          payload.response || "",
+          payload.display_blocks || [],
+          getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+          payload.assistant_message_id || "",
+        );
+        dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
+      }
     }
   } else {
-    removeTemporaryAssistantRows();
+    removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true });
     const assistantHtml = buildAssistantMessageArticle(
       payload.response || "",
       payload.display_blocks || [],
@@ -4835,6 +5565,7 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   requestCtx.streamFailed = true;
   requestCtx.terminalPayload = finalPayload;
+  if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
   if (typeof finalizeTerminalThinkingState === "function") finalizeTerminalThinkingState(agentIdAtSend, requestCtx, finalPayload);
   else {
     chatState.lastThinkingSnapshot = chatState.lastThinkingSnapshot || (chatState.inflightThinking ? { ...chatState.inflightThinking } : null);
@@ -4855,7 +5586,7 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     notifyAgentCompletion(agentIdAtSend, agentName, "failed", errorMsg);
     return;
   }
-  removeTemporaryAssistantRows();
+  removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false });
   removeLatestOptimisticUserRow();
   chatState.pendingFiles = [];
   if (dom.chatInput) dom.chatInput.value = restoredMessage;
@@ -5904,6 +6635,127 @@ function deriveSessionRecoveryNotice(metadata = {}) {
   return null;
 }
 
+function hydrateActiveRequestFromRun(agentId, sessionId, run = {}, metadata = {}) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return null;
+  const runtimeRequestId = String(run.request_id || run.id || metadata.request_id || metadata.last_execution_id || "");
+  const clientRequestId = String(run.client_request_id || run.clientRequestId || runtimeRequestId || `rehydrated_${Date.now()}`);
+  const existing = chatState.activeRequest?.sessionIdAtSend === sessionId ? chatState.activeRequest : null;
+  const requestCtx = existing || {
+    requestId: runtimeRequestId || clientRequestId,
+    runtimeRequestId,
+    clientRequestId,
+    agentId,
+    sessionIdAtSend: sessionId,
+    message: "",
+    attachments: [],
+    startedAt: Date.parse(run.started_at || run.created_at || "") || Date.now(),
+    streamStartedAt: Date.now(),
+    sawRuntimeEvent: true,
+    sawDelta: false,
+    sawFinal: false,
+    streamCompleted: false,
+    streamFailed: false,
+    streamIncomplete: false,
+    streamDetached: normalizeChatRunStatus(run.status || run.state) === "stream_detached",
+    backupMessage: "",
+    typewriter: { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false },
+    usedStream: true,
+  };
+  requestCtx.requestId = runtimeRequestId || requestCtx.requestId || clientRequestId;
+  requestCtx.runtimeRequestId = runtimeRequestId || requestCtx.runtimeRequestId || "";
+  requestCtx.clientRequestId = requestCtx.clientRequestId || clientRequestId;
+  requestCtx.sessionIdAtSend = sessionId;
+  requestCtx.streamDetached = requestCtx.streamDetached || normalizeChatRunStatus(run.status || run.state) === "stream_detached";
+  chatState.activeRequest = requestCtx;
+  if (!chatState.inflightThinking || chatState.inflightThinking.completed === true) {
+    chatState.inflightThinking = {
+      id: runtimeRequestId || clientRequestId,
+      requestId: runtimeRequestId || clientRequestId,
+      sessionId,
+      events: [],
+      completed: false,
+      started: true,
+      contextState: null,
+      contextBudget: null,
+      startedAt: requestCtx.startedAt || Date.now(),
+      lastEventAt: Date.now(),
+      status: "reconnecting",
+    };
+  }
+  return requestCtx;
+}
+
+function ensureActiveAssistantRowAfterRender(agentId, requestCtx, projectionPayload = {}) {
+  if (state.selectedAgentId !== agentId || !dom.messageList || !requestCtx) return;
+  const text = extractAssistantVisibleText(projectionPayload) || requestCtx.streamedText || "";
+  const displayBlocks = extractAssistantDisplayBlocks(projectionPayload);
+  if (text || displayBlocks.length) {
+    updateOrCreateAssistantRowForRequest(agentId, requestCtx, {
+      ...projectionPayload,
+      response: text,
+      display_blocks: displayBlocks,
+      request_id: projectionPayload.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
+    }, { partial: true });
+    return;
+  }
+  const existing = findAssistantArticleForRequest(requestCtx, {});
+  if (existing) return;
+  dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestCtx.clientRequestId));
+}
+
+function reconcileActiveRequestProjection(agentId, sessionId, metadata = {}, messages = []) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  const activeRun = metadata.active_run && typeof metadata.active_run === "object" ? metadata.active_run : null;
+  const latestRun = metadata.latest_run && typeof metadata.latest_run === "object" ? metadata.latest_run : null;
+  const activeStatus = normalizeChatRunStatus(activeRun?.status || activeRun?.state || "");
+  if (activeRun && isChatRunRunningStatus(activeStatus)) {
+    const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata);
+    if (!requestCtx) return;
+    const projection = buildChatRunProjection({ run: activeRun }, { metadata, messages, session_id: sessionId }, requestCtx);
+    ensureActiveAssistantRowAfterRender(agentId, requestCtx, {
+      ...projection.run,
+      assistant_projection: projection.assistantProjection,
+      response: projection.text,
+      display_blocks: projection.displayBlocks || [],
+      request_id: projection.requestId,
+      session_id: sessionId,
+    });
+    setChatSubmittingForAgent(agentId, false);
+    setChatStatus(activeStatus === "stream_detached" ? "Still running. Reconnecting…" : "Still running. Syncing…");
+    ensureEventSocketForAgent(agentId, sessionId, requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId);
+    startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+    return;
+  }
+  if (chatState.activeRequest?.sessionIdAtSend === sessionId && !chatState.activeRequest.streamCompleted) {
+    const requestCtx = chatState.activeRequest;
+    const projection = buildChatRunProjection(null, { metadata, messages, session_id: sessionId }, requestCtx);
+    ensureActiveAssistantRowAfterRender(agentId, requestCtx, {
+      assistant_projection: projection.assistantProjection,
+      response: projection.text || requestCtx.streamedText || "",
+      display_blocks: projection.displayBlocks || [],
+      request_id: projection.requestId || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
+      session_id: sessionId,
+    });
+    setChatStatus(requestCtx.streamDetached ? "Still running. Reconnecting…" : "Still running. Syncing…");
+    ensureEventSocketForAgent(agentId, sessionId, requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId);
+    startChatRunReconcileLoop(agentId, requestCtx);
+    return;
+  }
+  if (latestRun && isChatRunCompletedStatus(latestRun.status || latestRun.state || latestRun.completion_state)) {
+    const requestCtx = chatState.activeRequest || hydrateActiveRequestFromRun(agentId, sessionId, latestRun, metadata);
+    if (!requestCtx) return;
+    const projection = buildChatRunProjection({ run: latestRun }, { metadata, messages, session_id: sessionId }, requestCtx);
+    const finalPayload = buildFinalPayloadFromProjection(projection, requestCtx, "completed");
+    updateOrCreateAssistantRowForRequest(agentId, requestCtx, finalPayload, { completed: true });
+    if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
+    chatState.activeRequest = null;
+    chatState.inflightThinking = null;
+    setChatSubmittingForAgent(agentId, false);
+  }
+}
+
 async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
@@ -5943,8 +6795,9 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       state.selectedAgentName = agent?.name || null;
     }
     renderChatHistory(data.messages || [], data.metadata || {});
+    reconcileActiveRequestProjection(agentId, normalized, data.metadata || {}, data.messages || []);
     addEditButtonsToMessages();
-    setChatStatus(`Loaded session ${normalized}`);
+    if (!ensureChatState(agentId)?.activeRequest) setChatStatus(`Loaded session ${normalized}`);
     if (agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId)) {
       const recoveryNotice = deriveSessionRecoveryNotice(data.metadata || {});
       if (recoveryNotice) {
@@ -6020,7 +6873,7 @@ async function deleteSessionForAgent(agentId, sessionId) {
       if (agentId === state.selectedAgentId) {
         const chatState = getChatState();
         if (chatState) chatState.inflightThinking = null;
-        removeTemporaryAssistantRows();
+        removeTemporaryAssistantRows({ forceAll: true });
         clearMessageListToWelcome();
         resetChatInputHeight();
         setChatStatus("Session deleted");
@@ -7283,7 +8136,7 @@ async function clearChat() {
     updateSelectedAgentSession("");
     const chatState = getChatState();
     if (chatState) chatState.inflightThinking = null;
-    removeTemporaryAssistantRows();
+    removeTemporaryAssistantRows({ forceAll: true });
     clearMessageListToWelcome();
     resetChatInputHeight();
     setChatStatus("Chat cleared");
@@ -7303,7 +8156,7 @@ async function startNewChatForSelectedAgent() {
     chatState.inflightThinking = null;
     chatState.activeRequest = null;
   }
-  removeTemporaryAssistantRows();
+  removeTemporaryAssistantRows({ forceAll: true });
   clearMessageListToWelcome();
   setChatSubmitting(false);
   resetChatInputHeight();
