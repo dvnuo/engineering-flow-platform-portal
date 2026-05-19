@@ -97,3 +97,38 @@ def test_reconcile_lifecycle_finalizes_only_after_runtime_terminal_state():
     assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, finalPayload, { completed: true })" in apply_projection
     assert "await handleAgentChatSuccess(agentId, requestCtx, finalPayload)" in apply_projection
     assert "finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload, \"reconcile\")" in apply_projection
+
+
+def test_reconcile_lifecycle_clears_inactive_active_run_null_and_stale_runs():
+    src = _src()
+    reconcile_once = _extract_js_function(src, "reconcileChatRunOnce")
+    session_clear = _extract_js_function(src, "applySessionProjectionThenClearStaleRun")
+    reconcile_projection = _extract_js_function(src, "reconcileActiveRequestProjection")
+
+    assert '`/api/chat/runs/${encodeURIComponent(requestId)}?validate=opencode`' in reconcile_once
+    assert '`/api/sessions/${encodeURIComponent(sessionId)}/active-run`' in reconcile_once
+    assert '"chat.run.stale"' in reconcile_once
+    assert '"opencode.status.inactive"' in reconcile_once
+    assert 'activeRun ? "opencode_not_active" : "active_run_null"' in reconcile_once
+    assert 'metadata: {' in session_clear
+    assert 'active_run: null' in session_clear
+    assert 'clearStaleActiveRequest(agentId, requestCtx, reason)' in session_clear
+    assert 'activeRun ? "opencode_not_active" : "metadata_active_run_null"' in reconcile_projection
+
+
+def test_user_abort_and_agent_lifecycle_clear_active_request():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    action_fn = _extract_js_function(src, "action")
+    parser = _extract_js_function(src, "parseAgentLifecycleAction")
+
+    assert 'setChatStatus("Stopping current run…")' in abort_fn
+    assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
+    assert '`/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_fn
+    assert 'clearStaleActiveRequest(agentId, requestCtx, "user_aborted")' in abort_fn
+    assert "parseAgentLifecycleAction(path)" in action_fn
+    assert "clearStaleActiveRequest(" in action_fn
+    assert '"agent_stopped"' in action_fn
+    assert '"agent_restarted"' in action_fn
+    assert "loadSessionForAgent(lifecycle.agentId, chatState.sessionId" in action_fn
+    assert "(stop|restart)" in parser
