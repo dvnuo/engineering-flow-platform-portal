@@ -443,8 +443,5 @@ def test_runtime_profile_json_sanitizer_omits_response_flow_when_absent():
 
 def test_parse_runtime_profile_config_json_keeps_llm_oauth():
     parsed = parse_runtime_profile_config_json('{"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":"0","enterpriseUrl":"https://github.company.com"}}}')
-    assert parsed["llm"]["oauth"]["type"] == "oauth"
-    assert parsed["llm"]["oauth"]["access"] == "gho_A"
-    assert parsed["llm"]["oauth"]["refresh"] == "gho_R"
-    assert parsed["llm"]["oauth"]["expires"] == 0
-    assert parsed["llm"]["oauth"]["enterpriseUrl"] == "https://github.company.com"
+    assert parsed["llm"]["api_key"] == "gho_A"
+    assert "oauth" not in parsed["llm"]

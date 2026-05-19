@@ -449,11 +449,11 @@ def test_manage_specialist_pool_and_task_agent_lifecycle(monkeypatch):
         assert json.loads(pool_audit.details_json)["specialist_pool_size"] == 1
 
         # mock runtime create/delete path
-        agents_api.k8s_service.create_agent_runtime = lambda _agent: SimpleNamespace(status="running", message=None)
-        agents_api.k8s_service.delete_agent_runtime = lambda _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None)
+        monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr(agents_api.k8s_service, "delete_agent_runtime", lambda _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None))
         import app.services.agent_group_service as group_service_module
-        group_service_module.K8sService.create_agent_runtime = lambda _self, _agent: SimpleNamespace(status="running", message=None)
-        group_service_module.K8sService.delete_agent_runtime = lambda _self, _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None)
+        monkeypatch.setattr(group_service_module.K8sService, "create_agent_runtime", lambda _self, _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr(group_service_module.K8sService, "delete_agent_runtime", lambda _self, _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None))
 
         create_task_agent = client.post(
             f"/api/agent-groups/{group['id']}/task-agents",
@@ -587,7 +587,7 @@ def test_internal_specialist_pool_returns_expected_ids():
         cleanup()
 
 
-def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_route():
+def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_route(monkeypatch):
     client, leader_agent, _member_agent, _user_member, _outsider, _set_user, cleanup = _build_client_with_overrides()
     try:
         from app.main import app
@@ -652,10 +652,10 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
             json={"specialist_agent_ids": [specialist_template.id]},
         ).status_code == 200
 
-        agents_api.k8s_service.create_agent_runtime = lambda _agent: SimpleNamespace(status="running", message=None)
-        agents_api.k8s_service.delete_agent_runtime = lambda _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None)
-        group_service_module.K8sService.create_agent_runtime = lambda _self, _agent: SimpleNamespace(status="running", message=None)
-        group_service_module.K8sService.delete_agent_runtime = lambda _self, _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None)
+        monkeypatch.setattr(agents_api.k8s_service, "create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr(agents_api.k8s_service, "delete_agent_runtime", lambda _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None))
+        monkeypatch.setattr(group_service_module.K8sService, "create_agent_runtime", lambda _self, _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr(group_service_module.K8sService, "delete_agent_runtime", lambda _self, _agent, destroy_data=False: SimpleNamespace(status="deleted", message=None))
 
         payload = {
             "leader_agent_id": group["leader_agent_id"],

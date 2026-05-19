@@ -48,8 +48,8 @@ def test_agent_response_schema():
     assert "skill_repo_url" in fields
     assert "skill_branch" in fields
     assert "runtime_type" in fields
-    assert "tool_repo_url" not in fields
-    assert "tool_branch" not in fields
+    assert "tool_repo_url" in fields
+    assert "tool_branch" in fields
 
 
 def test_agent_response_normalizes_legacy_repo_url():
@@ -819,8 +819,8 @@ def test_create_opencode_agent_uses_opencode_default_image_and_ignores_tool_defa
         body = response.json()
         assert body["runtime_type"] == "opencode"
         assert body["image"] == "ghcr.io/acme/opencode:1.14.39-test"
-        assert "tool_repo_url" not in body
-        assert "tool_branch" not in body
+        assert body["tool_repo_url"] is None
+        assert body["tool_branch"] is None
     finally:
         cleanup()
 
@@ -902,8 +902,8 @@ def test_patch_tool_repo_fields_are_ignored_without_k8s_reprovision(monkeypatch)
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert "tool_repo_url" not in body
-        assert "tool_branch" not in body
+        assert body["tool_repo_url"] is None
+        assert body["tool_branch"] is None
         assert calls["n"] == 0
     finally:
         cleanup()

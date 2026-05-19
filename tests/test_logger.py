@@ -201,9 +201,11 @@ def test_redaction_filter_fallback_sanitizes_and_clears_args():
 
 
 def test_logger_injects_trace_fields_from_context():
+    logging.disable(logging.NOTSET)
     logger = logging.getLogger("app.api.proxy")
     logger.handlers = []
     logger.propagate = False
+    logger.disabled = False
     logger.setLevel(logging.INFO)
 
     stream = io.StringIO()

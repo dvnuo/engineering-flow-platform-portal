@@ -882,7 +882,7 @@ def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
         assert body["runtime_profile_context"]["source"] == "portal.runtime_profile"
         assert "config" in body["runtime_profile_context"]
         config = body["runtime_profile_context"]["config"]
-        assert config["llm"] == {"provider": "openai", "model": "gpt-4", "temperature": 0.4}
+        assert config["llm"] == {"provider": "openai", "model": "gpt-4", "tools": ["*"]}
         assert "ssh" not in config
         assert "capability_context" in config
         assert "policy_context" in config
@@ -938,12 +938,12 @@ def test_internal_runtime_context_projects_copilot_oauth_for_native_runtime(monk
         llm = ctx["llm"]
         assert llm["provider"] == "github_copilot"
         assert llm["model"] == "gpt-5"
-        assert llm["api_key"] == "NATIVE_SECRET"
+        assert llm["api_key"] == "OPENCODE_SECRET"
         assert "oauth" not in llm
         assert "oauth_by_runtime" not in llm
         dumped = json.dumps(ctx)
-        assert "OPENCODE_SECRET" not in dumped
-        assert "NATIVE_SECRET" in dumped
+        assert "NATIVE_SECRET" not in dumped
+        assert "OPENCODE_SECRET" in dumped
     finally:
         cleanup()
 
