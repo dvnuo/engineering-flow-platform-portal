@@ -109,7 +109,7 @@ def test_t13_skill_repo_changes_trigger_runtime_rollout_without_tool_repo(monkey
         )
         assert updated.skill_repo_url == "https://example.com/new-skills.git"
         assert seen["skill_repo_url"] == "https://example.com/new-skills.git"
-        assert updated.model_dump()["tool_repo_url"] is None
+        assert "tool_repo_url" not in updated.model_dump()
         assert "tool_repo_url" not in seen
     finally:
         db_session.close()

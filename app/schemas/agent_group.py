@@ -169,8 +169,6 @@ class InternalAgentGroupTaskAgentCreateResponse(BaseModel):
     branch: str | None = None
     skill_repo_url: str | None = None
     skill_branch: str | None = None
-    tool_repo_url: str | None = None
-    tool_branch: str | None = None
     runtime_type: str = "native"
     effective_skill_repo_url: str | None = None
     effective_skill_branch: str | None = None
