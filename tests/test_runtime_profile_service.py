@@ -38,7 +38,7 @@ def test_ensure_user_has_default_profile_creates_default():
     assert profile.name == "Default"
     assert profile.is_default is True
     saved = json.loads(profile.config_json)
-    assert saved == {}
+    assert saved == {"llm": {"tools": ["*"]}}
 
 
 def test_switch_default_keeps_exactly_one_default():
@@ -207,7 +207,7 @@ def test_dump_runtime_profile_config_json_rejects_nan_temperature():
         dump_runtime_profile_config_json({"llm": {"model": "gpt-4", "temperature": "NaN"}})
 
 
-def test_create_for_user_with_empty_config_stays_sparse():
+def test_create_for_user_with_empty_config_stays_canonicalized_sparse():
     db = _session()
     user = User(username="u1", password_hash="test", role="user", is_active=True)
     db.add(user)
@@ -222,15 +222,18 @@ def test_create_for_user_with_empty_config_stays_sparse():
         is_default=False,
     )
     saved = json.loads(profile.config_json)
-    assert saved == {}
+    assert saved == {"llm": {"tools": ["*"]}}
+    assert "proxy" not in saved
+    assert "jira" not in saved
 
 
-def test_materialize_create_config_json_normalizes_raw_without_default_expansion():
+def test_materialize_create_config_json_canonicalizes_raw_without_default_expansion():
     materialized = RuntimeProfileService.materialize_create_config_json(
         json.dumps({"llm": {"provider": "openai"}, "ssh": {"hack": True}})
     )
     saved = json.loads(materialized)
-    assert saved == {"llm": {"provider": "openai"}}
+    assert saved == {"llm": {"provider": "openai", "tools": ["*"]}}
+    assert "proxy" not in saved
 
 
 def test_merge_with_managed_defaults_does_not_apply_creation_seed_to_legacy_sparse_profile():
@@ -261,7 +264,7 @@ def test_create_for_user_persists_raw_snapshot_without_hidden_default_injection(
     db.refresh(profile)
     saved = json.loads(profile.config_json)
 
-    assert saved == {"llm": {"provider": "openai"}}
+    assert saved == {"llm": {"provider": "openai", "tools": ["*"]}}
     assert "max_retries" not in saved["llm"]
     assert "system-prompt" not in saved["llm"]
     assert "proxy" not in saved
@@ -285,6 +288,7 @@ def test_normalize_persisted_config_json_prunes_unmanaged_nested_fields_but_keep
         "llm": {
             "provider": "openai",
             "api_base": "https://example.invalid",
+            "tools": ["*"],
         }
     }
 
@@ -299,7 +303,12 @@ def test_normalize_persisted_config_json_strips_legacy_provider_automation_field
     )
     normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
     saved = json.loads(normalized)
-    assert saved == {"github": {"enabled": True}, "jira": {"enabled": True}, "confluence": {"enabled": True}}
+    assert saved == {
+        "llm": {"tools": ["*"]},
+        "github": {"enabled": True},
+        "jira": {"enabled": True},
+        "confluence": {"enabled": True},
+    }
 
 
 def test_sanitize_all_persisted_runtime_profiles_removes_legacy_provider_automation_fields():
@@ -352,7 +361,7 @@ def test_update_for_user_sanitizes_runtime_profile_config():
         config_json=json.dumps({"github": {"enabled": True, "automation": {"mentions": {"enabled": True}}}}),
     )
     saved = json.loads(updated.config_json)
-    assert saved == {"github": {"enabled": True}}
+    assert saved == {"llm": {"tools": ["*"]}, "github": {"enabled": True}}
 
 
 def test_create_for_user_sanitizes_runtime_profile_config():
