@@ -236,6 +236,26 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(self.service._agent_metadata_annotations(agent)["efp/skill-asset-version"], "sha-abc123")
         self.assertEqual(self.service._agent_patch_annotations(agent)["efp/skill-asset-version"], "sha-abc123")
 
+    def test_transient_agent_skill_asset_version_overrides_default_annotation(self):
+        self.service.settings.default_skill_asset_version = "global-default"
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="opencode",
+            skill_repo_url="https://example.com/skills.git",
+            skill_branch="main",
+            skill_asset_version="agent-skill-save-test",
+        )
+
+        self.assertEqual(
+            self.service._agent_patch_annotations(agent)["efp/skill-asset-version"],
+            "agent-skill-save-test",
+        )
+        self.assertEqual(
+            self.service._agent_metadata_annotations(agent)["efp/skill-asset-version"],
+            "agent-skill-save-test",
+        )
+
     def test_skill_subdir_annotation_forces_rollout(self):
         self.service.settings.default_skill_repo_subdir = "skills"
         agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", skill_repo_url="https://example.com/skills.git", skill_branch="main")

@@ -655,6 +655,80 @@ def test_patch_skill_repo_triggers_k8s_update(monkeypatch):
         cleanup()
 
 
+def test_patch_same_skill_repo_branch_sets_rollout_marker(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="running", message=None),
+        )
+
+        captured = {"calls": 0, "marker": None}
+
+        def _update(agent):
+            captured["calls"] += 1
+            captured["marker"] = getattr(agent, "skill_asset_version", None)
+            return SimpleNamespace(status="running", message=None)
+
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", _update)
+
+        create_resp = client.post(
+            "/api/agents",
+            json={
+                "name": "opencode-skill-agent",
+                "runtime_type": "opencode",
+                "skill_repo_url": "https://github.com/acme/skills.git",
+                "skill_branch": "main",
+            },
+        )
+        assert create_resp.status_code == 200
+        agent_id = create_resp.json()["id"]
+
+        patch_resp = client.patch(
+            f"/api/agents/{agent_id}",
+            json={
+                "skill_repo_url": "https://github.com/acme/skills.git",
+                "skill_branch": "main",
+            },
+        )
+
+        assert patch_resp.status_code == 200
+        assert captured["calls"] == 1
+        assert captured["marker"]
+        assert captured["marker"].startswith("agent-skill-save-")
+    finally:
+        cleanup()
+
+
+def test_patch_name_only_does_not_set_skill_rollout_marker(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="running", message=None),
+        )
+
+        def _unexpected_uuid4():
+            raise AssertionError("name-only PATCH should not create a skill rollout marker")
+
+        def _unexpected_update(_agent):
+            raise AssertionError("name-only PATCH should not update Kubernetes runtime")
+
+        monkeypatch.setattr("app.api.agents.uuid4", _unexpected_uuid4)
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", _unexpected_update)
+
+        create_resp = client.post("/api/agents", json={"name": "rename-agent"})
+        assert create_resp.status_code == 200
+        agent_id = create_resp.json()["id"]
+
+        patch_resp = client.patch(f"/api/agents/{agent_id}", json={"name": "renamed-agent"})
+
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["name"] == "renamed-agent"
+    finally:
+        cleanup()
+
+
 def test_patch_runtime_profile_update_enqueues_sync_job(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
