@@ -18,6 +18,11 @@
 
 ## 4) Assets contract
 - Skills directory: `/app/skills`.
+- Portal provisions the full selected skill package tree into `/app/skills`; it does not parse skills and does not copy only `SKILL.md`.
+- Root-layout skills repositories should expose packages as `<skill-name>/SKILL.md`, with ordinary package files such as `<skill-name>/scripts/...`, `<skill-name>/templates/...`, `<skill-name>/reference/...`, and `<skill-name>/examples/...` preserved.
+- Nested layouts are selected with `DEFAULT_SKILL_REPO_SUBDIR`, for example `DEFAULT_SKILL_REPO_SUBDIR=skills` copies `repo/skills/.` directly into `/app/skills`.
+- `DEFAULT_SKILL_ASSET_VERSION` is a rollout marker only. Changing it updates Deployment template annotations so pods restart and the skills initContainer reclones same-branch content.
+- OpenCode runtime syncs `/app/skills` into `/workspace/.opencode/skills`.
 - Workspace defaults:
   - native: `/root/.efp`
   - opencode: `/workspace`
@@ -83,6 +88,8 @@ Portal responsibility:
   - repository path: `/workspace/repos/<owner>/<repo>`
 - Portal provisions skills assets with initContainers:
   - skills clone target: `/app/skills`
+  - root layout: `<skill-name>/SKILL.md`
+  - nested layout: `DEFAULT_SKILL_REPO_SUBDIR=skills`
 - `GIT_TOKEN` remains initContainer-only for asset clone and is not injected into the main runtime container by default.
 - Private business-repo checkout must be authorized by runtime-side provider/runtime-profile credentials (for example GitHub provider token), not by broad Portal/K8s git token injection into runtime.
 - PR creation / adapter action availability is determined by runtime capability snapshot, built-in runtime tool surface, runtime profile, and permission policy.

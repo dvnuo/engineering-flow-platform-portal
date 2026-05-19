@@ -58,3 +58,17 @@ def test_settings_default_opencode_permission_env_overrides(monkeypatch):
     settings = Settings()
     assert settings.default_opencode_permission_mode == "profile_policy"
     assert settings.default_opencode_allow_bash_all is False
+
+
+def test_settings_default_skill_asset_env_defaults():
+    settings = Settings()
+    assert settings.default_skill_repo_subdir == ""
+    assert settings.default_skill_asset_version == ""
+
+
+def test_settings_default_skill_asset_env_overrides(monkeypatch):
+    monkeypatch.setenv("DEFAULT_SKILL_REPO_SUBDIR", "skills")
+    monkeypatch.setenv("DEFAULT_SKILL_ASSET_VERSION", "sha-abc123")
+    settings = Settings()
+    assert settings.default_skill_repo_subdir == "skills"
+    assert settings.default_skill_asset_version == "sha-abc123"

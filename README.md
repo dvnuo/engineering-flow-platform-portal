@@ -96,6 +96,8 @@ PYTHONPATH=. pytest -q \
 | `ENABLE_RUNTIME_SOURCE_OVERLAY` | Enable native runtime source overlay clone/mount (`/app/src`, `/app/.git`) | `false` |
 | `DEFAULT_AGENT_RUNTIME_REPO_URL` | Runtime source repository URL used when source overlay is enabled | (empty) |
 | `DEFAULT_AGENT_RUNTIME_BRANCH` | Runtime source branch used when source overlay is enabled | `master` |
+| `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
+| `DEFAULT_SKILL_ASSET_VERSION` | Optional rollout marker for skill assets; change it to recreate pods and reclone when tracking the same git branch | (empty) |
 
 For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite).
 
@@ -111,6 +113,11 @@ Kubernetes runtime provisioning behavior:
   - `EFP_WORKSPACE_REPOS_DIR=/workspace/repos` (checkout path `/workspace/repos/<owner>/<repo>`)
   - `EFP_GIT_CHECKOUT_TIMEOUT_SECONDS=120` (configurable via `OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS`)
 - Skills repo is cloned by Portal initContainers into `/app/skills`.
+- Portal does not parse skills and does not copy only `SKILL.md`; it provisions the full selected skill package tree.
+- Root-layout skill repos should contain entries such as `<skill-name>/SKILL.md`, `<skill-name>/scripts/...`, `<skill-name>/templates/...`, `<skill-name>/reference/...`, or `<skill-name>/examples/...`.
+- Nested skill repo layouts can be enabled with `DEFAULT_SKILL_REPO_SUBDIR=skills`, which copies `repo/skills/.` directly into `/app/skills` instead of nesting it as `/app/skills/skills`.
+- `DEFAULT_SKILL_ASSET_VERSION` is not used for git checkout. Change it to update the Deployment template annotation and force a pod rollout/reclone when the same branch content changes.
+- OpenCode runtime then syncs `/app/skills` into `/workspace/.opencode/skills`.
 - Portal does not configure external tools repo/branch/mounts; runtime built-in tools are runtime-owned.
 - Legacy payload fields `tool_repo_url` / `tool_branch` are ignored for backward compatibility.
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
