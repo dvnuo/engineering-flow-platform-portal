@@ -1,3 +1,7 @@
+import os
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 from types import SimpleNamespace
 
@@ -37,6 +41,145 @@ class K8sServiceNoopTest(unittest.TestCase):
 
     def _find_init_container(self, containers, name):
         return next(c for c in containers if c.name == name)
+
+    def _run_skill_clone_command(self, tmp_path, source_tree_builder, *, subdir=""):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        source_tree_builder(repo)
+
+        target = tmp_path / "target"
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        fake_git = fake_bin / "git"
+        fake_git.write_text(
+            "#!/bin/sh\n"
+            "set -eu\n"
+            "src=\"$GIT_REPO_URL\"\n"
+            "cp -a \"$src\"/. .\n",
+            encoding="utf-8",
+        )
+        fake_git.chmod(0o755)
+
+        command = self.service._skill_git_clone_shell_command(str(target))
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{fake_bin}:{env.get('PATH', '')}",
+                "GIT_REPO_URL": str(repo),
+                "GIT_BRANCH": "main",
+                "SKILL_REPO_SUBDIR": subdir,
+            }
+        )
+        result = subprocess.run(["sh", "-c", command], env=env, cwd=str(tmp_path), text=True, capture_output=True)
+        return result, target
+
+    def test_start_agent_patches_deployment_before_scale(self):
+        self.service.enabled = True
+        calls = []
+        scale_calls = []
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents")
+
+        def _patch_deployment(_agent):
+            calls.append("patch_deployment")
+
+        def _patch_service_metadata(_agent):
+            calls.append("patch_service_metadata")
+
+        def _scale(**kwargs):
+            calls.append("scale")
+            scale_calls.append(kwargs)
+
+        self.service._patch_deployment = _patch_deployment
+        self.service._patch_service_metadata = _patch_service_metadata
+        self.service.apps_api = SimpleNamespace(patch_namespaced_deployment_scale=_scale)
+
+        status = self.service.start_agent(agent)
+
+        self.assertEqual(status.status, "running")
+        self.assertEqual(calls, ["patch_deployment", "patch_service_metadata", "scale"])
+        self.assertEqual(scale_calls[0]["body"], {"spec": {"replicas": 1}})
+
+    def test_start_agent_does_not_scale_when_patch_fails(self):
+        self.service.enabled = True
+        calls = []
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents")
+
+        def _patch_deployment(_agent):
+            calls.append("patch_deployment")
+            raise ValueError("bad skill subdir")
+
+        def _patch_service_metadata(_agent):
+            calls.append("patch_service_metadata")
+
+        def _scale(**_kwargs):
+            calls.append("scale")
+
+        self.service._patch_deployment = _patch_deployment
+        self.service._patch_service_metadata = _patch_service_metadata
+        self.service.apps_api = SimpleNamespace(patch_namespaced_deployment_scale=_scale)
+
+        status = self.service.start_agent(agent)
+
+        self.assertEqual(status.status, "failed")
+        self.assertIn("bad skill subdir", status.message)
+        self.assertEqual(calls, ["patch_deployment"])
+
+    def test_skill_clone_shell_accepts_directory_skill_and_copies_resources(self):
+        def _build(repo: Path):
+            skill_dir = repo / "foss-auto-fix"
+            (skill_dir / "scripts").mkdir(parents=True)
+            (skill_dir / "templates").mkdir()
+            (skill_dir / "SKILL.md").write_text("# fake skill\n", encoding="utf-8")
+            (skill_dir / "scripts" / "foss_auto_fix_cli.py").write_text("print('ok')\n", encoding="utf-8")
+            (skill_dir / "templates" / "default.md").write_text("template\n", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result, target = self._run_skill_clone_command(Path(tmp), _build)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((target / "foss-auto-fix" / "SKILL.md").exists())
+            self.assertTrue((target / "foss-auto-fix" / "scripts" / "foss_auto_fix_cli.py").exists())
+            self.assertTrue((target / "foss-auto-fix" / "templates" / "default.md").exists())
+
+    def test_skill_clone_shell_accepts_nested_subdir_and_does_not_nest_skills_dir(self):
+        def _build(repo: Path):
+            skill_dir = repo / "skills" / "foss-auto-fix"
+            (skill_dir / "scripts").mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("# fake skill\n", encoding="utf-8")
+            (skill_dir / "scripts" / "foss_auto_fix_cli.py").write_text("print('ok')\n", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result, target = self._run_skill_clone_command(Path(tmp), _build, subdir="skills")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((target / "foss-auto-fix" / "SKILL.md").exists())
+            self.assertTrue((target / "foss-auto-fix" / "scripts" / "foss_auto_fix_cli.py").exists())
+            self.assertFalse((target / "skills" / "foss-auto-fix" / "SKILL.md").exists())
+
+    def test_skill_clone_shell_rejects_readme_only_repo(self):
+        def _build(repo: Path):
+            (repo / "README.md").write_text("# Not a skill\n", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _target = self._run_skill_clone_command(Path(tmp), _build)
+            self.assertEqual(result.returncode, 36)
+            self.assertIn("No skill entries found", result.stderr)
+            self.assertIn("README.md", result.stderr)
+
+    def test_skill_clone_shell_accepts_flat_markdown_with_frontmatter(self):
+        def _build(repo: Path):
+            (repo / "foo.md").write_text("---\nname: foo\ndescription: Demo flat skill\n---\nBody\n", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result, target = self._run_skill_clone_command(Path(tmp), _build)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((target / "foo.md").exists())
+
+    def test_skill_clone_shell_rejects_flat_markdown_without_name_description_frontmatter(self):
+        def _build(repo: Path):
+            (repo / "foo.md").write_text("---\ntitle: Not a skill\n---\nBody\n", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _target = self._run_skill_clone_command(Path(tmp), _build)
+            self.assertEqual(result.returncode, 36)
 
     def test_native_skill_clone_uses_full_package_command_and_mounts_app_skills(self):
         agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", mount_path="/root/.efp", skill_repo_url="https://example.com/skills.git", skill_branch="main")

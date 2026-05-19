@@ -344,6 +344,8 @@ class K8sService:
         if not self.enabled:
             return RuntimeStatus(status="running")
         try:
+            self._patch_deployment(agent)
+            self._patch_service_metadata(agent)
             self.apps_api.patch_namespaced_deployment_scale(
                 name=agent.deployment_name,
                 namespace=agent.namespace,
@@ -351,6 +353,7 @@ class K8sService:
             )
             return RuntimeStatus(status="running")
         except Exception as exc:
+            logger.exception("Failed to start agent")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
     def stop_agent(self, agent) -> RuntimeStatus:
@@ -722,10 +725,28 @@ class K8sService:
                 "fi",
                 f'find "{target_dir}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +',
                 f'cp -a "${{SOURCE_DIR}}"/. "{target_dir}"/',
+                "has_flat_skill_md() {",
+                f'  for f in "{target_dir}"/*.md; do',
+                '    [ -f "$f" ] || continue',
+                "    awk '",
+                "      BEGIN { in_fm=0; started=0; found_close=0; seen_name=0; seen_description=0 }",
+                "      {",
+                "        if (!started && $0 ~ /^[[:space:]]*$/) { next }",
+                "        if (!started && $0 == \"---\") { started=1; in_fm=1; next }",
+                "        if (!started) { exit 1 }",
+                "        if (in_fm && $0 == \"---\") { found_close=1; exit (seen_name && seen_description ? 0 : 1) }",
+                "        if (in_fm && $0 ~ /^name:[[:space:]]*[^[:space:]]/) { seen_name=1 }",
+                "        if (in_fm && $0 ~ /^description:[[:space:]]*[^[:space:]]/) { seen_description=1 }",
+                "      }",
+                "      END { if (!found_close) exit 1 }",
+                "    ' \"$f\" && return 0",
+                "  done",
+                "  return 1",
+                "}",
                 f'if ! find "{target_dir}" -mindepth 2 -maxdepth 2 \\( -name SKILL.md -o -name skill.md \\) -type f | grep -q . \\',
-                f'   && ! find "{target_dir}" -maxdepth 1 -name \'*.md\' -type f | grep -q .; then',
+                "   && ! has_flat_skill_md; then",
                 f'  echo "No skill entries found after cloning skills repo into {target_dir}" >&2',
-                '  echo "Expected either <skill-name>/SKILL.md, <skill-name>/skill.md, or top-level *.md with frontmatter." >&2',
+                '  echo "Expected either <skill-name>/SKILL.md, <skill-name>/skill.md, or top-level *.md with name/description frontmatter." >&2',
                 '  echo "Actual files:" >&2',
                 f'  find "{target_dir}" -maxdepth 4 -type f -print | sort >&2 || true',
                 "  exit 36",
