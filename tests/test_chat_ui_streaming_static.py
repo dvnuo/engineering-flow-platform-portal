@@ -400,9 +400,22 @@ def test_active_request_busy_state_uses_runtime_blocking_helper():
     src = _src()
     has_active = _extract_js_function(src, "hasActiveChatRequestForAgent")
     blocking = _extract_js_function(src, "isActiveRequestBlocking")
+    session_blocking = _extract_js_function(src, "isOpenCodeSessionBlocking")
+    status_blocking = _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload")
+    sync_controls = _extract_js_function(src, "syncSelectedAgentChatActionControls")
+    abort_visibility = _extract_js_function(src, "shouldShowAbortChatRunButton")
 
     assert "isActiveRequestBlocking(chatState)" in has_active
     assert "hasIncompleteInflightThinking(chatState)" in has_active
+    assert "isOpenCodeSessionBlocking(chatState)" in has_active
+    assert "openCodeSessionBlocking" in has_active
+    assert "isOpenCodeSessionStatusBlockingPayload(projection.sessionStatusPayload || {})" in session_blocking
+    assert "payload?.active === true" in status_blocking
+    assert 'payload?.action_hint === "wait_reconnect_or_stop"' in status_blocking
+    assert '"busy"' in status_blocking
+    assert '"retry"' in status_blocking
+    assert "shouldShowAbortChatRunButton(agentId)" in sync_controls
+    assert "isOpenCodeSessionBlocking(chatState)" in abort_visibility
     for marker in [
         "req.aborted",
         "req.stale",

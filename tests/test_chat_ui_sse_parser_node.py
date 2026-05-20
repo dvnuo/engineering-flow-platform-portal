@@ -476,7 +476,13 @@ def test_assistant_update_does_not_write_into_user_article_with_same_client_requ
 def test_opencode_session_status_and_idle_projection_node_smoke():
     src = SRC.read_text(encoding="utf-8")
     script = (
-        _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState")
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
+            ]
+        )
         + "\n"
         + textwrap.dedent(
             r"""
@@ -508,6 +514,9 @@ def test_opencode_runtime_ui_state_three_way_model_node_smoke():
         "\n".join(
             [
                 _extract_js_function(src, "isActiveRequestBlocking"),
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "isOpenCodeSessionBlocking"),
                 _extract_js_function(src, "normalizeRuntimeHealthStatus"),
                 _extract_js_function(src, "computeOpenCodeRuntimeUiState"),
                 _extract_js_function(src, "openCodeRuntimeUiStatusText"),
@@ -551,6 +560,100 @@ def test_opencode_runtime_ui_state_three_way_model_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_opencode_session_status_blocks_send_and_shows_stop_run_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "isActiveRequestBlocking"),
+                _extract_js_function(src, "hasIncompleteInflightThinking"),
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "isOpenCodeSessionBlocking"),
+                _extract_js_function(src, "hasActiveChatRequestForAgent"),
+                _extract_js_function(src, "shouldShowAbortChatRunButton"),
+                _extract_js_function(src, "activeChatRequestMessage"),
+                _extract_js_function(src, "syncSelectedAgentChatActionControls"),
+                _extract_js_function(src, "normalizeRuntimeHealthStatus"),
+                _extract_js_function(src, "computeOpenCodeRuntimeUiState"),
+                _extract_js_function(src, "openCodeRuntimeUiStatusText"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const toggles = [];
+            const chatState = {
+              isSubmitting: false,
+              activeRequest: null,
+              inflightThinking: null,
+              openCodeProjection: {
+                sessionStatus: "busy",
+                sessionStatusPayload: {
+                  active: true,
+                  status_type: "busy",
+                  action_hint: "wait_reconnect_or_stop",
+                },
+              },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const sessionsBtn = {};
+            const dom = {
+              headerNewChatBtn: {},
+              homeStartChatBtn: {},
+              sendChatBtn: { disabled: false },
+              abortChatRunBtn: {
+                disabled: true,
+                classList: {
+                  toggle(name, hidden) { toggles.push([name, hidden]); },
+                  add() {},
+                  remove() {},
+                },
+                setAttribute(name, value) { this[name] = value; },
+              },
+            };
+            const document = { getElementById(id) { return id === "btn-sessions" ? sessionsBtn : null; } };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function getSelectedAgentStatus() { return "running"; }
+            function setButtonDisabled(button, disabled, title = "") {
+              if (!button) return;
+              button.disabled = !!disabled;
+              button.title = title;
+            }
+
+            assert.equal(normalizeOpenCodeSessionStatusType(chatState.openCodeProjection.sessionStatusPayload), "busy");
+            assert.equal(isOpenCodeSessionStatusBlockingPayload(chatState.openCodeProjection.sessionStatusPayload), true);
+            assert.equal(isOpenCodeSessionBlocking(chatState), true);
+            assert.equal(hasActiveChatRequestForAgent("agent-1"), true);
+            assert.equal(shouldShowAbortChatRunButton("agent-1"), true);
+            assert.match(activeChatRequestMessage("agent-1", "send"), /Stop run/);
+
+            syncSelectedAgentChatActionControls();
+            assert.equal(dom.sendChatBtn.disabled, true);
+            assert.equal(dom.abortChatRunBtn.disabled, false);
+            assert.equal(dom.abortChatRunBtn["aria-hidden"], "false");
+            assert.deepEqual(toggles[0], ["hidden", false]);
+            assert.equal(sessionsBtn.disabled, true);
+
+            const uiState = computeOpenCodeRuntimeUiState({ runtime_status: "running" }, chatState);
+            assert.equal(uiState.normalizedRuntimeHealth, "online");
+            assert.equal(uiState.sessionStatus, "busy");
+            assert.equal(uiState.messageProgress, "reconnecting");
+            assert.match(openCodeRuntimeUiStatusText(uiState), /Session busy/);
+            assert.match(openCodeRuntimeUiStatusText(uiState), /Previous message still running/);
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_opencode_session_status_does_not_create_inflight_thinking_node_smoke():
     src = SRC.read_text(encoding="utf-8")
     script = (
@@ -559,11 +662,14 @@ def test_opencode_session_status_does_not_create_inflight_thinking_node_smoke():
                 _extract_js_function(src, "normalizeRuntimeEventTypeAlias"),
                 _extract_js_function(src, "isCompletionRuntimeState"),
                 _extract_js_function(src, "normalizeRuntimeEvent"),
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
                 _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
                 _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent"),
                 _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent"),
                 _extract_js_function(src, "handleAgentEventMessage"),
                 _extract_js_function(src, "isActiveRequestBlocking"),
+                _extract_js_function(src, "isOpenCodeSessionBlocking"),
                 _extract_js_function(src, "normalizeRuntimeHealthStatus"),
                 _extract_js_function(src, "computeOpenCodeRuntimeUiState"),
             ]
@@ -749,6 +855,9 @@ def test_load_session_refreshes_opencode_session_status_node_smoke():
         "\n".join(
             [
                 _extract_js_function(src, "getCanonicalMessagesFromSessionPayload"),
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "isOpenCodeSessionBlocking"),
                 _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent"),
                 _extract_js_function(src, "isActiveRequestBlocking"),
                 _extract_js_function(src, "normalizeRuntimeHealthStatus"),

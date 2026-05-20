@@ -353,6 +353,51 @@ function hasIncompleteInflightThinking(chatState) {
   );
 }
 
+function normalizeOpenCodeSessionStatusType(payload = {}) {
+  const status = payload?.status;
+  return String(
+    payload?.status_type
+    || payload?.statusType
+    || (status && typeof status === "object" ? status.type : "")
+    || (typeof status === "string" ? status : "")
+    || ""
+  ).trim().toLowerCase();
+}
+
+function isOpenCodeSessionStatusBlockingPayload(payload = {}) {
+  const statusType = normalizeOpenCodeSessionStatusType(payload);
+  if (payload?.active === true) return true;
+  if (payload?.action_hint === "wait_reconnect_or_stop") return true;
+  return [
+    "busy",
+    "retry",
+    "running",
+    "streaming",
+    "working",
+    "pending",
+    "queued",
+    "processing",
+  ].includes(statusType);
+}
+
+function isOpenCodeSessionBlocking(chatState) {
+  const projection = chatState?.openCodeProjection || {};
+  if (isOpenCodeSessionStatusBlockingPayload(projection.sessionStatusPayload || {})) {
+    return true;
+  }
+  const status = String(projection.sessionStatus || "").toLowerCase();
+  return [
+    "busy",
+    "retry",
+    "running",
+    "streaming",
+    "working",
+    "pending",
+    "queued",
+    "processing",
+  ].includes(status);
+}
+
 function hasActiveChatRequestForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return false;
@@ -369,34 +414,47 @@ function hasActiveChatRequestForAgent(agentId) {
   const inflightThinkingBlocking = (typeof hasIncompleteInflightThinking === "function")
     ? hasIncompleteInflightThinking(chatState)
     : Boolean(chatState.inflightThinking && chatState.inflightThinking.completed === false && !chatState.inflightThinking.stale);
+  const openCodeSessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
+    ? isOpenCodeSessionBlocking(chatState)
+    : false;
   // Phase-A constraint: one in-flight chat request per agent.
   // This keeps guard behavior deterministic without per-session concurrency state.
   return Boolean(
     chatState.isSubmitting
     || activeRequestBlocking
     || inflightThinkingBlocking
+    || openCodeSessionBlocking
   );
 }
 
 function shouldShowAbortChatRunButton(agentId) {
   const chatState = ensureChatState(agentId);
-  return Boolean(chatState?.activeRequest || hasIncompleteInflightThinking(chatState));
+  return Boolean(
+    chatState?.activeRequest
+    || hasIncompleteInflightThinking(chatState)
+    || isOpenCodeSessionBlocking(chatState)
+  );
 }
 
 function activeChatRequestMessage(agentId, actionLabel = "perform this action") {
-  const activeRequest = ensureChatState(agentId)?.activeRequest;
+  const chatState = ensureChatState(agentId);
+  const activeRequest = chatState?.activeRequest;
   if (activeRequest?.streamDetached) {
     return "The previous message is still running. Reconnecting and syncing. Wait for it to finish before sending another message.";
+  }
+  if (isOpenCodeSessionBlocking(chatState)) {
+    return "The previous message is still running. Reconnecting and syncing. Wait for it to finish or use Stop run.";
   }
   return `This assistant is still working in the current session. Please wait until it finishes before you ${actionLabel}.`;
 }
 
 function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this action") {
   if (!hasActiveChatRequestForAgent(agentId)) return true;
-  const activeRequest = ensureChatState(agentId)?.activeRequest;
+  const chatState = ensureChatState(agentId);
+  const activeRequest = chatState?.activeRequest;
   const message = activeChatRequestMessage(agentId, actionLabel);
   showToast(message);
-  if (activeRequest?.streamDetached) {
+  if (activeRequest?.streamDetached || isOpenCodeSessionBlocking(chatState)) {
     setChatStatus("Previous message still running…");
   } else {
     setChatStatus(message, true);
@@ -1300,6 +1358,7 @@ function applyCanonicalMessagesToChatState(agentId, sessionId, chatState, canoni
       messagesById: {},
       partsById: {},
       sessionStatus: "unknown",
+      sessionStatusPayload: null,
       needsSnapshot: false,
     };
   }
@@ -2615,13 +2674,11 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
   }
 
   if (rawType === "session.status") {
-    const statusValue = data.status;
-    projection.sessionStatus = String(
-      data.status_type ||
-      (statusValue && typeof statusValue === "object" ? statusValue.type : "") ||
-      (typeof statusValue === "string" ? statusValue : "") ||
-      "unknown"
-    ).toLowerCase();
+    const normalizedStatus = normalizeOpenCodeSessionStatusType(data) || "unknown";
+    projection.sessionStatus = isOpenCodeSessionStatusBlockingPayload(data)
+      && (!normalizedStatus || normalizedStatus === "unknown" || normalizedStatus === "idle")
+      ? "busy"
+      : normalizedStatus;
     projection.sessionStatusPayload = data;
     if (reconcileHint === "fetch_session_messages") projection.needsSnapshot = true;
     return true;
@@ -2695,20 +2752,18 @@ async function refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatStat
         messagesById: {},
         partsById: {},
         sessionStatus: "unknown",
+        sessionStatusPayload: null,
         needsSnapshot: false,
       };
     }
 
-    const statusValue = payload?.status;
-    const statusType = String(
-      payload?.status_type ||
-      (statusValue && typeof statusValue === "object" ? statusValue.type : "") ||
-      (typeof statusValue === "string" ? statusValue : "") ||
-      "unknown"
-    ).toLowerCase();
+    const statusType = normalizeOpenCodeSessionStatusType(payload) || "unknown";
     let nextStatus = statusType || "unknown";
-    if (payload?.active === true && payload?.action_hint === "wait_reconnect_or_stop") {
-      nextStatus = statusType && statusType !== "unknown" ? statusType : "busy";
+    if (
+      isOpenCodeSessionStatusBlockingPayload(payload)
+      && (!statusType || statusType === "unknown" || statusType === "idle")
+    ) {
+      nextStatus = "busy";
     }
 
     chatState.openCodeProjection.sessionStatus = nextStatus;
@@ -2725,6 +2780,7 @@ async function refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatStat
         messagesById: {},
         partsById: {},
         sessionStatus: "unknown",
+        sessionStatusPayload: null,
         needsSnapshot: false,
       };
     }
@@ -3076,11 +3132,20 @@ function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
   const normalizedRuntimeHealth = normalizeRuntimeHealthStatus(runtimeHealth);
   const projection = chatState.openCodeProjection || {};
   const activeRun = chatState.activeRequest || null;
+  const sessionBlocking = isOpenCodeSessionBlocking(chatState);
+  const projectedSessionStatus = normalizeOpenCodeSessionStatusType(projection.sessionStatusPayload || {})
+    || String(projection.sessionStatus || "unknown").toLowerCase()
+    || "unknown";
 
   let sessionStatus = normalizedRuntimeHealth === "offline"
     ? "unknown"
-    : (projection.sessionStatus || "unknown");
+    : projectedSessionStatus;
   if (activeRun && isActiveRequestBlocking(chatState)) {
+    sessionStatus = "busy";
+  } else if (
+    sessionBlocking
+    && (!sessionStatus || sessionStatus === "unknown" || sessionStatus === "idle")
+  ) {
     sessionStatus = "busy";
   }
 
@@ -3088,10 +3153,13 @@ function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
   const thinking = chatState.inflightThinking;
   const thinkingSource = String(thinking?.contextSource || thinking?.source || "").toLowerCase();
   const isSessionStateThinkingOnly = thinkingSource === "opencode_session_state";
-  if (thinking && !thinking.completed && !isSessionStateThinkingOnly) {
+  if (activeRun && isActiveRequestBlocking(chatState)) {
+    messageProgress = activeRun.streamDetached ? "reconnecting" : "running";
+  } else if (thinking && !thinking.completed && !isSessionStateThinkingOnly) {
     messageProgress = "running";
   }
   if (sessionStatus === "retry") messageProgress = "retrying";
+  if (sessionBlocking && messageProgress === "idle") messageProgress = "reconnecting";
   if (sessionStatus === "busy" && messageProgress === "idle") messageProgress = "running";
   if (normalizedRuntimeHealth === "offline") messageProgress = "unknown";
 
@@ -3108,8 +3176,8 @@ function openCodeRuntimeUiStatusText(uiState = {}) {
   const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
   if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
   if (sessionStatus === "idle") return "Assistant online. Ready.";
-  if (sessionStatus === "busy") return "Assistant online. Previous message still running.";
-  if (sessionStatus === "retry") return "Assistant online. Provider retrying.";
+  if (sessionStatus === "busy") return "Assistant online. Session busy. Previous message still running.";
+  if (sessionStatus === "retry") return "Assistant online. Session retrying. Provider retrying.";
   return "Assistant online. Session status unknown.";
 }
 
@@ -3844,7 +3912,7 @@ function renderAgentList() {
       const sharedBadge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="portal-agent-shared">shared</span>';
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
-      if (chatState?.isSubmitting) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
+      if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
       else if (chatState?.backgroundStatus === "completed") runtimeBadge = '<span class="portal-agent-chat-badge is-completed">completed</span>';
       else if (chatState?.backgroundStatus === "error") runtimeBadge = '<span class="portal-agent-chat-badge is-error">error</span>';
       const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
