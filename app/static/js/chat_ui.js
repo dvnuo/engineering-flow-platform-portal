@@ -3248,8 +3248,9 @@ function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
   const thinking = chatState.inflightThinking;
   const thinkingSource = String(thinking?.contextSource || thinking?.source || "").toLowerCase();
   const isSessionStateThinkingOnly = thinkingSource === "opencode_session_state";
+  const sessionStateReconnecting = Boolean(thinking && !thinking.completed && isSessionStateThinkingOnly);
   if (activeRun && isActiveRequestBlocking(chatState)) {
-    messageProgress = activeRun.streamDetached ? "reconnecting" : "running";
+    messageProgress = activeRun.streamDetached || sessionStateReconnecting ? "reconnecting" : "running";
   } else if (thinking && !thinking.completed && !isSessionStateThinkingOnly) {
     messageProgress = "running";
   }
@@ -3305,18 +3306,27 @@ function setChatStatus(text, isError = false) {
   const agent = getSelectedAgent();
   const chatState = state.selectedAgentId ? ensureChatState(state.selectedAgentId) : {};
   const uiState = computeOpenCodeRuntimeUiState(agent || {}, chatState || {});
-  dom.chatStatus.textContent = text;
+  const runtimeSummary = openCodeRuntimeUiStatusText(uiState);
+  const visibleRuntimeSummary = (
+    uiState.normalizedRuntimeHealth === "offline"
+    || ["busy", "retry"].includes(String(uiState.sessionStatus || "").toLowerCase())
+  );
+  const visibleStatusText = visibleRuntimeSummary && !String(text || "").includes(runtimeSummary)
+    ? [runtimeSummary, text].filter(Boolean).join(" ")
+    : text;
+  dom.chatStatus.textContent = visibleStatusText;
   dom.chatStatus.className = `portal-statusline${isError ? " is-error" : ""}`;
   dom.chatStatus.dataset.runtimeHealth = uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown";
   dom.chatStatus.dataset.sessionStatus = uiState.sessionStatus || "unknown";
   dom.chatStatus.dataset.messageProgress = uiState.messageProgress || "idle";
-  dom.chatStatus.title = [
-    openCodeRuntimeUiStatusText(uiState),
+  const statusDetail = [
+    runtimeSummary,
     `Runtime: ${uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown"}`,
     `Session: ${uiState.sessionStatus || "unknown"}`,
     `Message: ${uiState.messageProgress || "idle"}`,
-  ].join("\n");
-  dom.chatStatus.setAttribute("aria-label", `${text}. ${openCodeRuntimeUiStatusText(uiState)}`);
+  ];
+  dom.chatStatus.title = statusDetail.join("\n");
+  dom.chatStatus.setAttribute("aria-label", `${visibleStatusText}. ${statusDetail.join(". ")}`);
 }
 
 function scrollToBottom() {

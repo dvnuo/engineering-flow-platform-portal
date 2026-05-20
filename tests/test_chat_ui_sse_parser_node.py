@@ -1145,8 +1145,11 @@ def test_load_session_busy_status_hydrates_active_request_and_reconnects_node_sm
               assert.equal(dom.abortChatRunBtn.disabled, false);
               assert.equal(dom.abortChatRunBtn["aria-hidden"], "false");
               assert.equal(abortClassState.hidden, false);
+              assert.match(dom.chatStatus.textContent, /Assistant online\. Session busy/);
               assert.match(dom.chatStatus.textContent, /Previous message still running/);
               assert.match(dom.chatStatus.title, /Session: busy/);
+              assert.match(dom.chatStatus["aria-label"], /Runtime: online/);
+              assert.match(dom.chatStatus["aria-label"], /Message: reconnecting/);
               assert.equal(capturedMetadata.session_status.status_type, "busy");
               assert.ok(calls.some((item) => item[0] === "events" && item[3] === "opencode-session-sess-1"));
               assert.ok(calls.some((item) => item[0] === "reconcile" && item[2] === "opencode-session-sess-1" && item[3] === true));

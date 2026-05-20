@@ -408,6 +408,10 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "dataset.runtimeHealth" in set_status
     assert "dataset.sessionStatus" in set_status
     assert "dataset.messageProgress" in set_status
+    assert "visibleStatusText" in set_status
+    assert "openCodeRuntimeUiStatusText(uiState)" in set_status
+    assert '["busy", "retry"].includes' in set_status
+    assert "statusDetail.join" in set_status
     assert ":4096" not in src
     assert "/api/tasks" not in handle_event
     assert "/api/tasks" not in load_session
