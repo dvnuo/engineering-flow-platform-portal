@@ -2615,7 +2615,14 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
   }
 
   if (rawType === "session.status") {
-    projection.sessionStatus = String(data.status_type || "unknown").toLowerCase();
+    const statusValue = data.status;
+    projection.sessionStatus = String(
+      data.status_type ||
+      (statusValue && typeof statusValue === "object" ? statusValue.type : "") ||
+      (typeof statusValue === "string" ? statusValue : "") ||
+      "unknown"
+    ).toLowerCase();
+    projection.sessionStatusPayload = data;
     if (reconcileHint === "fetch_session_messages") projection.needsSnapshot = true;
     return true;
   }
@@ -2634,15 +2641,34 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
   return false;
 }
 
+function isOpenCodeSessionStateOnlyEvent(event = {}) {
+  const data = event.data && typeof event.data === "object" ? event.data : {};
+  const rawType = String(data.raw_type || event.raw_type || event.type || "").toLowerCase();
+  const reconcileHint = String(data.reconcile_hint || "").toLowerCase();
+  return (
+    rawType === "session.status"
+    || rawType === "session.idle"
+    || reconcileHint === "fetch_session_messages"
+  );
+}
+
 function maybeRefreshSessionSnapshotForOpenCodeEvent(agentId, chatState, sessionId = "", event = {}) {
   const projection = chatState?.openCodeProjection;
   if (!agentId || !chatState || !sessionId || !projection?.needsSnapshot) return;
   if (projection.snapshotRefreshInFlight) return;
+  const lastFailedAt = Number(projection.snapshotRefreshLastFailedAt || 0);
+  if (lastFailedAt && Date.now() - lastFailedAt < 10000) return;
   projection.snapshotRefreshInFlight = true;
   chatState.needsReload = true;
-  Promise.resolve()
+  return Promise.resolve()
     .then(() => loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId }))
+    .then(() => {
+      projection.needsSnapshot = false;
+      projection.snapshotRefreshError = "";
+    })
     .catch((error) => {
+      projection.needsSnapshot = true;
+      projection.snapshotRefreshLastFailedAt = Date.now();
       projection.snapshotRefreshError = String(error?.message || error || "");
       appendPortalChatRuntimeEvent(agentId, fallbackRequestContextForAgent(agentId, "opencode_snapshot_refresh_failed"), "portal.reconcile.failed", {
         message: "Unable to refresh OpenCode session snapshot after runtime event.",
@@ -2652,8 +2678,60 @@ function maybeRefreshSessionSnapshotForOpenCodeEvent(agentId, chatState, session
     })
     .finally(() => {
       projection.snapshotRefreshInFlight = false;
-      projection.needsSnapshot = false;
     });
+}
+
+async function refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState) {
+  if (!agentId || !sessionId || !chatState) return null;
+
+  try {
+    const payload = await agentApiFor(
+      agentId,
+      `/api/sessions/${encodeURIComponent(sessionId)}/status`
+    );
+
+    if (!chatState.openCodeProjection) {
+      chatState.openCodeProjection = {
+        messagesById: {},
+        partsById: {},
+        sessionStatus: "unknown",
+        needsSnapshot: false,
+      };
+    }
+
+    const statusValue = payload?.status;
+    const statusType = String(
+      payload?.status_type ||
+      (statusValue && typeof statusValue === "object" ? statusValue.type : "") ||
+      (typeof statusValue === "string" ? statusValue : "") ||
+      "unknown"
+    ).toLowerCase();
+    let nextStatus = statusType || "unknown";
+    if (payload?.active === true && payload?.action_hint === "wait_reconnect_or_stop") {
+      nextStatus = statusType && statusType !== "unknown" ? statusType : "busy";
+    }
+
+    chatState.openCodeProjection.sessionStatus = nextStatus;
+    chatState.openCodeProjection.sessionStatusPayload = payload;
+    chatState.openCodeProjection.sessionStatusError = "";
+    chatState.openCodeProjection.activeChildSessions = Array.isArray(payload?.active_child_sessions)
+      ? payload.active_child_sessions
+      : [];
+
+    return payload;
+  } catch (error) {
+    if (!chatState.openCodeProjection) {
+      chatState.openCodeProjection = {
+        messagesById: {},
+        partsById: {},
+        sessionStatus: "unknown",
+        needsSnapshot: false,
+      };
+    }
+    chatState.openCodeProjection.sessionStatus = "unknown";
+    chatState.openCodeProjection.sessionStatusError = String(error?.message || error || "");
+    return null;
+  }
 }
 
 function handleAgentEventMessage(raw, socketCtx = {}) {
@@ -2723,6 +2801,16 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const appliedCanonicalEvent = localApplyOpenCodeCanonicalEventToChatState(chatState, entry);
   if (appliedCanonicalEvent && typeof maybeRefreshSessionSnapshotForOpenCodeEvent === "function") {
     maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState, entry.session_id || currentSessionId, entry);
+  }
+  const isSessionStateOnlyCanonicalEvent = appliedCanonicalEvent
+    && typeof isOpenCodeSessionStateOnlyEvent === "function"
+    && isOpenCodeSessionStateOnlyEvent(entry);
+  if (isSessionStateOnlyCanonicalEvent) {
+    if (isThinkingPanelActiveForAgent(currentAgentId)) {
+      scheduleThinkingPanelRefresh(currentAgentId);
+    }
+    syncSelectedAgentChatActionControls();
+    return;
   }
 
   if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion && !appliedCanonicalEvent) return;
@@ -2998,7 +3086,9 @@ function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
 
   let messageProgress = "idle";
   const thinking = chatState.inflightThinking;
-  if (thinking && !thinking.completed) {
+  const thinkingSource = String(thinking?.contextSource || thinking?.source || "").toLowerCase();
+  const isSessionStateThinkingOnly = thinkingSource === "opencode_session_state";
+  if (thinking && !thinking.completed && !isSessionStateThinkingOnly) {
     messageProgress = "running";
   }
   if (sessionStatus === "retry") messageProgress = "retrying";
@@ -7949,6 +8039,13 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   updateAgentSession(agentId, normalized);
   const latestChatState = ensureChatState(agentId);
   if (latestChatState) latestChatState.needsReload = false;
+  let recoveryNotice = null;
+  const applyRecoveryNotice = () => {
+    if (recoveryNotice) {
+      setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
+    }
+  };
+  const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState);
   const shouldApplyRecoveryNotice = agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId);
   const canonicalMessages = getCanonicalMessagesFromSessionPayload(data);
   const messagesForRender = canonicalMessages.length
@@ -7961,14 +8058,10 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       ...(data.metadata || {}),
       source_of_truth: canonicalMessages.length ? "opencode" : data.metadata?.source_of_truth,
       canonical_messages: canonicalMessages,
+      session_status: statusPayload || data.metadata?.session_status || null,
     },
   };
-  const recoveryNotice = shouldApplyRecoveryNotice ? deriveSessionRecoveryNotice(normalizedPayload.metadata || {}) : null;
-  const applyRecoveryNotice = () => {
-    if (recoveryNotice) {
-      setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
-    }
-  };
+  recoveryNotice = shouldApplyRecoveryNotice ? deriveSessionRecoveryNotice(normalizedPayload.metadata || {}) : null;
   if (latestChatState && canonicalMessages.length) {
     applyCanonicalMessagesToChatState(agentId, normalized, latestChatState, canonicalMessages, normalizedPayload.metadata || {});
   }

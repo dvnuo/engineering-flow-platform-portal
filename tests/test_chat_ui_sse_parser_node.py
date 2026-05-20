@@ -379,6 +379,281 @@ def test_opencode_runtime_ui_state_three_way_model_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_opencode_session_status_does_not_create_inflight_thinking_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeRuntimeEventTypeAlias"),
+                _extract_js_function(src, "isCompletionRuntimeState"),
+                _extract_js_function(src, "normalizeRuntimeEvent"),
+                _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
+                _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent"),
+                _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent"),
+                _extract_js_function(src, "handleAgentEventMessage"),
+                _extract_js_function(src, "isActiveRequestBlocking"),
+                _extract_js_function(src, "normalizeRuntimeHealthStatus"),
+                _extract_js_function(src, "computeOpenCodeRuntimeUiState"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+            const calls = [];
+            const state = { selectedAgentId: "agent-1" };
+            const chatState = {
+              sessionId: "sess-1",
+              openCodeProjection: null,
+              inflightThinking: null,
+              activeRequest: null,
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function loadSessionForAgent() { calls.push(["load"]); return Promise.resolve(); }
+            function isThinkingPanelActiveForAgent() { return false; }
+            function scheduleThinkingPanelRefresh() { calls.push(["panel"]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["sync"]); }
+            function fallbackRequestContextForAgent() { return {}; }
+            function appendPortalChatRuntimeEvent(_agentId, _ctx, type) { calls.push(["portal", type]); }
+
+            handleAgentEventMessage(JSON.stringify({
+              type: "session.updated",
+              data: { raw_type: "session.status", status_type: "idle" },
+              session_id: "sess-1",
+            }), { agentId: "agent-1", sessionId: "sess-1" });
+
+            const uiState = computeOpenCodeRuntimeUiState(
+              { runtime_status: "running" },
+              chatState
+            );
+            assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
+            assert.equal(chatState.inflightThinking == null, true);
+            assert.equal(calls.some((item) => item[1] === "execution.started"), false);
+            assert.equal(uiState.messageProgress, "idle");
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_opencode_session_idle_sets_snapshot_without_inflight_thinking_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeRuntimeEventTypeAlias"),
+                _extract_js_function(src, "isCompletionRuntimeState"),
+                _extract_js_function(src, "normalizeRuntimeEvent"),
+                _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
+                _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent"),
+                _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent"),
+                _extract_js_function(src, "handleAgentEventMessage"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+            const chatState = {
+              sessionId: "sess-1",
+              openCodeProjection: null,
+              inflightThinking: null,
+              activeRequest: null,
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function loadSessionForAgent(agentId, sessionId) {
+              calls.push(["load", agentId, sessionId]);
+              return new Promise(() => {});
+            }
+            function isThinkingPanelActiveForAgent() { return false; }
+            function scheduleThinkingPanelRefresh() { calls.push(["panel"]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["sync"]); }
+            function fallbackRequestContextForAgent() { return {}; }
+            function appendPortalChatRuntimeEvent(_agentId, _ctx, type) { calls.push(["portal", type]); }
+
+            handleAgentEventMessage(JSON.stringify({
+              type: "session.updated",
+              data: { raw_type: "session.idle", reconcile_hint: "fetch_session_messages" },
+              session_id: "sess-1",
+            }), { agentId: "agent-1", sessionId: "sess-1" });
+
+            assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
+            assert.equal(chatState.openCodeProjection.needsSnapshot, true);
+            assert.equal(chatState.openCodeProjection.snapshotRefreshInFlight, true);
+            assert.equal(chatState.inflightThinking == null, true);
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_opencode_snapshot_refresh_failure_keeps_needs_snapshot_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent")
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+            const chatState = { openCodeProjection: { needsSnapshot: true } };
+
+            function loadSessionForAgent() { return Promise.reject(new Error("refresh failed")); }
+            function fallbackRequestContextForAgent(agentId, reason) { return { agentId, reason }; }
+            function appendPortalChatRuntimeEvent(_agentId, _ctx, type, data) {
+              calls.push({ type, data });
+            }
+
+            (async () => {
+              await maybeRefreshSessionSnapshotForOpenCodeEvent("agent-1", chatState, "sess-1", { type: "session.idle" });
+              assert.equal(chatState.openCodeProjection.needsSnapshot, true);
+              assert.match(chatState.openCodeProjection.snapshotRefreshError, /refresh failed/);
+              assert.equal(chatState.openCodeProjection.snapshotRefreshInFlight, false);
+              assert.equal(chatState.openCodeProjection.snapshotRefreshLastFailedAt > 0, true);
+              assert.equal(calls[0].type, "portal.reconcile.failed");
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_opencode_snapshot_refresh_success_clears_needs_snapshot_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent")
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const state = { selectedAgentId: "agent-1" };
+            const chatState = {
+              openCodeProjection: {
+                needsSnapshot: true,
+                snapshotRefreshError: "old",
+              },
+            };
+
+            function loadSessionForAgent() { return Promise.resolve({ ok: true }); }
+            function fallbackRequestContextForAgent() { return {}; }
+            function appendPortalChatRuntimeEvent() { throw new Error("should not report failure"); }
+
+            (async () => {
+              await maybeRefreshSessionSnapshotForOpenCodeEvent("agent-1", chatState, "sess-1", { type: "session.idle" });
+              assert.equal(chatState.openCodeProjection.needsSnapshot, false);
+              assert.equal(chatState.openCodeProjection.snapshotRefreshError, "");
+              assert.equal(chatState.openCodeProjection.snapshotRefreshInFlight, false);
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_load_session_refreshes_opencode_session_status_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "getCanonicalMessagesFromSessionPayload"),
+                _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent"),
+                _extract_js_function(src, "isActiveRequestBlocking"),
+                _extract_js_function(src, "normalizeRuntimeHealthStatus"),
+                _extract_js_function(src, "computeOpenCodeRuntimeUiState"),
+                _extract_js_function(src, "openCodeRuntimeUiStatusText"),
+                _extract_js_function(src, "setChatStatus"),
+                _extract_js_function(src, "loadSessionForAgent"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const calls = [];
+            let capturedMetadata = null;
+            const chatState = {
+              sessionId: "",
+              openCodeProjection: null,
+              inflightThinking: null,
+              activeRequest: null,
+              needsReload: true,
+            };
+            const state = {
+              selectedAgentId: "agent-1",
+              selectedAgentName: "",
+              mineAgents: [{ id: "agent-1", name: "Agent" }],
+            };
+            const dom = {
+              chatStatus: {
+                dataset: {},
+                setAttribute(name, value) { this[name] = value; },
+              },
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function getSelectedAgent() { return { id: "agent-1", runtime_status: "running" }; }
+            function hasActiveChatRequestForAgent() { return false; }
+            function updateAgentSession(_agentId, sessionId) { chatState.sessionId = sessionId; }
+            function deriveSessionRecoveryNotice() { return null; }
+            function canonicalMessagesToLegacyDisplayMessages() { throw new Error("legacy conversion should not run without canonical messages"); }
+            function applyCanonicalMessagesToChatState() { throw new Error("canonical apply should not run without canonical messages"); }
+            function renderChatHistory(_messages, metadata) { capturedMetadata = metadata; }
+            function reconcileActiveRequestProjection() {}
+            function addEditButtonsToMessages() {}
+            function currentSessionIdForAgent() { return chatState.sessionId; }
+            function setLastSessionId() {}
+            function showToast() {}
+            async function openSessionsPanel() {}
+            async function agentApiFor(_agentId, path) {
+              calls.push(path);
+              if (path === "/api/sessions/sess-1/status") {
+                return { status_type: "idle", active: false };
+              }
+              if (path === "/api/sessions/sess-1") {
+                return { messages: [], metadata: {} };
+              }
+              throw new Error(`unexpected path ${path}`);
+            }
+
+            (async () => {
+              await loadSessionForAgent("agent-1", "sess-1", { render: true });
+              assert.deepEqual(calls, ["/api/sessions/sess-1", "/api/sessions/sess-1/status"]);
+              assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
+              assert.equal(capturedMetadata.session_status.status_type, "idle");
+              assert.equal(dom.chatStatus.dataset.sessionStatus, "idle");
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_stream_error_event_smoke_terminal_and_no_missing_final():
     src = SRC.read_text(encoding="utf-8")
     stream_js = "\n".join(

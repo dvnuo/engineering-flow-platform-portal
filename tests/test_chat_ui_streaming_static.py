@@ -301,6 +301,9 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     src = _src()
     load_session = _extract_js_function(src, "loadSessionForAgent")
     handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    session_state_only = _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent")
+    maybe_refresh = _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent")
+    refresh_status = _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent")
     render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
     state_notes = _extract_js_function(src, "renderOpenCodeRuntimeStateNotes")
     set_status = _extract_js_function(src, "setChatStatus")
@@ -311,25 +314,50 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
         "function canonicalMessagesToThinkingItems",
         "function applyOpenCodeCanonicalEventToChatState",
         "function computeOpenCodeRuntimeUiState",
+        "function isOpenCodeSessionStateOnlyEvent",
+        "function refreshOpenCodeSessionStatusForAgent",
     ]:
         assert helper in src
 
+    assert 'rawType === "session.status"' in session_state_only
+    assert 'rawType === "session.idle"' in session_state_only
+    assert 'reconcileHint === "fetch_session_messages"' in session_state_only
+
     assert "const canonicalMessages = getCanonicalMessagesFromSessionPayload(data)" in load_session
+    assert "const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState)" in load_session
     assert "const messagesForRender = canonicalMessages.length" in load_session
     assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
     assert "data.messages || []" in load_session
     assert "source_of_truth: canonicalMessages.length ? \"opencode\"" in load_session
     assert "canonical_messages: canonicalMessages" in load_session
+    assert "session_status: statusPayload || data.metadata?.session_status || null" in load_session
     assert "renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {})" in load_session
     assert "reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || [])" in load_session
 
     assert "applyOpenCodeCanonicalEventToChatState" in handle_event
     assert "localApplyOpenCodeCanonicalEventToChatState(chatState, entry)" in handle_event
     assert "maybeRefreshSessionSnapshotForOpenCodeEvent" in handle_event
+    assert "const isSessionStateOnlyCanonicalEvent = appliedCanonicalEvent" in handle_event
+    assert "isOpenCodeSessionStateOnlyEvent(entry)" in handle_event
+    assert "if (isSessionStateOnlyCanonicalEvent)" in handle_event
+    assert "return;" in handle_event[handle_event.index("if (isSessionStateOnlyCanonicalEvent)"):]
+    assert handle_event.index("if (isSessionStateOnlyCanonicalEvent)") < handle_event.index("if (!chatState.inflightThinking)")
     assert "reconcile_hint" in src
     assert "fetch_session_messages" in src
     assert "openCodeProjection" in src
     assert "opencCodeProjection" not in src
+
+    assert "projection.needsSnapshot = false" in maybe_refresh
+    assert "projection.snapshotRefreshError = \"\"" in maybe_refresh
+    assert "projection.needsSnapshot = true" in maybe_refresh
+    assert "projection.snapshotRefreshLastFailedAt = Date.now()" in maybe_refresh
+    assert "Date.now() - lastFailedAt < 10000" in maybe_refresh
+
+    assert "`/api/sessions/${encodeURIComponent(sessionId)}/status`" in refresh_status
+    assert "agentApiFor(" in refresh_status
+    assert "sessionStatusPayload" in refresh_status
+    assert "activeChildSessions" in refresh_status
+    assert "sessionStatusError" in refresh_status
 
     assert "renderOpenCodeRuntimeStateNotes(uiState)" in render_panel
     assert "Runtime:" in state_notes
@@ -339,6 +367,8 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "dataset.sessionStatus" in set_status
     assert "dataset.messageProgress" in set_status
     assert ":4096" not in src
+    assert "/api/tasks" not in handle_event
+    assert "/api/tasks" not in load_session
 
 
 def test_active_request_busy_state_uses_runtime_blocking_helper():
