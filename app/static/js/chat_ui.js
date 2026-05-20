@@ -429,20 +429,26 @@ function hasActiveChatRequestForAgent(agentId) {
 
 function shouldShowAbortChatRunButton(agentId) {
   const chatState = ensureChatState(agentId);
+  const sessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
+    ? isOpenCodeSessionBlocking(chatState)
+    : false;
   return Boolean(
     chatState?.activeRequest
     || hasIncompleteInflightThinking(chatState)
-    || isOpenCodeSessionBlocking(chatState)
+    || sessionBlocking
   );
 }
 
 function activeChatRequestMessage(agentId, actionLabel = "perform this action") {
   const chatState = ensureChatState(agentId);
   const activeRequest = chatState?.activeRequest;
+  const sessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
+    ? isOpenCodeSessionBlocking(chatState)
+    : false;
   if (activeRequest?.streamDetached) {
     return "The previous message is still running. Reconnecting and syncing. Wait for it to finish before sending another message.";
   }
-  if (isOpenCodeSessionBlocking(chatState)) {
+  if (sessionBlocking) {
     return "The previous message is still running. Reconnecting and syncing. Wait for it to finish or use Stop run.";
   }
   return `This assistant is still working in the current session. Please wait until it finishes before you ${actionLabel}.`;
@@ -452,9 +458,12 @@ function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this a
   if (!hasActiveChatRequestForAgent(agentId)) return true;
   const chatState = ensureChatState(agentId);
   const activeRequest = chatState?.activeRequest;
+  const sessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
+    ? isOpenCodeSessionBlocking(chatState)
+    : false;
   const message = activeChatRequestMessage(agentId, actionLabel);
   showToast(message);
-  if (activeRequest?.streamDetached || isOpenCodeSessionBlocking(chatState)) {
+  if (activeRequest?.streamDetached || sessionBlocking) {
     setChatStatus("Previous message still running…");
   } else {
     setChatStatus(message, true);
@@ -8299,6 +8308,10 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   const latestChatState = ensureChatState(agentId);
   if (latestChatState) latestChatState.needsReload = false;
   let recoveryNotice = null;
+  const canApplyRecoveryNotice = () => (
+    agentId === state.selectedAgentId
+    && !hasActiveChatRequestForAgent(agentId)
+  );
   const applyRecoveryNotice = () => {
     if (recoveryNotice) {
       setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
@@ -8321,7 +8334,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       }
     }
   }
-  const shouldApplyRecoveryNotice = agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId);
+  const shouldApplyRecoveryNotice = canApplyRecoveryNotice();
   const canonicalMessages = getCanonicalMessagesFromSessionPayload(data);
   const messagesForRender = canonicalMessages.length
     ? canonicalMessagesToLegacyDisplayMessages(canonicalMessages)
