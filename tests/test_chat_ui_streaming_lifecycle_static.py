@@ -147,10 +147,15 @@ def test_restart_lifecycle_waits_for_runtime_ready_before_success_status():
 
     assert "action(`/api/agents/${agent.id}/restart`)" in render_actions
     assert 'setChatStatus("Restarting assistant…")' in action_fn
-    assert 'setChatStatus("Restart requested. Waiting for runtime pod to restart…")' in action_fn
+    assert 'setChatStatus("Restart requested.\\nWaiting for runtime pod to restart…")' in action_fn
     assert "pollAgentUntilRestartComplete(lifecycle.agentId)" in action_fn
     assert 'setChatStatus("Assistant restarted.")' not in action_fn
     assert "loadSessionForAgent(lifecycle.agentId" not in action_fn
+    restart_start = action_fn.index('if (lifecycle.action === "restart")')
+    restart_end = action_fn.index("return;", restart_start)
+    restart_branch = action_fn[restart_start:restart_end]
+    assert restart_branch.index("await refreshAll({ preserveLayout: true });") < restart_branch.index("pollAgentUntilRestartComplete(lifecycle.agentId)")
+    assert restart_branch.count("applyLocalAgentStatus(") == 1
     assert 'setChatStatus("Assistant restart completed.")' in poll_fn
     assert 'setChatStatus("Restarting assistant… waiting for runtime pod to become ready.")' in poll_fn
     assert "`/api/agents/${encodeURIComponent(agentId)}/status`" in poll_fn

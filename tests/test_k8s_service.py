@@ -169,6 +169,56 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("kubectl.kubernetes.io/restartedAt", annotations)
         self.assertIn("efp.dvnuo.io/restart-request-id", annotations)
         self.assertIn("efp.dvnuo.io/restart-requested-at", annotations)
+        self.assertEqual(calls, ["patch_deployment", "patch_service_metadata", "scale", "rollout_patch"])
+
+    def test_restart_agent_patches_before_scale_to_avoid_starting_old_config(self):
+        self.service.enabled = True
+        calls = []
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents")
+
+        def _patch_deployment(_agent):
+            calls.append("patch_deployment")
+
+        def _patch_service_metadata(_agent):
+            calls.append("patch_service_metadata")
+
+        def _scale_agent_deployment(_agent, replicas):
+            calls.append("scale")
+            self.assertEqual(replicas, 1)
+
+        def _patch_namespaced_deployment(**_kwargs):
+            calls.append("rollout_patch")
+
+        self.service._patch_deployment = _patch_deployment
+        self.service._patch_service_metadata = _patch_service_metadata
+        self.service._scale_agent_deployment = _scale_agent_deployment
+        self.service.apps_api = SimpleNamespace(patch_namespaced_deployment=_patch_namespaced_deployment)
+
+        status = self.service.restart_agent(agent)
+
+        self.assertEqual(status.status, "restarting")
+        self.assertEqual(calls, ["patch_deployment", "patch_service_metadata", "scale", "rollout_patch"])
+
+    def test_restart_agent_patch_failure_does_not_scale(self):
+        self.service.enabled = True
+        calls = []
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents")
+
+        def _patch_deployment(_agent):
+            calls.append("patch_deployment")
+            raise ValueError("patch failed")
+
+        def _scale_agent_deployment(_agent, _replicas):
+            calls.append("scale")
+
+        self.service._patch_deployment = _patch_deployment
+        self.service._scale_agent_deployment = _scale_agent_deployment
+
+        status = self.service.restart_agent(agent)
+
+        self.assertEqual(status.status, "failed")
+        self.assertIn("patch failed", status.message)
+        self.assertEqual(calls, ["patch_deployment"])
 
     def test_restart_agent_when_k8s_disabled_is_not_reported_success(self):
         self.service.enabled = False

@@ -10138,6 +10138,7 @@ async function action(path, method = "POST", needsConfirm = false) {
       if (state.selectedAgentId === lifecycle.agentId) {
         setChatStatus(message, true);
       }
+      return;
     }
     throw error;
   }
@@ -10154,8 +10155,19 @@ async function action(path, method = "POST", needsConfirm = false) {
       clearStaleActiveRequest(lifecycle.agentId, requestCtx, "agent_restarting");
       if (state.eventWsAgentId === lifecycle.agentId) disconnectEventSocket();
       if (state.selectedAgentId === lifecycle.agentId) {
-        setChatStatus("Restart requested. Waiting for runtime pod to restart…");
+        setChatStatus("Restart requested.\nWaiting for runtime pod to restart…");
         showToast("Restart requested.");
+      }
+
+      await refreshAll({ preserveLayout: true });
+
+      const cachedStatus = String(
+        state.agentStatus?.get?.(lifecycle.agentId)?.status ||
+        (state.mineAgents || []).find((item) => item.id === lifecycle.agentId)?.status ||
+        ""
+      ).toLowerCase();
+      if (!["running", "failed", "stopped", "deleting"].includes(cachedStatus) && state.selectedAgentId === lifecycle.agentId) {
+        setChatStatus("Restarting assistant… waiting for runtime pod to become ready.");
       }
 
       pollAgentUntilRestartComplete(lifecycle.agentId).catch((error) => {
@@ -10165,15 +10177,6 @@ async function action(path, method = "POST", needsConfirm = false) {
         }
       });
 
-      await refreshAll({ preserveLayout: true });
-      applyLocalAgentStatus(
-        lifecycle.agentId,
-        result?.status || "restarting",
-        result?.last_error || result?.message || "Restart requested"
-      );
-      if (state.selectedAgentId === lifecycle.agentId) {
-        setChatStatus("Restarting assistant… waiting for runtime pod to become ready.");
-      }
       return;
     }
 

@@ -393,9 +393,9 @@ class K8sService:
             )
 
         try:
-            self._scale_agent_deployment(agent, 1)
             self._patch_deployment(agent)
             self._patch_service_metadata(agent)
+            self._scale_agent_deployment(agent, 1)
             restarted_at = datetime.now(timezone.utc).isoformat()
             restart_request_id = str(uuid4())
             self.apps_api.patch_namespaced_deployment(
