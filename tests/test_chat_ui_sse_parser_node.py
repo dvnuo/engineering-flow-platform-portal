@@ -935,6 +935,150 @@ def test_load_session_refreshes_opencode_session_status_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_load_session_busy_status_hydrates_active_request_and_reconnects_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "getCanonicalMessagesFromSessionPayload"),
+                _extract_js_function(src, "normalizeChatRunStatus"),
+                _extract_js_function(src, "isActiveRequestBlocking"),
+                _extract_js_function(src, "hasIncompleteInflightThinking"),
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "isOpenCodeSessionBlocking"),
+                _extract_js_function(src, "hasActiveChatRequestForAgent"),
+                _extract_js_function(src, "shouldShowAbortChatRunButton"),
+                _extract_js_function(src, "syncSelectedAgentChatActionControls"),
+                _extract_js_function(src, "normalizeRuntimeHealthStatus"),
+                _extract_js_function(src, "computeOpenCodeRuntimeUiState"),
+                _extract_js_function(src, "openCodeRuntimeUiStatusText"),
+                _extract_js_function(src, "setChatStatus"),
+                _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent"),
+                _extract_js_function(src, "hydrateActiveRequestFromRun"),
+                _extract_js_function(src, "buildSyntheticRunFromSessionStatus"),
+                _extract_js_function(src, "hydrateActiveRequestFromSessionStatus"),
+                _extract_js_function(src, "loadSessionForAgent"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const calls = [];
+            let capturedMetadata = null;
+            const chatState = {
+              sessionId: "",
+              isSubmitting: false,
+              openCodeProjection: null,
+              inflightThinking: null,
+              activeRequest: null,
+              needsReload: true,
+            };
+            const state = {
+              selectedAgentId: "agent-1",
+              selectedAgentName: "",
+              mineAgents: [{ id: "agent-1", name: "Agent", runtime_status: "running", status: "running" }],
+            };
+            const sessionsBtn = {};
+            const abortClassState = { hidden: true };
+            const dom = {
+              chatStatus: {
+                dataset: {},
+                textContent: "",
+                className: "",
+                setAttribute(name, value) { this[name] = value; },
+              },
+              sendChatBtn: { disabled: false },
+              abortChatRunBtn: {
+                disabled: true,
+                classList: {
+                  toggle(name, hidden) { abortClassState[name] = hidden; },
+                  add(name) { abortClassState[name] = true; },
+                  remove(name) { abortClassState[name] = false; },
+                },
+                setAttribute(name, value) { this[name] = value; },
+              },
+              headerNewChatBtn: {},
+              homeStartChatBtn: {},
+            };
+            const document = { getElementById(id) { return id === "btn-sessions" ? sessionsBtn : null; } };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function getSelectedAgent() { return state.mineAgents[0]; }
+            function getSelectedAgentStatus() { return "running"; }
+            function setButtonDisabled(button, disabled, title = "") {
+              if (!button) return;
+              button.disabled = !!disabled;
+              button.title = title;
+            }
+            function updateAgentSession(_agentId, sessionId) { chatState.sessionId = sessionId; }
+            function deriveSessionRecoveryNotice() { return null; }
+            function canonicalMessagesToLegacyDisplayMessages() { throw new Error("legacy conversion should not run without canonical messages"); }
+            function applyCanonicalMessagesToChatState() { throw new Error("canonical apply should not run without canonical messages"); }
+            function renderChatHistory(_messages, metadata) { capturedMetadata = metadata; }
+            function reconcileActiveRequestProjection(_agentId, _sessionId, metadata) {
+              calls.push(["projection", metadata.session_status.status_type]);
+            }
+            function addEditButtonsToMessages() {}
+            function currentSessionIdForAgent() { return chatState.sessionId; }
+            function setLastSessionId() {}
+            function showToast() {}
+            async function openSessionsPanel() {}
+            function ensureEventSocketForAgent(agentId, sessionId, requestId) {
+              calls.push(["events", agentId, sessionId, requestId]);
+            }
+            function startChatRunReconcileLoop(agentId, requestCtx, options) {
+              calls.push(["reconcile", agentId, requestCtx.runtimeRequestId, options?.immediate]);
+            }
+            function setChatSubmittingForAgent(_agentId, active) {
+              chatState.isSubmitting = active;
+              syncSelectedAgentChatActionControls();
+            }
+            async function agentApiFor(_agentId, path) {
+              calls.push(["api", path]);
+              if (path === "/api/sessions/sess-1/status") {
+                return { active: true, status_type: "busy", action_hint: "wait_reconnect_or_stop" };
+              }
+              if (path === "/api/sessions/sess-1") {
+                return { messages: [], metadata: {} };
+              }
+              throw new Error(`unexpected path ${path}`);
+            }
+
+            (async () => {
+              await loadSessionForAgent("agent-1", "sess-1", { render: true });
+              assert.deepEqual(
+                calls.filter((item) => item[0] === "api").map((item) => item[1]),
+                ["/api/sessions/sess-1", "/api/sessions/sess-1/status"]
+              );
+              assert.equal(chatState.openCodeProjection.sessionStatus, "busy");
+              assert.equal(chatState.activeRequest.runtimeRequestId, "opencode-session-sess-1");
+              assert.equal(chatState.activeRequest.sessionIdAtSend, "sess-1");
+              assert.equal(chatState.inflightThinking.contextSource, "opencode_session_state");
+              assert.equal(hasActiveChatRequestForAgent("agent-1"), true);
+              assert.equal(dom.sendChatBtn.disabled, true);
+              assert.equal(dom.abortChatRunBtn.disabled, false);
+              assert.equal(dom.abortChatRunBtn["aria-hidden"], "false");
+              assert.equal(abortClassState.hidden, false);
+              assert.match(dom.chatStatus.textContent, /Previous message still running/);
+              assert.match(dom.chatStatus.title, /Session: busy/);
+              assert.equal(capturedMetadata.session_status.status_type, "busy");
+              assert.ok(calls.some((item) => item[0] === "events" && item[3] === "opencode-session-sess-1"));
+              assert.ok(calls.some((item) => item[0] === "reconcile" && item[2] === "opencode-session-sess-1" && item[3] === true));
+              assert.ok(calls.some((item) => item[0] === "projection" && item[1] === "busy"));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_stream_error_event_smoke_terminal_and_no_missing_final():
     src = SRC.read_text(encoding="utf-8")
     stream_js = "\n".join(

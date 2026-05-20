@@ -338,9 +338,14 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
         "function canonicalMessagesToLegacyDisplayMessages",
         "function canonicalMessagesToThinkingItems",
         "function applyOpenCodeCanonicalEventToChatState",
+        "function normalizeOpenCodeSessionStatusType",
+        "function isOpenCodeSessionStatusBlockingPayload",
+        "function isOpenCodeSessionBlocking",
         "function computeOpenCodeRuntimeUiState",
         "function isOpenCodeSessionStateOnlyEvent",
         "function refreshOpenCodeSessionStatusForAgent",
+        "function buildSyntheticRunFromSessionStatus",
+        "function hydrateActiveRequestFromSessionStatus",
     ]:
         assert helper in src
 
@@ -350,6 +355,11 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
 
     assert "const canonicalMessages = getCanonicalMessagesFromSessionPayload(data)" in load_session
     assert "const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState)" in load_session
+    assert "isOpenCodeSessionStatusBlockingPayload(statusPayload)" in load_session
+    assert "hydrateActiveRequestFromSessionStatus(agentId, normalized, statusPayload)" in load_session
+    assert "ensureEventSocketForAgent(" in load_session
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in load_session
+    assert 'setChatStatus("Previous message still running. Reconnecting…")' in load_session
     assert "const messagesForRender = canonicalMessages.length" in load_session
     assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
     assert "data.messages || []" in load_session
@@ -759,16 +769,25 @@ def test_session_render_hydrates_active_run_and_replays_events():
     load_session = _extract_js_function(src, "loadSessionForAgent")
     reconcile_projection = _extract_js_function(src, "reconcileActiveRequestProjection")
     hydrate = _extract_js_function(src, "hydrateActiveRequestFromRun")
+    hydrate_status = _extract_js_function(src, "hydrateActiveRequestFromSessionStatus")
+    synthetic_status = _extract_js_function(src, "buildSyntheticRunFromSessionStatus")
 
     assert "getCanonicalMessagesFromSessionPayload(data)" in load_session
     assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
     assert "renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {})" in load_session
     assert "reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || [])" in load_session
     assert "metadata.active_run" in reconcile_projection
+    assert "metadata.session_status" in reconcile_projection
+    assert "isOpenCodeSessionStatusBlockingPayload(sessionStatusPayload || {})" in reconcile_projection
     assert "isValidatedRuntimeActiveRun(activeRun)" in reconcile_projection
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata)" in reconcile_projection
+    assert "hydrateActiveRequestFromSessionStatus(agentId, normalized, statusPayload)" in load_session
     assert "ensureEventSocketForAgent(agentId, sessionId" in reconcile_projection
     assert "startChatRunReconcileLoop(agentId, requestCtx" in reconcile_projection
     assert 'setChatStatus(activeStatus === "stream_detached" ? "Still running. Reconnecting…" : "Still running. Syncing…")' in reconcile_projection
+    assert 'setChatStatus("Previous message still running. Reconnecting…")' in reconcile_projection
     assert 'clearStaleActiveRequest(agentId, requestCtx, activeRun ? "opencode_not_active" : "metadata_active_run_null")' in reconcile_projection
     assert "streamDetached" in hydrate
+    assert "buildSyntheticRunFromSessionStatus(sessionId, statusPayload)" in hydrate_status
+    assert 'source_of_truth: "opencode"' in synthetic_status
+    assert 'action_hint: statusPayload.action_hint || "wait_reconnect_or_stop"' in synthetic_status

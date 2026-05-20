@@ -2790,6 +2790,50 @@ async function refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatStat
   }
 }
 
+function buildSyntheticRunFromSessionStatus(sessionId, statusPayload = {}) {
+  const statusType = normalizeOpenCodeSessionStatusType(statusPayload) || "busy";
+  return {
+    request_id:
+      statusPayload.request_id
+      || statusPayload.current_request_id
+      || statusPayload.active_run?.request_id
+      || statusPayload.run?.request_id
+      || `opencode-session-${sessionId}`,
+    session_id: sessionId,
+    status: statusType,
+    state: statusType,
+    source_of_truth: "opencode",
+    opencode_active: true,
+    can_abort: statusPayload.can_abort !== false,
+    action_hint: statusPayload.action_hint || "wait_reconnect_or_stop",
+    diagnostics: statusPayload.diagnostics || {},
+  };
+}
+
+function hydrateActiveRequestFromSessionStatus(agentId, sessionId, statusPayload = {}) {
+  if (!isOpenCodeSessionStatusBlockingPayload(statusPayload)) return null;
+
+  const activeRun =
+    statusPayload.active_run
+    || statusPayload.run
+    || buildSyntheticRunFromSessionStatus(sessionId, statusPayload);
+
+  const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
+    session_status: statusPayload,
+    active_run: activeRun,
+  });
+
+  if (requestCtx) {
+    const chatState = ensureChatState(agentId);
+    if (chatState?.inflightThinking) {
+      chatState.inflightThinking.contextSource = "opencode_session_state";
+      chatState.inflightThinking.status = "reconnecting";
+    }
+  }
+
+  return requestCtx;
+}
+
 function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
@@ -8053,6 +8097,9 @@ function reconcileActiveRequestProjection(agentId, sessionId, metadata = {}, mes
   if (!chatState) return;
   const activeRun = metadata.active_run && typeof metadata.active_run === "object" ? metadata.active_run : null;
   const latestRun = metadata.latest_run && typeof metadata.latest_run === "object" ? metadata.latest_run : null;
+  const sessionStatusPayload = metadata.session_status && typeof metadata.session_status === "object"
+    ? metadata.session_status
+    : null;
   const activeStatus = normalizeChatRunStatus(activeRun?.status || activeRun?.state || "");
   if (activeRun && isValidatedRuntimeActiveRun(activeRun)) {
     const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata);
@@ -8082,6 +8129,23 @@ function reconcileActiveRequestProjection(agentId, sessionId, metadata = {}, mes
     chatState.activeRequest = null;
     chatState.inflightThinking = null;
     setChatSubmittingForAgent(agentId, false);
+    syncSelectedAgentChatActionControls();
+    return;
+  }
+  if (
+    chatState.activeRequest?.sessionIdAtSend === sessionId
+    && isOpenCodeSessionStatusBlockingPayload(sessionStatusPayload || {})
+  ) {
+    const requestCtx = chatState.activeRequest;
+    ensureActiveAssistantRowAfterRender(agentId, requestCtx, {
+      response: requestCtx.streamedText || "",
+      request_id: requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
+      session_id: sessionId,
+    });
+    setChatSubmittingForAgent(agentId, false);
+    setChatStatus("Previous message still running. Reconnecting…");
+    ensureEventSocketForAgent(agentId, sessionId, requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId);
+    startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
     syncSelectedAgentChatActionControls();
     return;
   }
@@ -8152,6 +8216,22 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     }
   };
   const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState);
+  if (statusPayload && isOpenCodeSessionStatusBlockingPayload(statusPayload)) {
+    const requestCtx = hydrateActiveRequestFromSessionStatus(agentId, normalized, statusPayload);
+    if (requestCtx) {
+      setChatSubmittingForAgent(agentId, false);
+      ensureEventSocketForAgent(
+        agentId,
+        normalized,
+        requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || ""
+      );
+      startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+      if (agentId === state.selectedAgentId) {
+        setChatStatus("Previous message still running. Reconnecting…");
+        syncSelectedAgentChatActionControls();
+      }
+    }
+  }
   const shouldApplyRecoveryNotice = agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId);
   const canonicalMessages = getCanonicalMessagesFromSessionPayload(data);
   const messagesForRender = canonicalMessages.length
