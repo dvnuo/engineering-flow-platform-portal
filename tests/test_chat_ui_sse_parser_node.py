@@ -560,6 +560,120 @@ def test_opencode_runtime_ui_state_three_way_model_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_assistant_completed_event_does_not_throw_when_success_handler_clears_inflight_thinking():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeRuntimeEventTypeAlias"),
+                _extract_js_function(src, "isCompletionRuntimeState"),
+                _extract_js_function(src, "normalizeRuntimeEvent"),
+                _extract_js_function(src, "isAssistantMessageRuntimeEvent"),
+                _extract_js_function(src, "handleAssistantMessageRuntimeEvent"),
+                _extract_js_function(src, "markThinkingTerminalFromEvent"),
+                _extract_js_function(src, "handleAgentEventMessage"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+            const calls = [];
+            const state = { selectedAgentId: "agent-1" };
+            const chatState = {
+              sessionId: "sess-1",
+              activeRequest: {
+                clientRequestId: "req-1",
+                requestId: "req-1",
+                runtimeRequestId: "req-1",
+                sessionIdAtSend: "sess-1",
+              },
+              inflightThinking: {
+                id: "req-1",
+                requestId: "req-1",
+                sessionId: "sess-1",
+                events: [],
+                completed: false,
+              },
+              lastThinkingSnapshot: null,
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function isTrackableThinkingEvent() { return true; }
+            function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, options) {
+              calls.push(["assistantRow", agentId, requestCtx.clientRequestId, payload.response, options?.completed === true]);
+              return {};
+            }
+            function extractAssistantVisibleText(data) { return data.response || data.text || ""; }
+            function extractAssistantDisplayBlocks() { return []; }
+            function getChatStreamTextPayload(data) { return data.delta || ""; }
+            function normalizeAssistantMessageIds() { return []; }
+            function getCompletionState(payload) { return String(payload?.completion_state || payload?.status || "").trim().toLowerCase(); }
+            function normalizeChatRunStatus(status) { return String(status || "").trim().toLowerCase(); }
+            function isChatRunCompletedStatus(status) { return status === "completed"; }
+            function shouldIgnoreAssistantStreamDelta() { return false; }
+            function handleAgentChatSuccess(agentId, requestCtx, payload) {
+              calls.push(["success", agentId, requestCtx.clientRequestId, payload.completion_state]);
+              chatState.activeRequest = null;
+              chatState.inflightThinking = null;
+              chatState.lastThinkingSnapshot = { completed: true, events: [] };
+            }
+            function startChatRunReconcileLoop() { calls.push(["reconcile"]); }
+            function maybeStartStalledAssistantReconcile() { calls.push(["stalled"]); }
+            function isThinkingPanelActiveForAgent() { return false; }
+            function scheduleThinkingPanelRefresh() { calls.push(["panel"]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["sync"]); }
+            function applyOpenCodeCanonicalEventToChatState() { return false; }
+            function maybeRefreshSessionSnapshotForOpenCodeEvent() { calls.push(["snapshot"]); }
+            function isOpenCodeCanonicalSnapshotEvent() { return false; }
+            function isOpenCodeSessionStateOnlyEvent() { return false; }
+            function updateThinkingContextFromEvent() {}
+            function mergeThinkingEvents(first = [], second = []) { return [...first, ...second]; }
+            function fallbackRequestContextForAgent() { return {}; }
+            function appendPortalChatRuntimeEvent(_agentId, _ctx, type) { calls.push(["portal", type]); }
+            function hasActiveChatRequestForAgent() {
+              return Boolean(chatState.activeRequest || (chatState.inflightThinking && chatState.inflightThinking.completed === false));
+            }
+
+            let threw = false;
+            try {
+              handleAgentEventMessage(JSON.stringify({
+                type: "assistant.message.completed",
+                event_type: "assistant.message.completed",
+                state: "completed",
+                session_id: "sess-1",
+                request_id: "req-1",
+                data: {
+                  status: "completed",
+                  completion_state: "completed",
+                  response: "hello",
+                  request_id: "req-1",
+                  session_id: "sess-1"
+                }
+              }), { agentId: "agent-1", sessionId: "sess-1", requestId: "req-1" });
+            } catch (error) {
+              threw = true;
+            }
+
+            assert.equal(threw, false);
+            assert.equal(chatState.activeRequest, null);
+            assert.equal(chatState.inflightThinking, null);
+            assert.equal(chatState.lastThinkingSnapshot.completed, true);
+            assert.equal(hasActiveChatRequestForAgent(), false);
+            assert.equal(calls.some((item) => item[0] === "success"), true);
+            assert.equal(calls.some((item) => item[0] === "sync"), true);
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_opencode_session_status_blocks_send_and_shows_stop_run_node_smoke():
     src = SRC.read_text(encoding="utf-8")
     script = (

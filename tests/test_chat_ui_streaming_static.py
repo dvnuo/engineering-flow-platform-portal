@@ -834,12 +834,38 @@ def test_events_update_assistant_bubble_and_do_not_show_hidden_reasoning():
     ]:
         assert event_type in trackable
         assert event_type in predicate
-    assert "handleAssistantMessageRuntimeEvent(currentAgentId, chatState, entry" in handle_event
+    assert "assistantRuntimeEventResult = handleAssistantMessageRuntimeEvent(" in handle_event
     assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true })" in assistant_handler
     assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { completed: true })" in assistant_handler
     assert "requestCtx.streamedText" in assistant_handler
     assert 'role === "user"' in guard
     assert 'rawType === "message.part.updated"' in guard
+
+
+def test_terminal_runtime_event_is_null_safe_after_assistant_finalization():
+    src = _src()
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    terminal_helper = _extract_js_function(src, "markThinkingTerminalFromEvent")
+    ensure_socket = _extract_js_function(src, "ensureEventSocketForAgent")
+    onmessage_branch = ensure_socket[
+        ensure_socket.index("ws.onmessage = (event) => {"):
+        ensure_socket.index("ws.onclose =", ensure_socket.index("ws.onmessage = (event) => {"))
+    ]
+
+    assert "function markThinkingTerminalFromEvent" in src
+    assert "assistantRuntimeEventResult" in handle_event
+    assert 'assistantRuntimeEventResult === "finalized"' in handle_event
+    assert "markThinkingTerminalFromEvent(chatState, entry)" in handle_event
+    assert "chatState.inflightThinking.completed = true" not in handle_event
+    assert "chatState.inflightThinking.completed = true" in terminal_helper
+    assert terminal_helper.index("if (chatState.inflightThinking)") < terminal_helper.index("chatState.inflightThinking.completed = true")
+    assert "try {" in onmessage_branch
+    assert "catch (error)" in onmessage_branch
+    assert '"portal.event_handler.failed"' in onmessage_branch
+    assert (
+        "startChatRunReconcileLoop" in onmessage_branch
+        or "maybeRefreshSessionSnapshotForOpenCodeEvent" in onmessage_branch
+    )
 
 
 def test_session_render_hydrates_active_run_and_replays_events():

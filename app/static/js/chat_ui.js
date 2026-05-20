@@ -2561,14 +2561,14 @@ function isAssistantMessageRuntimeEvent(type) {
 }
 
 function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatchesActiveRequest, eventMatchesSocketRequest) {
-  if (!chatState?.activeRequest || !isAssistantMessageRuntimeEvent(entry?.type)) return;
+  if (!chatState?.activeRequest || !isAssistantMessageRuntimeEvent(entry?.type)) return "ignored";
   const requestCtx = chatState.activeRequest;
   const canUseEvent = eventMatchesActiveRequest || eventMatchesSocketRequest || !entry.request_id;
-  if (!canUseEvent) return;
+  if (!canUseEvent) return "ignored";
   const data = entry.data && typeof entry.data === "object" ? entry.data : {};
   const type = entry.type;
   if ((type === "message.delta" || type === "assistant.message.updated") && shouldIgnoreAssistantStreamDelta(data, requestCtx)) {
-    return;
+    return "ignored";
   }
   const deltaText = getChatStreamTextPayload(data);
   let visibleText = extractAssistantVisibleText(data);
@@ -2603,10 +2603,44 @@ function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatc
         events: [],
       };
       void handleAgentChatSuccess(agentId, requestCtx, finalPayload);
+      return "finalized";
     } else {
       startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+      return "completed_reconcile";
     }
   }
+  return "updated";
+}
+
+function markThinkingTerminalFromEvent(chatState, entry = {}) {
+  if (!chatState) return false;
+
+  if (chatState.inflightThinking) {
+    chatState.inflightThinking.completed = true;
+    chatState.inflightThinking.status = chatState.inflightThinking.status || "completed";
+    chatState.inflightThinking.completedAt = chatState.inflightThinking.completedAt || Date.now();
+    updateThinkingContextFromEvent(chatState.inflightThinking, entry);
+    chatState.lastThinkingSnapshot = {
+      ...chatState.inflightThinking,
+      events: mergeThinkingEvents(chatState.inflightThinking.events || [], [entry]),
+      completed: true,
+      completedAt: chatState.inflightThinking.completedAt,
+    };
+    return true;
+  }
+
+  if (chatState.lastThinkingSnapshot) {
+    chatState.lastThinkingSnapshot = {
+      ...chatState.lastThinkingSnapshot,
+      events: mergeThinkingEvents(chatState.lastThinkingSnapshot.events || [], [entry]),
+      completed: true,
+      completedAt: chatState.lastThinkingSnapshot.completedAt || Date.now(),
+    };
+    updateThinkingContextFromEvent(chatState.lastThinkingSnapshot, entry);
+    return true;
+  }
+
+  return false;
 }
 
 function maybeStartStalledAssistantReconcile(agentId, chatState) {
@@ -3101,9 +3135,28 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     scheduleThinkingPanelRefresh(currentAgentId);
   }
 
+  let assistantRuntimeEventResult = "ignored";
   if (typeof handleAssistantMessageRuntimeEvent === "function") {
-    handleAssistantMessageRuntimeEvent(currentAgentId, chatState, entry, eventMatchesActiveRequest, eventMatchesSocketRequest);
+    assistantRuntimeEventResult = handleAssistantMessageRuntimeEvent(
+      currentAgentId,
+      chatState,
+      entry,
+      eventMatchesActiveRequest,
+      eventMatchesSocketRequest
+    ) || "ignored";
   }
+
+  if (
+    assistantRuntimeEventResult === "finalized"
+    && !chatState.inflightThinking
+  ) {
+    if (isThinkingPanelActiveForAgent(currentAgentId)) {
+      scheduleThinkingPanelRefresh(currentAgentId);
+    }
+    syncSelectedAgentChatActionControls();
+    return;
+  }
+
   if (typeof maybeStartStalledAssistantReconcile === "function") {
     maybeStartStalledAssistantReconcile(currentAgentId, chatState);
   }
@@ -3120,9 +3173,21 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     return;
   }
 
-  if (type === "execution.completed" || type === "execution.failed" || type === "skill_complete" || isCompletion || lifecycleType === "execution.completed" || lifecycleType === "execution.failed") {
-    chatState.inflightThinking.completed = true;
-    chatState.lastThinkingSnapshot = { ...chatState.inflightThinking, completed: true };
+  const isTerminalRuntimeEvent = (
+    type === "execution.completed"
+    || type === "execution.failed"
+    || type === "skill_complete"
+    || isCompletion
+    || lifecycleType === "execution.completed"
+    || lifecycleType === "execution.failed"
+  );
+
+  if (isTerminalRuntimeEvent) {
+    markThinkingTerminalFromEvent(chatState, entry);
+    if (isThinkingPanelActiveForAgent(currentAgentId)) {
+      scheduleThinkingPanelRefresh(currentAgentId);
+    }
+    syncSelectedAgentChatActionControls();
   }
 }
 
@@ -3207,7 +3272,45 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
     state.eventWsReconnectAttempt = 0;
     updateEventSocketStatus(agentId, "connected");
   };
-  ws.onmessage = (event) => handleAgentEventMessage(event.data, { agentId, sessionId: session, requestId });
+  ws.onmessage = (event) => {
+    try {
+      handleAgentEventMessage(event.data, { agentId, sessionId: session, requestId });
+    } catch (error) {
+      console.error("Portal chat event handler failed", error);
+      const latestChatState = ensureChatState(agentId);
+      appendPortalChatRuntimeEvent(
+        agentId,
+        latestChatState?.activeRequest || fallbackRequestContextForAgent(agentId, "event_handler_failed"),
+        "portal.event_handler.failed",
+        {
+          message: "Portal failed to process a live runtime event; syncing session snapshot.",
+          error: String(error?.message || error || ""),
+        }
+      );
+
+      if (latestChatState?.activeRequest) {
+        startChatRunReconcileLoop(agentId, latestChatState.activeRequest, { immediate: true });
+        setChatStatus("Still running. Syncing session…");
+      } else if (session) {
+        if (!latestChatState.openCodeProjection) {
+          latestChatState.openCodeProjection = {
+            messagesById: {},
+            partsById: {},
+            sessionStatus: "unknown",
+            sessionStatusPayload: null,
+            needsSnapshot: false,
+          };
+        }
+        latestChatState.openCodeProjection.needsSnapshot = true;
+        maybeRefreshSessionSnapshotForOpenCodeEvent(agentId, latestChatState, session, {
+          type: "portal.event_handler.failed",
+          data: { reconcile_hint: "fetch_session_messages" },
+        });
+      }
+
+      syncSelectedAgentChatActionControls();
+    }
+  };
   ws.onclose = () => {
     if (state.eventWs === ws) {
       state.eventWs = null;
