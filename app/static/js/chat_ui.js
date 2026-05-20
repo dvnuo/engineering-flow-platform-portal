@@ -2863,6 +2863,10 @@ function hydrateActiveRequestFromSessionStatus(agentId, sessionId, statusPayload
   });
 
   if (requestCtx) {
+    requestCtx.source_of_truth = "opencode_session_status";
+    requestCtx.sourceOfTruth = "opencode_session_status";
+    requestCtx.fromSessionStatus = true;
+    requestCtx.syntheticSessionRun = String(requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "").startsWith("opencode-session-");
     const chatState = ensureChatState(agentId);
     if (chatState?.inflightThinking) {
       chatState.inflightThinking.contextSource = "opencode_session_state";
@@ -5761,11 +5765,118 @@ function runtimeAbortIndicatesInactive(result = {}) {
   return ["aborted", "stale", "completed", "incomplete", "failed", "cancelled", "canceled"].includes(status);
 }
 
+function isSyntheticOpenCodeSessionRequest(requestCtx = {}, chatState = {}) {
+  const requestId = String(
+    requestCtx.runtimeRequestId ||
+    requestCtx.requestId ||
+    requestCtx.clientRequestId ||
+    ""
+  );
+
+  if (!requestId) return true;
+  if (requestId.startsWith("opencode-session-")) return true;
+
+  const payload = chatState?.openCodeProjection?.sessionStatusPayload || {};
+  if (payload?.active === true) return true;
+  if (typeof isOpenCodeSessionBlocking === "function" && isOpenCodeSessionBlocking(chatState)) return true;
+
+  const source = String(
+    requestCtx.source_of_truth ||
+    requestCtx.sourceOfTruth ||
+    requestCtx.contextSource ||
+    ""
+  ).toLowerCase();
+  if (source.includes("opencode_session") || source.includes("session_status")) return true;
+  if (requestCtx.syntheticSessionRun === true || requestCtx.fromSessionStatus === true) return true;
+
+  return false;
+}
+
+function isMissingChatRunAbortFailure(value = {}) {
+  const abortResult = value?.abort_result || value?.abortResult || {};
+  const errors = Array.isArray(abortResult?.errors) ? abortResult.errors.join(" ") : "";
+  const message = String(
+    value?.status ||
+    value?.status_code ||
+    value?.statusCode ||
+    value?.code ||
+    value?.error ||
+    value?.detail ||
+    value?.message ||
+    abortResult?.error ||
+    abortResult?.detail ||
+    errors ||
+    value ||
+    ""
+  ).toLowerCase();
+  return ["404", "409", "422", "not found", "missing", "no run", "chatrunstore"].some((marker) => message.includes(marker));
+}
+
+async function abortSessionForAgent(agentId, sessionId) {
+  if (!agentId || !sessionId) throw new Error("No active session to stop.");
+  const resp = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  let payload = {};
+  try {
+    payload = await resp.json();
+  } catch (_error) {
+    payload = {};
+  }
+  if (!resp.ok || payload.success === false) {
+    const message =
+      payload.detail ||
+      payload.error ||
+      payload.message ||
+      `Abort failed (HTTP ${resp.status})`;
+    const error = new Error(message);
+    error.status = resp.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+async function handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result = {}) {
+  if (requestCtx) {
+    requestCtx.aborted = true;
+    requestCtx.streamCompleted = true;
+    stopChatRunReconcileLoop(requestCtx);
+  }
+  if (chatState) {
+    chatState.activeRequest = null;
+    chatState.inflightThinking = null;
+    if (chatState.openCodeProjection) {
+      chatState.openCodeProjection.sessionStatus = "idle";
+      chatState.openCodeProjection.sessionStatusPayload = {
+        ...(chatState.openCodeProjection.sessionStatusPayload || {}),
+        active: false,
+        status: { type: "idle" },
+        status_type: "idle",
+        action_hint: "safe_to_send",
+        active_run: null,
+      };
+    }
+  }
+  appendPortalChatRuntimeEvent(agentId, requestCtx || fallbackRequestContextForAgent(agentId, "user_aborted"), "portal.abort.completed", {
+    message: "Current OpenCode session run was stopped.",
+    result,
+  });
+  setChatSubmittingForAgent(agentId, false);
+  syncSelectedAgentChatActionControls();
+  setChatStatus("Run stopped. Syncing session...");
+  showToast("Stopped current run.");
+  if (sessionId) {
+    await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId });
+  }
+}
+
 async function abortActiveChatRequestForSelectedAgent() {
   const agentId = state.selectedAgentId;
   const chatState = ensureChatState(agentId);
   const req = chatState?.activeRequest;
-  const sessionId = chatState?.sessionId || req?.sessionIdAtSend || "";
+  const sessionId = req?.sessionIdAtSend || chatState?.sessionId || ((typeof currentSessionIdForAgent === "function") ? currentSessionIdForAgent(agentId) : "");
 
   if (!agentId || (!req && !sessionId)) return;
 
@@ -5777,34 +5888,61 @@ async function abortActiveChatRequestForSelectedAgent() {
     agentId,
     sessionIdAtSend: sessionId,
   };
+  const localIsSyntheticOpenCodeSessionRequest = (typeof isSyntheticOpenCodeSessionRequest === "function")
+    ? isSyntheticOpenCodeSessionRequest
+    : () => false;
+  const localIsMissingChatRunAbortFailure = (typeof isMissingChatRunAbortFailure === "function")
+    ? isMissingChatRunAbortFailure
+    : () => false;
+  const shouldAbortSession = !req || localIsSyntheticOpenCodeSessionRequest(requestCtx, chatState || {});
 
   setChatStatus("Stopping current run…");
+  if (typeof dom !== "undefined" && dom.abortChatRunBtn) dom.abortChatRunBtn.disabled = true;
   appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.started", {
     message: "Stopping current OpenCode run.",
   });
 
   try {
     let result = null;
+    if (shouldAbortSession) {
+      result = await abortSessionForAgent(agentId, sessionId);
+      await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result);
+      return;
+    }
     if (requestId) {
-      result = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/abort`, {
-        method: "POST",
-      });
+      try {
+        result = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/abort`, {
+          method: "POST",
+        });
+      } catch (error) {
+        if (sessionId && localIsMissingChatRunAbortFailure(error)) {
+          result = await abortSessionForAgent(agentId, sessionId);
+          await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result);
+          return;
+        }
+        throw error;
+      }
     } else if (sessionId) {
-      result = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}/abort`, {
-        method: "POST",
-      });
+      result = await abortSessionForAgent(agentId, sessionId);
+      await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result);
+      return;
     }
 
     if (!runtimeAbortSucceeded(result)) {
-      const message = String(result?.error || result?.detail || "Runtime could not stop the OpenCode run.");
-      appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.failed", {
-        message,
-        result,
-      });
-      setChatStatus("Unable to stop current run.", true);
-      showToast("Unable to stop current run: " + message);
-      startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-      syncSelectedAgentChatActionControls();
+      if (sessionId && localIsMissingChatRunAbortFailure(result)) {
+        const sessionAbortResult = await abortSessionForAgent(agentId, sessionId);
+        await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, sessionAbortResult);
+      } else {
+        const message = String(result?.error || result?.detail || "Runtime could not stop the OpenCode run.");
+        appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.failed", {
+          message,
+          result,
+        });
+        setChatStatus("Unable to stop current run.", true);
+        showToast("Unable to stop current run: " + message);
+        startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+        syncSelectedAgentChatActionControls();
+      }
       return;
     }
 

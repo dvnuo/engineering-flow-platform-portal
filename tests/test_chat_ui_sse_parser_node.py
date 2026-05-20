@@ -2116,6 +2116,87 @@ def test_abort_active_chat_request_clears_active_request_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_abort_synthetic_opencode_session_run_uses_session_abort_endpoint_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "isOpenCodeSessionBlocking"),
+                _extract_js_function(src, "isSyntheticOpenCodeSessionRequest"),
+                _extract_js_function(src, "abortSessionForAgent"),
+                _extract_js_function(src, "handleSessionAbortSuccess"),
+                _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const requestCtx = {
+              clientRequestId: "opencode-session-op_123",
+              requestId: "opencode-session-op_123",
+              runtimeRequestId: "opencode-session-op_123",
+              sessionIdAtSend: "portal-session-1",
+              fromSessionStatus: true,
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: false,
+              sessionId: "portal-session-1",
+              inflightThinking: { id: "opencode-session-op_123", requestId: "opencode-session-op_123", sessionId: "portal-session-1", completed: false },
+              openCodeProjection: {
+                sessionStatus: "busy",
+                sessionStatusPayload: { active: true, status_type: "busy", active_run: { request_id: "opencode-session-op_123" } },
+              },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const dom = { abortChatRunBtn: { disabled: false } };
+            const calls = [];
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
+            function stopChatRunReconcileLoop(ctx) { ctx.reconcileStopped = true; calls.push(["stopReconcile", ctx.runtimeRequestId]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["syncControls"]); }
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function showToast(message) { calls.push(["toast", message]); }
+            async function loadSessionForAgent(agentId, sessionId, options) { calls.push(["load", agentId, sessionId, options.render]); }
+            async function agentApiFor() { throw new Error("request abort endpoint should not be used"); }
+            async function fetch(url, options) {
+              calls.push(["fetch", url, options.method]);
+              assert.equal(url, "/a/agent-1/api/sessions/portal-session-1/abort");
+              return {
+                ok: true,
+                status: 200,
+                async json() { return { success: true, abort_result: { success: true } }; },
+              };
+            }
+
+            (async () => {
+              await abortActiveChatRequestForSelectedAgent();
+              assert.equal(calls.some((item) => item[0] === "fetch" && item[1].includes("/api/chat/runs/")), false);
+              assert.ok(calls.some((item) => item[0] === "fetch" && item[1] === "/a/agent-1/api/sessions/portal-session-1/abort" && item[2] === "POST"));
+              assert.ok(calls.some((item) => item[0] === "syncControls"));
+              assert.equal(chatState.activeRequest, null);
+              assert.equal(chatState.inflightThinking, null);
+              assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
+              assert.equal(chatState.openCodeProjection.sessionStatusPayload.active, false);
+              assert.equal(chatState.openCodeProjection.sessionStatusPayload.active_run, null);
+              assert.ok(calls.some((item) => item[0] === "load" && item[2] === "portal-session-1"));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_abort_active_chat_request_failure_keeps_active_request_node_smoke():
     src = SRC.read_text(encoding="utf-8")
     script = (

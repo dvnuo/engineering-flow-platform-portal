@@ -119,12 +119,14 @@ def test_reconcile_lifecycle_clears_inactive_active_run_null_and_stale_runs():
 def test_user_abort_and_agent_lifecycle_clear_active_request():
     src = _src()
     abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    abort_session = _extract_js_function(src, "abortSessionForAgent")
     action_fn = _extract_js_function(src, "action")
     parser = _extract_js_function(src, "parseAgentLifecycleAction")
 
     assert 'setChatStatus("Stopping current run…")' in abort_fn
     assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
-    assert '`/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_fn
+    assert '`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_session
+    assert "abortSessionForAgent(agentId, sessionId)" in abort_fn
     assert "if (!runtimeAbortSucceeded(result))" in abort_fn
     assert "runtimeAbortIndicatesInactive(result)" in abort_fn
     assert 'clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted")' in abort_fn
