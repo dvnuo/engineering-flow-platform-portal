@@ -10058,6 +10058,17 @@ function runtimeImagePreview(config) {
   return repo ? `${repo}:${tag}` : "";
 }
 
+function getCreateDefaultRuntimeType(defaults) {
+  return normalizeRuntimeTypeValue(defaults?.default_runtime_type || "opencode", defaults);
+}
+
+function runtimeTypeDescription(item) {
+  const value = String(item?.value || "").trim().toLowerCase();
+  if (value === "opencode") return "Recommended default for new assistants.";
+  if (value === "native") return "Use the native EFP Python runtime.";
+  return "Use this runtime for the assistant.";
+}
+
 function populateRuntimeTypeSelect(selectEl, defaults, selectedValue = "") {
   if (!selectEl) return;
   const runtimeTypes = getRuntimeTypes(defaults);
@@ -10071,10 +10082,45 @@ function populateRuntimeTypeSelect(selectEl, defaults, selectedValue = "") {
   selectEl.value = selected;
 }
 
+function populateRuntimeTypeRadioGroup(groupEl, defaults, selectedValue = "") {
+  if (!groupEl) return;
+  const runtimeTypes = getRuntimeTypes(defaults);
+  const selected = normalizeRuntimeTypeValue(selectedValue || defaults?.default_runtime_type || "opencode", defaults);
+  groupEl.innerHTML = runtimeTypes.map((item) => {
+    const value = String(item.value || "").trim();
+    const label = item.label || value;
+    const checkedAttr = value === selected ? " checked" : "";
+    const image = runtimeImagePreview(item);
+    const mountPath = item.default_mount_path || "";
+    const meta = image
+      ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}`
+      : runtimeTypeDescription(item);
+
+    return `
+      <label class="runtime-type-radio-option">
+        <input
+          class="runtime-type-radio-input"
+          type="radio"
+          name="runtime_type"
+          value="${escapeHtmlAttr(value)}"${checkedAttr}
+        />
+        <span class="runtime-type-radio-card">
+          <span class="runtime-type-radio-control" aria-hidden="true"></span>
+          <span class="runtime-type-radio-copy">
+            <span class="runtime-type-radio-title">${safe(label)}</span>
+            <span class="runtime-type-radio-description">${safe(meta)}</span>
+          </span>
+        </span>
+      </label>
+    `;
+  }).join("");
+}
+
 function updateCreateRuntimeTypeHint(form, defaults) {
-  const selectEl = form?.elements?.["runtime_type"];
+  const runtimeTypeControl = form?.elements?.["runtime_type"];
   const hintEl = document.getElementById("create-runtime-type-hint");
-  const config = findRuntimeTypeConfig(defaults, selectEl?.value || defaults?.default_runtime_type || "native");
+  const runtimeTypeValue = runtimeTypeControl?.value || defaults?.default_runtime_type || "opencode";
+  const config = findRuntimeTypeConfig(defaults, runtimeTypeValue);
   const image = runtimeImagePreview(config);
   const mountPath = config?.default_mount_path || defaults?.mount_path || "";
   if (hintEl) hintEl.textContent = image ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}` : "";
@@ -10100,8 +10146,8 @@ function applyCreateAgentDefaults(form, defaults) {
     const defaultRuntimeProfileId = defaults?.default_runtime_profile_id || "";
     if (defaultRuntimeProfileId) runtimeProfileSelect.value = defaultRuntimeProfileId;
   }
-  const runtimeTypeSelect = form.elements["runtime_type"];
-  populateRuntimeTypeSelect(runtimeTypeSelect, defaults, defaults?.default_runtime_type || "native");
+  const runtimeTypeGroup = document.getElementById("create-runtime-type-select");
+  populateRuntimeTypeRadioGroup(runtimeTypeGroup, defaults, getCreateDefaultRuntimeType(defaults));
   updateCreateRuntimeTypeHint(form, defaults);
 }
 

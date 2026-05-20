@@ -182,6 +182,8 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
 
         monkeypatch.setattr(agents_api.settings, "default_agent_image_repo", "ghcr.io/acme/portal-agent")
         monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "v2.4.1")
+        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode-runtime")
+        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "v1.2.3")
         monkeypatch.setattr(agents_api.settings, "default_agent_repo_url", "git@github.com:Acme/Portal.git")
         monkeypatch.setattr(agents_api.settings, "enable_runtime_source_overlay", False)
         monkeypatch.setattr(agents_api.settings, "default_agent_branch", "release/default")
@@ -195,8 +197,8 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         response = client.post("/api/agents", json={"name": "defaulted-agent"})
         assert response.status_code == 200
         body = response.json()
-        assert body["runtime_type"] == "native"
-        assert body["image"] == "ghcr.io/acme/portal-agent:v2.4.1"
+        assert body["runtime_type"] == "opencode"
+        assert body["image"] == "ghcr.io/acme/opencode-runtime:v1.2.3"
         assert body["branch"] is None
         assert body["repo_url"] is None
     finally:
@@ -309,7 +311,7 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
         assert body["runtime_branch"] == body["default_runtime_branch"]
         assert "default_skill_repo_url" in body
         assert "default_skill_branch" in body
-        assert body["default_runtime_type"] == "native"
+        assert body["default_runtime_type"] == "opencode"
         assert "runtime_types" in body
         values = {item["value"] for item in body["runtime_types"]}
         assert values == {"native", "opencode"}
@@ -892,7 +894,7 @@ def test_patch_null_runtime_type_returns_422_and_does_not_mutate_agent(monkeypat
         assert resp.status_code == 422
         assert resp.json()["detail"] == "runtime_type cannot be null"
         after = client.get(f"/api/agents/{created['id']}").json()
-        assert after["runtime_type"] == "native"
+        assert after["runtime_type"] == "opencode"
     finally:
         cleanup()
 

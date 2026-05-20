@@ -1799,6 +1799,130 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   color: var(--portal-text);
 }
 
+.runtime-type-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.runtime-type-fieldset > legend {
+  display: block;
+  margin-bottom: 8px;
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--portal-text-secondary);
+}
+
+.runtime-type-radio-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.runtime-type-radio-option {
+  display: block;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.runtime-type-radio-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.runtime-type-radio-card {
+  min-height: 82px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--portal-border);
+  background: var(--portal-surface);
+  color: var(--portal-text-secondary);
+  transition:
+    border-color var(--portal-transition),
+    background var(--portal-transition),
+    color var(--portal-transition),
+    box-shadow var(--portal-transition),
+    transform var(--portal-transition);
+}
+
+.runtime-type-radio-option:hover .runtime-type-radio-card {
+  border-color: var(--portal-border-strong);
+  background: var(--portal-surface-soft);
+  transform: translateY(-1px);
+}
+
+.runtime-type-radio-input:checked + .runtime-type-radio-card {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 35%);
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--portal-accent), transparent 72%);
+}
+
+.runtime-type-radio-input:focus-visible + .runtime-type-radio-card {
+  outline: none;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--portal-accent), transparent 68%),
+    0 0 0 4px color-mix(in srgb, var(--portal-surface), transparent 20%);
+}
+
+.runtime-type-radio-control {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--portal-border-strong);
+  background: var(--portal-surface);
+  position: relative;
+}
+
+.runtime-type-radio-input:checked + .runtime-type-radio-card .runtime-type-radio-control {
+  border-color: var(--portal-accent);
+  background: var(--portal-accent);
+}
+
+.runtime-type-radio-input:checked + .runtime-type-radio-card .runtime-type-radio-control::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 999px;
+  background: var(--portal-cta-text);
+}
+
+.runtime-type-radio-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.runtime-type-radio-title {
+  font-weight: 700;
+  color: inherit;
+}
+
+.runtime-type-radio-description {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--portal-text-muted);
+}
+
+.runtime-type-radio-input:checked + .runtime-type-radio-card .runtime-type-radio-description {
+  color: color-mix(in srgb, var(--portal-accent-strong), var(--portal-text-muted) 25%);
+}
+
+@media (max-width: 640px) {
+  .runtime-type-radio-group {
+    grid-template-columns: 1fr;
+  }
+}
+
 .portal-checkbox-row {
   display: inline-flex;
   align-items: center;
