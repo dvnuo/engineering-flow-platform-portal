@@ -213,3 +213,26 @@ def test_chat_run_already_active_thinking_display_and_continue_hint_contract():
     )
     result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_thinking_process_view_maps_opencode_canonical_part_events():
+    view = build_thinking_process_view({
+        "runtime_events": [
+            _event("opencode.reasoning", {"text": "checked files", "status": "completed"}),
+            _event("opencode.tool", {"tool": "bash", "status": "running"}),
+            _event("opencode.step.started", {"message": "Step started"}),
+            _event("opencode.step.finished", {"reason": "done"}),
+            _event("permission_request", {"permission_id": "perm-1", "status": "pending"}),
+        ],
+    })
+
+    titles = [event["display_title"] for event in view["events"]]
+    assert titles == [
+        "OpenCode Reasoning",
+        "OpenCode Tool",
+        "OpenCode Step Started",
+        "OpenCode Step Finished",
+        "Permission Requested",
+    ]
+    assert view["events"][0]["kind"] == "success"
+    assert view["events"][1]["kind"] == "running"

@@ -304,6 +304,7 @@ function createDefaultChatState() {
     pendingFiles: [],
     inflightThinking: null,
     lastThinkingSnapshot: null,
+    openCodeProjection: null,
     pendingThinkingEvents: null,
     draftText: "",
     activeRequest: null,
@@ -945,7 +946,7 @@ function getSelectedAgent() {
 }
 
 function getSelectedAgentStatus() {
-  const agent = getSelectedAgent();
+  const agent = (typeof getSelectedAgent === "function") ? getSelectedAgent() : {};
   if (!agent) return "idle";
   return (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
 }
@@ -1086,6 +1087,270 @@ function getHistoryUserVisibleContent(message) {
     if (typeof value === "string") return value;
   }
   return "";
+}
+
+function getCanonicalMessagesFromSessionPayload(payload = {}) {
+  const canonical = Array.isArray(payload?.canonical_messages)
+    ? payload.canonical_messages
+    : Array.isArray(payload?.metadata?.canonical_messages)
+      ? payload.metadata.canonical_messages
+      : [];
+
+  return canonical
+    .filter((message) => message && typeof message === "object")
+    .map((message) => {
+      const info = message.info && typeof message.info === "object" ? message.info : {};
+      const parts = Array.isArray(message.parts) ? message.parts.filter((part) => part && typeof part === "object") : [];
+      const messageId = String(message.message_id || info.id || "");
+      const role = String(message.role || info.role || "").toLowerCase();
+
+      return {
+        info,
+        parts,
+        message_id: messageId,
+        role,
+        source_of_truth: "opencode",
+      };
+    })
+    .filter((message) => message.message_id || message.role || message.parts.length);
+}
+
+function canonicalPartText(part = {}) {
+  if (!part || typeof part !== "object") return "";
+  if (typeof part.text === "string") return part.text;
+  if (typeof part.content === "string") return part.content;
+  if (typeof part.delta === "string") return part.delta;
+  if (typeof part.markdown === "string") return part.markdown;
+  return "";
+}
+
+function canonicalMessageVisibleText(message = {}) {
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  return parts
+    .filter((part) => {
+      const type = String(part.type || "").toLowerCase();
+      return type === "text" || type === "markdown" || (!type && canonicalPartText(part));
+    })
+    .map(canonicalPartText)
+    .filter(Boolean)
+    .join("");
+}
+
+function canonicalMessageToLegacyDisplayMessage(message = {}, index = 0) {
+  const info = message.info || {};
+  const role = String(message.role || info.role || "").toLowerCase() || "assistant";
+  const id = String(message.message_id || info.id || `canonical-${index}`);
+  const content = canonicalMessageVisibleText(message);
+
+  return {
+    id,
+    role,
+    content,
+    display_content: content,
+    request_id: String(info.requestID || info.request_id || ""),
+    metadata: {
+      source_of_truth: "opencode",
+      opencode_message_id: id,
+      opencode_role: role,
+      canonical_parts: message.parts || [],
+    },
+  };
+}
+
+function canonicalMessagesToLegacyDisplayMessages(canonicalMessages = []) {
+  return canonicalMessages
+    .map((message, index) => canonicalMessageToLegacyDisplayMessage(message, index))
+    .filter((message) => message.role !== "assistant" || String(message.display_content || message.content || "").trim());
+}
+
+function canonicalPartToThinkingItem(message = {}, part = {}, index = 0) {
+  const partType = String(part.type || "").toLowerCase();
+  const messageId = String(message.message_id || message.info?.id || part.messageID || part.messageId || part.message_id || "");
+  const partId = String(part.id || `${messageId}:part:${index}`);
+
+  if (partType === "reasoning") {
+    return {
+      kind: "reasoning",
+      message_id: messageId,
+      part_id: partId,
+      text: canonicalPartText(part),
+      status: part.finished === true || part.endTime ? "completed" : "running",
+    };
+  }
+
+  if (partType === "tool") {
+    const state = part.state && typeof part.state === "object" ? part.state : {};
+    return {
+      kind: "tool",
+      message_id: messageId,
+      part_id: partId,
+      tool: String(part.tool || part.name || state.tool || ""),
+      status: String(state.status || part.status || "running"),
+      input: part.input || state.input || null,
+      output: part.output || state.output || null,
+      error: part.error || state.error || "",
+    };
+  }
+
+  if (partType === "step-start") {
+    return { kind: "step_start", message_id: messageId, part_id: partId };
+  }
+
+  if (partType === "step-finish") {
+    return {
+      kind: "step_finish",
+      message_id: messageId,
+      part_id: partId,
+      reason: String(part.reason || part.finish_reason || ""),
+      cost: part.cost || null,
+      tokens: part.tokens || null,
+    };
+  }
+
+  if (partType === "permission") {
+    return {
+      kind: "permission",
+      message_id: messageId,
+      part_id: partId,
+      permission_id: String(part.permissionID || part.permission_id || part.id || ""),
+      status: String(part.status || "pending"),
+    };
+  }
+
+  return null;
+}
+
+function canonicalMessagesToThinkingItems(canonicalMessages = []) {
+  const out = [];
+  canonicalMessages.forEach((message) => {
+    const parts = Array.isArray(message.parts) ? message.parts : [];
+    parts.forEach((part, index) => {
+      const item = canonicalPartToThinkingItem(message, part, index);
+      if (item) out.push(item);
+    });
+  });
+  return out;
+}
+
+function canonicalThinkingItemToRuntimeEvent(item = {}, sessionId = "") {
+  const baseData = {
+    ...item,
+    message_id: item.message_id || "",
+    part_id: item.part_id || "",
+    session_id: sessionId || "",
+    source_of_truth: "opencode",
+  };
+  const baseEvent = (type, data = baseData, summary = "") => ({
+    type,
+    raw_type: type,
+    event_type: type,
+    data,
+    session_id: sessionId || "",
+    request_id: "",
+    event_id: `canonical:${item.message_id || ""}:${item.part_id || ""}:${type}`,
+    summary: summary || data.message || data.text || data.tool || type,
+    ts: Date.now() / 1000,
+    source_of_truth: "opencode",
+  });
+
+  if (item.kind === "reasoning") {
+    return baseEvent("opencode.reasoning", {
+      ...baseData,
+      message: item.text || "Reasoning update",
+      status: item.status || "running",
+    }, item.text || "Reasoning update");
+  }
+  if (item.kind === "tool") {
+    return baseEvent("opencode.tool", {
+      ...baseData,
+      message: item.tool ? `${item.tool} ${item.status || "running"}` : "Tool update",
+    }, item.tool || "Tool update");
+  }
+  if (item.kind === "step_start") {
+    return baseEvent("opencode.step.started", {
+      ...baseData,
+      message: "Step started",
+    }, "Step started");
+  }
+  if (item.kind === "step_finish") {
+    return baseEvent("opencode.step.finished", {
+      ...baseData,
+      message: item.reason || "Step finished",
+    }, item.reason || "Step finished");
+  }
+  if (item.kind === "permission") {
+    return baseEvent("permission_request", {
+      ...baseData,
+      message: item.status ? `Permission ${item.status}` : "Permission requested",
+    }, item.permission_id || "Permission requested");
+  }
+  return null;
+}
+
+function canonicalMessagesToThinkingEvents(canonicalMessages = [], sessionId = "") {
+  return canonicalMessagesToThinkingItems(canonicalMessages)
+    .map((item) => canonicalThinkingItemToRuntimeEvent(item, sessionId))
+    .filter(Boolean);
+}
+
+function applyCanonicalMessagesToChatState(agentId, sessionId, chatState, canonicalMessages = [], metadata = {}) {
+  if (!chatState || !Array.isArray(canonicalMessages) || !canonicalMessages.length) return;
+  if (!chatState.openCodeProjection) {
+    chatState.openCodeProjection = {
+      messagesById: {},
+      partsById: {},
+      sessionStatus: "unknown",
+      needsSnapshot: false,
+    };
+  }
+  canonicalMessages.forEach((message) => {
+    const messageId = String(message.message_id || message.info?.id || "");
+    if (messageId) {
+      chatState.openCodeProjection.messagesById[messageId] = {
+        ...(chatState.openCodeProjection.messagesById[messageId] || {}),
+        info: message.info || {},
+        parts: message.parts || [],
+        role: message.role || "",
+        source_of_truth: "opencode",
+      };
+    }
+    (message.parts || []).forEach((part, index) => {
+      const partId = String(part.id || `${messageId}:part:${index}`);
+      if (!partId) return;
+      chatState.openCodeProjection.partsById[partId] = {
+        ...(chatState.openCodeProjection.partsById[partId] || {}),
+        ...part,
+        id: partId,
+        messageID: part.messageID || part.messageId || part.message_id || messageId,
+        type: part.type,
+      };
+    });
+  });
+
+  const canonicalEvents = canonicalMessagesToThinkingEvents(canonicalMessages, sessionId);
+  if (!canonicalEvents.length) return;
+  const target = chatState.inflightThinking && chatState.inflightThinking.completed !== true
+    ? chatState.inflightThinking
+    : null;
+  const existing = target || chatState.lastThinkingSnapshot || {};
+  const requestId = String(metadata.request_id || metadata.latest_request_id || existing.requestId || existing.id || "");
+  const merged = {
+    ...existing,
+    id: existing.id || requestId || `canonical-${sessionId || Date.now()}`,
+    requestId,
+    sessionId: sessionId || existing.sessionId || "",
+    events: mergeThinkingEvents(existing.events || [], canonicalEvents),
+    canonicalThinkingItems: canonicalMessagesToThinkingItems(canonicalMessages),
+    contextSource: "opencode_canonical",
+    completed: target ? false : (existing.completed ?? true),
+    status: target ? (existing.status || "connected") : (existing.status || "snapshot"),
+    lastEventAt: Date.now(),
+  };
+  if (target) Object.assign(target, merged);
+  else chatState.lastThinkingSnapshot = merged;
+  if (agentId === state.selectedAgentId && isThinkingPanelActiveForAgent(agentId)) {
+    scheduleThinkingPanelRefresh(agentId);
+  }
 }
 
 function buildUserMessageArticle(text, attachments = [], options = {}) {
@@ -1368,6 +1633,7 @@ function isTrackableThinkingEvent(type) {
     "chat.started", "heartbeat", "status",
     "execution.started", "execution.completed", "execution.failed",
     "execution.incomplete", "execution.blocked",
+    "opencode.reasoning", "opencode.tool", "opencode.step.started", "opencode.step.finished",
     "continuation.started", "continuation.prompt_sent", "continuation.completed", "continuation.failed",
     "continuation.max_turns_reached", "continuation.wall_timeout", "continuation.no_progress", "continuation.suppressed",
     "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error", "final",
@@ -1544,6 +1810,10 @@ function getThinkingEventDisplay(event) {
     llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
     tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
     tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
+    "opencode.reasoning": { icon: "brain", title: "OpenCode Reasoning", detail: data.text || data.message || "Reasoning update", kind: data.status === "completed" ? "success" : "running" },
+    "opencode.tool": { icon: data.error ? "x-circle" : "wrench", title: "OpenCode Tool", detail: data.tool ? `${data.tool} ${data.status || "running"}` : (data.message || "Tool update"), kind: data.error ? "error" : (data.status === "completed" ? "success" : "running"), args: data.input, output: data.output },
+    "opencode.step.started": { icon: "list-start", title: "OpenCode Step Started", detail: data.message || "Step started" },
+    "opencode.step.finished": { icon: "list-checks", title: "OpenCode Step Finished", detail: data.reason || data.message || "Step finished", kind: "success" },
     skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
     context_snapshot: {
@@ -1928,9 +2198,14 @@ function getThinkingSnapshotStatus(snapshot) {
 
 function renderThinkingPanelFromClientState(chatState) {
   if (!dom.toolPanelBody) return;
+  const uiState = computeOpenCodeRuntimeUiState(
+    (typeof getSelectedAgent === "function") ? (getSelectedAgent() || {}) : {},
+    chatState || {}
+  );
+  const runtimeStateNotes = renderOpenCodeRuntimeStateNotes(uiState);
   const snapshot = getActiveThinkingSnapshot(chatState);
   if (!snapshot) {
-    dom.toolPanelBody.innerHTML = '<div class="portal-inline-state">Waiting for runtime events…</div>';
+    dom.toolPanelBody.innerHTML = `<div class="portal-panel-section"><div class="portal-panel-title">Runtime State</div>${runtimeStateNotes}<div class="portal-panel-note">${safe(openCodeRuntimeUiStatusText(uiState))}</div></div><div class="portal-inline-state">Waiting for runtime events…</div>`;
     return;
   }
   const events = Array.isArray(snapshot.events) ? snapshot.events : [];
@@ -2013,6 +2288,8 @@ function renderThinkingPanelFromClientState(chatState) {
         <div class="portal-panel-note">Request ID: ${safe(snapshot.requestId || snapshot.id || "—")}</div>
         <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
         <div class="portal-panel-note">Events: ${events.length}</div>
+        ${runtimeStateNotes}
+        <div class="portal-panel-note">${safe(openCodeRuntimeUiStatusText(uiState))}</div>
       </div>
       ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>${safe(nonSuccessHint)}</div></div>` : ""}
       ${stillRunning ? '<div class="portal-inline-state">Still running. Live events will continue to appear here.</div>' : ""}
@@ -2274,6 +2551,111 @@ function maybeStartStalledAssistantReconcile(agentId, chatState) {
   startChatRunReconcileLoop(agentId, requestCtx);
 }
 
+function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
+  const data = event.data && typeof event.data === "object" ? event.data : {};
+  const eventType = String(event.type || "").toLowerCase();
+  const canonicalEventType = eventType.startsWith("message.") || eventType === "session.status" || eventType === "session.idle"
+    ? eventType
+    : "";
+  const rawType = String(data.raw_type || event.raw_type || canonicalEventType || "").toLowerCase();
+  const reconcileHint = String(data.reconcile_hint || "").toLowerCase();
+  if (
+    !rawType.startsWith("message.")
+    && rawType !== "session.status"
+    && rawType !== "session.idle"
+    && reconcileHint !== "fetch_session_messages"
+  ) {
+    return false;
+  }
+
+  if (!chatState.openCodeProjection) {
+    chatState.openCodeProjection = {
+      messagesById: {},
+      partsById: {},
+      sessionStatus: "unknown",
+      needsSnapshot: false,
+    };
+  }
+
+  const projection = chatState.openCodeProjection;
+
+  if (rawType === "message.updated") {
+    const info = data.info && typeof data.info === "object" ? data.info : {};
+    const messageId = String(data.message_id || info.id || "");
+    if (!messageId) return true;
+    const existing = projection.messagesById[messageId] || { info: {}, parts: [] };
+    projection.messagesById[messageId] = { ...existing, info: { ...existing.info, ...info } };
+    return true;
+  }
+
+  if (rawType === "message.part.updated") {
+    const part = data.part && typeof data.part === "object" ? data.part : {};
+    const partId = String(data.part_id || part.id || "");
+    const messageId = String(data.message_id || part.messageID || part.messageId || part.message_id || "");
+    if (!partId) return true;
+    projection.partsById[partId] = {
+      ...(projection.partsById[partId] || {}),
+      ...part,
+      id: partId,
+      messageID: messageId || part.messageID,
+      type: data.part_type || part.type,
+    };
+    return true;
+  }
+
+  if (rawType === "message.part.delta") {
+    const partId = String(data.part_id || "");
+    if (!partId) return true;
+    const existing = projection.partsById[partId] || { id: partId, type: data.part_type || "text", text: "" };
+    if (data.field === "text" || !data.field) {
+      existing.text = `${existing.text || ""}${data.delta || ""}`;
+    }
+    projection.partsById[partId] = existing;
+    return true;
+  }
+
+  if (rawType === "session.status") {
+    projection.sessionStatus = String(data.status_type || "unknown").toLowerCase();
+    if (reconcileHint === "fetch_session_messages") projection.needsSnapshot = true;
+    return true;
+  }
+
+  if (rawType === "session.idle") {
+    projection.sessionStatus = "idle";
+    projection.needsSnapshot = true;
+    return true;
+  }
+
+  if (reconcileHint === "fetch_session_messages") {
+    projection.needsSnapshot = true;
+    return true;
+  }
+
+  return false;
+}
+
+function maybeRefreshSessionSnapshotForOpenCodeEvent(agentId, chatState, sessionId = "", event = {}) {
+  const projection = chatState?.openCodeProjection;
+  if (!agentId || !chatState || !sessionId || !projection?.needsSnapshot) return;
+  if (projection.snapshotRefreshInFlight) return;
+  projection.snapshotRefreshInFlight = true;
+  chatState.needsReload = true;
+  Promise.resolve()
+    .then(() => loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId }))
+    .catch((error) => {
+      projection.snapshotRefreshError = String(error?.message || error || "");
+      appendPortalChatRuntimeEvent(agentId, fallbackRequestContextForAgent(agentId, "opencode_snapshot_refresh_failed"), "portal.reconcile.failed", {
+        message: "Unable to refresh OpenCode session snapshot after runtime event.",
+        error: projection.snapshotRefreshError,
+        source_event: event?.raw_type || event?.type || "",
+      });
+    })
+    .finally(() => {
+      projection.snapshotRefreshInFlight = false;
+      projection.needsSnapshot = false;
+    });
+}
+
 function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
@@ -2335,8 +2717,15 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
   const lifecycleType = entry.lifecycle_type;
+  const localApplyOpenCodeCanonicalEventToChatState = (typeof applyOpenCodeCanonicalEventToChatState === "function")
+    ? applyOpenCodeCanonicalEventToChatState
+    : () => false;
+  const appliedCanonicalEvent = localApplyOpenCodeCanonicalEventToChatState(chatState, entry);
+  if (appliedCanonicalEvent && typeof maybeRefreshSessionSnapshotForOpenCodeEvent === "function") {
+    maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState, entry.session_id || currentSessionId, entry);
+  }
 
-  if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
+  if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion && !appliedCanonicalEvent) return;
 
   const isLateEventForCompletedRequest = Boolean(
     !chatState.activeRequest
@@ -2587,6 +2976,61 @@ function ensureEventSocketForSelectedAgent() {
   ensureEventSocketForAgent(agentId, currentSessionIdForSelectedAgent(), requestId || null);
 }
 
+function normalizeRuntimeHealthStatus(value) {
+  const normalized = String(value || "unknown").trim().toLowerCase();
+  if (["running", "online", "ready", "healthy", "started"].includes(normalized)) return "online";
+  if (["stopped", "offline", "unavailable", "failed", "error"].includes(normalized)) return "offline";
+  return normalized || "unknown";
+}
+
+function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
+  const runtimeHealth = agent.runtime_status || agent.status || "unknown";
+  const normalizedRuntimeHealth = normalizeRuntimeHealthStatus(runtimeHealth);
+  const projection = chatState.openCodeProjection || {};
+  const activeRun = chatState.activeRequest || null;
+
+  let sessionStatus = normalizedRuntimeHealth === "offline"
+    ? "unknown"
+    : (projection.sessionStatus || "unknown");
+  if (activeRun && isActiveRequestBlocking(chatState)) {
+    sessionStatus = "busy";
+  }
+
+  let messageProgress = "idle";
+  const thinking = chatState.inflightThinking;
+  if (thinking && !thinking.completed) {
+    messageProgress = "running";
+  }
+  if (sessionStatus === "retry") messageProgress = "retrying";
+  if (sessionStatus === "busy" && messageProgress === "idle") messageProgress = "running";
+  if (normalizedRuntimeHealth === "offline") messageProgress = "unknown";
+
+  return {
+    runtimeHealth,
+    normalizedRuntimeHealth,
+    sessionStatus,
+    messageProgress,
+  };
+}
+
+function openCodeRuntimeUiStatusText(uiState = {}) {
+  const runtimeHealth = uiState.normalizedRuntimeHealth || normalizeRuntimeHealthStatus(uiState.runtimeHealth);
+  const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
+  if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
+  if (sessionStatus === "idle") return "Assistant online. Ready.";
+  if (sessionStatus === "busy") return "Assistant online. Previous message still running.";
+  if (sessionStatus === "retry") return "Assistant online. Provider retrying.";
+  return "Assistant online. Session status unknown.";
+}
+
+function renderOpenCodeRuntimeStateNotes(uiState = {}) {
+  return `
+    <div class="portal-panel-note">Runtime: ${safe(uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown")}</div>
+    <div class="portal-panel-note">Session: ${safe(uiState.sessionStatus || "unknown")}</div>
+    <div class="portal-panel-note">Message: ${safe(uiState.messageProgress || "idle")}</div>
+  `;
+}
+
 function applyTheme(theme) {
   const normalized = theme === "light" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", normalized);
@@ -2605,8 +3049,21 @@ function toggleTheme() {
 
 function setChatStatus(text, isError = false) {
   if (!dom.chatStatus) return;
+  const agent = getSelectedAgent();
+  const chatState = state.selectedAgentId ? ensureChatState(state.selectedAgentId) : {};
+  const uiState = computeOpenCodeRuntimeUiState(agent || {}, chatState || {});
   dom.chatStatus.textContent = text;
   dom.chatStatus.className = `portal-statusline${isError ? " is-error" : ""}`;
+  dom.chatStatus.dataset.runtimeHealth = uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown";
+  dom.chatStatus.dataset.sessionStatus = uiState.sessionStatus || "unknown";
+  dom.chatStatus.dataset.messageProgress = uiState.messageProgress || "idle";
+  dom.chatStatus.title = [
+    openCodeRuntimeUiStatusText(uiState),
+    `Runtime: ${uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown"}`,
+    `Session: ${uiState.sessionStatus || "unknown"}`,
+    `Message: ${uiState.messageProgress || "idle"}`,
+  ].join("\n");
+  dom.chatStatus.setAttribute("aria-label", `${text}. ${openCodeRuntimeUiStatusText(uiState)}`);
 }
 
 function scrollToBottom() {
@@ -7492,22 +7949,40 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   updateAgentSession(agentId, normalized);
   const latestChatState = ensureChatState(agentId);
   if (latestChatState) latestChatState.needsReload = false;
+  const shouldApplyRecoveryNotice = agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId);
+  const canonicalMessages = getCanonicalMessagesFromSessionPayload(data);
+  const messagesForRender = canonicalMessages.length
+    ? canonicalMessagesToLegacyDisplayMessages(canonicalMessages)
+    : data.messages || [];
+  const normalizedPayload = {
+    ...data,
+    messages: messagesForRender,
+    metadata: {
+      ...(data.metadata || {}),
+      source_of_truth: canonicalMessages.length ? "opencode" : data.metadata?.source_of_truth,
+      canonical_messages: canonicalMessages,
+    },
+  };
+  const recoveryNotice = shouldApplyRecoveryNotice ? deriveSessionRecoveryNotice(normalizedPayload.metadata || {}) : null;
+  const applyRecoveryNotice = () => {
+    if (recoveryNotice) {
+      setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
+    }
+  };
+  if (latestChatState && canonicalMessages.length) {
+    applyCanonicalMessagesToChatState(agentId, normalized, latestChatState, canonicalMessages, normalizedPayload.metadata || {});
+  }
   if (render) {
     // Ensure agent name is set
     if (!state.selectedAgentName && state.selectedAgentId) {
       const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
       state.selectedAgentName = agent?.name || null;
     }
-    renderChatHistory(data.messages || [], data.metadata || {});
-    reconcileActiveRequestProjection(agentId, normalized, data.metadata || {}, data.messages || []);
+    renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {});
+    reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || []);
     addEditButtonsToMessages();
     if (!ensureChatState(agentId)?.activeRequest) setChatStatus(`Loaded session ${normalized}`);
-    if (agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId)) {
-      const recoveryNotice = deriveSessionRecoveryNotice(data.metadata || {});
-      if (recoveryNotice) {
-        setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
-      }
-    }
+    applyRecoveryNotice();
   }
 }
 

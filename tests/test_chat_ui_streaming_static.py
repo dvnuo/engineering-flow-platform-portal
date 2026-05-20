@@ -297,6 +297,50 @@ def test_chat_run_already_active_rejected_request_and_optimistic_user_markers():
     assert "Runtime reports an active OpenCode run before sending; send was not submitted." in preflight
 
 
+def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
+    src = _src()
+    load_session = _extract_js_function(src, "loadSessionForAgent")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    state_notes = _extract_js_function(src, "renderOpenCodeRuntimeStateNotes")
+    set_status = _extract_js_function(src, "setChatStatus")
+
+    for helper in [
+        "function getCanonicalMessagesFromSessionPayload",
+        "function canonicalMessagesToLegacyDisplayMessages",
+        "function canonicalMessagesToThinkingItems",
+        "function applyOpenCodeCanonicalEventToChatState",
+        "function computeOpenCodeRuntimeUiState",
+    ]:
+        assert helper in src
+
+    assert "const canonicalMessages = getCanonicalMessagesFromSessionPayload(data)" in load_session
+    assert "const messagesForRender = canonicalMessages.length" in load_session
+    assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
+    assert "data.messages || []" in load_session
+    assert "source_of_truth: canonicalMessages.length ? \"opencode\"" in load_session
+    assert "canonical_messages: canonicalMessages" in load_session
+    assert "renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {})" in load_session
+    assert "reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || [])" in load_session
+
+    assert "applyOpenCodeCanonicalEventToChatState" in handle_event
+    assert "localApplyOpenCodeCanonicalEventToChatState(chatState, entry)" in handle_event
+    assert "maybeRefreshSessionSnapshotForOpenCodeEvent" in handle_event
+    assert "reconcile_hint" in src
+    assert "fetch_session_messages" in src
+    assert "openCodeProjection" in src
+    assert "opencCodeProjection" not in src
+
+    assert "renderOpenCodeRuntimeStateNotes(uiState)" in render_panel
+    assert "Runtime:" in state_notes
+    assert "Session:" in state_notes
+    assert "Message:" in state_notes
+    assert "dataset.runtimeHealth" in set_status
+    assert "dataset.sessionStatus" in set_status
+    assert "dataset.messageProgress" in set_status
+    assert ":4096" not in src
+
+
 def test_active_request_busy_state_uses_runtime_blocking_helper():
     src = _src()
     has_active = _extract_js_function(src, "hasActiveChatRequestForAgent")
@@ -648,8 +692,10 @@ def test_session_render_hydrates_active_run_and_replays_events():
     reconcile_projection = _extract_js_function(src, "reconcileActiveRequestProjection")
     hydrate = _extract_js_function(src, "hydrateActiveRequestFromRun")
 
-    assert "renderChatHistory(data.messages || [], data.metadata || {})" in load_session
-    assert "reconcileActiveRequestProjection(agentId, normalized, data.metadata || {}, data.messages || [])" in load_session
+    assert "getCanonicalMessagesFromSessionPayload(data)" in load_session
+    assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
+    assert "renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {})" in load_session
+    assert "reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || [])" in load_session
     assert "metadata.active_run" in reconcile_projection
     assert "isValidatedRuntimeActiveRun(activeRun)" in reconcile_projection
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata)" in reconcile_projection

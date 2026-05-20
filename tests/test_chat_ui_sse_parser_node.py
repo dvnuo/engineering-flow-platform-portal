@@ -185,6 +185,200 @@ def test_thinking_normalizer_regression_guards():
     assert "function normalizePayloadThinkingEvents(events)" in src or "function normalizeThinkingEvents(events)" in src
 
 
+def test_canonical_snapshot_conversion_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "getCanonicalMessagesFromSessionPayload"),
+                _extract_js_function(src, "canonicalPartText"),
+                _extract_js_function(src, "canonicalMessageVisibleText"),
+                _extract_js_function(src, "canonicalMessageToLegacyDisplayMessage"),
+                _extract_js_function(src, "canonicalMessagesToLegacyDisplayMessages"),
+                _extract_js_function(src, "canonicalPartToThinkingItem"),
+                _extract_js_function(src, "canonicalMessagesToThinkingItems"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const canonical = getCanonicalMessagesFromSessionPayload({
+              canonical_messages: [
+                {
+                  message_id: "user-1",
+                  role: "user",
+                  info: { id: "user-1", role: "user" },
+                  parts: [{ id: "u-part-1", type: "text", text: "Please inspect" }],
+                },
+                {
+                  message_id: "assistant-1",
+                  role: "assistant",
+                  info: { id: "assistant-1", role: "assistant", requestID: "run-1" },
+                  parts: [
+                    { id: "r-part-1", type: "reasoning", text: "hidden reasoning" },
+                    { id: "t-part-1", type: "tool", tool: "bash", state: { status: "completed" }, output: "ok" },
+                    { id: "a-part-1", type: "text", text: "Visible answer" },
+                  ],
+                },
+              ],
+            });
+            const legacy = canonicalMessagesToLegacyDisplayMessages(canonical);
+            const assistant = legacy.find((message) => message.role === "assistant");
+            const thinking = canonicalMessagesToThinkingItems(canonical);
+
+            assert.equal(canonical.length, 2);
+            assert.equal(legacy.length, 2);
+            assert.equal(legacy[0].content, "Please inspect");
+            assert.equal(assistant.content, "Visible answer");
+            assert.equal(assistant.content.includes("hidden reasoning"), false);
+            assert.equal(assistant.metadata.source_of_truth, "opencode");
+            assert.equal(assistant.metadata.canonical_parts.length, 3);
+            assert.equal(thinking.some((item) => item.kind === "reasoning" && item.text === "hidden reasoning"), true);
+            assert.equal(thinking.some((item) => item.kind === "tool" && item.tool === "bash"), true);
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_opencode_message_part_updated_upserts_by_part_id_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState")
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const chatState = {};
+            applyOpenCodeCanonicalEventToChatState(chatState, {
+              data: {
+                raw_type: "message.part.updated",
+                message_id: "message-1",
+                part_id: "part-1",
+                part_type: "tool",
+                part: { id: "part-1", type: "tool", state: { status: "running" } },
+              },
+            });
+
+            assert.equal(chatState.openCodeProjection.partsById["part-1"].id, "part-1");
+            assert.equal(chatState.openCodeProjection.partsById["part-1"].messageID, "message-1");
+            assert.equal(chatState.openCodeProjection.partsById["part-1"].type, "tool");
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_opencode_message_part_delta_appends_by_part_id_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState")
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const chatState = {};
+            applyOpenCodeCanonicalEventToChatState(chatState, {
+              type: "message.part.delta",
+              data: { part_id: "part-text", part_type: "text", delta: "hello " },
+            });
+            applyOpenCodeCanonicalEventToChatState(chatState, {
+              data: { raw_type: "message.part.delta", part_id: "part-text", part_type: "text", delta: "world" },
+            });
+
+            assert.equal(chatState.openCodeProjection.partsById["part-text"].text, "hello world");
+            assert.equal(chatState.openCodeProjection.partsById["part-text"].type, "text");
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_opencode_session_status_and_idle_projection_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState")
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const chatState = {};
+            applyOpenCodeCanonicalEventToChatState(chatState, {
+              data: { raw_type: "session.status", status_type: "busy" },
+            });
+            assert.equal(chatState.openCodeProjection.sessionStatus, "busy");
+            assert.equal(chatState.openCodeProjection.needsSnapshot, false);
+
+            applyOpenCodeCanonicalEventToChatState(chatState, {
+              type: "session.idle",
+              data: {},
+            });
+            assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
+            assert.equal(chatState.openCodeProjection.needsSnapshot, true);
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_opencode_runtime_ui_state_three_way_model_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "isActiveRequestBlocking"),
+                _extract_js_function(src, "normalizeRuntimeHealthStatus"),
+                _extract_js_function(src, "computeOpenCodeRuntimeUiState"),
+                _extract_js_function(src, "openCodeRuntimeUiStatusText"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+
+            const ready = computeOpenCodeRuntimeUiState(
+              { runtime_status: "running" },
+              { openCodeProjection: { sessionStatus: "idle" }, activeRequest: null, inflightThinking: null }
+            );
+            assert.equal(ready.normalizedRuntimeHealth, "online");
+            assert.equal(ready.sessionStatus, "idle");
+            assert.equal(ready.messageProgress, "idle");
+            assert.match(openCodeRuntimeUiStatusText(ready), /Ready/);
+
+            const busy = computeOpenCodeRuntimeUiState(
+              { runtime_status: "running" },
+              { openCodeProjection: { sessionStatus: "idle" }, activeRequest: { clientRequestId: "req-1" }, inflightThinking: null }
+            );
+            assert.equal(busy.sessionStatus, "busy");
+            assert.equal(busy.messageProgress, "running");
+            assert.match(openCodeRuntimeUiStatusText(busy), /Previous message still running/);
+
+            const offline = computeOpenCodeRuntimeUiState(
+              { status: "stopped" },
+              { openCodeProjection: { sessionStatus: "idle" }, activeRequest: null, inflightThinking: null }
+            );
+            assert.equal(offline.normalizedRuntimeHealth, "offline");
+            assert.equal(offline.sessionStatus, "unknown");
+            assert.equal(offline.messageProgress, "unknown");
+            assert.match(openCodeRuntimeUiStatusText(offline), /Runtime offline/);
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_stream_error_event_smoke_terminal_and_no_missing_final():
     src = SRC.read_text(encoding="utf-8")
     stream_js = "\n".join(
