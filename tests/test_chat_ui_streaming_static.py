@@ -297,6 +297,31 @@ def test_chat_run_already_active_rejected_request_and_optimistic_user_markers():
     assert "Runtime reports an active OpenCode run before sending; send was not submitted." in preflight
 
 
+def test_assistant_row_lookup_never_selects_user_article():
+    src = _src()
+    finder = _extract_js_function(src, "findAssistantArticleForRequest")
+    updater = _extract_js_function(src, "updateOrCreateAssistantRowForRequest")
+
+    assert "function isAssistantArticle" in src
+    assert 'article.assistant-message[data-client-request-id="' in finder
+    assert 'article[data-pending-assistant="1"][data-client-request-id="' in finder
+    assert 'article.assistant-message[data-request-id="' in finder
+    assert 'article[data-pending-assistant="1"][data-request-id="' in finder
+    assert 'article.assistant-message[data-message-id="' in finder
+    assert 'article.assistant-message[data-primary-message-id="' in finder
+    assert "article.assistant-message[data-message-ids]" in finder
+    assert "article[data-pending-assistant='1'][data-message-ids]" in finder
+    assert 'article[data-client-request-id="${escaped}"]' not in finder
+    assert 'article[data-request-id="${escaped}"]' not in finder
+    assert 'article[data-message-id="${escaped}"]' not in finder
+    assert 'article[data-primary-message-id="${escaped}"]' not in finder
+    assert 'querySelectorAll("article[data-message-ids]")' not in finder
+    assert "if (isAssistantArticle(byClient)) return byClient;" in finder
+    assert "if (isAssistantArticle(containing)) return containing;" in finder
+    assert "if (article && !isAssistantArticle(article))" in updater
+    assert "article = null;" in updater
+
+
 def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     src = _src()
     load_session = _extract_js_function(src, "loadSessionForAgent")

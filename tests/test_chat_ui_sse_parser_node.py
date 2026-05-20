@@ -301,6 +301,178 @@ def test_opencode_message_part_delta_appends_by_part_id_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_assistant_update_does_not_write_into_user_article_with_same_client_request_id():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "getChatStreamRoleMarker"),
+                _extract_js_function(src, "extractAssistantVisibleText"),
+                _extract_js_function(src, "extractAssistantDisplayBlocks"),
+                _extract_js_function(src, "normalizeAssistantMessageIds"),
+                _extract_js_function(src, "getPrimaryAssistantMessageId"),
+                _extract_js_function(src, "getRequestIdCandidatesForAssistantRow"),
+                _extract_js_function(src, "getAssistantMessageIdCandidates"),
+                _extract_js_function(src, "articleContainsAssistantMessageId"),
+                _extract_js_function(src, "isAssistantArticle"),
+                _extract_js_function(src, "findAssistantArticleForRequest"),
+                _extract_js_function(src, "updateOrCreateAssistantRowForRequest"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+
+            class ClassList {
+              constructor(names = []) { this.names = new Set(names); }
+              contains(name) { return this.names.has(name); }
+              add(...names) { names.forEach((name) => this.names.add(name)); }
+              remove(...names) { names.forEach((name) => this.names.delete(name)); }
+            }
+
+            function datasetKey(attr) {
+              return String(attr || "").replace(/^data-/, "").replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
+            }
+
+            function matchesSelector(article, selector) {
+              const trimmed = selector.trim();
+              if (!trimmed.startsWith("article")) return false;
+              if (trimmed.includes(".assistant-message") && !article.classList.contains("assistant-message")) return false;
+              const attrPattern = /\[([^=\]]+)(?:=(["'])(.*?)\2)?\]/g;
+              let match = null;
+              while ((match = attrPattern.exec(trimmed))) {
+                const key = datasetKey(match[1]);
+                if (match[3] == null) {
+                  if (!(key in article.dataset)) return false;
+                } else if (String(article.dataset[key] || "") !== match[3]) {
+                  return false;
+                }
+              }
+              return true;
+            }
+
+            function createRow(article) {
+              return {
+                dataset: {},
+                classList: new ClassList(["message-row"]),
+                removeAttribute(name) { delete this.dataset[datasetKey(name)]; },
+                querySelectorAll(selector) { return matchesSelector(article, selector) ? [article] : []; },
+              };
+            }
+
+            function createMarkdown(text = "") {
+              return {
+                dataset: { md: text, displayBlocks: "[]" },
+                className: "message-markdown md-render max-w-none text-sm",
+                textContent: text,
+                insertAdjacentElement() {},
+              };
+            }
+
+            function createArticle({ classes, dataset, bodyText = "", markdown = null }) {
+              const article = {
+                dataset: { ...dataset },
+                classList: new ClassList(classes),
+                body: { textContent: bodyText },
+                markdownEl: markdown,
+                children: [],
+                closest(selector) { return selector === ".message-row" ? this.parentRow : null; },
+                querySelector(selector) {
+                  if (selector === ".message-body") return this.body;
+                  if (selector === ".message-markdown") return this.markdownEl;
+                  if (selector === ".assistant-waiting-indicator") return this.waitingEl || null;
+                  return null;
+                },
+                appendChild(child) {
+                  this.children.push(child);
+                  if (String(child.className || "").includes("message-markdown")) this.markdownEl = child;
+                  return child;
+                },
+                removeAttribute(name) { delete this.dataset[datasetKey(name)]; },
+              };
+              article.parentRow = createRow(article);
+              return article;
+            }
+
+            const userArticle = createArticle({
+              classes: ["message-surface", "user-message"],
+              dataset: { localUser: "1", clientRequestId: "req-1" },
+              bodyText: "hi",
+            });
+            const assistantArticle = createArticle({
+              classes: ["message-surface", "assistant-message", "pending-assistant"],
+              dataset: { pendingAssistant: "1", clientRequestId: "req-1" },
+              markdown: createMarkdown(""),
+            });
+
+            const articles = [userArticle, assistantArticle];
+            const dom = {
+              messageList: {
+                querySelector(selector) {
+                  const selectors = selector.split(",");
+                  return articles.find((article) => selectors.some((item) => matchesSelector(article, item))) || null;
+                },
+                querySelectorAll(selector) {
+                  const selectors = selector.split(",");
+                  return articles.filter((article) => selectors.some((item) => matchesSelector(article, item)));
+                },
+                insertAdjacentHTML() { throw new Error("assistant row already exists; should not insert"); },
+              },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const chatState = { activeRequest: { clientRequestId: "req-1" } };
+            const CSS = { escape(value) { return String(value); } };
+            const document = {
+              createElement(tag) {
+                return {
+                  tagName: tag.toUpperCase(),
+                  dataset: {},
+                  className: "",
+                  textContent: "",
+                  setAttribute() {},
+                  insertAdjacentElement() {},
+                };
+              },
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function hasRenderableDisplayBlock() { return false; }
+            function renderMarkdown(article) {
+              const md = article.querySelector(".message-markdown");
+              if (md) md.textContent = md.dataset.md || "";
+            }
+            function decorateToolMessages() {}
+            function renderIcons() {}
+            function addEditButtonsToMessages() {}
+            function scrollToBottom() {}
+
+            const updated = updateOrCreateAssistantRowForRequest(
+              "agent-1",
+              { clientRequestId: "req-1" },
+              { response: "hello", client_request_id: "req-1", assistant_message_id: "assistant-1" },
+              { partial: true }
+            );
+
+            assert.equal(updated, assistantArticle);
+            assert.equal(userArticle.body.textContent, "hi");
+            assert.equal(userArticle.markdownEl, null);
+            assert.equal(userArticle.dataset.copyText, undefined);
+            assert.equal(assistantArticle.markdownEl.dataset.md, "hello");
+            assert.equal(assistantArticle.markdownEl.textContent, "hello");
+            assert.equal(assistantArticle.dataset.messageId, "assistant-1");
+            assert.equal(assistantArticle.dataset.clientRequestId, "req-1");
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_opencode_session_status_and_idle_projection_node_smoke():
     src = SRC.read_text(encoding="utf-8")
     script = (

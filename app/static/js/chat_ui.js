@@ -4977,28 +4977,63 @@ function articleContainsAssistantMessageId(article, messageId) {
   }
 }
 
+function isAssistantArticle(article) {
+  return Boolean(
+    article
+    && (
+      article.classList?.contains?.("assistant-message")
+      || article.dataset?.pendingAssistant === "1"
+    )
+  );
+}
+
 function findAssistantArticleForRequest(requestCtx = {}, payload = {}) {
   if (!dom.messageList) return null;
   const requestIds = getRequestIdCandidatesForAssistantRow(requestCtx, payload);
   for (const requestId of requestIds) {
     const escaped = CSS.escape(requestId);
-    const byClient = dom.messageList.querySelector(`article[data-client-request-id="${escaped}"]`);
-    if (byClient) return byClient;
-    const byRequest = dom.messageList.querySelector(`article[data-request-id="${escaped}"]`);
-    if (byRequest) return byRequest;
+    const byClient = dom.messageList.querySelector(
+      [
+        `article.assistant-message[data-client-request-id="${escaped}"]`,
+        `article[data-pending-assistant="1"][data-client-request-id="${escaped}"]`,
+      ].join(",")
+    );
+    if (isAssistantArticle(byClient)) return byClient;
+    const byRequest = dom.messageList.querySelector(
+      [
+        `article.assistant-message[data-request-id="${escaped}"]`,
+        `article[data-pending-assistant="1"][data-request-id="${escaped}"]`,
+      ].join(",")
+    );
+    if (isAssistantArticle(byRequest)) return byRequest;
   }
   const messageIds = getAssistantMessageIdCandidates(payload);
   for (const messageId of messageIds) {
     const escaped = CSS.escape(messageId);
-    const byMessageId = dom.messageList.querySelector(`article[data-message-id="${escaped}"], article[data-primary-message-id="${escaped}"]`);
-    if (byMessageId) return byMessageId;
-    const containing = Array.from(dom.messageList.querySelectorAll("article[data-message-ids]"))
+    const byMessageId = dom.messageList.querySelector(
+      [
+        `article.assistant-message[data-message-id="${escaped}"]`,
+        `article.assistant-message[data-primary-message-id="${escaped}"]`,
+        `article[data-pending-assistant="1"][data-message-id="${escaped}"]`,
+        `article[data-pending-assistant="1"][data-primary-message-id="${escaped}"]`,
+      ].join(",")
+    );
+    if (isAssistantArticle(byMessageId)) return byMessageId;
+    const containing = Array.from(
+      dom.messageList.querySelectorAll("article.assistant-message[data-message-ids], article[data-pending-assistant='1'][data-message-ids]")
+    )
       .find((article) => articleContainsAssistantMessageId(article, messageId));
-    if (containing) return containing;
+    if (isAssistantArticle(containing)) return containing;
   }
   const selectedChatState = ensureChatState(state.selectedAgentId);
   if (requestCtx?.clientRequestId && selectedChatState?.activeRequest?.clientRequestId === requestCtx.clientRequestId) {
-    return dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(requestCtx.clientRequestId)}"]`);
+    const pending = dom.messageList.querySelector(
+      [
+        `article.assistant-message[data-pending-assistant="1"][data-client-request-id="${CSS.escape(requestCtx.clientRequestId)}"]`,
+        `article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(requestCtx.clientRequestId)}"]`,
+      ].join(",")
+    );
+    if (isAssistantArticle(pending)) return pending;
   }
   return null;
 }
@@ -5028,6 +5063,9 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
     ? hasRenderableDisplayBlock(block)
     : !!(block && typeof block === "object" && String(block.text || block.content || block.value || "").trim()));
   let article = findAssistantArticleForRequest(requestCtx, payload);
+  if (article && !isAssistantArticle(article)) {
+    article = null;
+  }
   if (!article) {
     const requestId = payload?.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
     const clientRequestId = requestCtx.clientRequestId || payload?.client_request_id || "";
