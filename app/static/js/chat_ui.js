@@ -2695,6 +2695,10 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
     return true;
   }
 
+  if (rawType === "message.completed") {
+    return true;
+  }
+
   if (rawType === "session.status") {
     const normalizedStatus = normalizeOpenCodeSessionStatusType(data) || "unknown";
     projection.sessionStatus = isOpenCodeSessionStatusBlockingPayload(data)
@@ -2761,6 +2765,9 @@ function maybeRefreshSessionSnapshotForOpenCodeEvent(agentId, chatState, session
     .then(() => {
       projection.needsSnapshot = false;
       projection.snapshotRefreshError = "";
+      if (agentId === state.selectedAgentId && typeof syncSelectedAgentChatActionControls === "function") {
+        syncSelectedAgentChatActionControls();
+      }
     })
     .catch((error) => {
       projection.needsSnapshot = true;
