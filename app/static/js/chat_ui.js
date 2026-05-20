@@ -304,6 +304,7 @@ function createDefaultChatState() {
     pendingFiles: [],
     inflightThinking: null,
     lastThinkingSnapshot: null,
+    openCodeProjection: null,
     pendingThinkingEvents: null,
     draftText: "",
     activeRequest: null,
@@ -403,6 +404,55 @@ function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this a
   return false;
 }
 
+async function preflightActiveRunForSession(agentId, sessionId) {
+  if (!agentId || !sessionId) return false;
+
+  try {
+    const payload = await agentApiFor(
+      agentId,
+      `/api/sessions/${encodeURIComponent(sessionId)}/active-run`
+    );
+    const activeRun = getActiveRunFromPayload(payload);
+
+    if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
+      const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
+        active_run: activeRun,
+      });
+
+      if (requestCtx) {
+        appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.chat_run_already_active", {
+          message: "Runtime reports an active OpenCode run before sending; send was not submitted.",
+          active_run: activeRun,
+        });
+        ensureEventSocketForAgent(
+          agentId,
+          sessionId,
+          requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId
+        );
+        startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+      }
+
+      setChatSubmittingForAgent(agentId, false);
+      setChatStatus("Previous message still running. Reconnecting…");
+      showToast("The previous message is still running. Wait for it to finish or use Stop run.");
+      syncSelectedAgentChatActionControls();
+      return true;
+    }
+  } catch (error) {
+    appendPortalChatRuntimeEvent(
+      agentId,
+      fallbackRequestContextForAgent(agentId, "preflight_active_run_failed"),
+      "portal.active_run_preflight.failed",
+      {
+        message: "Unable to preflight active run before sending; runtime will validate on submit.",
+        error: String(error?.message || error || ""),
+      }
+    );
+  }
+
+  return false;
+}
+
 function syncSelectedAgentChatActionControls() {
   const agentId = state.selectedAgentId;
   const sessionsBtn = document.getElementById("btn-sessions");
@@ -462,6 +512,16 @@ md.validateLink = function(text) {
 // ===== generic helpers =====
 function safe(value) {
   return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function cssEscapeForSelector(value) {
+  if (typeof window !== "undefined" && window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(value);
+  }
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function escapeHtml(text) {
@@ -886,7 +946,7 @@ function getSelectedAgent() {
 }
 
 function getSelectedAgentStatus() {
-  const agent = getSelectedAgent();
+  const agent = (typeof getSelectedAgent === "function") ? getSelectedAgent() : {};
   if (!agent) return "idle";
   return (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
 }
@@ -1029,8 +1089,273 @@ function getHistoryUserVisibleContent(message) {
   return "";
 }
 
-function buildUserMessageArticle(text, attachments = []) {
+function getCanonicalMessagesFromSessionPayload(payload = {}) {
+  const canonical = Array.isArray(payload?.canonical_messages)
+    ? payload.canonical_messages
+    : Array.isArray(payload?.metadata?.canonical_messages)
+      ? payload.metadata.canonical_messages
+      : [];
+
+  return canonical
+    .filter((message) => message && typeof message === "object")
+    .map((message) => {
+      const info = message.info && typeof message.info === "object" ? message.info : {};
+      const parts = Array.isArray(message.parts) ? message.parts.filter((part) => part && typeof part === "object") : [];
+      const messageId = String(message.message_id || info.id || "");
+      const role = String(message.role || info.role || "").toLowerCase();
+
+      return {
+        info,
+        parts,
+        message_id: messageId,
+        role,
+        source_of_truth: "opencode",
+      };
+    })
+    .filter((message) => message.message_id || message.role || message.parts.length);
+}
+
+function canonicalPartText(part = {}) {
+  if (!part || typeof part !== "object") return "";
+  if (typeof part.text === "string") return part.text;
+  if (typeof part.content === "string") return part.content;
+  if (typeof part.delta === "string") return part.delta;
+  if (typeof part.markdown === "string") return part.markdown;
+  return "";
+}
+
+function canonicalMessageVisibleText(message = {}) {
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  return parts
+    .filter((part) => {
+      const type = String(part.type || "").toLowerCase();
+      return type === "text" || type === "markdown" || (!type && canonicalPartText(part));
+    })
+    .map(canonicalPartText)
+    .filter(Boolean)
+    .join("");
+}
+
+function canonicalMessageToLegacyDisplayMessage(message = {}, index = 0) {
+  const info = message.info || {};
+  const role = String(message.role || info.role || "").toLowerCase() || "assistant";
+  const id = String(message.message_id || info.id || `canonical-${index}`);
+  const content = canonicalMessageVisibleText(message);
+
+  return {
+    id,
+    role,
+    content,
+    display_content: content,
+    request_id: String(info.requestID || info.request_id || ""),
+    metadata: {
+      source_of_truth: "opencode",
+      opencode_message_id: id,
+      opencode_role: role,
+      canonical_parts: message.parts || [],
+    },
+  };
+}
+
+function canonicalMessagesToLegacyDisplayMessages(canonicalMessages = []) {
+  return canonicalMessages
+    .map((message, index) => canonicalMessageToLegacyDisplayMessage(message, index))
+    .filter((message) => message.role !== "assistant" || String(message.display_content || message.content || "").trim());
+}
+
+function canonicalPartToThinkingItem(message = {}, part = {}, index = 0) {
+  const partType = String(part.type || "").toLowerCase();
+  const messageId = String(message.message_id || message.info?.id || part.messageID || part.messageId || part.message_id || "");
+  const partId = String(part.id || `${messageId}:part:${index}`);
+
+  if (partType === "reasoning") {
+    return {
+      kind: "reasoning",
+      message_id: messageId,
+      part_id: partId,
+      text: canonicalPartText(part),
+      status: part.finished === true || part.endTime ? "completed" : "running",
+    };
+  }
+
+  if (partType === "tool") {
+    const state = part.state && typeof part.state === "object" ? part.state : {};
+    return {
+      kind: "tool",
+      message_id: messageId,
+      part_id: partId,
+      tool: String(part.tool || part.name || state.tool || ""),
+      status: String(state.status || part.status || "running"),
+      input: part.input || state.input || null,
+      output: part.output || state.output || null,
+      error: part.error || state.error || "",
+    };
+  }
+
+  if (partType === "step-start") {
+    return { kind: "step_start", message_id: messageId, part_id: partId };
+  }
+
+  if (partType === "step-finish") {
+    return {
+      kind: "step_finish",
+      message_id: messageId,
+      part_id: partId,
+      reason: String(part.reason || part.finish_reason || ""),
+      cost: part.cost || null,
+      tokens: part.tokens || null,
+    };
+  }
+
+  if (partType === "permission") {
+    return {
+      kind: "permission",
+      message_id: messageId,
+      part_id: partId,
+      permission_id: String(part.permissionID || part.permission_id || part.id || ""),
+      status: String(part.status || "pending"),
+    };
+  }
+
+  return null;
+}
+
+function canonicalMessagesToThinkingItems(canonicalMessages = []) {
+  const out = [];
+  canonicalMessages.forEach((message) => {
+    const parts = Array.isArray(message.parts) ? message.parts : [];
+    parts.forEach((part, index) => {
+      const item = canonicalPartToThinkingItem(message, part, index);
+      if (item) out.push(item);
+    });
+  });
+  return out;
+}
+
+function canonicalThinkingItemToRuntimeEvent(item = {}, sessionId = "") {
+  const baseData = {
+    ...item,
+    message_id: item.message_id || "",
+    part_id: item.part_id || "",
+    session_id: sessionId || "",
+    source_of_truth: "opencode",
+  };
+  const baseEvent = (type, data = baseData, summary = "") => ({
+    type,
+    raw_type: type,
+    event_type: type,
+    data,
+    session_id: sessionId || "",
+    request_id: "",
+    event_id: `canonical:${item.message_id || ""}:${item.part_id || ""}:${type}`,
+    summary: summary || data.message || data.text || data.tool || type,
+    ts: Date.now() / 1000,
+    source_of_truth: "opencode",
+  });
+
+  if (item.kind === "reasoning") {
+    return baseEvent("opencode.reasoning", {
+      ...baseData,
+      message: item.text || "Reasoning update",
+      status: item.status || "running",
+    }, item.text || "Reasoning update");
+  }
+  if (item.kind === "tool") {
+    return baseEvent("opencode.tool", {
+      ...baseData,
+      message: item.tool ? `${item.tool} ${item.status || "running"}` : "Tool update",
+    }, item.tool || "Tool update");
+  }
+  if (item.kind === "step_start") {
+    return baseEvent("opencode.step.started", {
+      ...baseData,
+      message: "Step started",
+    }, "Step started");
+  }
+  if (item.kind === "step_finish") {
+    return baseEvent("opencode.step.finished", {
+      ...baseData,
+      message: item.reason || "Step finished",
+    }, item.reason || "Step finished");
+  }
+  if (item.kind === "permission") {
+    return baseEvent("permission_request", {
+      ...baseData,
+      message: item.status ? `Permission ${item.status}` : "Permission requested",
+    }, item.permission_id || "Permission requested");
+  }
+  return null;
+}
+
+function canonicalMessagesToThinkingEvents(canonicalMessages = [], sessionId = "") {
+  return canonicalMessagesToThinkingItems(canonicalMessages)
+    .map((item) => canonicalThinkingItemToRuntimeEvent(item, sessionId))
+    .filter(Boolean);
+}
+
+function applyCanonicalMessagesToChatState(agentId, sessionId, chatState, canonicalMessages = [], metadata = {}) {
+  if (!chatState || !Array.isArray(canonicalMessages) || !canonicalMessages.length) return;
+  if (!chatState.openCodeProjection) {
+    chatState.openCodeProjection = {
+      messagesById: {},
+      partsById: {},
+      sessionStatus: "unknown",
+      needsSnapshot: false,
+    };
+  }
+  canonicalMessages.forEach((message) => {
+    const messageId = String(message.message_id || message.info?.id || "");
+    if (messageId) {
+      chatState.openCodeProjection.messagesById[messageId] = {
+        ...(chatState.openCodeProjection.messagesById[messageId] || {}),
+        info: message.info || {},
+        parts: message.parts || [],
+        role: message.role || "",
+        source_of_truth: "opencode",
+      };
+    }
+    (message.parts || []).forEach((part, index) => {
+      const partId = String(part.id || `${messageId}:part:${index}`);
+      if (!partId) return;
+      chatState.openCodeProjection.partsById[partId] = {
+        ...(chatState.openCodeProjection.partsById[partId] || {}),
+        ...part,
+        id: partId,
+        messageID: part.messageID || part.messageId || part.message_id || messageId,
+        type: part.type,
+      };
+    });
+  });
+
+  const canonicalEvents = canonicalMessagesToThinkingEvents(canonicalMessages, sessionId);
+  if (!canonicalEvents.length) return;
+  const target = chatState.inflightThinking && chatState.inflightThinking.completed !== true
+    ? chatState.inflightThinking
+    : null;
+  const existing = target || chatState.lastThinkingSnapshot || {};
+  const requestId = String(metadata.request_id || metadata.latest_request_id || existing.requestId || existing.id || "");
+  const merged = {
+    ...existing,
+    id: existing.id || requestId || `canonical-${sessionId || Date.now()}`,
+    requestId,
+    sessionId: sessionId || existing.sessionId || "",
+    events: mergeThinkingEvents(existing.events || [], canonicalEvents),
+    canonicalThinkingItems: canonicalMessagesToThinkingItems(canonicalMessages),
+    contextSource: "opencode_canonical",
+    completed: target ? false : (existing.completed ?? true),
+    status: target ? (existing.status || "connected") : (existing.status || "snapshot"),
+    lastEventAt: Date.now(),
+  };
+  if (target) Object.assign(target, merged);
+  else chatState.lastThinkingSnapshot = merged;
+  if (agentId === state.selectedAgentId && isThinkingPanelActiveForAgent(agentId)) {
+    scheduleThinkingPanelRefresh(agentId);
+  }
+}
+
+function buildUserMessageArticle(text, attachments = [], options = {}) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const clientRequestAttr = options.clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(options.clientRequestId)}"` : "";
   let attachmentHtml = "";
   if (attachments.length > 0) {
     attachmentHtml = `<div class="message-attachments">${attachments.map(a => {
@@ -1044,7 +1369,7 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user user-message" data-local-user="1" data-optimistic-user="1"${clientRequestAttr}><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function getAssistantDisplayGroupKey(message, lastUserMessageId, index) {
@@ -1201,9 +1526,53 @@ function removeTemporaryAssistantRows(options = {}) {
   });
 }
 
-function removeLatestOptimisticUserRow() {
+function removeLatestOptimisticUserRow(options = {}) {
   const latest = getLatestOptimisticUserArticle();
-  latest?.closest('.message-row')?.remove();
+  if (!latest) return false;
+  if (options.onlyLocal && latest.dataset.localUser !== "1") return false;
+  const requestId = String(options.requestCtx?.clientRequestId || options.requestCtx?.requestId || "");
+  if (requestId && latest.dataset.clientRequestId && latest.dataset.clientRequestId !== requestId) return false;
+  const persisted =
+    latest.dataset.persisted === "1"
+    || latest.dataset.messageId
+    || latest.dataset.opencodeMessageId;
+  if (persisted) return false;
+  const row = latest.closest?.(".message-row");
+  (row || latest).remove();
+  return true;
+}
+
+function removeOptimisticUserRowForRequest(requestCtx = {}) {
+  const requestId = String(requestCtx.clientRequestId || requestCtx.requestId || "");
+  if (!dom.messageList || !requestId) return false;
+
+  const exact = dom.messageList.querySelector(
+    `article.user-message[data-client-request-id="${cssEscapeForSelector(requestId)}"]`
+  );
+  const exactPersisted =
+    exact?.dataset.persisted === "1"
+    || exact?.dataset.messageId
+    || exact?.dataset.opencodeMessageId;
+  if (exact && !exactPersisted) {
+    const row = exact.closest?.(".message-row");
+    (row || exact).remove();
+    return true;
+  }
+
+  const candidates = Array.from(dom.messageList.querySelectorAll("article.user-message[data-local-user='1']"));
+  const last = candidates[candidates.length - 1];
+  if (!last) return false;
+
+  const persisted =
+    last.dataset.persisted === "1"
+    || last.dataset.messageId
+    || last.dataset.opencodeMessageId;
+
+  if (persisted) return false;
+
+  const row = last.closest?.(".message-row");
+  (row || last).remove();
+  return true;
 }
 
 function getLatestOptimisticUserArticle() {
@@ -1264,6 +1633,7 @@ function isTrackableThinkingEvent(type) {
     "chat.started", "heartbeat", "status",
     "execution.started", "execution.completed", "execution.failed",
     "execution.incomplete", "execution.blocked",
+    "opencode.reasoning", "opencode.tool", "opencode.step.started", "opencode.step.finished",
     "continuation.started", "continuation.prompt_sent", "continuation.completed", "continuation.failed",
     "continuation.max_turns_reached", "continuation.wall_timeout", "continuation.no_progress", "continuation.suppressed",
     "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error", "final",
@@ -1440,6 +1810,10 @@ function getThinkingEventDisplay(event) {
     llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
     tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
     tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
+    "opencode.reasoning": { icon: "brain", title: "OpenCode Reasoning", detail: data.text || data.message || "Reasoning update", kind: data.status === "completed" ? "success" : "running" },
+    "opencode.tool": { icon: data.error ? "x-circle" : "wrench", title: "OpenCode Tool", detail: data.tool ? `${data.tool} ${data.status || "running"}` : (data.message || "Tool update"), kind: data.error ? "error" : (data.status === "completed" ? "success" : "running"), args: data.input, output: data.output },
+    "opencode.step.started": { icon: "list-start", title: "OpenCode Step Started", detail: data.message || "Step started" },
+    "opencode.step.finished": { icon: "list-checks", title: "OpenCode Step Finished", detail: data.reason || data.message || "Step finished", kind: "success" },
     skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
     context_snapshot: {
@@ -1541,6 +1915,7 @@ function getThinkingEventDisplay(event) {
     "portal.reconcile.completed": { icon: "check-circle-2", title: "Reconcile Completed", detail: data.message || "Chat run completed" },
     "portal.reconcile.failed": { icon: "x-circle", title: "Reconcile Failed", detail: data.error || data.message || "Chat run reconcile failed", kind: "error" },
     "portal.active_request.cleared": { icon: "alert-triangle", title: "Active Request Cleared", detail: data.message || "Portal cleared stale active request", kind: "warning" },
+    "portal.chat_run_already_active": { icon: "alert-triangle", title: "Previous Run Active", detail: data.message || "Previous message still running", kind: "warning" },
     "portal.abort.started": { icon: "square", title: "Abort Started", detail: data.message || "Stopping current run" },
     "portal.abort.completed": { icon: "check-circle-2", title: "Abort Completed", detail: data.message || "Current run stopped", kind: "success" },
     "portal.abort.failed": { icon: "x-circle", title: "Abort Failed", detail: data.error || data.message || "Unable to stop current run", kind: "error" },
@@ -1787,6 +2162,28 @@ function sanitizeEventDetailPayload(value, depth = 0) {
   return value;
 }
 
+function nonSuccessHintForPayload(payload = {}) {
+  const reason = String(
+    payload.incomplete_reason ||
+    payload.incompleteReason ||
+    payload.error ||
+    payload.detail ||
+    payload.reason ||
+    ""
+  ).toLowerCase();
+
+  if (reason.includes("chat_run_already_active")) {
+    return "A previous OpenCode run is still active. Wait for it to finish or use Stop run.";
+  }
+
+  const status = String(payload.status || payload.completion_state || "").toLowerCase();
+  if (["busy", "running", "streaming", "retry"].includes(status)) {
+    return "The previous message is still running. You can wait, reconnect, or use Stop run.";
+  }
+
+  return 'You can send "continue" to ask the runtime to resume, or inspect the event details here.';
+}
+
 function getThinkingSnapshotStatus(snapshot) {
   const completionState = String(snapshot?.completion_state || "").trim().toLowerCase();
   if (snapshot?.completed) {
@@ -1801,9 +2198,14 @@ function getThinkingSnapshotStatus(snapshot) {
 
 function renderThinkingPanelFromClientState(chatState) {
   if (!dom.toolPanelBody) return;
+  const uiState = computeOpenCodeRuntimeUiState(
+    (typeof getSelectedAgent === "function") ? (getSelectedAgent() || {}) : {},
+    chatState || {}
+  );
+  const runtimeStateNotes = renderOpenCodeRuntimeStateNotes(uiState);
   const snapshot = getActiveThinkingSnapshot(chatState);
   if (!snapshot) {
-    dom.toolPanelBody.innerHTML = '<div class="portal-inline-state">Waiting for runtime events…</div>';
+    dom.toolPanelBody.innerHTML = `<div class="portal-panel-section"><div class="portal-panel-title">Runtime State</div>${runtimeStateNotes}<div class="portal-panel-note">${safe(openCodeRuntimeUiStatusText(uiState))}</div></div><div class="portal-inline-state">Waiting for runtime events…</div>`;
     return;
   }
   const events = Array.isArray(snapshot.events) ? snapshot.events : [];
@@ -1835,6 +2237,11 @@ function renderThinkingPanelFromClientState(chatState) {
   const completionState = String(snapshot.completion_state || snapshot.completionState || "").trim();
   const incompleteReason = String(snapshot.incomplete_reason || snapshot.incompleteReason || "").trim();
   const showNonSuccess = isNonSuccessCompletionState(completionState) || Boolean(incompleteReason);
+  const nonSuccessHint = nonSuccessHintForPayload({
+    ...snapshot,
+    completion_state: completionState,
+    incomplete_reason: incompleteReason,
+  });
   const stillRunning = !snapshot.completed && elapsedMs >= 10 * 60 * 1000;
   const contextSourceLabel = snapshot.completed
     ? (snapshot.contextSource === "last_observed_live"
@@ -1881,8 +2288,10 @@ function renderThinkingPanelFromClientState(chatState) {
         <div class="portal-panel-note">Request ID: ${safe(snapshot.requestId || snapshot.id || "—")}</div>
         <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
         <div class="portal-panel-note">Events: ${events.length}</div>
+        ${runtimeStateNotes}
+        <div class="portal-panel-note">${safe(openCodeRuntimeUiStatusText(uiState))}</div>
       </div>
-      ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>You can send "continue" to ask the runtime to resume, or inspect the event details here.</div></div>` : ""}
+      ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>${safe(nonSuccessHint)}</div></div>` : ""}
       ${stillRunning ? '<div class="portal-inline-state">Still running. Live events will continue to appear here.</div>' : ""}
       ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div>${untilSoft != null ? `<div class="portal-panel-note">Until soft threshold: ${safe(String(untilSoft))} tokens</div>` : ""}${untilHard != null ? `<div class="portal-panel-note">Until hard threshold: ${safe(String(untilHard))} tokens</div>` : ""}${nextPruningPolicy ? `<div class="portal-panel-note">Pruning policy: ${safe(truncateThinkingText(nextPruningPolicy, 500))}</div>` : ""}</div>` : ""}
       <div class="portal-panel-section">
@@ -2142,6 +2551,189 @@ function maybeStartStalledAssistantReconcile(agentId, chatState) {
   startChatRunReconcileLoop(agentId, requestCtx);
 }
 
+function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
+  const data = event.data && typeof event.data === "object" ? event.data : {};
+  const eventType = String(event.type || "").toLowerCase();
+  const canonicalEventType = eventType.startsWith("message.") || eventType === "session.status" || eventType === "session.idle"
+    ? eventType
+    : "";
+  const rawType = String(data.raw_type || event.raw_type || canonicalEventType || "").toLowerCase();
+  const reconcileHint = String(data.reconcile_hint || "").toLowerCase();
+  if (
+    !rawType.startsWith("message.")
+    && rawType !== "session.status"
+    && rawType !== "session.idle"
+    && reconcileHint !== "fetch_session_messages"
+  ) {
+    return false;
+  }
+
+  if (!chatState.openCodeProjection) {
+    chatState.openCodeProjection = {
+      messagesById: {},
+      partsById: {},
+      sessionStatus: "unknown",
+      needsSnapshot: false,
+    };
+  }
+
+  const projection = chatState.openCodeProjection;
+
+  if (rawType === "message.updated") {
+    const info = data.info && typeof data.info === "object" ? data.info : {};
+    const messageId = String(data.message_id || info.id || "");
+    if (!messageId) return true;
+    const existing = projection.messagesById[messageId] || { info: {}, parts: [] };
+    projection.messagesById[messageId] = { ...existing, info: { ...existing.info, ...info } };
+    return true;
+  }
+
+  if (rawType === "message.part.updated") {
+    const part = data.part && typeof data.part === "object" ? data.part : {};
+    const partId = String(data.part_id || part.id || "");
+    const messageId = String(data.message_id || part.messageID || part.messageId || part.message_id || "");
+    if (!partId) return true;
+    projection.partsById[partId] = {
+      ...(projection.partsById[partId] || {}),
+      ...part,
+      id: partId,
+      messageID: messageId || part.messageID,
+      type: data.part_type || part.type,
+    };
+    return true;
+  }
+
+  if (rawType === "message.part.delta") {
+    const partId = String(data.part_id || "");
+    if (!partId) return true;
+    const existing = projection.partsById[partId] || { id: partId, type: data.part_type || "text", text: "" };
+    if (data.field === "text" || !data.field) {
+      existing.text = `${existing.text || ""}${data.delta || ""}`;
+    }
+    projection.partsById[partId] = existing;
+    return true;
+  }
+
+  if (rawType === "session.status") {
+    const statusValue = data.status;
+    projection.sessionStatus = String(
+      data.status_type ||
+      (statusValue && typeof statusValue === "object" ? statusValue.type : "") ||
+      (typeof statusValue === "string" ? statusValue : "") ||
+      "unknown"
+    ).toLowerCase();
+    projection.sessionStatusPayload = data;
+    if (reconcileHint === "fetch_session_messages") projection.needsSnapshot = true;
+    return true;
+  }
+
+  if (rawType === "session.idle") {
+    projection.sessionStatus = "idle";
+    projection.needsSnapshot = true;
+    return true;
+  }
+
+  if (reconcileHint === "fetch_session_messages") {
+    projection.needsSnapshot = true;
+    return true;
+  }
+
+  return false;
+}
+
+function isOpenCodeSessionStateOnlyEvent(event = {}) {
+  const data = event.data && typeof event.data === "object" ? event.data : {};
+  const rawType = String(data.raw_type || event.raw_type || event.type || "").toLowerCase();
+  const reconcileHint = String(data.reconcile_hint || "").toLowerCase();
+  return (
+    rawType === "session.status"
+    || rawType === "session.idle"
+    || reconcileHint === "fetch_session_messages"
+  );
+}
+
+function maybeRefreshSessionSnapshotForOpenCodeEvent(agentId, chatState, sessionId = "", event = {}) {
+  const projection = chatState?.openCodeProjection;
+  if (!agentId || !chatState || !sessionId || !projection?.needsSnapshot) return;
+  if (projection.snapshotRefreshInFlight) return;
+  const lastFailedAt = Number(projection.snapshotRefreshLastFailedAt || 0);
+  if (lastFailedAt && Date.now() - lastFailedAt < 10000) return;
+  projection.snapshotRefreshInFlight = true;
+  chatState.needsReload = true;
+  return Promise.resolve()
+    .then(() => loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId }))
+    .then(() => {
+      projection.needsSnapshot = false;
+      projection.snapshotRefreshError = "";
+    })
+    .catch((error) => {
+      projection.needsSnapshot = true;
+      projection.snapshotRefreshLastFailedAt = Date.now();
+      projection.snapshotRefreshError = String(error?.message || error || "");
+      appendPortalChatRuntimeEvent(agentId, fallbackRequestContextForAgent(agentId, "opencode_snapshot_refresh_failed"), "portal.reconcile.failed", {
+        message: "Unable to refresh OpenCode session snapshot after runtime event.",
+        error: projection.snapshotRefreshError,
+        source_event: event?.raw_type || event?.type || "",
+      });
+    })
+    .finally(() => {
+      projection.snapshotRefreshInFlight = false;
+    });
+}
+
+async function refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState) {
+  if (!agentId || !sessionId || !chatState) return null;
+
+  try {
+    const payload = await agentApiFor(
+      agentId,
+      `/api/sessions/${encodeURIComponent(sessionId)}/status`
+    );
+
+    if (!chatState.openCodeProjection) {
+      chatState.openCodeProjection = {
+        messagesById: {},
+        partsById: {},
+        sessionStatus: "unknown",
+        needsSnapshot: false,
+      };
+    }
+
+    const statusValue = payload?.status;
+    const statusType = String(
+      payload?.status_type ||
+      (statusValue && typeof statusValue === "object" ? statusValue.type : "") ||
+      (typeof statusValue === "string" ? statusValue : "") ||
+      "unknown"
+    ).toLowerCase();
+    let nextStatus = statusType || "unknown";
+    if (payload?.active === true && payload?.action_hint === "wait_reconnect_or_stop") {
+      nextStatus = statusType && statusType !== "unknown" ? statusType : "busy";
+    }
+
+    chatState.openCodeProjection.sessionStatus = nextStatus;
+    chatState.openCodeProjection.sessionStatusPayload = payload;
+    chatState.openCodeProjection.sessionStatusError = "";
+    chatState.openCodeProjection.activeChildSessions = Array.isArray(payload?.active_child_sessions)
+      ? payload.active_child_sessions
+      : [];
+
+    return payload;
+  } catch (error) {
+    if (!chatState.openCodeProjection) {
+      chatState.openCodeProjection = {
+        messagesById: {},
+        partsById: {},
+        sessionStatus: "unknown",
+        needsSnapshot: false,
+      };
+    }
+    chatState.openCodeProjection.sessionStatus = "unknown";
+    chatState.openCodeProjection.sessionStatusError = String(error?.message || error || "");
+    return null;
+  }
+}
+
 function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
@@ -2203,8 +2795,25 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
   const lifecycleType = entry.lifecycle_type;
+  const localApplyOpenCodeCanonicalEventToChatState = (typeof applyOpenCodeCanonicalEventToChatState === "function")
+    ? applyOpenCodeCanonicalEventToChatState
+    : () => false;
+  const appliedCanonicalEvent = localApplyOpenCodeCanonicalEventToChatState(chatState, entry);
+  if (appliedCanonicalEvent && typeof maybeRefreshSessionSnapshotForOpenCodeEvent === "function") {
+    maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState, entry.session_id || currentSessionId, entry);
+  }
+  const isSessionStateOnlyCanonicalEvent = appliedCanonicalEvent
+    && typeof isOpenCodeSessionStateOnlyEvent === "function"
+    && isOpenCodeSessionStateOnlyEvent(entry);
+  if (isSessionStateOnlyCanonicalEvent) {
+    if (isThinkingPanelActiveForAgent(currentAgentId)) {
+      scheduleThinkingPanelRefresh(currentAgentId);
+    }
+    syncSelectedAgentChatActionControls();
+    return;
+  }
 
-  if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
+  if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion && !appliedCanonicalEvent) return;
 
   const isLateEventForCompletedRequest = Boolean(
     !chatState.activeRequest
@@ -2455,6 +3064,63 @@ function ensureEventSocketForSelectedAgent() {
   ensureEventSocketForAgent(agentId, currentSessionIdForSelectedAgent(), requestId || null);
 }
 
+function normalizeRuntimeHealthStatus(value) {
+  const normalized = String(value || "unknown").trim().toLowerCase();
+  if (["running", "online", "ready", "healthy", "started"].includes(normalized)) return "online";
+  if (["stopped", "offline", "unavailable", "failed", "error"].includes(normalized)) return "offline";
+  return normalized || "unknown";
+}
+
+function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
+  const runtimeHealth = agent.runtime_status || agent.status || "unknown";
+  const normalizedRuntimeHealth = normalizeRuntimeHealthStatus(runtimeHealth);
+  const projection = chatState.openCodeProjection || {};
+  const activeRun = chatState.activeRequest || null;
+
+  let sessionStatus = normalizedRuntimeHealth === "offline"
+    ? "unknown"
+    : (projection.sessionStatus || "unknown");
+  if (activeRun && isActiveRequestBlocking(chatState)) {
+    sessionStatus = "busy";
+  }
+
+  let messageProgress = "idle";
+  const thinking = chatState.inflightThinking;
+  const thinkingSource = String(thinking?.contextSource || thinking?.source || "").toLowerCase();
+  const isSessionStateThinkingOnly = thinkingSource === "opencode_session_state";
+  if (thinking && !thinking.completed && !isSessionStateThinkingOnly) {
+    messageProgress = "running";
+  }
+  if (sessionStatus === "retry") messageProgress = "retrying";
+  if (sessionStatus === "busy" && messageProgress === "idle") messageProgress = "running";
+  if (normalizedRuntimeHealth === "offline") messageProgress = "unknown";
+
+  return {
+    runtimeHealth,
+    normalizedRuntimeHealth,
+    sessionStatus,
+    messageProgress,
+  };
+}
+
+function openCodeRuntimeUiStatusText(uiState = {}) {
+  const runtimeHealth = uiState.normalizedRuntimeHealth || normalizeRuntimeHealthStatus(uiState.runtimeHealth);
+  const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
+  if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
+  if (sessionStatus === "idle") return "Assistant online. Ready.";
+  if (sessionStatus === "busy") return "Assistant online. Previous message still running.";
+  if (sessionStatus === "retry") return "Assistant online. Provider retrying.";
+  return "Assistant online. Session status unknown.";
+}
+
+function renderOpenCodeRuntimeStateNotes(uiState = {}) {
+  return `
+    <div class="portal-panel-note">Runtime: ${safe(uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown")}</div>
+    <div class="portal-panel-note">Session: ${safe(uiState.sessionStatus || "unknown")}</div>
+    <div class="portal-panel-note">Message: ${safe(uiState.messageProgress || "idle")}</div>
+  `;
+}
+
 function applyTheme(theme) {
   const normalized = theme === "light" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", normalized);
@@ -2473,8 +3139,21 @@ function toggleTheme() {
 
 function setChatStatus(text, isError = false) {
   if (!dom.chatStatus) return;
+  const agent = getSelectedAgent();
+  const chatState = state.selectedAgentId ? ensureChatState(state.selectedAgentId) : {};
+  const uiState = computeOpenCodeRuntimeUiState(agent || {}, chatState || {});
   dom.chatStatus.textContent = text;
   dom.chatStatus.className = `portal-statusline${isError ? " is-error" : ""}`;
+  dom.chatStatus.dataset.runtimeHealth = uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown";
+  dom.chatStatus.dataset.sessionStatus = uiState.sessionStatus || "unknown";
+  dom.chatStatus.dataset.messageProgress = uiState.messageProgress || "idle";
+  dom.chatStatus.title = [
+    openCodeRuntimeUiStatusText(uiState),
+    `Runtime: ${uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown"}`,
+    `Session: ${uiState.sessionStatus || "unknown"}`,
+    `Message: ${uiState.messageProgress || "idle"}`,
+  ].join("\n");
+  dom.chatStatus.setAttribute("aria-label", `${text}. ${openCodeRuntimeUiStatusText(uiState)}`);
 }
 
 function scrollToBottom() {
@@ -3713,6 +4392,12 @@ async function submitChatForSelectedAgent() {
   const requestMessage = messageAtSend || "[attachment]";
   const displayMessage = messageAtSend || "📎 Attachment";
   const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
+  const localPreflightActiveRunForSession = (typeof preflightActiveRunForSession === "function")
+    ? preflightActiveRunForSession
+    : async () => false;
+  const activeRunBlocked = await localPreflightActiveRunForSession(agentIdAtSend, sessionIdAtSend);
+  if (activeRunBlocked) return;
+
   const clientRequestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
     ? globalThis.crypto.randomUUID()
     : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -3732,6 +4417,7 @@ async function submitChatForSelectedAgent() {
     streamFailed: false,
     streamIncomplete: false,
     backupMessage: messageAtSend,
+    backupPendingFiles: chatState.pendingFiles.slice(),
     typewriter: { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false },
     usedStream: false,
   };
@@ -3787,7 +4473,10 @@ async function submitChatForSelectedAgent() {
       previewUrl: pf.previewUrl,
       url: pf.uploadedData?.url,
     }));
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(displayMessage, displayAttachments));
+    dom.messageList.insertAdjacentHTML(
+      "beforeend",
+      buildUserMessageArticle(displayMessage, displayAttachments, { clientRequestId })
+    );
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(clientRequestId));
     chatState.inflightThinking = {
       id: clientRequestId,
@@ -3816,6 +4505,12 @@ async function submitChatForSelectedAgent() {
   chatState.activeRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
   localStartWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx);
+  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
+    ? isChatRunAlreadyActivePayload
+    : () => false;
+  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
+    ? handleChatRunAlreadyActive
+    : async () => "handled";
 
   try {
     const streamResult = await trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody);
@@ -3826,8 +4521,26 @@ async function submitChatForSelectedAgent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
-    if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+    if (!resp.ok) {
+      let structuredError = null;
+      try {
+        structuredError = await resp.clone().json();
+      } catch (_) {
+        structuredError = null;
+      }
+
+      if (localIsChatRunAlreadyActivePayload(structuredError)) {
+        await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, structuredError);
+        return;
+      }
+
+      throw new Error(await handleErrorResponse(resp));
+    }
     const payload = await resp.json();
+    if (localIsChatRunAlreadyActivePayload(payload)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, payload);
+      return;
+    }
     const responseText = finalResponseText(payload);
     if (payload?.ok === false || isNonSuccessFinalPayload(payload)) {
       if (typeof handleIncompleteChatStream === "function") {
@@ -4959,11 +5672,23 @@ function isChatRunRunningStatus(status) {
 
 function isRuntimeRunActuallyActive(run) {
   if (!run) return false;
+  if (
+    run.stale === true
+    || run.aborted === true
+    || run.completed === true
+    || run.runtimeInactive === true
+    || run.opencodeInactive === true
+  ) return false;
   if (run.opencode_active === false) return false;
   if (run.source_of_truth && run.source_of_truth !== "opencode") return false;
   const status = normalizeChatRunStatus(run.status || run.state || "");
+  const completionState = normalizeChatRunStatus(run.completion_state || run.completionState || "");
+  if (["completed", "aborted", "stale", "failed", "error", "cancelled", "canceled"].includes(status)) return false;
+  if (["completed", "aborted", "stale", "failed", "error"].includes(completionState)) return false;
   if (status === "stream_detached" && run.opencode_active !== true) return false;
-  return ["running", "recovering", "stream_attached", "stream_detached"].includes(status) && run.opencode_active !== false;
+  if (run.opencode_active === true) return true;
+  if (run.source_of_truth === "opencode" && ["busy", "running", "streaming", "active", "in_progress", "retry", "recovering", "stream_attached", "stream_detached"].includes(status)) return true;
+  return false;
 }
 
 function isValidatedRuntimeActiveRun(run) {
@@ -5015,16 +5740,119 @@ function isNullOrStaleRunPayload(payload = {}) {
 function getActiveRunFromPayload(payload = {}) {
   if (!payload || typeof payload !== "object") return null;
   if (payload.run === null || payload.active_run === null) return null;
-  if (payload.run && typeof payload.run === "object") return payload.run;
   if (payload.active_run && typeof payload.active_run === "object") return payload.active_run;
+  if (payload.activeRun && typeof payload.activeRun === "object") return payload.activeRun;
+  if (payload.run && typeof payload.run === "object") return payload.run;
+  if (payload.active && typeof payload.active === "object") return payload.active;
   if (payload.data && typeof payload.data === "object") {
     if (payload.data.run === null || payload.data.active_run === null) return null;
-    if (payload.data.run && typeof payload.data.run === "object") return payload.data.run;
     if (payload.data.active_run && typeof payload.data.active_run === "object") return payload.data.active_run;
+    if (payload.data.activeRun && typeof payload.data.activeRun === "object") return payload.data.activeRun;
+    if (payload.data.run && typeof payload.data.run === "object") return payload.data.run;
+    if (payload.data.active && typeof payload.data.active === "object") return payload.data.active;
     if (payload.data.status || payload.data.state || payload.data.request_id) return payload.data;
   }
   if (payload.status || payload.state || payload.request_id) return payload;
   return null;
+}
+
+function isChatRunAlreadyActivePayload(payload = {}) {
+  if (!payload || typeof payload !== "object") return false;
+  const error = String(
+    payload.error ||
+    payload.detail ||
+    payload.incomplete_reason ||
+    payload.incompleteReason ||
+    payload.reason ||
+    ""
+  ).toLowerCase();
+
+  if (error.includes("chat_run_already_active")) return true;
+
+  const activeRun = payload.active_run || payload.activeRun || payload.run || payload.active || payload.data?.active_run || payload.data?.activeRun || payload.data?.run || payload.data?.active;
+  if (!activeRun) return false;
+
+  return isRuntimeRunActuallyActive(activeRun);
+}
+
+async function handleChatRunAlreadyActive(agentId, requestCtx, payload = {}) {
+  const chatState = ensureChatState(agentId);
+  const sessionId =
+    payload.session_id ||
+    payload.sessionId ||
+    requestCtx?.sessionIdAtSend ||
+    chatState?.sessionId ||
+    "";
+
+  const activeRun =
+    payload.active_run ||
+    payload.activeRun ||
+    payload.run ||
+    payload.active ||
+    payload.data?.active_run ||
+    payload.data?.activeRun ||
+    payload.data?.run ||
+    payload.data?.active ||
+    null;
+
+  if (requestCtx?.clientRequestId) {
+    removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false });
+  }
+
+  const removedUserRow = removeOptimisticUserRowForRequest(requestCtx);
+  if (!removedUserRow && typeof removeLatestOptimisticUserRow === "function") {
+    removeLatestOptimisticUserRow({ requestCtx, onlyLocal: true });
+  }
+
+  if (dom.chatInput && Object.prototype.hasOwnProperty.call(requestCtx || {}, "backupMessage")) {
+    dom.chatInput.value = requestCtx.backupMessage;
+    syncChatInputHeight();
+  }
+
+  if (chatState && Array.isArray(requestCtx?.backupPendingFiles) && chatState.pendingFiles.length === 0) {
+    chatState.pendingFiles = requestCtx.backupPendingFiles;
+    renderInputPreview();
+  }
+
+  setChatSubmittingForAgent(agentId, false);
+
+  const rejectedClientRequestId = String(requestCtx?.clientRequestId || "");
+  if (
+    rejectedClientRequestId
+    && chatState?.activeRequest
+    && chatState.activeRequest.clientRequestId === rejectedClientRequestId
+  ) {
+    stopChatRunReconcileLoop(chatState.activeRequest);
+    chatState.activeRequest = null;
+  }
+
+  if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
+    const activeCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
+      active_run: activeRun,
+    });
+
+    if (activeCtx) {
+      ensureEventSocketForAgent(
+        agentId,
+        sessionId,
+        activeCtx.runtimeRequestId || activeCtx.requestId || activeCtx.clientRequestId
+      );
+      startChatRunReconcileLoop(agentId, activeCtx, { immediate: true });
+    }
+
+    appendPortalChatRuntimeEvent(agentId, activeCtx || requestCtx, "portal.chat_run_already_active", {
+      message: "Runtime reports an active OpenCode run; send was not submitted.",
+      active_run: activeRun,
+    });
+
+    setChatStatus("Previous message still running. Reconnecting…");
+    showToast("Previous message is still running. Wait or use Stop run.");
+    syncSelectedAgentChatActionControls();
+    return "handled";
+  }
+
+  await preflightActiveRunForSession(agentId, sessionId);
+  return "handled";
 }
 
 function runPayloadHasTerminalStatus(payload = {}) {
@@ -5336,6 +6164,12 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
     ? finalizeNonSuccessChatResponse
     : (agentId, ctx, payload, source) => localHandleIncompleteChatStream(agentId, ctx, source || "non_success", payload);
+  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
+    ? isChatRunAlreadyActivePayload
+    : () => false;
+  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
+    ? handleChatRunAlreadyActive
+    : async () => "handled";
   const localClearWaitingForRuntimeEventsTimer = (typeof clearWaitingForRuntimeEventsTimer === "function")
     ? clearWaitingForRuntimeEventsTimer
     : () => {};
@@ -5408,6 +6242,11 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
 
   if (outerType === "error") {
+    if (localIsChatRunAlreadyActivePayload(eventData)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, eventData);
+      return "error";
+    }
+
     requestCtx.sawError = true;
     requestCtx.streamFailed = true;
     localClearWaitingForRuntimeEventsTimer(requestCtx);
@@ -5448,6 +6287,10 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     requestCtx.streamFinalPayload = eventData;
     requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
+    if (localIsChatRunAlreadyActivePayload(eventData)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, eventData);
+      return "final_non_success";
+    }
     if (localIsNonSuccessFinalPayload(eventData)) {
       if (typeof finalizeNonSuccessChatResponse === "function") {
         finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, eventData, "stream_final");
@@ -5572,9 +6415,27 @@ async function handleChatStreamDetached(agentIdAtSend, requestCtx, reason = "str
 }
 
 async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
+  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
+    ? isChatRunAlreadyActivePayload
+    : () => false;
+  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
+    ? handleChatRunAlreadyActive
+    : async () => "handled";
   const resp = await fetch(`/a/${agentIdAtSend}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
   if ([404,405,501].includes(resp.status) || !resp.body) return 'unsupported';
-  if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+  if (!resp.ok) {
+    let structuredError = null;
+    try {
+      structuredError = await resp.clone().json();
+    } catch (_) {
+      structuredError = null;
+    }
+    if (localIsChatRunAlreadyActivePayload(structuredError)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, structuredError);
+      return "handled";
+    }
+    throw new Error(await handleErrorResponse(resp));
+  }
   requestCtx.usedStream = true;
   const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
     ? finalizeNonSuccessChatResponse
@@ -5630,6 +6491,10 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate)) {
     const candidate = requestCtx.streamFinalCandidate;
     const candidateText = finalResponseText(candidate) || getChatStreamTextPayload(candidate);
+    if (localIsChatRunAlreadyActivePayload(candidate)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, candidate);
+      return "handled";
+    }
     if (isNonSuccessFinalPayload(candidate)) {
       await localFinalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, candidate, "candidate_final");
       return "handled";
@@ -7001,7 +7866,17 @@ function deriveSessionRecoveryNotice(metadata = {}) {
 function hydrateActiveRequestFromRun(agentId, sessionId, run = {}, metadata = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return null;
-  const runtimeRequestId = String(run.request_id || run.id || metadata.request_id || metadata.last_execution_id || "");
+  const runtimeRequestId = String(
+    run.request_id ||
+    run.runtime_request_id ||
+    run.runtimeRequestId ||
+    run.id ||
+    metadata.request_id ||
+    metadata.runtime_request_id ||
+    metadata.runtimeRequestId ||
+    metadata.last_execution_id ||
+    ""
+  );
   const clientRequestId = String(run.client_request_id || run.clientRequestId || runtimeRequestId || `rehydrated_${Date.now()}`);
   const existing = chatState.activeRequest?.sessionIdAtSend === sessionId ? chatState.activeRequest : null;
   const requestCtx = existing || {
@@ -7164,22 +8039,43 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   updateAgentSession(agentId, normalized);
   const latestChatState = ensureChatState(agentId);
   if (latestChatState) latestChatState.needsReload = false;
+  let recoveryNotice = null;
+  const applyRecoveryNotice = () => {
+    if (recoveryNotice) {
+      setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
+    }
+  };
+  const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState);
+  const shouldApplyRecoveryNotice = agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId);
+  const canonicalMessages = getCanonicalMessagesFromSessionPayload(data);
+  const messagesForRender = canonicalMessages.length
+    ? canonicalMessagesToLegacyDisplayMessages(canonicalMessages)
+    : data.messages || [];
+  const normalizedPayload = {
+    ...data,
+    messages: messagesForRender,
+    metadata: {
+      ...(data.metadata || {}),
+      source_of_truth: canonicalMessages.length ? "opencode" : data.metadata?.source_of_truth,
+      canonical_messages: canonicalMessages,
+      session_status: statusPayload || data.metadata?.session_status || null,
+    },
+  };
+  recoveryNotice = shouldApplyRecoveryNotice ? deriveSessionRecoveryNotice(normalizedPayload.metadata || {}) : null;
+  if (latestChatState && canonicalMessages.length) {
+    applyCanonicalMessagesToChatState(agentId, normalized, latestChatState, canonicalMessages, normalizedPayload.metadata || {});
+  }
   if (render) {
     // Ensure agent name is set
     if (!state.selectedAgentName && state.selectedAgentId) {
       const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
       state.selectedAgentName = agent?.name || null;
     }
-    renderChatHistory(data.messages || [], data.metadata || {});
-    reconcileActiveRequestProjection(agentId, normalized, data.metadata || {}, data.messages || []);
+    renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {});
+    reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || []);
     addEditButtonsToMessages();
     if (!ensureChatState(agentId)?.activeRequest) setChatStatus(`Loaded session ${normalized}`);
-    if (agentId === state.selectedAgentId && !hasActiveChatRequestForAgent(agentId)) {
-      const recoveryNotice = deriveSessionRecoveryNotice(data.metadata || {});
-      if (recoveryNotice) {
-        setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
-      }
-    }
+    applyRecoveryNotice();
   }
 }
 

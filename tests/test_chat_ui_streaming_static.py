@@ -167,6 +167,208 @@ def test_chat_stream_main_path_does_not_use_tasks():
     assert "/api/tasks" not in submit_stream
     assert "/api/tasks" not in submit_chat
     assert "task mode" not in submit_stream.lower()
+    assert ":4096" not in src
+
+
+def test_chat_submit_preflights_active_run_before_optimistic_ui():
+    src = _src()
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+    preflight = _extract_js_function(src, "preflightActiveRunForSession")
+    get_active = _extract_js_function(src, "getActiveRunFromPayload")
+    runtime_active = _extract_js_function(src, "isRuntimeRunActuallyActive")
+
+    assert "preflightActiveRunForSession" in src
+    assert "`/api/sessions/${encodeURIComponent(sessionId)}/active-run`" in preflight
+    assert "getActiveRunFromPayload(payload)" in preflight
+    assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun" in preflight
+    assert 'appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.chat_run_already_active"' in preflight
+    assert "ensureEventSocketForAgent(" in preflight
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in preflight
+    assert "setChatSubmittingForAgent(agentId, false)" in preflight
+    assert "Previous message still running" in preflight
+
+    assert "payload.active_run" in get_active
+    assert "payload.run" in get_active
+    assert "payload.data.active_run" in get_active
+    assert "payload.active" in get_active
+
+    for marker in [
+        "run.opencode_active === true",
+        'run.source_of_truth === "opencode"',
+        '"busy"',
+        '"retry"',
+        "run.stale === true",
+        "run.aborted === true",
+        "run.completed === true",
+        "run.runtimeInactive === true",
+        "run.opencodeInactive === true",
+    ]:
+        assert marker in runtime_active
+
+    session_idx = submit_chat.index("const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);")
+    assert "localPreflightActiveRunForSession" in submit_chat
+    preflight_idx = submit_chat.index("const activeRunBlocked = await localPreflightActiveRunForSession(agentIdAtSend, sessionIdAtSend);")
+    client_request_idx = submit_chat.index("const clientRequestId")
+    user_row_idx = submit_chat.index("buildUserMessageArticle")
+    pending_row_idx = submit_chat.index("buildPendingAssistantArticle")
+    clear_input_idx = submit_chat.index("dom.chatInput.value = \"\"")
+    clear_files_idx = submit_chat.index("chatState.pendingFiles = []")
+    stream_post_idx = submit_chat.index("trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody)")
+
+    assert session_idx < preflight_idx < client_request_idx
+    assert preflight_idx < user_row_idx
+    assert preflight_idx < pending_row_idx
+    assert preflight_idx < clear_input_idx
+    assert preflight_idx < clear_files_idx
+    assert preflight_idx < stream_post_idx
+    assert "if (activeRunBlocked) return;" in submit_chat
+
+
+def test_chat_run_already_active_has_specialized_stream_and_fallback_handling():
+    src = _src()
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+    stream_handler = _extract_js_function(src, "handleChatStreamEvent")
+    detector = _extract_js_function(src, "isChatRunAlreadyActivePayload")
+    handler = _extract_js_function(src, "handleChatRunAlreadyActive")
+
+    assert "function isChatRunAlreadyActivePayload" in src
+    assert "function handleChatRunAlreadyActive" in src
+    assert "chat_run_already_active" in detector
+    assert "isRuntimeRunActuallyActive(activeRun)" in detector
+    assert "removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false })" in handler
+    assert "removeOptimisticUserRowForRequest(requestCtx)" in handler
+    assert "removeLatestOptimisticUserRow({ requestCtx, onlyLocal: true })" in handler
+    assert "dom.chatInput.value = requestCtx.backupMessage" in handler
+    assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun" in handler
+    assert "startChatRunReconcileLoop(agentId, activeCtx, { immediate: true })" in handler
+    assert '"portal.chat_run_already_active"' in handler
+
+    error_idx = stream_handler.index('if (outerType === "error")')
+    assert "localIsChatRunAlreadyActivePayload" in stream_handler
+    assert "localHandleChatRunAlreadyActive" in stream_handler
+    error_active_idx = stream_handler.index("if (localIsChatRunAlreadyActivePayload(eventData))", error_idx)
+    generic_error_idx = stream_handler.index("requestCtx.streamFailed = true", error_idx)
+    assert error_idx < error_active_idx < generic_error_idx
+
+    final_idx = stream_handler.index("if (isChatStreamFinalEventName(outerType) || isDirectCompletionEventName(outerType))")
+    final_active_idx = stream_handler.index("if (localIsChatRunAlreadyActivePayload(eventData))", final_idx)
+    non_success_idx = stream_handler.index("if (localIsNonSuccessFinalPayload(eventData))", final_idx)
+    assert final_idx < final_active_idx < non_success_idx
+
+    resp_idx = submit_chat.index("if (!resp.ok)")
+    clone_json_idx = submit_chat.index("structuredError = await resp.clone().json()", resp_idx)
+    active_payload_idx = submit_chat.index("if (localIsChatRunAlreadyActivePayload(structuredError))", resp_idx)
+    handle_error_idx = submit_chat.index("throw new Error(await handleErrorResponse(resp))", resp_idx)
+    assert resp_idx < clone_json_idx < active_payload_idx < handle_error_idx
+    assert "/api/tasks" not in submit_chat
+    assert ":4096" not in submit_chat
+
+
+def test_chat_run_already_active_rejected_request_and_optimistic_user_markers():
+    src = _src()
+    build_user = _extract_js_function(src, "buildUserMessageArticle")
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+    remove_user = _extract_js_function(src, "removeOptimisticUserRowForRequest")
+    handler = _extract_js_function(src, "handleChatRunAlreadyActive")
+    preflight = _extract_js_function(src, "preflightActiveRunForSession")
+
+    assert "options = {}" in build_user
+    assert "options.clientRequestId" in build_user
+    assert 'data-local-user="1"' in build_user
+    assert 'data-client-request-id="' in build_user
+    assert "user-message" in build_user
+
+    assert "buildUserMessageArticle(displayMessage, displayAttachments, { clientRequestId })" in submit_chat
+    assert "function removeOptimisticUserRowForRequest" in src
+    assert "cssEscapeForSelector(requestId)" in remove_user
+    assert 'article.user-message[data-client-request-id="' in remove_user
+    assert "last.dataset.persisted === \"1\"" in remove_user
+    assert "last.dataset.messageId" in remove_user
+    assert "last.dataset.opencodeMessageId" in remove_user
+
+    rejected_idx = handler.index("const rejectedClientRequestId = String(requestCtx?.clientRequestId || \"\")")
+    match_idx = handler.index("chatState.activeRequest.clientRequestId === rejectedClientRequestId")
+    clear_idx = handler.index("chatState.activeRequest = null", rejected_idx)
+    hydrate_idx = handler.index("const activeCtx = hydrateActiveRequestFromRun")
+    assert rejected_idx < match_idx < clear_idx < hydrate_idx
+    assert "stopChatRunReconcileLoop(chatState.activeRequest)" in handler[rejected_idx:hydrate_idx]
+
+    assert 'appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.chat_run_already_active"' in preflight
+    assert "Runtime reports an active OpenCode run before sending; send was not submitted." in preflight
+
+
+def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
+    src = _src()
+    load_session = _extract_js_function(src, "loadSessionForAgent")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    session_state_only = _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent")
+    maybe_refresh = _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent")
+    refresh_status = _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent")
+    render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    state_notes = _extract_js_function(src, "renderOpenCodeRuntimeStateNotes")
+    set_status = _extract_js_function(src, "setChatStatus")
+
+    for helper in [
+        "function getCanonicalMessagesFromSessionPayload",
+        "function canonicalMessagesToLegacyDisplayMessages",
+        "function canonicalMessagesToThinkingItems",
+        "function applyOpenCodeCanonicalEventToChatState",
+        "function computeOpenCodeRuntimeUiState",
+        "function isOpenCodeSessionStateOnlyEvent",
+        "function refreshOpenCodeSessionStatusForAgent",
+    ]:
+        assert helper in src
+
+    assert 'rawType === "session.status"' in session_state_only
+    assert 'rawType === "session.idle"' in session_state_only
+    assert 'reconcileHint === "fetch_session_messages"' in session_state_only
+
+    assert "const canonicalMessages = getCanonicalMessagesFromSessionPayload(data)" in load_session
+    assert "const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState)" in load_session
+    assert "const messagesForRender = canonicalMessages.length" in load_session
+    assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
+    assert "data.messages || []" in load_session
+    assert "source_of_truth: canonicalMessages.length ? \"opencode\"" in load_session
+    assert "canonical_messages: canonicalMessages" in load_session
+    assert "session_status: statusPayload || data.metadata?.session_status || null" in load_session
+    assert "renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {})" in load_session
+    assert "reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || [])" in load_session
+
+    assert "applyOpenCodeCanonicalEventToChatState" in handle_event
+    assert "localApplyOpenCodeCanonicalEventToChatState(chatState, entry)" in handle_event
+    assert "maybeRefreshSessionSnapshotForOpenCodeEvent" in handle_event
+    assert "const isSessionStateOnlyCanonicalEvent = appliedCanonicalEvent" in handle_event
+    assert "isOpenCodeSessionStateOnlyEvent(entry)" in handle_event
+    assert "if (isSessionStateOnlyCanonicalEvent)" in handle_event
+    assert "return;" in handle_event[handle_event.index("if (isSessionStateOnlyCanonicalEvent)"):]
+    assert handle_event.index("if (isSessionStateOnlyCanonicalEvent)") < handle_event.index("if (!chatState.inflightThinking)")
+    assert "reconcile_hint" in src
+    assert "fetch_session_messages" in src
+    assert "openCodeProjection" in src
+    assert "opencCodeProjection" not in src
+
+    assert "projection.needsSnapshot = false" in maybe_refresh
+    assert "projection.snapshotRefreshError = \"\"" in maybe_refresh
+    assert "projection.needsSnapshot = true" in maybe_refresh
+    assert "projection.snapshotRefreshLastFailedAt = Date.now()" in maybe_refresh
+    assert "Date.now() - lastFailedAt < 10000" in maybe_refresh
+
+    assert "`/api/sessions/${encodeURIComponent(sessionId)}/status`" in refresh_status
+    assert "agentApiFor(" in refresh_status
+    assert "sessionStatusPayload" in refresh_status
+    assert "activeChildSessions" in refresh_status
+    assert "sessionStatusError" in refresh_status
+
+    assert "renderOpenCodeRuntimeStateNotes(uiState)" in render_panel
+    assert "Runtime:" in state_notes
+    assert "Session:" in state_notes
+    assert "Message:" in state_notes
+    assert "dataset.runtimeHealth" in set_status
+    assert "dataset.sessionStatus" in set_status
+    assert "dataset.messageProgress" in set_status
+    assert ":4096" not in src
+    assert "/api/tasks" not in handle_event
+    assert "/api/tasks" not in load_session
 
 
 def test_active_request_busy_state_uses_runtime_blocking_helper():
@@ -240,12 +442,16 @@ def test_runtime_events_append_to_live_timeline_before_final():
 def test_live_thinking_panel_renders_status_banner_and_safe_details():
     src = _src()
     render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    hint_helper = _extract_js_function(src, "nonSuccessHintForPayload")
     assert "Thinking Process Live" in render_panel
     assert "portal-live-status" in render_panel
     assert "Elapsed:" in render_panel
     assert "Last event:" in render_panel
     assert "portal-completion-banner" in render_panel
-    assert 'You can send "continue"' in render_panel
+    assert "nonSuccessHintForPayload" in render_panel
+    assert 'You can send "continue"' in hint_helper
+    assert "chat_run_already_active" in hint_helper
+    assert "Wait for it to finish or use Stop run" in hint_helper
     assert "Still running. Live events will continue to appear here." in render_panel
     assert "Historical" in render_panel
     assert "portal-event-detail" in render_panel
@@ -516,8 +722,10 @@ def test_session_render_hydrates_active_run_and_replays_events():
     reconcile_projection = _extract_js_function(src, "reconcileActiveRequestProjection")
     hydrate = _extract_js_function(src, "hydrateActiveRequestFromRun")
 
-    assert "renderChatHistory(data.messages || [], data.metadata || {})" in load_session
-    assert "reconcileActiveRequestProjection(agentId, normalized, data.metadata || {}, data.messages || [])" in load_session
+    assert "getCanonicalMessagesFromSessionPayload(data)" in load_session
+    assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
+    assert "renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {})" in load_session
+    assert "reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || [])" in load_session
     assert "metadata.active_run" in reconcile_projection
     assert "isValidatedRuntimeActiveRun(activeRun)" in reconcile_projection
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata)" in reconcile_projection

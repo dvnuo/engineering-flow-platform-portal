@@ -1,4 +1,9 @@
+import subprocess
+import textwrap
+from pathlib import Path
+
 from app.services.thinking_process_view import build_thinking_process_view
+from tests._js_extract_helpers import _extract_js_function
 
 
 def _event(event_type, detail=None, **extra):
@@ -62,6 +67,7 @@ def test_thinking_process_view_maps_required_runtime_events():
         ("portal.reconcile.completed", {}, "success", "success", "Reconcile Completed"),
         ("portal.reconcile.failed", {}, "error", "error", "Reconcile Failed"),
         ("portal.active_request.cleared", {}, "warning", "warning", "Active Request Cleared"),
+        ("portal.chat_run_already_active", {"message": "Previous message still running"}, "warning", "running", "Previous Run Active"),
         ("portal.abort.completed", {}, "success", "success", "Abort Completed"),
         ("portal.abort.failed", {}, "error", "error", "Abort Failed"),
         ("event_bridge.connected", {}, "success", "success", "Event Bridge Connected"),
@@ -172,3 +178,61 @@ def test_thinking_process_view_unknown_event_keeps_safe_detail_payload():
     assert event["safe_detail_payload"]["metadata"]["safe"] == "yes"
     assert event["safe_detail_payload"]["metadata"]["access_token"] == "[redacted]"
     assert event["safe_detail_payload"]["password"] == "[redacted]"
+
+
+def test_chat_run_already_active_thinking_display_and_continue_hint_contract():
+    view = build_thinking_process_view({
+        "runtime_events": [
+            _event("portal.chat_run_already_active", {"message": "Previous message still running"}),
+        ],
+    })
+    event = view["events"][0]
+    assert event["display_title"] == "Previous Run Active"
+    assert event["kind"] == "warning"
+    assert event["severity"] == "running"
+
+    src = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    script = (
+        _extract_js_function(src, "nonSuccessHintForPayload")
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+
+            const active = nonSuccessHintForPayload({ error: "chat_run_already_active" });
+            assert.equal(active.includes('send "continue"'), false);
+            assert.match(active, /Stop run/);
+
+            const incomplete = nonSuccessHintForPayload({
+              completion_state: "incomplete",
+              incomplete_reason: "idle incomplete",
+            });
+            assert.match(incomplete, /send "continue"/);
+            """
+        )
+    )
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_thinking_process_view_maps_opencode_canonical_part_events():
+    view = build_thinking_process_view({
+        "runtime_events": [
+            _event("opencode.reasoning", {"text": "checked files", "status": "completed"}),
+            _event("opencode.tool", {"tool": "bash", "status": "running"}),
+            _event("opencode.step.started", {"message": "Step started"}),
+            _event("opencode.step.finished", {"reason": "done"}),
+            _event("permission_request", {"permission_id": "perm-1", "status": "pending"}),
+        ],
+    })
+
+    titles = [event["display_title"] for event in view["events"]]
+    assert titles == [
+        "OpenCode Reasoning",
+        "OpenCode Tool",
+        "OpenCode Step Started",
+        "OpenCode Step Finished",
+        "Permission Requested",
+    ]
+    assert view["events"][0]["kind"] == "success"
+    assert view["events"][1]["kind"] == "running"
