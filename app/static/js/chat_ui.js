@@ -2637,6 +2637,19 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
   }
 
   const projection = chatState.openCodeProjection;
+  if (
+    !chatState.activeRequest
+    && [
+      "message.updated",
+      "message.part.updated",
+      "message.part.delta",
+      "message.completed",
+      "session.idle",
+      "session.status",
+    ].includes(rawType)
+  ) {
+    projection.needsSnapshot = true;
+  }
 
   if (rawType === "message.updated") {
     const info = data.info && typeof data.info === "object" ? data.info : {};
@@ -2705,6 +2718,23 @@ function isOpenCodeSessionStateOnlyEvent(event = {}) {
   return (
     rawType === "session.status"
     || rawType === "session.idle"
+    || reconcileHint === "fetch_session_messages"
+  );
+}
+
+function isOpenCodeCanonicalSnapshotEvent(event = {}) {
+  const data = event.data && typeof event.data === "object" ? event.data : {};
+  const rawType = String(data.raw_type || event.raw_type || event.type || "").toLowerCase();
+  const reconcileHint = String(data.reconcile_hint || "").toLowerCase();
+  return (
+    [
+      "message.updated",
+      "message.part.updated",
+      "message.part.delta",
+      "message.completed",
+      "session.idle",
+      "session.status",
+    ].includes(rawType)
     || reconcileHint === "fetch_session_messages"
   );
 }
@@ -2860,6 +2890,13 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const socketRequestId = socketCtx.requestId || "";
   const currentRequestId = socketRequestId || activeRequestId;
   const type = entry.type;
+  const isCurrentSessionCanonicalSnapshotEvent = Boolean(
+    typeof isOpenCodeCanonicalSnapshotEvent === "function"
+    && isOpenCodeCanonicalSnapshotEvent(entry)
+    && entry.session_id
+    && currentSessionId
+    && entry.session_id === currentSessionId
+  );
   const eventMatchesActiveRequest = Boolean(entry.request_id && activeRequestIds.has(entry.request_id));
   const eventMatchesSocketRequest = Boolean(
     entry.request_id && socketRequestId && entry.request_id === socketRequestId
@@ -2871,7 +2908,14 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     && !eventMatchesActiveRequest
     && (!entry.session_id || !currentSessionId || entry.session_id === currentSessionId)
   );
-  if (entry.request_id && currentRequestId && !eventMatchesActiveRequest && !eventMatchesSocketRequest && !canAdoptRuntimeRequestId) return;
+  if (
+    entry.request_id
+    && currentRequestId
+    && !eventMatchesActiveRequest
+    && !eventMatchesSocketRequest
+    && !canAdoptRuntimeRequestId
+    && !isCurrentSessionCanonicalSnapshotEvent
+  ) return;
   if (canAdoptRuntimeRequestId) {
     chatState.activeRequest.runtimeRequestId = entry.request_id;
     chatState.activeRequest.requestId = entry.request_id;
@@ -2901,6 +2945,13 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const appliedCanonicalEvent = localApplyOpenCodeCanonicalEventToChatState(chatState, entry);
   if (appliedCanonicalEvent && typeof maybeRefreshSessionSnapshotForOpenCodeEvent === "function") {
     maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState, entry.session_id || currentSessionId, entry);
+  }
+  if (appliedCanonicalEvent && !chatState.activeRequest && isOpenCodeCanonicalSnapshotEvent(entry)) {
+    if (isThinkingPanelActiveForAgent(currentAgentId)) {
+      scheduleThinkingPanelRefresh(currentAgentId);
+    }
+    syncSelectedAgentChatActionControls();
+    return;
   }
   const isSessionStateOnlyCanonicalEvent = appliedCanonicalEvent
     && typeof isOpenCodeSessionStateOnlyEvent === "function"

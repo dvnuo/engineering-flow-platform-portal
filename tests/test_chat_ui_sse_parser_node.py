@@ -492,7 +492,7 @@ def test_opencode_session_status_and_idle_projection_node_smoke():
               data: { raw_type: "session.status", status_type: "busy" },
             });
             assert.equal(chatState.openCodeProjection.sessionStatus, "busy");
-            assert.equal(chatState.openCodeProjection.needsSnapshot, false);
+            assert.equal(chatState.openCodeProjection.needsSnapshot, true);
 
             applyOpenCodeCanonicalEventToChatState(chatState, {
               type: "session.idle",
@@ -666,6 +666,7 @@ def test_opencode_session_status_does_not_create_inflight_thinking_node_smoke():
                 _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
                 _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
                 _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent"),
+                _extract_js_function(src, "isOpenCodeCanonicalSnapshotEvent"),
                 _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent"),
                 _extract_js_function(src, "handleAgentEventMessage"),
                 _extract_js_function(src, "isActiveRequestBlocking"),
@@ -731,6 +732,7 @@ def test_opencode_session_idle_sets_snapshot_without_inflight_thinking_node_smok
                 _extract_js_function(src, "normalizeRuntimeEvent"),
                 _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
                 _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent"),
+                _extract_js_function(src, "isOpenCodeCanonicalSnapshotEvent"),
                 _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent"),
                 _extract_js_function(src, "handleAgentEventMessage"),
             ]
@@ -773,6 +775,85 @@ def test_opencode_session_idle_sets_snapshot_without_inflight_thinking_node_smok
             assert.equal(chatState.openCodeProjection.needsSnapshot, true);
             assert.equal(chatState.openCodeProjection.snapshotRefreshInFlight, true);
             assert.equal(chatState.inflightThinking == null, true);
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_opencode_message_event_without_active_request_refreshes_snapshot_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeRuntimeEventTypeAlias"),
+                _extract_js_function(src, "isCompletionRuntimeState"),
+                _extract_js_function(src, "normalizeRuntimeEvent"),
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
+                _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent"),
+                _extract_js_function(src, "isOpenCodeCanonicalSnapshotEvent"),
+                _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent"),
+                _extract_js_function(src, "handleAgentEventMessage"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+            const chatState = {
+              sessionId: "sess-1",
+              openCodeProjection: {
+                messagesById: {},
+                partsById: {},
+                sessionStatus: "busy",
+                needsSnapshot: false,
+              },
+              inflightThinking: null,
+              activeRequest: null,
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function loadSessionForAgent(agentId, sessionId) {
+              calls.push(["load", agentId, sessionId]);
+              return new Promise(() => {});
+            }
+            function isThinkingPanelActiveForAgent() { return false; }
+            function scheduleThinkingPanelRefresh() { calls.push(["panel"]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["sync"]); }
+            function fallbackRequestContextForAgent() { return {}; }
+            function appendPortalChatRuntimeEvent(_agentId, _ctx, type) { calls.push(["portal", type]); }
+
+            (async () => {
+              handleAgentEventMessage(JSON.stringify({
+                type: "message.part.updated",
+                request_id: "real-run-1",
+                session_id: "sess-1",
+                data: {
+                  raw_type: "message.part.updated",
+                  message_id: "message-1",
+                  part_id: "part-1",
+                  part_type: "text",
+                  part: { id: "part-1", type: "text", text: "hello" },
+                },
+              }), { agentId: "agent-1", sessionId: "sess-1", requestId: "opencode-session-sess-1" });
+
+              assert.equal(chatState.openCodeProjection.partsById["part-1"].text, "hello");
+              assert.equal(chatState.openCodeProjection.needsSnapshot, true);
+              assert.equal(chatState.openCodeProjection.snapshotRefreshInFlight, true);
+              assert.equal(chatState.inflightThinking == null, true);
+              await Promise.resolve();
+              assert.deepEqual(calls.find((item) => item[0] === "load"), ["load", "agent-1", "sess-1"]);
+            })();
             """
         )
     )

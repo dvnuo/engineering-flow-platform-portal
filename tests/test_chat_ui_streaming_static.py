@@ -343,6 +343,7 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
         "function isOpenCodeSessionBlocking",
         "function computeOpenCodeRuntimeUiState",
         "function isOpenCodeSessionStateOnlyEvent",
+        "function isOpenCodeCanonicalSnapshotEvent",
         "function refreshOpenCodeSessionStatusForAgent",
         "function buildSyntheticRunFromSessionStatus",
         "function hydrateActiveRequestFromSessionStatus",
@@ -372,6 +373,9 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "applyOpenCodeCanonicalEventToChatState" in handle_event
     assert "localApplyOpenCodeCanonicalEventToChatState(chatState, entry)" in handle_event
     assert "maybeRefreshSessionSnapshotForOpenCodeEvent" in handle_event
+    assert "isCurrentSessionCanonicalSnapshotEvent" in handle_event
+    assert "!isCurrentSessionCanonicalSnapshotEvent" in handle_event
+    assert "appliedCanonicalEvent && !chatState.activeRequest && isOpenCodeCanonicalSnapshotEvent(entry)" in handle_event
     assert "const isSessionStateOnlyCanonicalEvent = appliedCanonicalEvent" in handle_event
     assert "isOpenCodeSessionStateOnlyEvent(entry)" in handle_event
     assert "if (isSessionStateOnlyCanonicalEvent)" in handle_event
@@ -387,6 +391,9 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "projection.needsSnapshot = true" in maybe_refresh
     assert "projection.snapshotRefreshLastFailedAt = Date.now()" in maybe_refresh
     assert "Date.now() - lastFailedAt < 10000" in maybe_refresh
+
+    assert '"message.part.updated"' in src
+    assert '"message.completed"' in src
 
     assert "`/api/sessions/${encodeURIComponent(sessionId)}/status`" in refresh_status
     assert "agentApiFor(" in refresh_status
