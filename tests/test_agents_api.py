@@ -609,7 +609,7 @@ def test_update_runtime_profile_id_enqueues_sync_job_without_direct_push(monkeyp
 
 
 def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
-    client, _db, cleanup = _build_agents_client_with_overrides()
+    client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         monkeypatch.setattr("app.api.agents.k8s_service.start_agent", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -621,7 +621,7 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
         def _restart_agent(agent):
             calls["restart"] += 1
             assert agent.status == "running"
-            return SimpleNamespace(status="running", message=None)
+            return SimpleNamespace(status="creating", message="Restart requested")
 
         def _enqueue(_db, _agent, *, reason):
             calls["enqueue"] += 1
@@ -639,9 +639,41 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
         agent_id = create_ok.json()["id"]
         restart_resp = client.post(f"/api/agents/{agent_id}/restart")
         assert restart_resp.status_code == 200
-        assert restart_resp.json()["status"] == "running"
+        assert restart_resp.json()["status"] == "creating"
+        persisted = db.get(Agent, agent_id)
+        assert persisted.status == "creating"
         assert calls["restart"] == 1
         assert calls["enqueue"] >= 1
+    finally:
+        cleanup()
+
+
+def test_restart_returns_502_without_marking_agent_failed_when_runtime_restart_fails(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        message = "Kubernetes integration is disabled; Portal cannot restart the agent deployment."
+        calls = {"enqueue": 0}
+
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", lambda _agent: SimpleNamespace(status="failed", message=message))
+
+        def _enqueue(*_args, **_kwargs):
+            calls["enqueue"] += 1
+
+        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
+
+        create_ok = client.post("/api/agents", json={"name": "restart-fail-agent", "image": "example/image:latest"})
+        agent_id = create_ok.json()["id"]
+        calls["enqueue"] = 0
+
+        restart_resp = client.post(f"/api/agents/{agent_id}/restart")
+
+        assert restart_resp.status_code == 502
+        assert restart_resp.json()["detail"] == message
+        persisted = db.get(Agent, agent_id)
+        assert persisted.status == "running"
+        assert persisted.last_error == message
+        assert calls["enqueue"] == 0
     finally:
         cleanup()
 

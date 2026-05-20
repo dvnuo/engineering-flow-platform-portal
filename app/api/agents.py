@@ -567,6 +567,14 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
         )
 
     runtime = k8s_service.restart_agent(agent)
+    if runtime.status == "failed":
+        agent.last_error = runtime.message
+        repo.save(agent)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=runtime.message or "Failed to restart agent runtime",
+        )
+
     agent.status = runtime.status
     agent.last_error = runtime.message
     repo.save(agent)
