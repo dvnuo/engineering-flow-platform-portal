@@ -240,7 +240,10 @@ def test_chat_run_already_active_has_specialized_stream_and_fallback_handling():
     assert "removeLatestOptimisticUserRow({ requestCtx, onlyLocal: true })" in handler
     assert "dom.chatInput.value = requestCtx.backupMessage" in handler
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun" in handler
+    assert "refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState)" in handler
+    assert "hydrateActiveRequestFromSessionStatus(agentId, sessionId, statusPayload)" in handler
     assert "startChatRunReconcileLoop(agentId, activeCtx, { immediate: true })" in handler
+    assert "startChatRunReconcileLoop(agentId, statusCtx, { immediate: true })" in handler
     assert '"portal.chat_run_already_active"' in handler
 
     error_idx = stream_handler.index('if (outerType === "error")')

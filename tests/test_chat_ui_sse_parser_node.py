@@ -1469,6 +1469,94 @@ def test_chat_run_already_active_sse_error_is_not_generic_failure_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_chat_run_already_active_without_active_run_uses_session_status_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeChatRunStatus"),
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent"),
+                _extract_js_function(src, "hydrateActiveRequestFromRun"),
+                _extract_js_function(src, "buildSyntheticRunFromSessionStatus"),
+                _extract_js_function(src, "hydrateActiveRequestFromSessionStatus"),
+                _extract_js_function(src, "handleChatRunAlreadyActive"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const calls = [];
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "client-1",
+              sessionIdAtSend: "sess-1",
+              backupMessage: "retry me",
+              backupPendingFiles: [],
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: true,
+              inflightThinking: { completed: false },
+              pendingFiles: [],
+              sessionId: "sess-1",
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const dom = { chatInput: { value: "" } };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function removeTemporaryAssistantRows(options) { calls.push(["removeAssistant", options.requestId, options.onlyEmpty]); }
+            function removeOptimisticUserRowForRequest() { calls.push(["removeUser"]); return true; }
+            function removeLatestOptimisticUserRow() { calls.push(["fallbackRemoveUser"]); }
+            function syncChatInputHeight() { calls.push(["syncHeight"]); }
+            function renderInputPreview() { calls.push(["renderInput"]); }
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function stopChatRunReconcileLoop(ctx) { calls.push(["stopReconcile", ctx.clientRequestId]); }
+            function ensureEventSocketForAgent(agentId, sessionId, requestId) { calls.push(["events", agentId, sessionId, requestId]); }
+            function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", agentId, ctx.runtimeRequestId, options?.immediate]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type, data) { calls.push(["event", type, data.message]); }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function showToast(message) { calls.push(["toast", message]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["syncControls"]); }
+            async function preflightActiveRunForSession() { throw new Error("status should hydrate before preflight"); }
+            async function agentApiFor(agentId, path) {
+              calls.push(["api", agentId, path]);
+              assert.equal(path, "/api/sessions/sess-1/status");
+              return { active: true, status_type: "busy", action_hint: "wait_reconnect_or_stop" };
+            }
+
+            (async () => {
+              const result = await handleChatRunAlreadyActive("agent-1", requestCtx, {
+                error: "chat_run_already_active",
+              });
+              assert.equal(result, "handled");
+              assert.ok(calls.some((item) => item[0] === "api"));
+              assert.ok(calls.some((item) => item[0] === "removeAssistant" && item[2] === false));
+              assert.ok(calls.some((item) => item[0] === "removeUser"));
+              assert.equal(dom.chatInput.value, "retry me");
+              assert.equal(chatState.isSubmitting, false);
+              assert.notEqual(chatState.activeRequest.clientRequestId, "client-1");
+              assert.equal(chatState.activeRequest.runtimeRequestId, "opencode-session-sess-1");
+              assert.equal(chatState.inflightThinking.contextSource, "opencode_session_state");
+              assert.ok(calls.some((item) => item[0] === "stopReconcile" && item[1] === "client-1"));
+              assert.ok(calls.some((item) => item[0] === "events" && item[3] === "opencode-session-sess-1"));
+              assert.ok(calls.some((item) => item[0] === "reconcile" && item[2] === "opencode-session-sess-1" && item[3] === true));
+              assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.chat_run_already_active"));
+              assert.ok(calls.some((item) => item[0] === "status" && item[1].includes("Previous message still running")));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_chat_run_already_active_removes_only_rejected_optimistic_user_row_node_smoke():
     src = SRC.read_text(encoding="utf-8")
     script = (

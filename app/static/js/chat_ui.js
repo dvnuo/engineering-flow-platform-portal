@@ -6062,7 +6062,35 @@ async function handleChatRunAlreadyActive(agentId, requestCtx, payload = {}) {
     return "handled";
   }
 
-  await preflightActiveRunForSession(agentId, sessionId);
+  if (sessionId && chatState) {
+    const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState);
+    if (statusPayload && isOpenCodeSessionStatusBlockingPayload(statusPayload)) {
+      const statusCtx = hydrateActiveRequestFromSessionStatus(agentId, sessionId, statusPayload);
+      if (statusCtx) {
+        ensureEventSocketForAgent(
+          agentId,
+          sessionId,
+          statusCtx.runtimeRequestId || statusCtx.requestId || statusCtx.clientRequestId
+        );
+        startChatRunReconcileLoop(agentId, statusCtx, { immediate: true });
+      }
+      appendPortalChatRuntimeEvent(agentId, statusCtx || requestCtx, "portal.chat_run_already_active", {
+        message: "Runtime reports an active OpenCode run; session status is blocking.",
+        session_status: statusPayload,
+      });
+      setChatStatus("Previous message still running. Reconnecting…");
+      showToast("Previous message is still running. Wait or use Stop run.");
+      syncSelectedAgentChatActionControls();
+      return "handled";
+    }
+  }
+
+  const preflightBlocked = await preflightActiveRunForSession(agentId, sessionId);
+  if (!preflightBlocked) {
+    setChatStatus("Previous message still running. Reconnecting…");
+    showToast("Previous message is still running. Wait or use Stop run.");
+    syncSelectedAgentChatActionControls();
+  }
   return "handled";
 }
 
