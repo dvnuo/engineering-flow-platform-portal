@@ -138,6 +138,30 @@ def test_user_abort_and_agent_lifecycle_clear_active_request():
     assert "(stop|restart)" in parser
 
 
+def test_restart_lifecycle_waits_for_runtime_ready_before_success_status():
+    src = _src()
+    render_actions = _extract_js_function(src, "renderAgentActions")
+    action_fn = _extract_js_function(src, "action")
+    wait_fn = _extract_js_function(src, "waitForAgentRuntimeStatus")
+
+    assert "action(`/api/agents/${agent.id}/restart`)" in render_actions
+    assert 'setChatStatus("Restarting assistant…")' in action_fn
+    assert 'setChatStatus("Assistant restart requested. Waiting for runtime to become ready…")' in action_fn
+    assert "waitForAgentRuntimeStatus(lifecycle.agentId, { targetStatuses: [\"running\"] })" in action_fn
+    assert 'setChatStatus("Assistant restarted.")' not in action_fn
+    assert 'setChatStatus("Assistant restarted and ready.")' in action_fn
+    assert 'setChatStatus("Assistant restart failed or timed out.", true)' in action_fn
+    assert "`/api/agents/${encodeURIComponent(agentId)}/status`" in wait_fn
+    assert "targetStatuses.includes(status)" in wait_fn
+    assert "failureStatuses.includes(status)" in wait_fn
+    assert "updateAgentRuntimeStatusCache(agentId, payload)" in wait_fn
+
+    restart_surface = "\n".join([action_fn, wait_fn])
+    assert ":4096" not in restart_surface
+    assert "/api/tasks" not in restart_surface
+    assert "/api/internal" not in restart_surface
+
+
 def test_abort_failed_keeps_active_request_and_reconcile_continues():
     src = _src()
     abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")

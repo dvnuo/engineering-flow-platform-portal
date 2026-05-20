@@ -9982,11 +9982,99 @@ function parseAgentLifecycleAction(path = "") {
   };
 }
 
+function updateAgentRuntimeStatusCache(agentId, payload = {}) {
+  if (!agentId) return;
+  if (!state.agentStatus || typeof state.agentStatus.set !== "function") state.agentStatus = new Map();
+
+  const normalizedStatus = String(payload?.status || "").toLowerCase();
+  const existing = state.agentStatus.get(agentId) || {};
+  const nextStatus = {
+    ...existing,
+    ...(payload && typeof payload === "object" ? payload : {}),
+  };
+  if (normalizedStatus) nextStatus.status = normalizedStatus;
+  state.agentStatus.set(agentId, nextStatus);
+
+  const agent = (state.mineAgents || []).find((item) => item.id === agentId);
+  if (agent && normalizedStatus) agent.status = normalizedStatus;
+
+  if (agentId === state.selectedAgentId && normalizedStatus) {
+    if (dom.selectedStatus) {
+      dom.selectedStatus.textContent = normalizedStatus;
+      dom.selectedStatus.className = `toolbar-status-badge status-${normalizedStatus}`;
+    }
+    if (agent) renderAgentActions(agent, normalizedStatus);
+    syncSelectedAgentChatActionControls();
+  }
+  renderAgentList();
+}
+
+async function waitForAgentRuntimeStatus(agentId, options = {}) {
+  const targetStatuses = options.targetStatuses || ["running"];
+  const failureStatuses = options.failureStatuses || ["failed", "stopped", "deleting"];
+  const timeoutMs = Number(options.timeoutMs || 120000);
+  const intervalMs = Number(options.intervalMs || 1500);
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const payload = await api(`/api/agents/${encodeURIComponent(agentId)}/status`);
+    const status = String(payload?.status || "").toLowerCase();
+    updateAgentRuntimeStatusCache(agentId, payload);
+
+    if (targetStatuses.includes(status)) {
+      return payload;
+    }
+    if (failureStatuses.includes(status)) {
+      const detail = payload?.last_error || payload?.message || `Agent entered ${status}`;
+      throw new Error(detail);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error("Timed out waiting for agent restart to finish");
+}
+
+function agentRestartErrorMessage(error, fallback = "Assistant restart failed or timed out.") {
+  const raw = String(error?.message || error || "").trim();
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    const detail = parsed?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (Array.isArray(detail) && detail.length) return detail.map((item) => item?.msg || item).join("; ");
+  } catch {}
+  return raw;
+}
+
 async function action(path, method = "POST", needsConfirm = false) {
   if (needsConfirm && !confirm("Please confirm this action.")) return;
-  await api(path, { method });
   const lifecycle = parseAgentLifecycleAction(path);
-  if (lifecycle && String(method || "POST").toUpperCase() === "POST") {
+  const normalizedMethod = String(method || "POST").toUpperCase();
+  const isRestartAction = Boolean(lifecycle && normalizedMethod === "POST" && lifecycle.action === "restart");
+
+  if (isRestartAction && state.selectedAgentId === lifecycle.agentId) {
+    setChatStatus("Restarting assistant…");
+  }
+
+  try {
+    await api(path, { method });
+  } catch (error) {
+    if (isRestartAction) {
+      const message = agentRestartErrorMessage(error);
+      showToast(message);
+      if (state.selectedAgentId === lifecycle.agentId) {
+        setChatStatus("Assistant restart failed or timed out.", true);
+      }
+      await refreshAll();
+      if (state.selectedAgentId === lifecycle.agentId) {
+        setChatStatus("Assistant restart failed or timed out.", true);
+      }
+    }
+    throw error;
+  }
+
+  if (lifecycle && normalizedMethod === "POST") {
     const chatState = ensureChatState(lifecycle.agentId);
     const requestCtx = chatState?.activeRequest || fallbackRequestContextForAgent(
       lifecycle.agentId,
@@ -9998,14 +10086,39 @@ async function action(path, method = "POST", needsConfirm = false) {
       lifecycle.action === "stop" ? "agent_stopped" : "agent_restarted",
     );
     if (state.selectedAgentId === lifecycle.agentId) {
-      setChatStatus(lifecycle.action === "stop" ? "Assistant stopped." : "Assistant restarted.");
+      setChatStatus(lifecycle.action === "stop" ? "Assistant stopped." : "Assistant restart requested. Waiting for runtime to become ready…");
     }
-    if (lifecycle.action === "restart" && chatState?.sessionId) {
+
+    if (lifecycle.action === "restart") {
+      if (state.eventWsAgentId === lifecycle.agentId) disconnectEventSocket();
+
       try {
-        await loadSessionForAgent(lifecycle.agentId, chatState.sessionId, { render: lifecycle.agentId === state.selectedAgentId });
+        await refreshAll();
+        if (state.selectedAgentId === lifecycle.agentId) {
+          setChatStatus("Assistant restart requested. Waiting for runtime to become ready…");
+        }
+        await waitForAgentRuntimeStatus(lifecycle.agentId, { targetStatuses: ["running"] });
+        await refreshAll();
+        if (state.selectedAgentId === lifecycle.agentId && chatState?.sessionId) {
+          await loadSessionForAgent(lifecycle.agentId, chatState.sessionId, { render: true });
+        }
+        if (state.selectedAgentId === lifecycle.agentId) {
+          setChatStatus("Assistant restarted and ready.");
+        }
       } catch (error) {
-        console.warn("Failed to reload session after assistant restart", error);
+        const message = agentRestartErrorMessage(error);
+        console.warn("Failed waiting for assistant restart", error);
+        showToast(message);
+        if (state.selectedAgentId === lifecycle.agentId) {
+          setChatStatus("Assistant restart failed or timed out.", true);
+        }
+        await refreshAll();
+        if (state.selectedAgentId === lifecycle.agentId) {
+          setChatStatus("Assistant restart failed or timed out.", true);
+        }
+        throw error;
       }
+      return;
     }
   }
   await refreshAll();
