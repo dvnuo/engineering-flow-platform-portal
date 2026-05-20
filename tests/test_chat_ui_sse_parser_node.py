@@ -374,7 +374,9 @@ def test_active_run_preflight_blocks_submit_node_smoke():
             }
             function activeChatRequestMessage() { return "busy"; }
             async function fetch(url) { fetchCalls.push(url); throw new Error("submit should be blocked before fetch"); }
-            function appendPortalChatRuntimeEvent() {}
+            function appendPortalChatRuntimeEvent(agentId, ctx, type, data) {
+              calls.push(["portalEvent", agentId, ctx.runtimeRequestId, type, data.message]);
+            }
 
             (async () => {
               await submitChatForSelectedAgent();
@@ -386,6 +388,7 @@ def test_active_run_preflight_blocks_submit_node_smoke():
               assert.equal(chatState.activeRequest.sessionIdAtSend, "sess-1");
               assert.equal(dom.sendChatBtn.disabled, true);
               assert.ok(calls.some((item) => item[0] === "api" && item[2] === "/api/sessions/sess-1/active-run"));
+              assert.ok(calls.some((item) => item[0] === "portalEvent" && item[3] === "portal.chat_run_already_active"));
               assert.ok(calls.some((item) => item[0] === "reconcile" && item[3] === true));
               assert.ok(calls.some((item) => item[0] === "status" && item[1].includes("Previous message still running")));
             })();
@@ -405,6 +408,8 @@ def test_chat_run_already_active_sse_error_is_not_generic_failure_node_smoke():
                 _extract_js_function(src, "normalizeChatRunStatus"),
                 _extract_js_function(src, "isRuntimeRunActuallyActive"),
                 _extract_js_function(src, "hydrateActiveRequestFromRun"),
+                _extract_js_function(src, "cssEscapeForSelector"),
+                _extract_js_function(src, "removeOptimisticUserRowForRequest"),
                 _extract_js_function(src, "isChatRunAlreadyActivePayload"),
                 _extract_js_function(src, "handleChatRunAlreadyActive"),
                 _extract_js_function(src, "handleChatStreamEvent"),
@@ -426,6 +431,7 @@ def test_chat_run_already_active_sse_error_is_not_generic_failure_node_smoke():
               activeRequest: requestCtx,
               isSubmitting: true,
               inflightThinking: { completed: false },
+              pendingFiles: [],
               sessionId: "sess-1",
             };
             const state = { selectedAgentId: "agent-1" };
@@ -446,6 +452,7 @@ def test_chat_run_already_active_sse_error_is_not_generic_failure_node_smoke():
             function removeLatestOptimisticUserRow() { calls.push(["removeUser"]); }
             function syncChatInputHeight() { calls.push(["syncHeight"]); }
             function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function stopChatRunReconcileLoop(ctx) { calls.push(["stopReconcile", ctx.clientRequestId]); }
             function ensureEventSocketForAgent(agentId, sessionId, requestId) { calls.push(["events", agentId, sessionId, requestId]); }
             function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", agentId, ctx.runtimeRequestId, options?.immediate]); }
             function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
@@ -470,8 +477,114 @@ def test_chat_run_already_active_sse_error_is_not_generic_failure_node_smoke():
               assert.ok(calls.some((item) => item[0] === "removeUser"));
               assert.equal(dom.chatInput.value, "retry me");
               assert.equal(chatState.isSubmitting, false);
+              assert.notEqual(chatState.activeRequest.clientRequestId, "client-1");
               assert.equal(chatState.activeRequest.runtimeRequestId, "runtime-2");
-              assert.ok(calls.some((item) => item[0] === "reconcile" && item[3] === true));
+              assert.equal(chatState.activeRequest.requestId, "runtime-2");
+              assert.ok(calls.some((item) => item[0] === "stopReconcile" && item[1] === "client-1"));
+              assert.ok(calls.some((item) => item[0] === "reconcile" && item[2] === "runtime-2" && item[3] === true));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_chat_run_already_active_removes_only_rejected_optimistic_user_row_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeChatRunStatus"),
+                _extract_js_function(src, "isRuntimeRunActuallyActive"),
+                _extract_js_function(src, "hydrateActiveRequestFromRun"),
+                _extract_js_function(src, "cssEscapeForSelector"),
+                _extract_js_function(src, "removeOptimisticUserRowForRequest"),
+                _extract_js_function(src, "handleChatRunAlreadyActive"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const calls = [];
+            const requestCtx = {
+              clientRequestId: "rejected-1",
+              requestId: "rejected-1",
+              sessionIdAtSend: "sess-1",
+              backupMessage: "please keep this",
+              backupPendingFiles: [],
+            };
+            const persistedRow = { removed: false, remove() { this.removed = true; } };
+            const persistedArticle = {
+              dataset: { messageId: "m_old", persisted: "1" },
+              closest(selector) { return selector === ".message-row" ? persistedRow : null; },
+              remove() { this.removed = true; },
+            };
+            const localRow = { removed: false, remove() { this.removed = true; } };
+            const localArticle = {
+              dataset: { localUser: "1", clientRequestId: "rejected-1" },
+              closest(selector) { return selector === ".message-row" ? localRow : null; },
+              remove() { this.removed = true; },
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: true,
+              inflightThinking: { completed: false },
+              pendingFiles: [],
+              sessionId: "sess-1",
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const dom = {
+              chatInput: { value: "" },
+              messageList: {
+                querySelector(selector) {
+                  calls.push(["query", selector]);
+                  return selector.includes("rejected-1") ? localArticle : null;
+                },
+                querySelectorAll(selector) {
+                  calls.push(["queryAll", selector]);
+                  return selector.includes("data-local-user") ? [localArticle] : [];
+                },
+              },
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function removeTemporaryAssistantRows(options) { calls.push(["removeAssistant", options.requestId, options.onlyEmpty]); }
+            function removeLatestOptimisticUserRow() { calls.push(["fallbackRemoveUser"]); }
+            function syncChatInputHeight() {}
+            function renderInputPreview() {}
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function stopChatRunReconcileLoop(ctx) { calls.push(["stopReconcile", ctx.clientRequestId]); }
+            function ensureEventSocketForAgent(agentId, sessionId, requestId) { calls.push(["events", agentId, sessionId, requestId]); }
+            function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", agentId, ctx.runtimeRequestId, options?.immediate]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function showToast(message) { calls.push(["toast", message]); }
+            function syncSelectedAgentChatActionControls() {}
+            async function preflightActiveRunForSession() { throw new Error("active run should be handled from payload"); }
+
+            (async () => {
+              await handleChatRunAlreadyActive("agent-1", requestCtx, {
+                error: "chat_run_already_active",
+                active_run: {
+                  request_id: "old-runtime-1",
+                  opencode_active: true,
+                  source_of_truth: "opencode",
+                  status: "running",
+                },
+              });
+
+              assert.equal(localRow.removed, true);
+              assert.equal(persistedRow.removed, false);
+              assert.equal(persistedArticle.dataset.messageId, "m_old");
+              assert.equal(calls.some((item) => item[0] === "fallbackRemoveUser"), false);
+              assert.equal(dom.chatInput.value, "please keep this");
+              assert.equal(chatState.activeRequest.runtimeRequestId, "old-runtime-1");
             })();
             """
         )
@@ -495,6 +608,8 @@ def test_chat_run_already_active_fallback_409_json_is_not_generic_failure_node_s
                 _extract_js_function(src, "getActiveRunFromPayload"),
                 _extract_js_function(src, "hydrateActiveRequestFromRun"),
                 _extract_js_function(src, "preflightActiveRunForSession"),
+                _extract_js_function(src, "cssEscapeForSelector"),
+                _extract_js_function(src, "removeOptimisticUserRowForRequest"),
                 _extract_js_function(src, "isChatRunAlreadyActivePayload"),
                 _extract_js_function(src, "handleChatRunAlreadyActive"),
                 _extract_js_function(src, "submitChatForSelectedAgent"),
@@ -506,6 +621,7 @@ def test_chat_run_already_active_fallback_409_json_is_not_generic_failure_node_s
             const assert = require("node:assert/strict");
             const calls = [];
             const inserted = [];
+            let rejectedClientRequestId = "";
             const chatState = {
               activeRequest: null,
               isSubmitting: false,
@@ -522,7 +638,11 @@ def test_chat_run_already_active_fallback_409_json_is_not_generic_failure_node_s
             };
             const dom = {
               chatInput: { value: "send after current run" },
-              messageList: { insertAdjacentHTML(_where, html) { inserted.push(html); } },
+              messageList: {
+                insertAdjacentHTML(_where, html) { inserted.push(html); },
+                querySelector() { return null; },
+                querySelectorAll() { return []; },
+              },
               sendChatBtn: { disabled: false },
               abortChatRunBtn: { classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {}, disabled: true },
               headerNewChatBtn: {},
@@ -557,7 +677,10 @@ def test_chat_run_already_active_fallback_409_json_is_not_generic_failure_node_s
             function removeTemporaryAssistantRows(options) { calls.push(["removeAssistant", options.requestId, options.onlyEmpty]); }
             function removeLatestOptimisticUserRow() { calls.push(["removeUser"]); }
             function hideSuggest() {}
-            function buildUserMessageArticle() { return "<user-row>"; }
+            function buildUserMessageArticle(_message, _attachments, options) {
+              rejectedClientRequestId = options?.clientRequestId || "";
+              return "<user-row>";
+            }
             function buildPendingAssistantArticle() { return "<assistant-row>"; }
             function ensureEventSocketForAgent(agentId, sessionId, requestId) { calls.push(["events", agentId, sessionId, requestId]); }
             function isThinkingPanelActiveForAgent() { return false; }
@@ -572,6 +695,7 @@ def test_chat_run_already_active_fallback_409_json_is_not_generic_failure_node_s
               chatState.isSubmitting = active;
               syncSelectedAgentChatActionControls();
             }
+            function stopChatRunReconcileLoop(ctx) { calls.push(["stopReconcile", ctx.clientRequestId]); }
             function activeChatRequestMessage() { return "busy"; }
             async function trySubmitChatStreamForSelectedAgent() {
               calls.push(["streamUnsupported"]);
@@ -615,7 +739,10 @@ def test_chat_run_already_active_fallback_409_json_is_not_generic_failure_node_s
               assert.ok(calls.some((item) => item[0] === "removeAssistant" && item[2] === false));
               assert.ok(calls.some((item) => item[0] === "removeUser"));
               assert.equal(dom.chatInput.value, "send after current run");
+              assert.ok(rejectedClientRequestId);
+              assert.notEqual(chatState.activeRequest.clientRequestId, rejectedClientRequestId);
               assert.equal(chatState.activeRequest.runtimeRequestId, "runtime-409");
+              assert.ok(calls.some((item) => item[0] === "stopReconcile" && item[1] === rejectedClientRequestId));
               assert.ok(calls.some((item) => item[0] === "reconcile" && item[3] === true));
               assert.ok(!calls.some((item) => item[0] === "status" && String(item[1]).includes("Send failed")));
             })();

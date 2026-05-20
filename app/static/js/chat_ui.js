@@ -419,6 +419,10 @@ async function preflightActiveRunForSession(agentId, sessionId) {
       });
 
       if (requestCtx) {
+        appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.chat_run_already_active", {
+          message: "Runtime reports an active OpenCode run before sending; send was not submitted.",
+          active_run: activeRun,
+        });
         ensureEventSocketForAgent(
           agentId,
           sessionId,
@@ -507,6 +511,16 @@ md.validateLink = function(text) {
 // ===== generic helpers =====
 function safe(value) {
   return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function cssEscapeForSelector(value) {
+  if (typeof window !== "undefined" && window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(value);
+  }
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function escapeHtml(text) {
@@ -1074,8 +1088,9 @@ function getHistoryUserVisibleContent(message) {
   return "";
 }
 
-function buildUserMessageArticle(text, attachments = []) {
+function buildUserMessageArticle(text, attachments = [], options = {}) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const clientRequestAttr = options.clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(options.clientRequestId)}"` : "";
   let attachmentHtml = "";
   if (attachments.length > 0) {
     attachmentHtml = `<div class="message-attachments">${attachments.map(a => {
@@ -1089,7 +1104,7 @@ function buildUserMessageArticle(text, attachments = []) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user" data-local-user="1" data-optimistic-user="1"><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user user-message" data-local-user="1" data-optimistic-user="1"${clientRequestAttr}><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function getAssistantDisplayGroupKey(message, lastUserMessageId, index) {
@@ -1246,9 +1261,53 @@ function removeTemporaryAssistantRows(options = {}) {
   });
 }
 
-function removeLatestOptimisticUserRow() {
+function removeLatestOptimisticUserRow(options = {}) {
   const latest = getLatestOptimisticUserArticle();
-  latest?.closest('.message-row')?.remove();
+  if (!latest) return false;
+  if (options.onlyLocal && latest.dataset.localUser !== "1") return false;
+  const requestId = String(options.requestCtx?.clientRequestId || options.requestCtx?.requestId || "");
+  if (requestId && latest.dataset.clientRequestId && latest.dataset.clientRequestId !== requestId) return false;
+  const persisted =
+    latest.dataset.persisted === "1"
+    || latest.dataset.messageId
+    || latest.dataset.opencodeMessageId;
+  if (persisted) return false;
+  const row = latest.closest?.(".message-row");
+  (row || latest).remove();
+  return true;
+}
+
+function removeOptimisticUserRowForRequest(requestCtx = {}) {
+  const requestId = String(requestCtx.clientRequestId || requestCtx.requestId || "");
+  if (!dom.messageList || !requestId) return false;
+
+  const exact = dom.messageList.querySelector(
+    `article.user-message[data-client-request-id="${cssEscapeForSelector(requestId)}"]`
+  );
+  const exactPersisted =
+    exact?.dataset.persisted === "1"
+    || exact?.dataset.messageId
+    || exact?.dataset.opencodeMessageId;
+  if (exact && !exactPersisted) {
+    const row = exact.closest?.(".message-row");
+    (row || exact).remove();
+    return true;
+  }
+
+  const candidates = Array.from(dom.messageList.querySelectorAll("article.user-message[data-local-user='1']"));
+  const last = candidates[candidates.length - 1];
+  if (!last) return false;
+
+  const persisted =
+    last.dataset.persisted === "1"
+    || last.dataset.messageId
+    || last.dataset.opencodeMessageId;
+
+  if (persisted) return false;
+
+  const row = last.closest?.(".message-row");
+  (row || last).remove();
+  return true;
 }
 
 function getLatestOptimisticUserArticle() {
@@ -3867,7 +3926,10 @@ async function submitChatForSelectedAgent() {
       previewUrl: pf.previewUrl,
       url: pf.uploadedData?.url,
     }));
-    dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(displayMessage, displayAttachments));
+    dom.messageList.insertAdjacentHTML(
+      "beforeend",
+      buildUserMessageArticle(displayMessage, displayAttachments, { clientRequestId })
+    );
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(clientRequestId));
     chatState.inflightThinking = {
       id: clientRequestId,
@@ -5190,11 +5252,12 @@ async function handleChatRunAlreadyActive(agentId, requestCtx, payload = {}) {
     removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false });
   }
 
-  if (typeof removeLatestOptimisticUserRow === "function") {
-    removeLatestOptimisticUserRow();
+  const removedUserRow = removeOptimisticUserRowForRequest(requestCtx);
+  if (!removedUserRow && typeof removeLatestOptimisticUserRow === "function") {
+    removeLatestOptimisticUserRow({ requestCtx, onlyLocal: true });
   }
 
-  if (dom.chatInput && requestCtx?.backupMessage) {
+  if (dom.chatInput && Object.prototype.hasOwnProperty.call(requestCtx || {}, "backupMessage")) {
     dom.chatInput.value = requestCtx.backupMessage;
     syncChatInputHeight();
   }
@@ -5205,6 +5268,16 @@ async function handleChatRunAlreadyActive(agentId, requestCtx, payload = {}) {
   }
 
   setChatSubmittingForAgent(agentId, false);
+
+  const rejectedClientRequestId = String(requestCtx?.clientRequestId || "");
+  if (
+    rejectedClientRequestId
+    && chatState?.activeRequest
+    && chatState.activeRequest.clientRequestId === rejectedClientRequestId
+  ) {
+    stopChatRunReconcileLoop(chatState.activeRequest);
+    chatState.activeRequest = null;
+  }
 
   if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
     const activeCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
@@ -7246,7 +7319,17 @@ function deriveSessionRecoveryNotice(metadata = {}) {
 function hydrateActiveRequestFromRun(agentId, sessionId, run = {}, metadata = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return null;
-  const runtimeRequestId = String(run.request_id || run.id || metadata.request_id || metadata.last_execution_id || "");
+  const runtimeRequestId = String(
+    run.request_id ||
+    run.runtime_request_id ||
+    run.runtimeRequestId ||
+    run.id ||
+    metadata.request_id ||
+    metadata.runtime_request_id ||
+    metadata.runtimeRequestId ||
+    metadata.last_execution_id ||
+    ""
+  );
   const clientRequestId = String(run.client_request_id || run.clientRequestId || runtimeRequestId || `rehydrated_${Date.now()}`);
   const existing = chatState.activeRequest?.sessionIdAtSend === sessionId ? chatState.activeRequest : null;
   const requestCtx = existing || {

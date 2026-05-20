@@ -181,6 +181,7 @@ def test_chat_submit_preflights_active_run_before_optimistic_ui():
     assert "`/api/sessions/${encodeURIComponent(sessionId)}/active-run`" in preflight
     assert "getActiveRunFromPayload(payload)" in preflight
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun" in preflight
+    assert 'appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.chat_run_already_active"' in preflight
     assert "ensureEventSocketForAgent(" in preflight
     assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in preflight
     assert "setChatSubmittingForAgent(agentId, false)" in preflight
@@ -235,7 +236,8 @@ def test_chat_run_already_active_has_specialized_stream_and_fallback_handling():
     assert "chat_run_already_active" in detector
     assert "isRuntimeRunActuallyActive(activeRun)" in detector
     assert "removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false })" in handler
-    assert "removeLatestOptimisticUserRow()" in handler
+    assert "removeOptimisticUserRowForRequest(requestCtx)" in handler
+    assert "removeLatestOptimisticUserRow({ requestCtx, onlyLocal: true })" in handler
     assert "dom.chatInput.value = requestCtx.backupMessage" in handler
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun" in handler
     assert "startChatRunReconcileLoop(agentId, activeCtx, { immediate: true })" in handler
@@ -260,6 +262,39 @@ def test_chat_run_already_active_has_specialized_stream_and_fallback_handling():
     assert resp_idx < clone_json_idx < active_payload_idx < handle_error_idx
     assert "/api/tasks" not in submit_chat
     assert ":4096" not in submit_chat
+
+
+def test_chat_run_already_active_rejected_request_and_optimistic_user_markers():
+    src = _src()
+    build_user = _extract_js_function(src, "buildUserMessageArticle")
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+    remove_user = _extract_js_function(src, "removeOptimisticUserRowForRequest")
+    handler = _extract_js_function(src, "handleChatRunAlreadyActive")
+    preflight = _extract_js_function(src, "preflightActiveRunForSession")
+
+    assert "options = {}" in build_user
+    assert "options.clientRequestId" in build_user
+    assert 'data-local-user="1"' in build_user
+    assert 'data-client-request-id="' in build_user
+    assert "user-message" in build_user
+
+    assert "buildUserMessageArticle(displayMessage, displayAttachments, { clientRequestId })" in submit_chat
+    assert "function removeOptimisticUserRowForRequest" in src
+    assert "cssEscapeForSelector(requestId)" in remove_user
+    assert 'article.user-message[data-client-request-id="' in remove_user
+    assert "last.dataset.persisted === \"1\"" in remove_user
+    assert "last.dataset.messageId" in remove_user
+    assert "last.dataset.opencodeMessageId" in remove_user
+
+    rejected_idx = handler.index("const rejectedClientRequestId = String(requestCtx?.clientRequestId || \"\")")
+    match_idx = handler.index("chatState.activeRequest.clientRequestId === rejectedClientRequestId")
+    clear_idx = handler.index("chatState.activeRequest = null", rejected_idx)
+    hydrate_idx = handler.index("const activeCtx = hydrateActiveRequestFromRun")
+    assert rejected_idx < match_idx < clear_idx < hydrate_idx
+    assert "stopChatRunReconcileLoop(chatState.activeRequest)" in handler[rejected_idx:hydrate_idx]
+
+    assert 'appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.chat_run_already_active"' in preflight
+    assert "Runtime reports an active OpenCode run before sending; send was not submitted." in preflight
 
 
 def test_active_request_busy_state_uses_runtime_blocking_helper():
