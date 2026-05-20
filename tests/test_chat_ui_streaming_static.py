@@ -240,7 +240,10 @@ def test_chat_run_already_active_has_specialized_stream_and_fallback_handling():
     assert "removeLatestOptimisticUserRow({ requestCtx, onlyLocal: true })" in handler
     assert "dom.chatInput.value = requestCtx.backupMessage" in handler
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun" in handler
+    assert "refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState)" in handler
+    assert "hydrateActiveRequestFromSessionStatus(agentId, sessionId, statusPayload)" in handler
     assert "startChatRunReconcileLoop(agentId, activeCtx, { immediate: true })" in handler
+    assert "startChatRunReconcileLoop(agentId, statusCtx, { immediate: true })" in handler
     assert '"portal.chat_run_already_active"' in handler
 
     error_idx = stream_handler.index('if (outerType === "error")')
@@ -297,6 +300,31 @@ def test_chat_run_already_active_rejected_request_and_optimistic_user_markers():
     assert "Runtime reports an active OpenCode run before sending; send was not submitted." in preflight
 
 
+def test_assistant_row_lookup_never_selects_user_article():
+    src = _src()
+    finder = _extract_js_function(src, "findAssistantArticleForRequest")
+    updater = _extract_js_function(src, "updateOrCreateAssistantRowForRequest")
+
+    assert "function isAssistantArticle" in src
+    assert 'article.assistant-message[data-client-request-id="' in finder
+    assert 'article[data-pending-assistant="1"][data-client-request-id="' in finder
+    assert 'article.assistant-message[data-request-id="' in finder
+    assert 'article[data-pending-assistant="1"][data-request-id="' in finder
+    assert 'article.assistant-message[data-message-id="' in finder
+    assert 'article.assistant-message[data-primary-message-id="' in finder
+    assert "article.assistant-message[data-message-ids]" in finder
+    assert "article[data-pending-assistant='1'][data-message-ids]" in finder
+    assert 'article[data-client-request-id="${escaped}"]' not in finder
+    assert 'article[data-request-id="${escaped}"]' not in finder
+    assert 'article[data-message-id="${escaped}"]' not in finder
+    assert 'article[data-primary-message-id="${escaped}"]' not in finder
+    assert 'querySelectorAll("article[data-message-ids]")' not in finder
+    assert "if (isAssistantArticle(byClient)) return byClient;" in finder
+    assert "if (isAssistantArticle(containing)) return containing;" in finder
+    assert "if (article && !isAssistantArticle(article))" in updater
+    assert "article = null;" in updater
+
+
 def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     src = _src()
     load_session = _extract_js_function(src, "loadSessionForAgent")
@@ -313,9 +341,15 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
         "function canonicalMessagesToLegacyDisplayMessages",
         "function canonicalMessagesToThinkingItems",
         "function applyOpenCodeCanonicalEventToChatState",
+        "function normalizeOpenCodeSessionStatusType",
+        "function isOpenCodeSessionStatusBlockingPayload",
+        "function isOpenCodeSessionBlocking",
         "function computeOpenCodeRuntimeUiState",
         "function isOpenCodeSessionStateOnlyEvent",
+        "function isOpenCodeCanonicalSnapshotEvent",
         "function refreshOpenCodeSessionStatusForAgent",
+        "function buildSyntheticRunFromSessionStatus",
+        "function hydrateActiveRequestFromSessionStatus",
     ]:
         assert helper in src
 
@@ -325,6 +359,11 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
 
     assert "const canonicalMessages = getCanonicalMessagesFromSessionPayload(data)" in load_session
     assert "const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState)" in load_session
+    assert "isOpenCodeSessionStatusBlockingPayload(statusPayload)" in load_session
+    assert "hydrateActiveRequestFromSessionStatus(agentId, normalized, statusPayload)" in load_session
+    assert "ensureEventSocketForAgent(" in load_session
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in load_session
+    assert 'setChatStatus("Previous message still running. Reconnecting…")' in load_session
     assert "const messagesForRender = canonicalMessages.length" in load_session
     assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
     assert "data.messages || []" in load_session
@@ -337,6 +376,9 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "applyOpenCodeCanonicalEventToChatState" in handle_event
     assert "localApplyOpenCodeCanonicalEventToChatState(chatState, entry)" in handle_event
     assert "maybeRefreshSessionSnapshotForOpenCodeEvent" in handle_event
+    assert "isCurrentSessionCanonicalSnapshotEvent" in handle_event
+    assert "!isCurrentSessionCanonicalSnapshotEvent" in handle_event
+    assert "appliedCanonicalEvent && !chatState.activeRequest && isOpenCodeCanonicalSnapshotEvent(entry)" in handle_event
     assert "const isSessionStateOnlyCanonicalEvent = appliedCanonicalEvent" in handle_event
     assert "isOpenCodeSessionStateOnlyEvent(entry)" in handle_event
     assert "if (isSessionStateOnlyCanonicalEvent)" in handle_event
@@ -353,6 +395,9 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "projection.snapshotRefreshLastFailedAt = Date.now()" in maybe_refresh
     assert "Date.now() - lastFailedAt < 10000" in maybe_refresh
 
+    assert '"message.part.updated"' in src
+    assert '"message.completed"' in src
+
     assert "`/api/sessions/${encodeURIComponent(sessionId)}/status`" in refresh_status
     assert "agentApiFor(" in refresh_status
     assert "sessionStatusPayload" in refresh_status
@@ -366,18 +411,66 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "dataset.runtimeHealth" in set_status
     assert "dataset.sessionStatus" in set_status
     assert "dataset.messageProgress" in set_status
+    assert "visibleStatusText" in set_status
+    assert "openCodeRuntimeUiStatusText(uiState)" in set_status
+    assert '["busy", "retry"].includes' in set_status
+    assert "statusDetail.join" in set_status
     assert ":4096" not in src
     assert "/api/tasks" not in handle_event
     assert "/api/tasks" not in load_session
+
+
+def test_refresh_busy_session_reconnects_and_refreshes_snapshot_static_contract():
+    src = _src()
+    load_session = _extract_js_function(src, "loadSessionForAgent")
+    canonical_apply = _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState")
+    maybe_refresh = _extract_js_function(src, "maybeRefreshSessionSnapshotForOpenCodeEvent")
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+    reconcile_projection = _extract_js_function(src, "reconcileActiveRequestProjection")
+
+    assert "const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState)" in load_session
+    assert "isOpenCodeSessionStatusBlockingPayload(statusPayload)" in load_session
+    assert "hydrateActiveRequestFromSessionStatus(agentId, normalized, statusPayload)" in load_session
+    assert "ensureEventSocketForAgent(" in load_session
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in load_session
+    assert 'setChatStatus("Previous message still running. Reconnecting…")' in load_session
+
+    assert "!chatState.activeRequest" in canonical_apply
+    assert '"message.completed"' in canonical_apply
+    assert '"session.idle"' in canonical_apply
+    assert "projection.needsSnapshot = true" in canonical_apply
+    assert 'projection.sessionStatus = "idle"' in canonical_apply
+
+    assert "maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState" in handle_event
+    assert "appliedCanonicalEvent && !chatState.activeRequest" in handle_event
+    assert "loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId })" in maybe_refresh
+    assert "projection.needsSnapshot = false" in maybe_refresh
+
+    assert "isOpenCodeSessionStatusBlockingPayload(sessionStatusPayload || {})" in reconcile_projection
+    assert 'setChatStatus("Previous message still running. Reconnecting…")' in reconcile_projection
+    assert "syncSelectedAgentChatActionControls()" in reconcile_projection
 
 
 def test_active_request_busy_state_uses_runtime_blocking_helper():
     src = _src()
     has_active = _extract_js_function(src, "hasActiveChatRequestForAgent")
     blocking = _extract_js_function(src, "isActiveRequestBlocking")
+    session_blocking = _extract_js_function(src, "isOpenCodeSessionBlocking")
+    status_blocking = _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload")
+    sync_controls = _extract_js_function(src, "syncSelectedAgentChatActionControls")
+    abort_visibility = _extract_js_function(src, "shouldShowAbortChatRunButton")
 
     assert "isActiveRequestBlocking(chatState)" in has_active
     assert "hasIncompleteInflightThinking(chatState)" in has_active
+    assert "isOpenCodeSessionBlocking(chatState)" in has_active
+    assert "openCodeSessionBlocking" in has_active
+    assert "isOpenCodeSessionStatusBlockingPayload(projection.sessionStatusPayload || {})" in session_blocking
+    assert "payload?.active === true" in status_blocking
+    assert 'payload?.action_hint === "wait_reconnect_or_stop"' in status_blocking
+    assert '"busy"' in status_blocking
+    assert '"retry"' in status_blocking
+    assert "shouldShowAbortChatRunButton(agentId)" in sync_controls
+    assert "isOpenCodeSessionBlocking(chatState)" in abort_visibility
     for marker in [
         "req.aborted",
         "req.stale",
@@ -624,11 +717,13 @@ def test_abort_active_chat_request_uses_runtime_abort_endpoints():
     src = _src()
     template = Path("app/templates/app.html").read_text(encoding="utf-8")
     abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    abort_session = _extract_js_function(src, "abortSessionForAgent")
     sync_controls = _extract_js_function(src, "syncSelectedAgentChatActionControls")
 
     assert "function abortActiveChatRequestForSelectedAgent" in src
     assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
-    assert '`/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_fn
+    assert '`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_session
+    assert "abortSessionForAgent(agentId, sessionId)" in abort_fn
     assert "runtimeAbortSucceeded(result)" in abort_fn
     assert "runtimeAbortIndicatesInactive(result)" in abort_fn
     assert 'clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted")' in abort_fn
@@ -640,6 +735,37 @@ def test_abort_active_chat_request_uses_runtime_abort_endpoints():
     assert 'id="abort-chat-run-btn"' in template
     assert "Stop run" in template
     assert "shouldShowAbortChatRunButton(agentId)" in sync_controls
+
+
+def test_abort_synthetic_opencode_session_run_uses_session_abort_endpoint():
+    src = _src()
+    abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    synthetic = _extract_js_function(src, "isSyntheticOpenCodeSessionRequest")
+    abort_session = _extract_js_function(src, "abortSessionForAgent")
+    session_success = _extract_js_function(src, "handleSessionAbortSuccess")
+
+    assert "function isSyntheticOpenCodeSessionRequest" in src
+    assert 'requestId.startsWith("opencode-session-")' in synthetic
+    assert "openCodeProjection?.sessionStatusPayload" in synthetic
+    assert "payload?.active === true" in synthetic
+    assert "isOpenCodeSessionBlocking(chatState)" in synthetic
+    assert "requestCtx.fromSessionStatus === true" in synthetic
+
+    assert '`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_session
+    assert "localIsSyntheticOpenCodeSessionRequest(requestCtx, chatState || {})" in abort_fn
+    assert "if (shouldAbortSession)" in abort_fn
+    assert "abortSessionForAgent(agentId, sessionId)" in abort_fn
+    assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
+    assert "localIsMissingChatRunAbortFailure(error)" in abort_fn
+    assert "localIsMissingChatRunAbortFailure(result)" in abort_fn
+    assert "handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId" in abort_fn
+
+    assert 'chatState.openCodeProjection.sessionStatus = "idle"' in session_success
+    assert "active: false" in session_success
+    assert 'status_type: "idle"' in session_success
+    assert "active_run: null" in session_success
+    assert "syncSelectedAgentChatActionControls()" in session_success
+    assert "loadSessionForAgent(agentId, sessionId" in session_success
 
 
 def test_abort_active_chat_request_checks_runtime_abort_result():
@@ -721,16 +847,25 @@ def test_session_render_hydrates_active_run_and_replays_events():
     load_session = _extract_js_function(src, "loadSessionForAgent")
     reconcile_projection = _extract_js_function(src, "reconcileActiveRequestProjection")
     hydrate = _extract_js_function(src, "hydrateActiveRequestFromRun")
+    hydrate_status = _extract_js_function(src, "hydrateActiveRequestFromSessionStatus")
+    synthetic_status = _extract_js_function(src, "buildSyntheticRunFromSessionStatus")
 
     assert "getCanonicalMessagesFromSessionPayload(data)" in load_session
     assert "canonicalMessagesToLegacyDisplayMessages(canonicalMessages)" in load_session
     assert "renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {})" in load_session
     assert "reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || [])" in load_session
     assert "metadata.active_run" in reconcile_projection
+    assert "metadata.session_status" in reconcile_projection
+    assert "isOpenCodeSessionStatusBlockingPayload(sessionStatusPayload || {})" in reconcile_projection
     assert "isValidatedRuntimeActiveRun(activeRun)" in reconcile_projection
     assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata)" in reconcile_projection
+    assert "hydrateActiveRequestFromSessionStatus(agentId, normalized, statusPayload)" in load_session
     assert "ensureEventSocketForAgent(agentId, sessionId" in reconcile_projection
     assert "startChatRunReconcileLoop(agentId, requestCtx" in reconcile_projection
     assert 'setChatStatus(activeStatus === "stream_detached" ? "Still running. Reconnecting…" : "Still running. Syncing…")' in reconcile_projection
+    assert 'setChatStatus("Previous message still running. Reconnecting…")' in reconcile_projection
     assert 'clearStaleActiveRequest(agentId, requestCtx, activeRun ? "opencode_not_active" : "metadata_active_run_null")' in reconcile_projection
     assert "streamDetached" in hydrate
+    assert "buildSyntheticRunFromSessionStatus(sessionId, statusPayload)" in hydrate_status
+    assert 'source_of_truth: "opencode"' in synthetic_status
+    assert 'action_hint: statusPayload.action_hint || "wait_reconnect_or_stop"' in synthetic_status
