@@ -62,6 +62,7 @@ def test_thinking_process_view_maps_required_runtime_events():
         ("portal.reconcile.completed", {}, "success", "success", "Reconcile Completed"),
         ("portal.reconcile.failed", {}, "error", "error", "Reconcile Failed"),
         ("portal.active_request.cleared", {}, "warning", "warning", "Active Request Cleared"),
+        ("portal.chat_run_already_active", {"message": "Previous message still running"}, "warning", "running", "Previous Run Active"),
         ("portal.abort.completed", {}, "success", "success", "Abort Completed"),
         ("portal.abort.failed", {}, "error", "error", "Abort Failed"),
         ("event_bridge.connected", {}, "success", "success", "Event Bridge Connected"),

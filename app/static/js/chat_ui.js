@@ -403,6 +403,51 @@ function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this a
   return false;
 }
 
+async function preflightActiveRunForSession(agentId, sessionId) {
+  if (!agentId || !sessionId) return false;
+
+  try {
+    const payload = await agentApiFor(
+      agentId,
+      `/api/sessions/${encodeURIComponent(sessionId)}/active-run`
+    );
+    const activeRun = getActiveRunFromPayload(payload);
+
+    if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
+      const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
+        active_run: activeRun,
+      });
+
+      if (requestCtx) {
+        ensureEventSocketForAgent(
+          agentId,
+          sessionId,
+          requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId
+        );
+        startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+      }
+
+      setChatSubmittingForAgent(agentId, false);
+      setChatStatus("Previous message still running. Reconnecting…");
+      showToast("The previous message is still running. Wait for it to finish or use Stop run.");
+      syncSelectedAgentChatActionControls();
+      return true;
+    }
+  } catch (error) {
+    appendPortalChatRuntimeEvent(
+      agentId,
+      fallbackRequestContextForAgent(agentId, "preflight_active_run_failed"),
+      "portal.active_run_preflight.failed",
+      {
+        message: "Unable to preflight active run before sending; runtime will validate on submit.",
+        error: String(error?.message || error || ""),
+      }
+    );
+  }
+
+  return false;
+}
+
 function syncSelectedAgentChatActionControls() {
   const agentId = state.selectedAgentId;
   const sessionsBtn = document.getElementById("btn-sessions");
@@ -1541,6 +1586,7 @@ function getThinkingEventDisplay(event) {
     "portal.reconcile.completed": { icon: "check-circle-2", title: "Reconcile Completed", detail: data.message || "Chat run completed" },
     "portal.reconcile.failed": { icon: "x-circle", title: "Reconcile Failed", detail: data.error || data.message || "Chat run reconcile failed", kind: "error" },
     "portal.active_request.cleared": { icon: "alert-triangle", title: "Active Request Cleared", detail: data.message || "Portal cleared stale active request", kind: "warning" },
+    "portal.chat_run_already_active": { icon: "alert-triangle", title: "Previous Run Active", detail: data.message || "Previous message still running", kind: "warning" },
     "portal.abort.started": { icon: "square", title: "Abort Started", detail: data.message || "Stopping current run" },
     "portal.abort.completed": { icon: "check-circle-2", title: "Abort Completed", detail: data.message || "Current run stopped", kind: "success" },
     "portal.abort.failed": { icon: "x-circle", title: "Abort Failed", detail: data.error || data.message || "Unable to stop current run", kind: "error" },
@@ -1787,6 +1833,28 @@ function sanitizeEventDetailPayload(value, depth = 0) {
   return value;
 }
 
+function nonSuccessHintForPayload(payload = {}) {
+  const reason = String(
+    payload.incomplete_reason ||
+    payload.incompleteReason ||
+    payload.error ||
+    payload.detail ||
+    payload.reason ||
+    ""
+  ).toLowerCase();
+
+  if (reason.includes("chat_run_already_active")) {
+    return "A previous OpenCode run is still active. Wait for it to finish or use Stop run.";
+  }
+
+  const status = String(payload.status || payload.completion_state || "").toLowerCase();
+  if (["busy", "running", "streaming", "retry"].includes(status)) {
+    return "The previous message is still running. You can wait, reconnect, or use Stop run.";
+  }
+
+  return 'You can send "continue" to ask the runtime to resume, or inspect the event details here.';
+}
+
 function getThinkingSnapshotStatus(snapshot) {
   const completionState = String(snapshot?.completion_state || "").trim().toLowerCase();
   if (snapshot?.completed) {
@@ -1835,6 +1903,11 @@ function renderThinkingPanelFromClientState(chatState) {
   const completionState = String(snapshot.completion_state || snapshot.completionState || "").trim();
   const incompleteReason = String(snapshot.incomplete_reason || snapshot.incompleteReason || "").trim();
   const showNonSuccess = isNonSuccessCompletionState(completionState) || Boolean(incompleteReason);
+  const nonSuccessHint = nonSuccessHintForPayload({
+    ...snapshot,
+    completion_state: completionState,
+    incomplete_reason: incompleteReason,
+  });
   const stillRunning = !snapshot.completed && elapsedMs >= 10 * 60 * 1000;
   const contextSourceLabel = snapshot.completed
     ? (snapshot.contextSource === "last_observed_live"
@@ -1882,7 +1955,7 @@ function renderThinkingPanelFromClientState(chatState) {
         <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
         <div class="portal-panel-note">Events: ${events.length}</div>
       </div>
-      ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>You can send "continue" to ask the runtime to resume, or inspect the event details here.</div></div>` : ""}
+      ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>${safe(nonSuccessHint)}</div></div>` : ""}
       ${stillRunning ? '<div class="portal-inline-state">Still running. Live events will continue to appear here.</div>' : ""}
       ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div>${untilSoft != null ? `<div class="portal-panel-note">Until soft threshold: ${safe(String(untilSoft))} tokens</div>` : ""}${untilHard != null ? `<div class="portal-panel-note">Until hard threshold: ${safe(String(untilHard))} tokens</div>` : ""}${nextPruningPolicy ? `<div class="portal-panel-note">Pruning policy: ${safe(truncateThinkingText(nextPruningPolicy, 500))}</div>` : ""}</div>` : ""}
       <div class="portal-panel-section">
@@ -3713,6 +3786,12 @@ async function submitChatForSelectedAgent() {
   const requestMessage = messageAtSend || "[attachment]";
   const displayMessage = messageAtSend || "📎 Attachment";
   const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
+  const localPreflightActiveRunForSession = (typeof preflightActiveRunForSession === "function")
+    ? preflightActiveRunForSession
+    : async () => false;
+  const activeRunBlocked = await localPreflightActiveRunForSession(agentIdAtSend, sessionIdAtSend);
+  if (activeRunBlocked) return;
+
   const clientRequestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
     ? globalThis.crypto.randomUUID()
     : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -3732,6 +3811,7 @@ async function submitChatForSelectedAgent() {
     streamFailed: false,
     streamIncomplete: false,
     backupMessage: messageAtSend,
+    backupPendingFiles: chatState.pendingFiles.slice(),
     typewriter: { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false },
     usedStream: false,
   };
@@ -3816,6 +3896,12 @@ async function submitChatForSelectedAgent() {
   chatState.activeRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
   localStartWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx);
+  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
+    ? isChatRunAlreadyActivePayload
+    : () => false;
+  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
+    ? handleChatRunAlreadyActive
+    : async () => "handled";
 
   try {
     const streamResult = await trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody);
@@ -3826,8 +3912,26 @@ async function submitChatForSelectedAgent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
-    if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+    if (!resp.ok) {
+      let structuredError = null;
+      try {
+        structuredError = await resp.clone().json();
+      } catch (_) {
+        structuredError = null;
+      }
+
+      if (localIsChatRunAlreadyActivePayload(structuredError)) {
+        await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, structuredError);
+        return;
+      }
+
+      throw new Error(await handleErrorResponse(resp));
+    }
     const payload = await resp.json();
+    if (localIsChatRunAlreadyActivePayload(payload)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, payload);
+      return;
+    }
     const responseText = finalResponseText(payload);
     if (payload?.ok === false || isNonSuccessFinalPayload(payload)) {
       if (typeof handleIncompleteChatStream === "function") {
@@ -4959,11 +5063,23 @@ function isChatRunRunningStatus(status) {
 
 function isRuntimeRunActuallyActive(run) {
   if (!run) return false;
+  if (
+    run.stale === true
+    || run.aborted === true
+    || run.completed === true
+    || run.runtimeInactive === true
+    || run.opencodeInactive === true
+  ) return false;
   if (run.opencode_active === false) return false;
   if (run.source_of_truth && run.source_of_truth !== "opencode") return false;
   const status = normalizeChatRunStatus(run.status || run.state || "");
+  const completionState = normalizeChatRunStatus(run.completion_state || run.completionState || "");
+  if (["completed", "aborted", "stale", "failed", "error", "cancelled", "canceled"].includes(status)) return false;
+  if (["completed", "aborted", "stale", "failed", "error"].includes(completionState)) return false;
   if (status === "stream_detached" && run.opencode_active !== true) return false;
-  return ["running", "recovering", "stream_attached", "stream_detached"].includes(status) && run.opencode_active !== false;
+  if (run.opencode_active === true) return true;
+  if (run.source_of_truth === "opencode" && ["busy", "running", "streaming", "active", "in_progress", "retry", "recovering", "stream_attached", "stream_detached"].includes(status)) return true;
+  return false;
 }
 
 function isValidatedRuntimeActiveRun(run) {
@@ -5015,16 +5131,108 @@ function isNullOrStaleRunPayload(payload = {}) {
 function getActiveRunFromPayload(payload = {}) {
   if (!payload || typeof payload !== "object") return null;
   if (payload.run === null || payload.active_run === null) return null;
-  if (payload.run && typeof payload.run === "object") return payload.run;
   if (payload.active_run && typeof payload.active_run === "object") return payload.active_run;
+  if (payload.activeRun && typeof payload.activeRun === "object") return payload.activeRun;
+  if (payload.run && typeof payload.run === "object") return payload.run;
+  if (payload.active && typeof payload.active === "object") return payload.active;
   if (payload.data && typeof payload.data === "object") {
     if (payload.data.run === null || payload.data.active_run === null) return null;
-    if (payload.data.run && typeof payload.data.run === "object") return payload.data.run;
     if (payload.data.active_run && typeof payload.data.active_run === "object") return payload.data.active_run;
+    if (payload.data.activeRun && typeof payload.data.activeRun === "object") return payload.data.activeRun;
+    if (payload.data.run && typeof payload.data.run === "object") return payload.data.run;
+    if (payload.data.active && typeof payload.data.active === "object") return payload.data.active;
     if (payload.data.status || payload.data.state || payload.data.request_id) return payload.data;
   }
   if (payload.status || payload.state || payload.request_id) return payload;
   return null;
+}
+
+function isChatRunAlreadyActivePayload(payload = {}) {
+  if (!payload || typeof payload !== "object") return false;
+  const error = String(
+    payload.error ||
+    payload.detail ||
+    payload.incomplete_reason ||
+    payload.incompleteReason ||
+    payload.reason ||
+    ""
+  ).toLowerCase();
+
+  if (error.includes("chat_run_already_active")) return true;
+
+  const activeRun = payload.active_run || payload.activeRun || payload.run || payload.active || payload.data?.active_run || payload.data?.activeRun || payload.data?.run || payload.data?.active;
+  if (!activeRun) return false;
+
+  return isRuntimeRunActuallyActive(activeRun);
+}
+
+async function handleChatRunAlreadyActive(agentId, requestCtx, payload = {}) {
+  const chatState = ensureChatState(agentId);
+  const sessionId =
+    payload.session_id ||
+    payload.sessionId ||
+    requestCtx?.sessionIdAtSend ||
+    chatState?.sessionId ||
+    "";
+
+  const activeRun =
+    payload.active_run ||
+    payload.activeRun ||
+    payload.run ||
+    payload.active ||
+    payload.data?.active_run ||
+    payload.data?.activeRun ||
+    payload.data?.run ||
+    payload.data?.active ||
+    null;
+
+  if (requestCtx?.clientRequestId) {
+    removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false });
+  }
+
+  if (typeof removeLatestOptimisticUserRow === "function") {
+    removeLatestOptimisticUserRow();
+  }
+
+  if (dom.chatInput && requestCtx?.backupMessage) {
+    dom.chatInput.value = requestCtx.backupMessage;
+    syncChatInputHeight();
+  }
+
+  if (chatState && Array.isArray(requestCtx?.backupPendingFiles) && chatState.pendingFiles.length === 0) {
+    chatState.pendingFiles = requestCtx.backupPendingFiles;
+    renderInputPreview();
+  }
+
+  setChatSubmittingForAgent(agentId, false);
+
+  if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
+    const activeCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
+      active_run: activeRun,
+    });
+
+    if (activeCtx) {
+      ensureEventSocketForAgent(
+        agentId,
+        sessionId,
+        activeCtx.runtimeRequestId || activeCtx.requestId || activeCtx.clientRequestId
+      );
+      startChatRunReconcileLoop(agentId, activeCtx, { immediate: true });
+    }
+
+    appendPortalChatRuntimeEvent(agentId, activeCtx || requestCtx, "portal.chat_run_already_active", {
+      message: "Runtime reports an active OpenCode run; send was not submitted.",
+      active_run: activeRun,
+    });
+
+    setChatStatus("Previous message still running. Reconnecting…");
+    showToast("Previous message is still running. Wait or use Stop run.");
+    syncSelectedAgentChatActionControls();
+    return "handled";
+  }
+
+  await preflightActiveRunForSession(agentId, sessionId);
+  return "handled";
 }
 
 function runPayloadHasTerminalStatus(payload = {}) {
@@ -5336,6 +5544,12 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
     ? finalizeNonSuccessChatResponse
     : (agentId, ctx, payload, source) => localHandleIncompleteChatStream(agentId, ctx, source || "non_success", payload);
+  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
+    ? isChatRunAlreadyActivePayload
+    : () => false;
+  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
+    ? handleChatRunAlreadyActive
+    : async () => "handled";
   const localClearWaitingForRuntimeEventsTimer = (typeof clearWaitingForRuntimeEventsTimer === "function")
     ? clearWaitingForRuntimeEventsTimer
     : () => {};
@@ -5408,6 +5622,11 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
 
   if (outerType === "error") {
+    if (localIsChatRunAlreadyActivePayload(eventData)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, eventData);
+      return "error";
+    }
+
     requestCtx.sawError = true;
     requestCtx.streamFailed = true;
     localClearWaitingForRuntimeEventsTimer(requestCtx);
@@ -5448,6 +5667,10 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     requestCtx.streamFinalPayload = eventData;
     requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
+    if (localIsChatRunAlreadyActivePayload(eventData)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, eventData);
+      return "final_non_success";
+    }
     if (localIsNonSuccessFinalPayload(eventData)) {
       if (typeof finalizeNonSuccessChatResponse === "function") {
         finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, eventData, "stream_final");
@@ -5572,9 +5795,27 @@ async function handleChatStreamDetached(agentIdAtSend, requestCtx, reason = "str
 }
 
 async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
+  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
+    ? isChatRunAlreadyActivePayload
+    : () => false;
+  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
+    ? handleChatRunAlreadyActive
+    : async () => "handled";
   const resp = await fetch(`/a/${agentIdAtSend}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
   if ([404,405,501].includes(resp.status) || !resp.body) return 'unsupported';
-  if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+  if (!resp.ok) {
+    let structuredError = null;
+    try {
+      structuredError = await resp.clone().json();
+    } catch (_) {
+      structuredError = null;
+    }
+    if (localIsChatRunAlreadyActivePayload(structuredError)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, structuredError);
+      return "handled";
+    }
+    throw new Error(await handleErrorResponse(resp));
+  }
   requestCtx.usedStream = true;
   const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
     ? finalizeNonSuccessChatResponse
@@ -5630,6 +5871,10 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate)) {
     const candidate = requestCtx.streamFinalCandidate;
     const candidateText = finalResponseText(candidate) || getChatStreamTextPayload(candidate);
+    if (localIsChatRunAlreadyActivePayload(candidate)) {
+      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, candidate);
+      return "handled";
+    }
     if (isNonSuccessFinalPayload(candidate)) {
       await localFinalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, candidate, "candidate_final");
       return "handled";

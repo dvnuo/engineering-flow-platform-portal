@@ -167,6 +167,99 @@ def test_chat_stream_main_path_does_not_use_tasks():
     assert "/api/tasks" not in submit_stream
     assert "/api/tasks" not in submit_chat
     assert "task mode" not in submit_stream.lower()
+    assert ":4096" not in src
+
+
+def test_chat_submit_preflights_active_run_before_optimistic_ui():
+    src = _src()
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+    preflight = _extract_js_function(src, "preflightActiveRunForSession")
+    get_active = _extract_js_function(src, "getActiveRunFromPayload")
+    runtime_active = _extract_js_function(src, "isRuntimeRunActuallyActive")
+
+    assert "preflightActiveRunForSession" in src
+    assert "`/api/sessions/${encodeURIComponent(sessionId)}/active-run`" in preflight
+    assert "getActiveRunFromPayload(payload)" in preflight
+    assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun" in preflight
+    assert "ensureEventSocketForAgent(" in preflight
+    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in preflight
+    assert "setChatSubmittingForAgent(agentId, false)" in preflight
+    assert "Previous message still running" in preflight
+
+    assert "payload.active_run" in get_active
+    assert "payload.run" in get_active
+    assert "payload.data.active_run" in get_active
+    assert "payload.active" in get_active
+
+    for marker in [
+        "run.opencode_active === true",
+        'run.source_of_truth === "opencode"',
+        '"busy"',
+        '"retry"',
+        "run.stale === true",
+        "run.aborted === true",
+        "run.completed === true",
+        "run.runtimeInactive === true",
+        "run.opencodeInactive === true",
+    ]:
+        assert marker in runtime_active
+
+    session_idx = submit_chat.index("const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);")
+    assert "localPreflightActiveRunForSession" in submit_chat
+    preflight_idx = submit_chat.index("const activeRunBlocked = await localPreflightActiveRunForSession(agentIdAtSend, sessionIdAtSend);")
+    client_request_idx = submit_chat.index("const clientRequestId")
+    user_row_idx = submit_chat.index("buildUserMessageArticle")
+    pending_row_idx = submit_chat.index("buildPendingAssistantArticle")
+    clear_input_idx = submit_chat.index("dom.chatInput.value = \"\"")
+    clear_files_idx = submit_chat.index("chatState.pendingFiles = []")
+    stream_post_idx = submit_chat.index("trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody)")
+
+    assert session_idx < preflight_idx < client_request_idx
+    assert preflight_idx < user_row_idx
+    assert preflight_idx < pending_row_idx
+    assert preflight_idx < clear_input_idx
+    assert preflight_idx < clear_files_idx
+    assert preflight_idx < stream_post_idx
+    assert "if (activeRunBlocked) return;" in submit_chat
+
+
+def test_chat_run_already_active_has_specialized_stream_and_fallback_handling():
+    src = _src()
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+    stream_handler = _extract_js_function(src, "handleChatStreamEvent")
+    detector = _extract_js_function(src, "isChatRunAlreadyActivePayload")
+    handler = _extract_js_function(src, "handleChatRunAlreadyActive")
+
+    assert "function isChatRunAlreadyActivePayload" in src
+    assert "function handleChatRunAlreadyActive" in src
+    assert "chat_run_already_active" in detector
+    assert "isRuntimeRunActuallyActive(activeRun)" in detector
+    assert "removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false })" in handler
+    assert "removeLatestOptimisticUserRow()" in handler
+    assert "dom.chatInput.value = requestCtx.backupMessage" in handler
+    assert "hydrateActiveRequestFromRun(agentId, sessionId, activeRun" in handler
+    assert "startChatRunReconcileLoop(agentId, activeCtx, { immediate: true })" in handler
+    assert '"portal.chat_run_already_active"' in handler
+
+    error_idx = stream_handler.index('if (outerType === "error")')
+    assert "localIsChatRunAlreadyActivePayload" in stream_handler
+    assert "localHandleChatRunAlreadyActive" in stream_handler
+    error_active_idx = stream_handler.index("if (localIsChatRunAlreadyActivePayload(eventData))", error_idx)
+    generic_error_idx = stream_handler.index("requestCtx.streamFailed = true", error_idx)
+    assert error_idx < error_active_idx < generic_error_idx
+
+    final_idx = stream_handler.index("if (isChatStreamFinalEventName(outerType) || isDirectCompletionEventName(outerType))")
+    final_active_idx = stream_handler.index("if (localIsChatRunAlreadyActivePayload(eventData))", final_idx)
+    non_success_idx = stream_handler.index("if (localIsNonSuccessFinalPayload(eventData))", final_idx)
+    assert final_idx < final_active_idx < non_success_idx
+
+    resp_idx = submit_chat.index("if (!resp.ok)")
+    clone_json_idx = submit_chat.index("structuredError = await resp.clone().json()", resp_idx)
+    active_payload_idx = submit_chat.index("if (localIsChatRunAlreadyActivePayload(structuredError))", resp_idx)
+    handle_error_idx = submit_chat.index("throw new Error(await handleErrorResponse(resp))", resp_idx)
+    assert resp_idx < clone_json_idx < active_payload_idx < handle_error_idx
+    assert "/api/tasks" not in submit_chat
+    assert ":4096" not in submit_chat
 
 
 def test_active_request_busy_state_uses_runtime_blocking_helper():
@@ -240,12 +333,16 @@ def test_runtime_events_append_to_live_timeline_before_final():
 def test_live_thinking_panel_renders_status_banner_and_safe_details():
     src = _src()
     render_panel = _extract_js_function(src, "renderThinkingPanelFromClientState")
+    hint_helper = _extract_js_function(src, "nonSuccessHintForPayload")
     assert "Thinking Process Live" in render_panel
     assert "portal-live-status" in render_panel
     assert "Elapsed:" in render_panel
     assert "Last event:" in render_panel
     assert "portal-completion-banner" in render_panel
-    assert 'You can send "continue"' in render_panel
+    assert "nonSuccessHintForPayload" in render_panel
+    assert 'You can send "continue"' in hint_helper
+    assert "chat_run_already_active" in hint_helper
+    assert "Wait for it to finish or use Stop run" in hint_helper
     assert "Still running. Live events will continue to appear here." in render_panel
     assert "Historical" in render_panel
     assert "portal-event-detail" in render_panel
