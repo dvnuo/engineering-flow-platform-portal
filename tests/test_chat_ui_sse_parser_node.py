@@ -442,6 +442,7 @@ def test_stream_final_overrides_truncated_assistant_completed_preview_and_clears
             _extract_js_function(src, "rememberAssociatedRuntimeDeltaEvent"),
             _extract_js_function(src, "getAssociatedRuntimeDeltaEvent"),
             _extract_js_function(src, "isSyntheticFinalDeltaEvent"),
+            _extract_js_function(src, "isLikelySyntheticFinalPreviewDelta"),
             _extract_js_function(src, "buildAssistantStreamDeltaGuardSource"),
             _extract_js_function(src, "shouldIgnoreAssistantStreamDelta"),
             _extract_js_function(src, "isAssistantMessageRuntimeEvent"),
@@ -456,7 +457,8 @@ def test_stream_final_overrides_truncated_assistant_completed_preview_and_clears
         + textwrap.dedent(
             r"""
             const assert = require("node:assert/strict");
-            const truncatedPreview = "I can load these skills:\n\n- `jira-to-manual-test…";
+            const syntheticPreview = "I can load these skills:\n\n- `jira-to-manual-test…";
+            const shorterDirectDelta = "I can load these skills:\n\n- `generate-…";
             const fullResponse = [
               "I can load these skills:",
               "",
@@ -606,7 +608,7 @@ def test_stream_final_overrides_truncated_assistant_completed_preview_and_clears
               const completedResult = await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {
                 type: "assistant.message.completed",
                 state: "completed",
-                text: truncatedPreview,
+                text: syntheticPreview,
                 status: "completed",
                 request_id: "req-1",
                 session_id: "sess-1",
@@ -622,18 +624,25 @@ def test_stream_final_overrides_truncated_assistant_completed_preview_and_clears
               await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {
                 type: "assistant_delta",
                 synthetic_final_delta: true,
-                delta: truncatedPreview,
+                delta: syntheticPreview,
                 request_id: "req-1",
                 session_id: "sess-1",
               });
               const deltaResult = await handleChatStreamEvent("agent-1", requestCtx, "delta", {
-                delta: truncatedPreview,
+                delta: shorterDirectDelta,
+                raw_type: "",
+                message_role: "",
+                part_type: "",
+                message_id: "",
+                part_id: "",
                 request_id: "req-1",
                 session_id: "sess-1",
               });
               assert.equal(deltaResult, "event");
-              assert.equal(requestCtx.streamedText, truncatedPreview);
-              assert.equal(requestCtx.syntheticFinalDeltaPreview.response, truncatedPreview);
+              assert.equal(requestCtx.streamedText, syntheticPreview);
+              assert.notEqual(requestCtx.streamedText, syntheticPreview + shorterDirectDelta);
+              assert.equal(requestCtx.syntheticFinalDeltaPreview.response, syntheticPreview);
+              assert.ok(calls.some((item) => item[0] === "pending" && item[2] === syntheticPreview && item[3] === true));
               assert.equal(successCalls, 0);
 
               await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", { type: "complete", state: "success", request_id: "req-1", session_id: "sess-1" });
@@ -665,6 +674,7 @@ def test_stream_final_overrides_truncated_assistant_completed_preview_and_clears
               assert.match(assistantMarkdown, /jira-to-manual-test-cases/);
               assert.match(assistantMarkdown, /test-simple-ref/);
               assert.equal(assistantMarkdown.includes("jira-to-manual-test…"), false);
+              assert.equal(assistantMarkdown.includes(syntheticPreview + shorterDirectDelta), false);
               assert.equal(chatState.activeRequest, null);
               assert.equal(chatState.inflightThinking, null);
               assert.equal(chatState.openCodeProjection.sessionStatus, "idle");

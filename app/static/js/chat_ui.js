@@ -5031,6 +5031,39 @@ function isSyntheticFinalDeltaEvent(eventData = {}, associatedEvent = null) {
     || associatedData?.syntheticFinalDelta === true
   );
 }
+function isLikelySyntheticFinalPreviewDelta(eventData = {}, requestCtx = {}, associatedEvent = null) {
+  if (isSyntheticFinalDeltaEvent(eventData, associatedEvent)) return true;
+
+  const deltaText = getChatStreamTextPayload(eventData);
+  if (!deltaText) return false;
+
+  const hasSyntheticPreview = Boolean(requestCtx?.syntheticFinalDeltaPreview);
+  const awaitingFinal = Boolean(
+    requestCtx?.awaitingAuthoritativeFinal
+    || requestCtx?.sawAssistantMessageCompleted
+    || requestCtx?.sawRunCompleted
+  );
+
+  if (!hasSyntheticPreview || !awaitingFinal) return false;
+
+  const observedAt = Number(requestCtx.syntheticFinalDeltaPreview?.observedAt || 0);
+  if (observedAt && Date.now() - observedAt > 5000) return false;
+
+  const rawType = String(eventData?.raw_type || eventData?.rawType || "").trim();
+  const role = String(eventData?.message_role || eventData?.messageRole || "").trim();
+  const partType = String(eventData?.part_type || eventData?.partType || "").trim();
+  const messageId = String(eventData?.message_id || eventData?.messageId || "").trim();
+  const partId = String(eventData?.part_id || eventData?.partId || "").trim();
+
+  const lacksCanonicalMarkers = !rawType && !role && !partType && !messageId && !partId;
+
+  if (!lacksCanonicalMarkers) return false;
+
+  const existingPreview = String(requestCtx.syntheticFinalDeltaPreview?.response || "");
+  const containsEllipsis = deltaText.includes("…") || existingPreview.includes("…");
+
+  return containsEllipsis || deltaText.length >= 80;
+}
 function buildAssistantStreamDeltaGuardSource(eventData, associatedEvent = null) {
   const hasAssociated = associatedEvent && typeof associatedEvent === "object";
   if (!hasAssociated) return eventData || {};
@@ -6722,6 +6755,16 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     };
     handleAgentEventMessage(JSON.stringify(streamEventPayload), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "", requestId: requestCtx.clientRequestId});
     rememberAssociatedRuntimeDeltaEvent(requestCtx, eventData, embeddedType);
+    const wrapperDeltaText = getChatStreamTextPayload(eventData);
+    if (localIsSyntheticFinalDeltaEvent(eventData, null)) {
+      requestCtx.awaitingAuthoritativeFinal = true;
+      requestCtx.syntheticFinalDeltaPreview = {
+        response: wrapperDeltaText || requestCtx.streamedText || "",
+        request_id: eventData.request_id || requestCtx.clientRequestId,
+        session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+        observedAt: Date.now(),
+      };
+    }
     if (["chat.run.completed", "complete", "execution.completed"].includes(embeddedType)) {
       requestCtx.sawRunCompleted = true;
       requestCtx.awaitingAuthoritativeFinal = true;
@@ -6750,18 +6793,33 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     requestCtx.sawDelta = true;
     const deltaText = getChatStreamTextPayload(eventData);
     const associatedEvent = getAssociatedRuntimeDeltaEvent(requestCtx, deltaText);
+    const isSyntheticPreviewDelta = (typeof isLikelySyntheticFinalPreviewDelta === "function")
+      ? isLikelySyntheticFinalPreviewDelta(eventData, requestCtx, associatedEvent)
+      : localIsSyntheticFinalDeltaEvent(eventData, associatedEvent);
 
-    if (localIsSyntheticFinalDeltaEvent(eventData, associatedEvent)) {
-      requestCtx.streamedText = deltaText || requestCtx.streamedText || "";
+    if (isSyntheticPreviewDelta) {
+      const existingPreview = String(
+        requestCtx.syntheticFinalDeltaPreview?.response
+        || requestCtx.streamedText
+        || ""
+      );
+      const nextPreview = String(deltaText || "");
+      const previewText = nextPreview.length > existingPreview.length
+        ? nextPreview
+        : existingPreview;
+
+      requestCtx.streamedText = previewText;
       requestCtx.awaitingAuthoritativeFinal = true;
       requestCtx.syntheticFinalDeltaPreview = {
-        response: requestCtx.streamedText,
+        ...(requestCtx.syntheticFinalDeltaPreview || {}),
+        response: previewText,
         request_id: eventData.request_id || requestCtx.clientRequestId,
         session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+        observedAt: requestCtx.syntheticFinalDeltaPreview?.observedAt || Date.now(),
       };
 
-      if (requestCtx.streamedText) {
-        updatePendingAssistantStreamContent(agentIdAtSend, requestCtx.streamedText, {
+      if (previewText) {
+        updatePendingAssistantStreamContent(agentIdAtSend, previewText, {
           streaming: true,
           requestCtx,
         });
