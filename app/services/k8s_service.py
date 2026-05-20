@@ -385,7 +385,10 @@ class K8sService:
 
     def restart_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
-            return RuntimeStatus(status="running")
+            return RuntimeStatus(
+                status="failed",
+                message="Kubernetes integration is disabled; Portal cannot restart the agent deployment.",
+            )
 
         start_runtime = self.start_agent(agent)
         if start_runtime.status == "failed":
@@ -404,6 +407,7 @@ class K8sService:
                             "metadata": {
                                 "annotations": {
                                     "efp.dvnuo.io/restarted-at": restarted_at,
+                                    "kubectl.kubernetes.io/restartedAt": restarted_at,
                                 }
                             }
                         }
@@ -415,7 +419,10 @@ class K8sService:
             logger.exception("Failed to roll restart agent deployment")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
-        return RuntimeStatus(status="running", message=start_runtime.message)
+        return RuntimeStatus(
+            status="creating",
+            message=start_runtime.message or "Restart requested; waiting for deployment rollout.",
+        )
 
     def delete_agent_runtime(self, agent, destroy_data: bool = False) -> RuntimeStatus:
         if not self.enabled:
@@ -445,14 +452,30 @@ class K8sService:
 
         try:
             deploy = self.apps_api.read_namespaced_deployment_status(name=agent.deployment_name, namespace=agent.namespace)
-            desired = deploy.spec.replicas or 0
-            current = deploy.status.replicas or 0
-            available = deploy.status.available_replicas or 0
-            if desired == 0:
+            metadata = getattr(deploy, "metadata", None)
+            deploy_status = getattr(deploy, "status", None)
+            desired = getattr(getattr(deploy, "spec", None), "replicas", None) or 0
+            generation = getattr(metadata, "generation", None)
+            observed_generation = getattr(deploy_status, "observed_generation", None)
+            updated = getattr(deploy_status, "updated_replicas", None) or 0
+            ready = getattr(deploy_status, "ready_replicas", None) or 0
+            available = getattr(deploy_status, "available_replicas", None) or 0
+            unavailable = getattr(deploy_status, "unavailable_replicas", None) or 0
+
+            if desired <= 0:
                 return RuntimeStatus(status="stopped", cpu_usage="0", memory_usage="0")
-            if available > 0:
-                return RuntimeStatus(status="running", cpu_usage="N/A", memory_usage="N/A")
-            return RuntimeStatus(status="creating", cpu_usage="N/A", memory_usage="N/A")
+
+            rollout_pending = (
+                (observed_generation is not None and generation is not None and observed_generation < generation)
+                or updated < desired
+                or ready < desired
+                or available < desired
+                or unavailable > 0
+            )
+            if rollout_pending:
+                return RuntimeStatus(status="creating", cpu_usage="N/A", memory_usage="N/A")
+
+            return RuntimeStatus(status="running", cpu_usage="N/A", memory_usage="N/A")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc), cpu_usage="N/A", memory_usage="N/A")
 
