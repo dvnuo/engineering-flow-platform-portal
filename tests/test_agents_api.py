@@ -112,6 +112,7 @@ def test_agent_status_values():
     assert "running" in VALID_STATUSES
     assert "stopped" in VALID_STATUSES
     assert "creating" in VALID_STATUSES
+    assert "restarting" in VALID_STATUSES
 
 
 def _build_agents_client_with_overrides():
@@ -613,6 +614,7 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         monkeypatch.setattr("app.api.agents.k8s_service.start_agent", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.enabled", True)
         calls = {"enqueue": 0, "restart": 0}
 
         def _stop_agent(_agent):
@@ -621,7 +623,7 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
         def _restart_agent(agent):
             calls["restart"] += 1
             assert agent.status == "running"
-            return SimpleNamespace(status="creating", message="Restart requested")
+            return SimpleNamespace(status="restarting", message="Restart requested: req-1")
 
         def _enqueue(_db, _agent, *, reason):
             calls["enqueue"] += 1
@@ -639,9 +641,10 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
         agent_id = create_ok.json()["id"]
         restart_resp = client.post(f"/api/agents/{agent_id}/restart")
         assert restart_resp.status_code == 200
-        assert restart_resp.json()["status"] == "creating"
+        assert restart_resp.json()["status"] == "restarting"
         persisted = db.get(Agent, agent_id)
-        assert persisted.status == "creating"
+        assert persisted.status == "restarting"
+        assert persisted.last_error == "Restart requested: req-1"
         assert calls["restart"] == 1
         assert calls["enqueue"] >= 1
     finally:
@@ -651,10 +654,11 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
 def test_restart_returns_502_without_marking_agent_failed_when_runtime_restart_fails(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
-        message = "Kubernetes integration is disabled; Portal cannot restart the agent deployment."
+        message = "Deployment patch failed"
         calls = {"enqueue": 0}
 
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.enabled", True)
         monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", lambda _agent: SimpleNamespace(status="failed", message=message))
 
         def _enqueue(*_args, **_kwargs):
@@ -674,6 +678,64 @@ def test_restart_returns_502_without_marking_agent_failed_when_runtime_restart_f
         assert persisted.status == "running"
         assert persisted.last_error == message
         assert calls["enqueue"] == 0
+    finally:
+        cleanup()
+
+
+def test_restart_rejects_in_progress_statuses(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.enabled", True)
+
+        def _unexpected_restart(_agent):
+            raise AssertionError("in-progress agents must not restart again")
+
+        monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", _unexpected_restart)
+
+        create_ok = client.post("/api/agents", json={"name": "restart-guard-agent", "image": "example/image:latest"})
+        agent_id = create_ok.json()["id"]
+
+        for blocked_status in ["creating", "restarting", "deleting"]:
+            agent = db.get(Agent, agent_id)
+            agent.status = blocked_status
+            agent.last_error = None
+            db.add(agent)
+            db.commit()
+
+            restart_resp = client.post(f"/api/agents/{agent_id}/restart")
+
+            assert restart_resp.status_code == 409
+            assert f"Cannot restart agent from status '{blocked_status}'" in restart_resp.json()["detail"]
+            assert db.get(Agent, agent_id).status == blocked_status
+    finally:
+        cleanup()
+
+
+def test_restart_returns_409_when_k8s_disabled_without_marking_agent_running_or_failed(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        calls = {"restart": 0}
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.enabled", False)
+
+        def _restart_agent(_agent):
+            calls["restart"] += 1
+            return SimpleNamespace(status="restarting", message="should not be called")
+
+        monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", _restart_agent)
+
+        create_ok = client.post("/api/agents", json={"name": "noop-restart-agent", "image": "example/image:latest"})
+        agent_id = create_ok.json()["id"]
+
+        restart_resp = client.post(f"/api/agents/{agent_id}/restart")
+
+        assert restart_resp.status_code == 409
+        assert "restart is unsupported" in restart_resp.json()["detail"]
+        persisted = db.get(Agent, agent_id)
+        assert persisted.status == "running"
+        assert persisted.last_error is None
+        assert calls["restart"] == 0
     finally:
         cleanup()
 

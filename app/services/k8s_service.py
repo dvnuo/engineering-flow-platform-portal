@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import logging
 import re
 logger = logging.getLogger(__name__)
 from typing import Optional
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from app.config import get_settings
 from app.contracts.runtime_types import InvalidRuntimeType, normalize_runtime_type_or_default
@@ -387,17 +389,15 @@ class K8sService:
         if not self.enabled:
             return RuntimeStatus(
                 status="failed",
-                message="Kubernetes integration is disabled; Portal cannot restart the agent deployment.",
+                message="Kubernetes integration is disabled; restart is unsupported in noop mode.",
             )
 
-        start_runtime = self.start_agent(agent)
-        if start_runtime.status == "failed":
-            return start_runtime
-
         try:
-            from datetime import datetime, timezone
-
+            self._scale_agent_deployment(agent, 1)
+            self._patch_deployment(agent)
+            self._patch_service_metadata(agent)
             restarted_at = datetime.now(timezone.utc).isoformat()
+            restart_request_id = str(uuid4())
             self.apps_api.patch_namespaced_deployment(
                 name=agent.deployment_name,
                 namespace=agent.namespace,
@@ -408,6 +408,8 @@ class K8sService:
                                 "annotations": {
                                     "efp.dvnuo.io/restarted-at": restarted_at,
                                     "kubectl.kubernetes.io/restartedAt": restarted_at,
+                                    "efp.dvnuo.io/restart-request-id": restart_request_id,
+                                    "efp.dvnuo.io/restart-requested-at": restarted_at,
                                 }
                             }
                         }
@@ -420,8 +422,8 @@ class K8sService:
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
         return RuntimeStatus(
-            status="creating",
-            message=start_runtime.message or "Restart requested; waiting for deployment rollout.",
+            status="restarting",
+            message=f"Restart requested: {restart_request_id}",
         )
 
     def delete_agent_runtime(self, agent, destroy_data: bool = False) -> RuntimeStatus:
@@ -454,30 +456,63 @@ class K8sService:
             deploy = self.apps_api.read_namespaced_deployment_status(name=agent.deployment_name, namespace=agent.namespace)
             metadata = getattr(deploy, "metadata", None)
             deploy_status = getattr(deploy, "status", None)
-            desired = getattr(getattr(deploy, "spec", None), "replicas", None) or 0
-            generation = getattr(metadata, "generation", None)
-            observed_generation = getattr(deploy_status, "observed_generation", None)
-            updated = getattr(deploy_status, "updated_replicas", None) or 0
-            ready = getattr(deploy_status, "ready_replicas", None) or 0
-            available = getattr(deploy_status, "available_replicas", None) or 0
-            unavailable = getattr(deploy_status, "unavailable_replicas", None) or 0
+            desired = self._get_k8s_attr(getattr(deploy, "spec", None), "replicas") or 0
+            generation = self._get_k8s_attr(metadata, "generation")
+            observed_generation = self._get_k8s_attr(deploy_status, "observed_generation", "observedGeneration")
+            replicas = self._get_k8s_attr(deploy_status, "replicas") or 0
+            updated = self._get_k8s_attr(deploy_status, "updated_replicas", "updatedReplicas") or 0
+            available = self._get_k8s_attr(deploy_status, "available_replicas", "availableReplicas") or 0
+            unavailable = self._get_k8s_attr(deploy_status, "unavailable_replicas", "unavailableReplicas")
+            conditions = self._get_k8s_attr(deploy_status, "conditions") or []
 
             if desired <= 0:
                 return RuntimeStatus(status="stopped", cpu_usage="0", memory_usage="0")
 
-            rollout_pending = (
-                (observed_generation is not None and generation is not None and observed_generation < generation)
-                or updated < desired
-                or ready < desired
-                or available < desired
-                or unavailable > 0
+            for condition in conditions:
+                condition_type = self._get_k8s_attr(condition, "type")
+                condition_status = self._get_k8s_attr(condition, "status")
+                condition_reason = str(self._get_k8s_attr(condition, "reason") or "")
+                if (
+                    condition_type == "Progressing"
+                    and condition_status == "False"
+                    and (
+                        "ProgressDeadlineExceeded" in condition_reason
+                        or "ReplicaSetCreateError" in condition_reason
+                    )
+                ):
+                    condition_message = self._get_k8s_attr(condition, "message")
+                    return RuntimeStatus(
+                        status="failed",
+                        message=condition_message or condition_reason,
+                        cpu_usage="N/A",
+                        memory_usage="N/A",
+                    )
+
+            status_while_pending = "restarting" if str(getattr(agent, "status", "") or "").lower() == "restarting" else "creating"
+
+            if observed_generation is not None and generation is not None and observed_generation < generation:
+                return RuntimeStatus(status=status_while_pending, cpu_usage="N/A", memory_usage="N/A")
+
+            rollout_complete = (
+                updated >= desired
+                and available >= desired
+                and replicas == updated
+                and unavailable in (0, None)
             )
-            if rollout_pending:
-                return RuntimeStatus(status="creating", cpu_usage="N/A", memory_usage="N/A")
+            if not rollout_complete:
+                return RuntimeStatus(status=status_while_pending, cpu_usage="N/A", memory_usage="N/A")
 
             return RuntimeStatus(status="running", cpu_usage="N/A", memory_usage="N/A")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc), cpu_usage="N/A", memory_usage="N/A")
+
+    def _get_k8s_attr(self, obj, *names):
+        if obj is None:
+            return None
+        for name in names:
+            if hasattr(obj, name):
+                return getattr(obj, name)
+        return None
 
     def _is_already_exists(self, exc: Exception) -> bool:
         try:

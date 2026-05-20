@@ -1,11 +1,12 @@
-VALID_STATUSES = {"creating", "running", "stopped", "deleting", "failed"}
+VALID_STATUSES = {"creating", "restarting", "running", "stopped", "deleting", "failed"}
 
 # source -> allowed target
 ALLOWED_TRANSITIONS = {
     "creating": {"running", "failed", "deleting"},
-    "running": {"stopped", "failed", "deleting"},
-    "stopped": {"running", "failed", "deleting"},
-    "failed": {"running", "deleting"},
+    "running": {"restarting", "stopped", "failed", "deleting"},
+    "stopped": {"restarting", "running", "failed", "deleting"},
+    "failed": {"restarting", "running", "deleting"},
+    "restarting": {"running", "failed", "stopped", "deleting"},
     "deleting": set(),
 }
 

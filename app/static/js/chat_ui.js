@@ -9982,21 +9982,22 @@ function parseAgentLifecycleAction(path = "") {
   };
 }
 
-function updateAgentRuntimeStatusCache(agentId, payload = {}) {
+function applyLocalAgentStatus(agentId, status, lastError = "") {
   if (!agentId) return;
   if (!state.agentStatus || typeof state.agentStatus.set !== "function") state.agentStatus = new Map();
 
-  const normalizedStatus = String(payload?.status || "").toLowerCase();
+  const normalizedStatus = String(status || "").trim().toLowerCase();
   const existing = state.agentStatus.get(agentId) || {};
-  const nextStatus = {
-    ...existing,
-    ...(payload && typeof payload === "object" ? payload : {}),
-  };
+  const nextStatus = { ...existing };
   if (normalizedStatus) nextStatus.status = normalizedStatus;
+  if (lastError !== undefined) nextStatus.last_error = lastError || "";
   state.agentStatus.set(agentId, nextStatus);
 
   const agent = (state.mineAgents || []).find((item) => item.id === agentId);
-  if (agent && normalizedStatus) agent.status = normalizedStatus;
+  if (agent) {
+    if (normalizedStatus) agent.status = normalizedStatus;
+    if (lastError !== undefined) agent.last_error = lastError || "";
+  }
 
   if (agentId === state.selectedAgentId && normalizedStatus) {
     if (dom.selectedStatus) {
@@ -10007,6 +10008,17 @@ function updateAgentRuntimeStatusCache(agentId, payload = {}) {
     syncSelectedAgentChatActionControls();
   }
   renderAgentList();
+}
+
+function updateAgentRuntimeStatusCache(agentId, payload = {}) {
+  if (!agentId) return;
+  const status = payload?.status || "";
+  const lastError = payload?.last_error || payload?.message || "";
+  applyLocalAgentStatus(agentId, status, lastError);
+  if (payload && typeof payload === "object" && state.agentStatus && typeof state.agentStatus.set === "function") {
+    const existing = state.agentStatus.get(agentId) || {};
+    state.agentStatus.set(agentId, { ...existing, ...payload, status: String(status || existing.status || "").toLowerCase() });
+  }
 }
 
 async function waitForAgentRuntimeStatus(agentId, options = {}) {
@@ -10035,6 +10047,61 @@ async function waitForAgentRuntimeStatus(agentId, options = {}) {
   throw new Error("Timed out waiting for agent restart to finish");
 }
 
+async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeoutMs = 120000 } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    let statusPayload = null;
+    try {
+      statusPayload = await api(`/api/agents/${encodeURIComponent(agentId)}/status`);
+    } catch (error) {
+      if (state.selectedAgentId === agentId) {
+        setChatStatus(`Restart status check failed: ${safe(error.message)}`, true);
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
+    }
+
+    const status = String(statusPayload?.status || "").toLowerCase();
+    applyLocalAgentStatus(agentId, status, statusPayload?.last_error || statusPayload?.message || "");
+
+    if (status === "running") {
+      if (state.selectedAgentId === agentId) {
+        setChatStatus("Assistant restart completed.");
+        showToast("Assistant restart completed.");
+        await refreshAll({ preserveLayout: true });
+        const chatState = ensureChatState(agentId);
+        if (chatState?.sessionId) {
+          try {
+            await loadSessionForAgent(agentId, chatState.sessionId, { render: true });
+          } catch (error) {
+            console.warn("Failed to reload session after restart completed", error);
+          }
+        }
+        ensureEventSocketForSelectedAgent();
+      }
+      return true;
+    }
+
+    if (status === "failed" || status === "stopped") {
+      const message = statusPayload?.last_error || statusPayload?.message || `Assistant restart ended with status ${status}`;
+      if (state.selectedAgentId === agentId) setChatStatus(message, true);
+      showToast(message);
+      return false;
+    }
+
+    if (state.selectedAgentId === agentId) {
+      setChatStatus("Restarting assistant… waiting for runtime pod to become ready.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  if (state.selectedAgentId === agentId) {
+    setChatStatus("Restart is still in progress. Check Assistant details or Kubernetes rollout status.", true);
+  }
+  showToast("Restart is still in progress.");
+  return false;
+}
+
 function agentRestartErrorMessage(error, fallback = "Assistant restart failed or timed out.") {
   const raw = String(error?.message || error || "").trim();
   if (!raw) return fallback;
@@ -10057,68 +10124,64 @@ async function action(path, method = "POST", needsConfirm = false) {
     setChatStatus("Restarting assistant…");
   }
 
+  let result = null;
   try {
-    await api(path, { method });
+    result = await api(path, { method });
   } catch (error) {
     if (isRestartAction) {
       const message = agentRestartErrorMessage(error);
       showToast(message);
       if (state.selectedAgentId === lifecycle.agentId) {
-        setChatStatus("Assistant restart failed or timed out.", true);
+        setChatStatus(message, true);
       }
-      await refreshAll();
+      await refreshAll({ preserveLayout: true });
       if (state.selectedAgentId === lifecycle.agentId) {
-        setChatStatus("Assistant restart failed or timed out.", true);
+        setChatStatus(message, true);
       }
     }
     throw error;
   }
 
   if (lifecycle && normalizedMethod === "POST") {
-    const chatState = ensureChatState(lifecycle.agentId);
-    const requestCtx = chatState?.activeRequest || fallbackRequestContextForAgent(
-      lifecycle.agentId,
-      lifecycle.action === "stop" ? "agent_stopped" : "agent_restarted",
-    );
-    clearStaleActiveRequest(
-      lifecycle.agentId,
-      requestCtx,
-      lifecycle.action === "stop" ? "agent_stopped" : "agent_restarted",
-    );
-    if (state.selectedAgentId === lifecycle.agentId) {
-      setChatStatus(lifecycle.action === "stop" ? "Assistant stopped." : "Assistant restart requested. Waiting for runtime to become ready…");
-    }
-
     if (lifecycle.action === "restart") {
+      applyLocalAgentStatus(
+        lifecycle.agentId,
+        result?.status || "restarting",
+        result?.last_error || result?.message || "Restart requested"
+      );
+      const chatState = ensureChatState(lifecycle.agentId);
+      const requestCtx = chatState?.activeRequest || fallbackRequestContextForAgent(lifecycle.agentId, "agent_restarting");
+      clearStaleActiveRequest(lifecycle.agentId, requestCtx, "agent_restarting");
       if (state.eventWsAgentId === lifecycle.agentId) disconnectEventSocket();
+      if (state.selectedAgentId === lifecycle.agentId) {
+        setChatStatus("Restart requested. Waiting for runtime pod to restart…");
+        showToast("Restart requested.");
+      }
 
-      try {
-        await refreshAll();
+      pollAgentUntilRestartComplete(lifecycle.agentId).catch((error) => {
+        console.warn("Restart poll failed", error);
         if (state.selectedAgentId === lifecycle.agentId) {
-          setChatStatus("Assistant restart requested. Waiting for runtime to become ready…");
+          setChatStatus(`Restart polling failed: ${safe(error.message)}`, true);
         }
-        await waitForAgentRuntimeStatus(lifecycle.agentId, { targetStatuses: ["running"] });
-        await refreshAll();
-        if (state.selectedAgentId === lifecycle.agentId && chatState?.sessionId) {
-          await loadSessionForAgent(lifecycle.agentId, chatState.sessionId, { render: true });
-        }
-        if (state.selectedAgentId === lifecycle.agentId) {
-          setChatStatus("Assistant restarted and ready.");
-        }
-      } catch (error) {
-        const message = agentRestartErrorMessage(error);
-        console.warn("Failed waiting for assistant restart", error);
-        showToast(message);
-        if (state.selectedAgentId === lifecycle.agentId) {
-          setChatStatus("Assistant restart failed or timed out.", true);
-        }
-        await refreshAll();
-        if (state.selectedAgentId === lifecycle.agentId) {
-          setChatStatus("Assistant restart failed or timed out.", true);
-        }
-        throw error;
+      });
+
+      await refreshAll({ preserveLayout: true });
+      applyLocalAgentStatus(
+        lifecycle.agentId,
+        result?.status || "restarting",
+        result?.last_error || result?.message || "Restart requested"
+      );
+      if (state.selectedAgentId === lifecycle.agentId) {
+        setChatStatus("Restarting assistant… waiting for runtime pod to become ready.");
       }
       return;
+    }
+
+    const chatState = ensureChatState(lifecycle.agentId);
+    const requestCtx = chatState?.activeRequest || fallbackRequestContextForAgent(lifecycle.agentId, "agent_stopped");
+    clearStaleActiveRequest(lifecycle.agentId, requestCtx, "agent_stopped");
+    if (state.selectedAgentId === lifecycle.agentId) {
+      setChatStatus("Assistant stopped.");
     }
   }
   await refreshAll();

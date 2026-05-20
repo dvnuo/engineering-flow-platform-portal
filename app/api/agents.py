@@ -559,6 +559,12 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
 async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, agent = _load_writable_agent(agent_id, user, db)
 
+    if not k8s_service.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Kubernetes integration is disabled; restart is unsupported in noop mode.",
+        )
+
     restartable_statuses = {"running", "stopped", "failed"}
     if agent.status not in restartable_statuses:
         raise HTTPException(
@@ -575,7 +581,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
             detail=runtime.message or "Failed to restart agent runtime",
         )
 
-    agent.status = runtime.status
+    agent.status = "restarting"
     agent.last_error = runtime.message
     repo.save(agent)
     try:

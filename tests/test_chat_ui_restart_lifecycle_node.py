@@ -20,8 +20,10 @@ def test_restart_action_polls_status_until_runtime_ready_node_smoke():
         _extract_js_function(src, name)
         for name in [
             "parseAgentLifecycleAction",
+            "applyLocalAgentStatus",
             "updateAgentRuntimeStatusCache",
             "waitForAgentRuntimeStatus",
+            "pollAgentUntilRestartComplete",
             "agentRestartErrorMessage",
             "action",
         ]
@@ -33,7 +35,7 @@ const assert = require("node:assert/strict");
 const apiCalls = [];
 const statusCalls = [];
 const calls = [];
-const statusQueue = ["creating", "running"];
+const statusQueue = ["restarting", "running"];
 const chatState = {
   activeRequest: { clientRequestId: "req-1", sessionIdAtSend: "s-1" },
   sessionId: "s-1",
@@ -72,6 +74,7 @@ function clearStaleActiveRequest(agentId, requestCtx, reason) {
 }
 async function refreshAll() { calls.push(["refreshAll"]); }
 function disconnectEventSocket() { calls.push(["disconnectEventSocket"]); state.eventWsAgentId = null; }
+function ensureEventSocketForSelectedAgent() { calls.push(["ensureEventSocketForSelectedAgent"]); }
 async function loadSessionForAgent(agentId, sessionId, options) {
   calls.push(["loadSessionForAgent", agentId, sessionId, options.render]);
 }
@@ -80,7 +83,7 @@ function renderAgentActions(_agent, status) { calls.push(["renderAgentActions", 
 function syncSelectedAgentChatActionControls() { calls.push(["syncSelectedAgentChatActionControls"]); }
 async function api(path, options = {}) {
   apiCalls.push({ path, method: options.method || "" });
-  if (path === "/api/agents/agent-1/restart") return { status: "creating" };
+  if (path === "/api/agents/agent-1/restart") return { status: "restarting", last_error: "Restart requested: req-1" };
   if (path === "/api/agents/agent-1/status") {
     return { id: "agent-1", status: statusQueue.shift() || "running" };
   }
@@ -92,16 +95,20 @@ async function api(path, options = {}) {
 
 (async () => {
   await action("/api/agents/agent-1/restart");
+  for (let i = 0; i < 6; i += 1) await Promise.resolve();
 
   assert.equal(apiCalls[0].path, "/api/agents/agent-1/restart");
   assert.equal(apiCalls.filter((call) => call.path === "/api/agents/agent-1/status").length, 2);
-  assert.ok(calls.some((call) => call[0] === "clear" && call[2] === "agent_restarted"));
+  assert.ok(calls.some((call) => call[0] === "clear" && call[2] === "agent_restarting"));
   assert.ok(calls.some((call) => call[0] === "disconnectEventSocket"));
   assert.ok(calls.some((call) => call[0] === "loadSessionForAgent" && call[2] === "s-1"));
+  assert.ok(calls.some((call) => call[0] === "ensureEventSocketForSelectedAgent"));
 
-  const requested = statusCalls.find((call) => call.text === "Assistant restart requested. Waiting for runtime to become ready…");
-  const final = statusCalls.find((call) => call.text === "Assistant restarted and ready.");
+  const requested = statusCalls.find((call) => call.text === "Restart requested. Waiting for runtime pod to restart…");
+  const waiting = statusCalls.find((call) => call.text === "Restarting assistant… waiting for runtime pod to become ready.");
+  const final = statusCalls.find((call) => call.text === "Assistant restart completed.");
   assert.ok(requested, "restart should show requested/waiting status");
+  assert.ok(waiting, "restart should show rollout waiting status");
   assert.ok(final, "restart should show final ready status");
   assert.ok(final.apiCallCount >= 3, "final ready status must wait for restart plus status polling");
   assert.equal(statusCalls.some((call) => call.text === "Assistant restarted."), false);

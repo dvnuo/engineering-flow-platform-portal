@@ -158,15 +158,17 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         status = self.service.restart_agent(agent)
 
-        self.assertEqual(status.status, "creating")
+        self.assertEqual(status.status, "restarting")
+        self.assertIn("Restart requested:", status.message)
         self.assertTrue(scale_calls)
         self.assertTrue(all(call["body"] == {"spec": {"replicas": 1}} for call in scale_calls))
         self.assertFalse(any(call["body"] == {"spec": {"replicas": 0}} for call in scale_calls))
         self.assertTrue(deployment_patch_calls)
         body = deployment_patch_calls[-1]["body"]
         annotations = body["spec"]["template"]["metadata"]["annotations"]
-        self.assertIn("efp.dvnuo.io/restarted-at", annotations)
         self.assertIn("kubectl.kubernetes.io/restartedAt", annotations)
+        self.assertIn("efp.dvnuo.io/restart-request-id", annotations)
+        self.assertIn("efp.dvnuo.io/restart-requested-at", annotations)
 
     def test_restart_agent_when_k8s_disabled_is_not_reported_success(self):
         self.service.enabled = False
@@ -176,7 +178,7 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         self.assertEqual(status.status, "failed")
         self.assertIn("Kubernetes integration is disabled", status.message)
-        self.assertIn("cannot restart", status.message)
+        self.assertIn("unsupported", status.message)
 
     def test_runtime_status_uses_spec_replicas_for_desired_state(self):
         self.service.enabled = True
@@ -195,17 +197,18 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         self.assertEqual(status.status, "creating")
 
-    def test_runtime_status_reports_creating_when_rollout_generation_is_pending(self):
+    def test_runtime_status_reports_restarting_when_observed_generation_lags(self):
         self.service.enabled = True
-        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents", status="running", last_error=None)
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents", status="restarting", last_error=None)
 
         deploy = SimpleNamespace(
-            metadata=SimpleNamespace(generation=2),
+            metadata=SimpleNamespace(generation=10),
             spec=SimpleNamespace(replicas=1),
             status=SimpleNamespace(
-                observed_generation=1,
+                observed_generation=9,
                 available_replicas=1,
-                updated_replicas=0,
+                updated_replicas=1,
+                replicas=1,
                 ready_replicas=1,
                 unavailable_replicas=0,
             ),
@@ -217,9 +220,33 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         status = self.service.get_agent_runtime_status(agent)
 
-        self.assertEqual(status.status, "creating")
+        self.assertEqual(status.status, "restarting")
 
-    def test_runtime_status_reports_running_when_rollout_is_complete(self):
+    def test_runtime_status_reports_restarting_when_updated_replicas_not_complete(self):
+        self.service.enabled = True
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents", status="restarting", last_error=None)
+
+        deploy = SimpleNamespace(
+            metadata=SimpleNamespace(generation=2),
+            spec=SimpleNamespace(replicas=1),
+            status=SimpleNamespace(
+                observed_generation=2,
+                available_replicas=1,
+                updated_replicas=0,
+                replicas=1,
+                unavailable_replicas=0,
+            ),
+        )
+
+        self.service.apps_api = SimpleNamespace(
+            read_namespaced_deployment_status=lambda **_kwargs: deploy,
+        )
+
+        status = self.service.get_agent_runtime_status(agent)
+
+        self.assertEqual(status.status, "restarting")
+
+    def test_runtime_status_reports_running_only_when_rollout_complete(self):
         self.service.enabled = True
         agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents", status="running", last_error=None)
 
@@ -228,6 +255,7 @@ class K8sServiceNoopTest(unittest.TestCase):
             spec=SimpleNamespace(replicas=1),
             status=SimpleNamespace(
                 observed_generation=2,
+                replicas=1,
                 available_replicas=1,
                 updated_replicas=1,
                 ready_replicas=1,
@@ -242,6 +270,39 @@ class K8sServiceNoopTest(unittest.TestCase):
         status = self.service.get_agent_runtime_status(agent)
 
         self.assertEqual(status.status, "running")
+
+    def test_runtime_status_reports_failed_on_progress_deadline_exceeded(self):
+        self.service.enabled = True
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents", status="restarting", last_error=None)
+
+        deploy = SimpleNamespace(
+            metadata=SimpleNamespace(generation=2),
+            spec=SimpleNamespace(replicas=1),
+            status=SimpleNamespace(
+                observed_generation=2,
+                replicas=1,
+                available_replicas=0,
+                updated_replicas=0,
+                unavailable_replicas=1,
+                conditions=[
+                    SimpleNamespace(
+                        type="Progressing",
+                        status="False",
+                        reason="ProgressDeadlineExceeded",
+                        message="Deployment exceeded its progress deadline",
+                    )
+                ],
+            ),
+        )
+
+        self.service.apps_api = SimpleNamespace(
+            read_namespaced_deployment_status=lambda **_kwargs: deploy,
+        )
+
+        status = self.service.get_agent_runtime_status(agent)
+
+        self.assertEqual(status.status, "failed")
+        self.assertIn("progress deadline", status.message)
 
     def test_skill_clone_shell_accepts_directory_skill_and_copies_resources(self):
         def _build(repo: Path):
