@@ -268,7 +268,7 @@ def test_chat_stream_final_payload_preserves_assistant_message_id():
     js_source = _chat_ui_js_source()
     assert "const eventData = normalizeChatStreamEventData(data);" in js_source
     assert 'assistant_message_id: eventData?.assistant_message_id || ""' in js_source
-    assert "user_message_id: eventData?.user_message_id || ''" in js_source
+    assert 'user_message_id: eventData?.user_message_id || ""' in js_source
 
     is_delta = _extract_js_function(js_source, "isChatStreamDeltaPayload")
     normalize_event_name = _extract_js_function(js_source, "normalizeChatStreamEventName")

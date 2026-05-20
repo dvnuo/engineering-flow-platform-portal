@@ -79,10 +79,10 @@ def test_non_success_states_include_empty_final():
 
 def test_empty_success_guard_runs_after_active_request_match_guard():
     src = _source()
-    fn_start = src.find("async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload)")
+    fn_start = src.find("async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload")
     assert fn_start != -1
-    fn_snippet = src[fn_start:fn_start + 2600]
-    guard_idx = fn_snippet.find("if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;")
+    fn_snippet = src[fn_start:fn_start + 5200]
+    guard_idx = fn_snippet.find("if (!activeMatches && !finalForSameRequest) return;")
     empty_idx = fn_snippet.find("if (!localHasRenderableAssistantPayload(payload)) {")
     assert guard_idx != -1
     assert empty_idx != -1
@@ -91,9 +91,9 @@ def test_empty_success_guard_runs_after_active_request_match_guard():
 
 def test_current_empty_success_keeps_reload_fallback_contract():
     src = _source()
-    fn_start = src.find("async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload)")
+    fn_start = src.find("async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload")
     assert fn_start != -1
-    fn_snippet = src[fn_start:fn_start + 2600]
+    fn_snippet = src[fn_start:fn_start + 5200]
     assert "Completed without a visible assistant response. Reloading session" in fn_snippet
     assert "loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true })" in fn_snippet
     assert "chatState.needsReload = true" in fn_snippet

@@ -244,6 +244,447 @@ def test_canonical_snapshot_conversion_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_completed_lifecycle_without_final_fetches_session_snapshot_instead_of_detaching():
+    src = SRC.read_text(encoding="utf-8")
+    stream_js = "\n".join(
+        [
+            _extract_js_function(src, "parseSseEvent"),
+            _extract_js_function(src, "parseSseEventsFromChunk"),
+            _extract_js_function(src, "normalizeChatStreamEventName"),
+            _extract_js_function(src, "normalizeChatStreamEventData"),
+            _extract_js_function(src, "getChatStreamTextPayload"),
+            _extract_js_function(src, "getChatStreamRoleMarker"),
+            _extract_js_function(src, "getChatStreamRawType"),
+            _extract_js_function(src, "isChatStreamSnapshotPayload"),
+            _extract_js_function(src, "isChatStreamWrapperEventName"),
+            _extract_js_function(src, "isDirectCompletionEventName"),
+            _extract_js_function(src, "isChatStreamDeltaEventName"),
+            _extract_js_function(src, "isChatStreamFinalEventName"),
+            _extract_js_function(src, "rememberAssociatedRuntimeDeltaEvent"),
+            _extract_js_function(src, "getAssociatedRuntimeDeltaEvent"),
+            _extract_js_function(src, "isSyntheticFinalDeltaEvent"),
+            _extract_js_function(src, "buildAssistantStreamDeltaGuardSource"),
+            _extract_js_function(src, "shouldIgnoreAssistantStreamDelta"),
+            _extract_js_function(src, "handleChatStreamEvent"),
+            _extract_js_function(src, "finalizeFromSessionSnapshotAfterCompletedLifecycle"),
+            _extract_js_function(src, "trySubmitChatStreamForSelectedAgent"),
+        ]
+    )
+    script = (
+        stream_js
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const encoder = new TextEncoder();
+            const calls = [];
+            const requestCtx = {
+              clientRequestId: "req-1",
+              requestId: "req-1",
+              runtimeRequestId: "req-1",
+              sessionIdAtSend: "sess-1",
+              streamedText: "",
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              inflightThinking: { events: [], completed: false },
+              isSubmitting: true,
+              sessionId: "sess-1",
+              openCodeProjection: {
+                sessionStatus: "busy",
+                sessionStatusPayload: { active: true, status_type: "busy", active_run: { request_id: "req-1" } },
+              },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const dom = {
+              sendChatBtn: { disabled: true },
+              abortChatRunBtn: {
+                disabled: false,
+                classList: { toggle(name, hidden) { calls.push(["abortHidden", name, hidden]); } },
+                setAttribute(name, value) { this[name] = value; },
+              },
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function fetch() {
+              const text = [
+                "event: runtime_event",
+                "data: {\"type\":\"assistant.message.completed\",\"status\":\"completed\",\"text\":\"preview\",\"request_id\":\"req-1\",\"session_id\":\"sess-1\"}",
+                "",
+                "event: runtime_event",
+                "data: {\"type\":\"chat.run.completed\",\"status\":\"completed\",\"request_id\":\"req-1\",\"session_id\":\"sess-1\"}",
+                "",
+                "event: done",
+                "data: {}",
+                "",
+                "",
+              ].join("\n");
+              const chunks = [encoder.encode(text)];
+              return Promise.resolve({
+                status: 200,
+                ok: true,
+                body: {
+                  getReader() {
+                    return {
+                      async read() {
+                        if (!chunks.length) return { done: true };
+                        return { done: false, value: chunks.shift() };
+                      },
+                    };
+                  },
+                },
+              });
+            }
+            function handleAgentEventMessage(raw) { calls.push(["runtime", JSON.parse(raw).type]); }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function updatePendingAssistantStreamContent() {}
+            function queueAssistantTypewriter() {}
+            function isChatRunAlreadyActivePayload() { return false; }
+            async function handleChatRunAlreadyActive() { throw new Error("should not handle already-active"); }
+            function getCompletionState(payload) { return String(payload?.completion_state || payload?.status || "").trim().toLowerCase(); }
+            function isCompletedFinalPayload(payload) { return getCompletionState(payload) === "completed"; }
+            function isNonSuccessFinalPayload(payload) { return payload?.ok === false; }
+            function finalResponseText(payload) { return payload?.response || ""; }
+            function normalizeAssistantMessageIds() { return []; }
+            function finalizeNonSuccessChatResponse() { throw new Error("should not finalize non-success"); }
+            async function handleIncompleteChatStream() { throw new Error("should not mark incomplete"); }
+            async function handleAgentChatSuccess() { throw new Error("should not use preview as success"); }
+            function currentSessionIdForAgent(agentId) {
+              calls.push(["currentSession", agentId]);
+              return chatState.sessionId;
+            }
+            async function agentApiFor(agentId, path) {
+              calls.push(["api", agentId, path]);
+              assert.equal(path, "/api/sessions/sess-1");
+              return {
+                canonical_messages: [
+                  { role: "user", message_id: "user-1", parts: [{ type: "text", text: "what skills do you" }] },
+                  { role: "assistant", message_id: "assistant-1", parts: [{ type: "text", text: "full canonical answer" }] },
+                ],
+                metadata: { active_run: null },
+              };
+            }
+            async function applySessionProjectionThenClearStaleRun(agentId, ctx, sessionPayload, reason) {
+              calls.push(["snapshot", agentId, ctx.clientRequestId, reason, sessionPayload.canonical_messages.length]);
+              chatState.activeRequest = null;
+              chatState.inflightThinking = null;
+              chatState.openCodeProjection.sessionStatus = "idle";
+              chatState.openCodeProjection.sessionStatusPayload = {
+                ...chatState.openCodeProjection.sessionStatusPayload,
+                active: false,
+                status_type: "idle",
+                active_run: null,
+              };
+              setChatSubmittingForAgent(agentId, false);
+              setChatStatus("Ready");
+              syncSelectedAgentChatActionControls();
+              return "terminal";
+            }
+            function setChatSubmittingForAgent(agentId, active) {
+              calls.push(["submitting", agentId, active]);
+              chatState.isSubmitting = active;
+            }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function syncSelectedAgentChatActionControls() {
+              const busy = Boolean(chatState.activeRequest || chatState.openCodeProjection?.sessionStatusPayload?.active === true);
+              dom.sendChatBtn.disabled = busy;
+              dom.abortChatRunBtn.disabled = !busy;
+              dom.abortChatRunBtn.setAttribute("aria-hidden", busy ? "false" : "true");
+              dom.abortChatRunBtn.classList.toggle("hidden", !busy);
+              calls.push(["sync", busy]);
+            }
+            function handleChatStreamMissingFinal() {
+              calls.push(["detached"]);
+              throw new Error("should fetch session snapshot instead of detaching");
+            }
+            function appendPortalChatRuntimeEvent() {}
+            function startChatRunReconcileLoop() {}
+
+            (async () => {
+              const result = await trySubmitChatStreamForSelectedAgent("agent-1", requestCtx, {});
+              assert.equal(result, "handled");
+              assert.equal(requestCtx.sawRunCompleted, true);
+              assert.equal(requestCtx.awaitingAuthoritativeFinal, true);
+              assert.ok(calls.some((item) => item[0] === "api" && item[2] === "/api/sessions/sess-1"));
+              assert.ok(calls.some((item) => item[0] === "snapshot" && item[3] === "stream_final_missing_after_completed_event"));
+              assert.equal(calls.some((item) => item[0] === "detached"), false);
+              assert.equal(calls.some((item) => item[0] === "status" && String(item[1]).includes("Still running")), false);
+              assert.equal(chatState.activeRequest, null);
+              assert.equal(chatState.inflightThinking, null);
+              assert.equal(dom.abortChatRunBtn["aria-hidden"], "true");
+              assert.equal(dom.sendChatBtn.disabled, false);
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_stream_final_overrides_truncated_assistant_completed_preview_and_clears_busy_state():
+    src = SRC.read_text(encoding="utf-8")
+    stream_js = "\n".join(
+        [
+            _extract_js_function(src, "normalizeChatStreamEventName"),
+            _extract_js_function(src, "normalizeChatStreamEventData"),
+            _extract_js_function(src, "getChatStreamTextPayload"),
+            _extract_js_function(src, "getChatStreamRoleMarker"),
+            _extract_js_function(src, "getChatStreamRawType"),
+            _extract_js_function(src, "isChatStreamSnapshotPayload"),
+            _extract_js_function(src, "isChatStreamWrapperEventName"),
+            _extract_js_function(src, "isDirectCompletionEventName"),
+            _extract_js_function(src, "isChatStreamDeltaEventName"),
+            _extract_js_function(src, "isChatStreamFinalEventName"),
+            _extract_js_function(src, "rememberAssociatedRuntimeDeltaEvent"),
+            _extract_js_function(src, "getAssociatedRuntimeDeltaEvent"),
+            _extract_js_function(src, "isSyntheticFinalDeltaEvent"),
+            _extract_js_function(src, "buildAssistantStreamDeltaGuardSource"),
+            _extract_js_function(src, "shouldIgnoreAssistantStreamDelta"),
+            _extract_js_function(src, "isAssistantMessageRuntimeEvent"),
+            _extract_js_function(src, "handleAssistantMessageRuntimeEvent"),
+            _extract_js_function(src, "handleChatStreamEvent"),
+            _extract_js_function(src, "handleAgentChatSuccess"),
+        ]
+    )
+    script = (
+        stream_js
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const truncatedPreview = "I can load these skills:\n\n- `jira-to-manual-test…";
+            const fullResponse = [
+              "I can load these skills:",
+              "",
+              "- `jira-to-manual-test-cases`",
+              "- `mobilex-test-cases-generator`",
+              "- `pr-to-test-points`",
+              "- `test-simple-ref`",
+            ].join("\n");
+            const calls = [];
+            const assistantUpdates = [];
+            const chatState = {
+              activeRequest: null,
+              inflightThinking: { events: [], completed: false },
+              isSubmitting: true,
+              sessionId: "sess-1",
+              openCodeProjection: {
+                sessionStatus: "busy",
+                sessionStatusPayload: {
+                  active: true,
+                  status_type: "busy",
+                  active_run: { request_id: "req-1" },
+                },
+                needsSnapshot: true,
+              },
+            };
+            const requestCtx = {
+              clientRequestId: "req-1",
+              requestId: "req-1",
+              runtimeRequestId: "req-1",
+              sessionIdAtSend: "sess-1",
+              streamedText: "",
+              usedStream: true,
+            };
+            chatState.activeRequest = requestCtx;
+            const state = {
+              selectedAgentId: "agent-1",
+              mineAgents: [{ id: "agent-1", name: "Agent One" }],
+            };
+            const dom = {
+              messageList: {},
+              sendChatBtn: { disabled: true },
+              abortChatRunBtn: {
+                disabled: false,
+                classList: {
+                  toggle(name, hidden) { calls.push(["abortHidden", name, hidden]); },
+                },
+                setAttribute(name, value) { this[name] = value; },
+              },
+            };
+            const document = { hidden: false };
+            let assistantMarkdown = "";
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function extractAssistantVisibleText(data) { return data.response || data.text || data.summary || ""; }
+            function extractAssistantDisplayBlocks(data) { return Array.isArray(data.display_blocks) ? data.display_blocks : []; }
+            function normalizeAssistantMessageIds(payload = {}) {
+              const ids = Array.isArray(payload.assistant_message_ids) ? [...payload.assistant_message_ids] : [];
+              if (payload.assistant_message_id && !ids.includes(payload.assistant_message_id)) ids.push(payload.assistant_message_id);
+              return ids;
+            }
+            function updateOrCreateAssistantRowForRequest(agentId, ctx, payload, options = {}) {
+              assistantMarkdown = payload.response || assistantMarkdown;
+              assistantUpdates.push({ agentId, requestId: ctx.clientRequestId, response: payload.response || "", completed: options.completed === true, partial: options.partial === true });
+              return {};
+            }
+            function updatePendingAssistantStreamContent(agentId, markdownText, options = {}) {
+              assistantMarkdown = markdownText;
+              calls.push(["pending", agentId, markdownText, options.streaming === true]);
+            }
+            function queueAssistantTypewriter() { throw new Error("synthetic final delta should not enqueue ordinary typewriter append"); }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function handleAgentEventMessage(raw) {
+              const payload = JSON.parse(raw);
+              calls.push(["runtime", payload.type]);
+              handleAssistantMessageRuntimeEvent("agent-1", chatState, {
+                type: payload.type,
+                event_type: payload.event_type,
+                request_id: payload.request_id,
+                session_id: payload.session_id,
+                data: payload.data || {},
+              }, true, false);
+            }
+            function getCompletionState(payload) { return String(payload?.completion_state || payload?.status || payload?.state || "").trim().toLowerCase(); }
+            function isCompletedFinalPayload(payload) { return getCompletionState(payload) === "completed" && typeof payload.response === "string"; }
+            function isNonSuccessFinalPayload(payload) { return payload?.ok === false; }
+            function finalResponseText(payload) { return payload?.response || ""; }
+            function isChatRunAlreadyActivePayload() { return false; }
+            async function handleChatRunAlreadyActive() { throw new Error("should not handle active run"); }
+            async function handleIncompleteChatStream() { throw new Error("authoritative final should be complete"); }
+            function finalizeNonSuccessChatResponse() { throw new Error("should not finalize non-success"); }
+            function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", agentId, ctx.clientRequestId, options?.immediate]); }
+            function stopChatRunReconcileLoop(ctx) { calls.push(["stopReconcile", ctx.clientRequestId]); }
+            function updateAgentSession(agentId, sessionId) { calls.push(["session", agentId, sessionId]); }
+            function mergeThinkingEvents(first = [], second = []) { return [...first, ...second]; }
+            function isThinkingPanelActiveForAgent() { return false; }
+            function setChatSubmittingForAgent(agentId, active) {
+              chatState.isSubmitting = active;
+              calls.push(["submitting", agentId, active]);
+            }
+            function syncSelectedAgentChatActionControls() {
+              const busy = Boolean(
+                chatState.activeRequest
+                || chatState.openCodeProjection?.sessionStatusPayload?.active === true
+              );
+              dom.sendChatBtn.disabled = busy;
+              dom.abortChatRunBtn.disabled = !busy;
+              dom.abortChatRunBtn.setAttribute("aria-hidden", busy ? "false" : "true");
+              dom.abortChatRunBtn.classList.toggle("hidden", !busy);
+              calls.push(["sync", busy]);
+            }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function getLatestOptimisticUserArticle() { return { dataset: { messageId: "user-1" } }; }
+            async function flushAssistantTypewriter(agentId, ctx, finalText) {
+              calls.push(["flush", agentId, finalText]);
+              assistantMarkdown = finalText;
+            }
+            function finalizePendingAssistantRow(agentId, ctx, payload) {
+              assistantMarkdown = payload.response || "";
+              calls.push(["finalizeRow", agentId, ctx.clientRequestId, assistantMarkdown]);
+              return true;
+            }
+            function renderMarkdown() {}
+            function decorateToolMessages() {}
+            function renderIcons() {}
+            function addEditButtonsToMessages() {}
+            function scrollToBottom() {}
+            function removeTemporaryAssistantRows() {}
+            function loadSessionForAgent() { throw new Error("should not reload session for renderable final"); }
+            function markAgentUnread() {}
+            function renderAgentList() {}
+            function notifyAgentCompletion() {}
+            function getSelectedAssistantDisplayName() { return "Assistant"; }
+            function buildAssistantMessageArticle() { throw new Error("pending row should finalize"); }
+
+            const realHandleAgentChatSuccess = handleAgentChatSuccess;
+            let successCalls = 0;
+            handleAgentChatSuccess = async function(agentId, ctx, payload, options = {}) {
+              successCalls += 1;
+              calls.push(["success", agentId, ctx.clientRequestId, payload.response, options.source, options.allowFinalWithoutActiveRequest === true]);
+              return await realHandleAgentChatSuccess(agentId, ctx, payload, options);
+            };
+
+            (async () => {
+              const completedResult = await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {
+                type: "assistant.message.completed",
+                state: "completed",
+                text: truncatedPreview,
+                status: "completed",
+                request_id: "req-1",
+                session_id: "sess-1",
+                assistant_message_id: "assistant-preview",
+              });
+              assert.equal(completedResult, "event");
+              assert.equal(successCalls, 0);
+              assert.equal(requestCtx.sawAssistantMessageCompleted, true);
+              assert.equal(requestCtx.awaitingAuthoritativeFinal, true);
+              assert.equal(chatState.activeRequest, requestCtx);
+              assert.equal(assistantUpdates.at(-1).completed, false);
+
+              await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", {
+                type: "assistant_delta",
+                synthetic_final_delta: true,
+                delta: truncatedPreview,
+                request_id: "req-1",
+                session_id: "sess-1",
+              });
+              const deltaResult = await handleChatStreamEvent("agent-1", requestCtx, "delta", {
+                delta: truncatedPreview,
+                request_id: "req-1",
+                session_id: "sess-1",
+              });
+              assert.equal(deltaResult, "event");
+              assert.equal(requestCtx.streamedText, truncatedPreview);
+              assert.equal(requestCtx.syntheticFinalDeltaPreview.response, truncatedPreview);
+              assert.equal(successCalls, 0);
+
+              await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", { type: "complete", state: "success", request_id: "req-1", session_id: "sess-1" });
+              await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", { type: "execution.completed", state: "success", request_id: "req-1", session_id: "sess-1" });
+              await handleChatStreamEvent("agent-1", requestCtx, "runtime_event", { type: "chat.run.completed", status: "completed", request_id: "req-1", session_id: "sess-1" });
+              assert.equal(requestCtx.sawRunCompleted, true);
+              assert.equal(chatState.activeRequest, requestCtx);
+
+              const finalResult = await handleChatStreamEvent("agent-1", requestCtx, "final", {
+                ok: true,
+                completion_state: "completed",
+                response: fullResponse,
+                request_id: "req-1",
+                session_id: "sess-1",
+                user_message_id: "user-1",
+                assistant_message_id: "assistant-final",
+                events: [],
+                runtime_events: [],
+              });
+              assert.equal(finalResult, "final");
+
+              const doneResult = await handleChatStreamEvent("agent-1", requestCtx, "done", {});
+              assert.equal(doneResult, "done");
+              assert.equal(successCalls, 1);
+              assert.equal(requestCtx.streamCompleted, true);
+              assert.equal(requestCtx.streamSawFinal, true);
+              assert.equal(requestCtx.authoritativeFinalReceived, true);
+              assert.equal(assistantMarkdown, fullResponse);
+              assert.match(assistantMarkdown, /jira-to-manual-test-cases/);
+              assert.match(assistantMarkdown, /test-simple-ref/);
+              assert.equal(assistantMarkdown.includes("jira-to-manual-test…"), false);
+              assert.equal(chatState.activeRequest, null);
+              assert.equal(chatState.inflightThinking, null);
+              assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
+              assert.equal(chatState.openCodeProjection.sessionStatusPayload.active, false);
+              assert.equal(chatState.openCodeProjection.sessionStatusPayload.active_run, null);
+              assert.equal(chatState.openCodeProjection.needsSnapshot, false);
+              assert.equal(dom.abortChatRunBtn["aria-hidden"], "true");
+              assert.equal(dom.abortChatRunBtn.disabled, true);
+              assert.equal(dom.sendChatBtn.disabled, false);
+              assert.ok(calls.some((item) => item[0] === "status" && item[1] === "Ready"));
+              assert.ok(calls.some((item) => item[0] === "success" && item[4] === "stream_final" && item[5] === true));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_opencode_message_part_updated_upserts_by_part_id_node_smoke():
     src = SRC.read_text(encoding="utf-8")
     script = (
@@ -560,7 +1001,7 @@ def test_opencode_runtime_ui_state_three_way_model_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
-def test_assistant_completed_event_does_not_throw_when_success_handler_clears_inflight_thinking():
+def test_assistant_completed_event_stays_preview_and_terminal_marker_is_null_safe():
     src = SRC.read_text(encoding="utf-8")
     script = (
         "\n".join(
@@ -660,11 +1101,14 @@ def test_assistant_completed_event_does_not_throw_when_success_handler_clears_in
             }
 
             assert.equal(threw, false);
-            assert.equal(chatState.activeRequest, null);
-            assert.equal(chatState.inflightThinking, null);
+            assert.equal(chatState.activeRequest.clientRequestId, "req-1");
+            assert.equal(chatState.inflightThinking.completed, true);
             assert.equal(chatState.lastThinkingSnapshot.completed, true);
-            assert.equal(hasActiveChatRequestForAgent(), false);
-            assert.equal(calls.some((item) => item[0] === "success"), true);
+            assert.equal(hasActiveChatRequestForAgent(), true);
+            assert.equal(chatState.activeRequest.awaitingAuthoritativeFinal, true);
+            assert.equal(chatState.activeRequest.sawAssistantMessageCompleted, true);
+            assert.equal(calls.some((item) => item[0] === "success"), false);
+            assert.equal(calls.some((item) => item[0] === "reconcile"), true);
             assert.equal(calls.some((item) => item[0] === "sync"), true);
             """
         )

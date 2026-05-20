@@ -836,10 +836,49 @@ def test_events_update_assistant_bubble_and_do_not_show_hidden_reasoning():
         assert event_type in predicate
     assert "assistantRuntimeEventResult = handleAssistantMessageRuntimeEvent(" in handle_event
     assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true })" in assistant_handler
-    assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { completed: true })" in assistant_handler
+    assert "completed: false" in assistant_handler
+    assert "requestCtx.awaitingAuthoritativeFinal = true" in assistant_handler
+    assert 'return "completed_reconcile"' in assistant_handler
     assert "requestCtx.streamedText" in assistant_handler
     assert 'role === "user"' in guard
     assert 'rawType === "message.part.updated"' in guard
+
+
+def test_authoritative_stream_final_contracts():
+    src = _src()
+    assistant_handler = _extract_js_function(src, "handleAssistantMessageRuntimeEvent")
+    stream_handler = _extract_js_function(src, "handleChatStreamEvent")
+    stream_submit = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    success_handler = _extract_js_function(src, "handleAgentChatSuccess")
+
+    assert "void handleAgentChatSuccess" not in assistant_handler
+    assert "requestCtx.awaitingAuthoritativeFinal = true" in assistant_handler
+    assert 'return "completed_reconcile"' in assistant_handler
+
+    assert "function isSyntheticFinalDeltaEvent" in src
+    delta_idx = stream_handler.index("if (isChatStreamDeltaEventName(outerType))")
+    synthetic_idx = stream_handler.index("SyntheticFinalDeltaEvent(eventData, associatedEvent)", delta_idx)
+    append_idx = stream_handler.index('requestCtx.streamedText = (requestCtx.streamedText || "") + (deltaText || "")', delta_idx)
+    assert synthetic_idx < append_idx
+
+    final_idx = stream_handler.index("if (isChatStreamFinalEventName(outerType) || isDirectCompletionEventName(outerType))")
+    final_branch = stream_handler[final_idx:]
+    assert "requestCtx.authoritativeFinalReceived = true" in final_branch
+    assert "allowFinalWithoutActiveRequest: true" in final_branch
+    assert 'source: "stream_final"' in final_branch
+
+    assert 'chatState.openCodeProjection.sessionStatus = "idle"' in success_handler
+    assert "active: false" in success_handler
+    assert "active_run: null" in success_handler
+    assert "chatState.openCodeProjection.needsSnapshot = false" in success_handler
+
+    assert "finalizeFromSessionSnapshotAfterCompletedLifecycle" in src
+    assert "requestCtx.awaitingAuthoritativeFinal" in stream_submit
+    assert "requestCtx.sawAssistantMessageCompleted" in stream_submit
+    assert "requestCtx.sawRunCompleted" in stream_submit
+    assert "stream_final_missing_after_completed_event" in stream_submit
+    assert ":4096" not in src
+    assert "/api/tasks" not in stream_submit
 
 
 def test_terminal_runtime_event_is_null_safe_after_assistant_finalization():
