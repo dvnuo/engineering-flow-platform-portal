@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # Default agent config (image repo without tag)
     default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"
     default_agent_image_tag: str = "latest"
-    default_runtime_type: str = Field(default="native", validation_alias="DEFAULT_RUNTIME_TYPE")
+    default_runtime_type: str = Field(default="opencode", validation_alias="DEFAULT_RUNTIME_TYPE")
     default_native_runtime_image_repo: str = Field(default="", validation_alias="DEFAULT_NATIVE_RUNTIME_IMAGE_REPO")
     default_native_runtime_image_tag: str = Field(default="", validation_alias="DEFAULT_NATIVE_RUNTIME_IMAGE_TAG")
     default_opencode_runtime_image_repo: str = Field(

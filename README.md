@@ -86,7 +86,7 @@ PYTHONPATH=. pytest -q \
 | `K8S_PVC_ACCESS_MODES` | PVC access modes | `["ReadWriteOnce"]` |
 | `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
-| `DEFAULT_RUNTIME_TYPE` | Default runtime type for new agents (`native`/`opencode`) | `native` |
+| `DEFAULT_RUNTIME_TYPE` | Default runtime type for new agents (`native`/`opencode`) | `opencode` |
 | `DEFAULT_NATIVE_RUNTIME_IMAGE_REPO` | Native runtime image repository override | falls back to `DEFAULT_AGENT_IMAGE_REPO` |
 | `DEFAULT_NATIVE_RUNTIME_IMAGE_TAG` | Native runtime image tag override | falls back to `DEFAULT_AGENT_IMAGE_TAG` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
