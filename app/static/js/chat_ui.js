@@ -463,6 +463,54 @@ function replacePortalRouteFromState() {
   commitPortalRoute(currentPortalRouteFromState(), { replace: true });
 }
 
+function clearPortalSectionDetailSelection(section) {
+  if (section === "bundles") {
+    state.selectedBundleKey = null;
+  } else if (section === "tasks") {
+    state.selectedTaskId = null;
+  } else if (section === "runtime-profiles") {
+    state.selectedRuntimeProfileId = null;
+  } else if (section === "automations") {
+    state.selectedAutomationRuleId = null;
+  }
+}
+
+function portalSectionRoute(section) {
+  const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : "assistants";
+  if (normalized === "assistants") {
+    return { section: "assistants", agentId: state.selectedAgentId || "" };
+  }
+  return { section: normalized };
+}
+
+async function openPortalSection(section, {
+  toggleIfSame = true,
+  replace = false,
+} = {}) {
+  if (!PORTAL_ROUTE_SECTIONS.has(section)) return;
+
+  const hadDetailSelection = (
+    (section === "bundles" && !!state.selectedBundleKey) ||
+    (section === "tasks" && !!state.selectedTaskId) ||
+    (section === "runtime-profiles" && !!state.selectedRuntimeProfileId) ||
+    (section === "automations" && !!state.selectedAutomationRuleId)
+  );
+
+  // Section-only navigation means the user clicked the rail/menu to open the column page,
+  // not a specific detail item.
+  clearPortalSectionDetailSelection(section);
+
+  if (!isApplyingPortalRoute) {
+    commitPortalRoute(portalSectionRoute(section), { replace });
+  }
+
+  await setActiveNavSection(section, {
+    toggleIfSame: toggleIfSame && !hadDetailSelection,
+    updateRoute: false,
+    preferSectionLanding: true,
+  });
+}
+
 async function applyPortalRouteFromHash({ replaceInvalid = false } = {}) {
   const seq = ++portalRouteApplySeq;
   const parsed = parsePortalHashRoute(window.location.hash);
@@ -520,60 +568,62 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
   }
 
   if (route.section === "bundles") {
-    await setActiveNavSection("bundles", { toggleIfSame: false, updateRoute: false });
-    const cacheState = loadRequirementBundlesFromCache();
-    renderRequirementBundleList();
-
     if (route.bundleRef && route.bundleRef.repo && route.bundleRef.path) {
+      await setActiveNavSection("bundles", { toggleIfSame: false, updateRoute: false });
+      loadRequirementBundlesFromCache();
+      renderRequirementBundleList();
       await openRequirementBundleInMain(route.bundleRef, { updateRoute: false });
-    } else if (cacheState.hasItems || state.requirementBundles.length) {
-      showBundlesDefaultMainView();
     } else {
-      renderWorkspaceDetailPlaceholder(
-        cacheState.hasCache
-          ? "No bundles found."
-          : "No cached bundles yet. Click refresh to load the latest bundles.",
-        "bundles-placeholder"
-      );
-      syncMainHeader();
+      await setActiveNavSection("bundles", {
+        toggleIfSame: false,
+        updateRoute: false,
+        preferSectionLanding: true,
+      });
     }
     return;
   }
 
   if (route.section === "tasks") {
-    await setActiveNavSection("tasks", { toggleIfSame: false, updateRoute: false });
-    await refreshMyTasks();
-
     if (route.taskId) {
+      await setActiveNavSection("tasks", { toggleIfSame: false, updateRoute: false });
+      await refreshMyTasks();
       await openTaskDetailInMain(route.taskId, { updateRoute: false });
     } else {
-      showTasksDefaultMainView();
+      await setActiveNavSection("tasks", {
+        toggleIfSame: false,
+        updateRoute: false,
+        preferSectionLanding: true,
+      });
     }
     return;
   }
 
   if (route.section === "runtime-profiles") {
-    await setActiveNavSection("runtime-profiles", { toggleIfSame: false, updateRoute: false });
-    await refreshRuntimeProfileList({ preserveSelection: true });
-
     if (route.runtimeProfileId) {
+      await setActiveNavSection("runtime-profiles", { toggleIfSame: false, updateRoute: false });
+      await refreshRuntimeProfileList({ preserveSelection: true });
       await openRuntimeProfileInMain(route.runtimeProfileId, { ensureSection: false, updateRoute: false });
     } else {
-      renderWorkspaceDetailPlaceholder("Select a runtime profile from the left sidebar.", "runtime-profiles-placeholder");
-      syncMainHeader();
+      await setActiveNavSection("runtime-profiles", {
+        toggleIfSame: false,
+        updateRoute: false,
+        preferSectionLanding: true,
+      });
     }
     return;
   }
 
   if (route.section === "automations") {
-    await setActiveNavSection("automations", { toggleIfSame: false, updateRoute: false });
-    await loadAutomationRules();
-
     if (route.automationRuleId) {
+      await setActiveNavSection("automations", { toggleIfSame: false, updateRoute: false });
+      await loadAutomationRules();
       await openAutomationRulePanel(route.automationRuleId, { updateRoute: false });
     } else {
-      renderWorkspaceDetailPlaceholder("Select an automation rule from the left sidebar.", "automations-placeholder");
-      syncMainHeader();
+      await setActiveNavSection("automations", {
+        toggleIfSame: false,
+        updateRoute: false,
+        preferSectionLanding: true,
+      });
     }
   }
 }
@@ -8466,6 +8516,7 @@ async function setActiveNavSection(section, {
   toggleIfSame = true,
   preserveCollapsed = false,
   updateRoute = true,
+  preferSectionLanding = false,
 } = {}) {
   const previousSection = state.activeNavSection;
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
@@ -8473,6 +8524,10 @@ async function setActiveNavSection(section, {
     ? PORTAL_ROUTE_SECTIONS
     : new Set(["assistants", "bundles", "tasks", "runtime-profiles", "automations"]);
   if (!validSections.has(section)) return;
+
+  if (preferSectionLanding) {
+    clearPortalSectionDetailSelection(section);
+  }
 
   if (section === state.activeNavSection && toggleIfSame) {
     state.secondaryPaneCollapsed = !state.secondaryPaneCollapsed;
@@ -8510,7 +8565,9 @@ async function setActiveNavSection(section, {
       typeof commitPortalRoute === "function" &&
       typeof currentPortalRouteFromState === "function"
     ) {
-      commitPortalRoute(currentPortalRouteFromState());
+      commitPortalRoute(
+        preferSectionLanding ? portalSectionRoute(section) : currentPortalRouteFromState()
+      );
     }
   };
 
@@ -8521,7 +8578,7 @@ async function setActiveNavSection(section, {
 
   const didSwitchSection = section !== previousSection;
   const didRevealPane = sidebarWasCollapsed && !state.secondaryPaneCollapsed;
-  const shouldRefreshVisibleSection = didSwitchSection || didRevealPane;
+  const shouldRefreshVisibleSection = didSwitchSection || didRevealPane || preferSectionLanding;
 
   if (didSwitchSection) {
     if (section === "assistants") {
@@ -8540,7 +8597,19 @@ async function setActiveNavSection(section, {
   if (state.activeNavSection === "bundles" && shouldRefreshVisibleSection) {
     const cacheState = loadRequirementBundlesFromCache();
     renderRequirementBundleList();
-    if (
+    if (preferSectionLanding) {
+      if (!cacheState.hasCache) {
+        renderWorkspaceDetailPlaceholder(
+          "No cached bundles yet. Click refresh to load the latest bundles.",
+          "bundles-placeholder"
+        );
+        syncMainHeader();
+      } else if (cacheState.hasItems || state.requirementBundles.length) {
+        showBundlesDefaultMainView();
+      } else {
+        showBundlesEmptyMainView();
+      }
+    } else if (
       state.activeNavSection === "bundles" &&
       !state.secondaryPaneCollapsed &&
       !state.selectedBundleKey &&
@@ -8561,27 +8630,40 @@ async function setActiveNavSection(section, {
   }
 
   if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {
-    await refreshRuntimeProfileList({ preserveSelection: true });
+    await refreshRuntimeProfileList({ preserveSelection: !preferSectionLanding });
     if (state.activeNavSection === "runtime-profiles" && !state.secondaryPaneCollapsed) {
-      const defaultProfile = state.runtimeProfiles.find((item) => item.is_default);
-      const preferredProfile = defaultProfile || state.runtimeProfiles[0] || null;
-      let targetProfileId = null;
-      if (didSwitchSection || didRevealPane) {
-        targetProfileId = preferredProfile ? preferredProfile.id : null;
-        state.selectedRuntimeProfileId = targetProfileId;
-      }
-
-      if (targetProfileId) {
-        await loadRuntimeProfilePanelContent(targetProfileId);
+      if (preferSectionLanding) {
+        state.selectedRuntimeProfileId = null;
+        renderRuntimeProfileList();
+        renderWorkspaceDetailPlaceholder(
+          "Select a runtime profile from the left sidebar.",
+          "runtime-profiles-placeholder"
+        );
       } else {
-        renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
+        const defaultProfile = state.runtimeProfiles.find((item) => item.is_default);
+        const preferredProfile = defaultProfile || state.runtimeProfiles[0] || null;
+        let targetProfileId = null;
+        if (didSwitchSection || didRevealPane) {
+          targetProfileId = preferredProfile ? preferredProfile.id : null;
+          state.selectedRuntimeProfileId = targetProfileId;
+        }
+
+        if (targetProfileId) {
+          await loadRuntimeProfilePanelContent(targetProfileId, { updateRoute: false });
+        } else {
+          renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
+        }
       }
     }
   }
 
   if (state.activeNavSection === "tasks" && shouldRefreshVisibleSection) {
     await refreshMyTasks();
-    if (
+    if (preferSectionLanding) {
+      state.selectedTaskId = null;
+      renderTaskNavList();
+      showTasksDefaultMainView();
+    } else if (
       state.activeNavSection === "tasks" &&
       !state.secondaryPaneCollapsed &&
       !state.selectedTaskId &&
@@ -8593,7 +8675,16 @@ async function setActiveNavSection(section, {
   if (state.activeNavSection === "automations" && shouldRefreshVisibleSection) {
     await loadAutomationRules();
     const first = state.automations[0];
-    if (!first) {
+    if (preferSectionLanding) {
+      state.selectedAutomationRuleId = null;
+      renderAutomationRuleNavList(state.automations);
+      if (first) {
+        renderWorkspaceDetailPlaceholder("Select an automation rule from the left sidebar.", "automations-placeholder");
+        syncMainHeader();
+      } else {
+        renderWorkspaceDetailPlaceholder("No automations found.", "automations-placeholder");
+      }
+    } else if (!first) {
       renderWorkspaceDetailPlaceholder("No automations found.", "automations-placeholder");
     }
   }
@@ -8626,9 +8717,7 @@ function renderRequirementBundleList(errorMessage = "") {
       <div class="portal-bundle-meta">${safe(item.template_label || item.template_id || "Bundle")} · ${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
     `;
     row.addEventListener("click", async () => {
-      state.selectedBundleKey = key;
-      renderRequirementBundleList();
-      await setActiveNavSection("bundles", { toggleIfSame: false });
+      await setActiveNavSection("bundles", { toggleIfSame: false, updateRoute: false });
       await openRequirementBundleInMain(item.bundle_ref);
     });
     dom.bundleNavList.append(row);
@@ -8716,9 +8805,6 @@ function renderTaskNavList(errorMessage = "") {
       <div class="portal-bundle-meta">${safe(task.status || "unknown")} · ${safe(task.id)}</div>
     `;
     row.addEventListener("click", async () => {
-      state.selectedTaskId = task.id;
-      renderTaskNavList();
-      await setActiveNavSection("tasks", { toggleIfSame: false });
       await openTaskDetailInMain(task.id);
     });
     dom.taskNavList.append(row);
@@ -8765,11 +8851,18 @@ async function openTaskDetailInMain(taskId, { updateRoute = true } = {}) {
 }
 
 async function returnFromTaskDetailToSidebar() {
-  await setActiveNavSection("tasks", { toggleIfSame: false });
   state.selectedTaskId = null;
   renderTaskNavList();
+  await setActiveNavSection("tasks", {
+    toggleIfSame: false,
+    updateRoute: false,
+    preferSectionLanding: true,
+  });
   renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.", "tasks-placeholder");
   syncMainHeader();
+  if (!isApplyingPortalRoute) {
+    commitPortalRoute({ section: "tasks" });
+  }
 }
 
 function renderChatHistory(messages, metadata = {}) {
@@ -12168,9 +12261,9 @@ function bindEvents() {
     chatState.modelOverride = (dom.chatModelSelect?.value || "").trim();
   });
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
-  dom.railAssistantsBtn?.addEventListener("click", () => setActiveNavSection("assistants"));
-  dom.bundlesMenuBtn?.addEventListener("click", () => setActiveNavSection("bundles"));
-  dom.automationsMenuBtn?.addEventListener("click", () => setActiveNavSection("automations"));
+  dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
+  dom.bundlesMenuBtn?.addEventListener("click", () => openPortalSection("bundles"));
+  dom.automationsMenuBtn?.addEventListener("click", () => openPortalSection("automations"));
   dom.addAutomationBtn?.addEventListener("click", async () => {
     try {
       if (!state.mineAgents || !state.mineAgents.length) {
@@ -12183,19 +12276,10 @@ function bindEvents() {
   });
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.homeOpenBundlesBtn?.addEventListener("click", async () => {
-    await setActiveNavSection("bundles", { toggleIfSame: false });
-    if (state.requirementBundles.length) {
-      const first = state.requirementBundles[0];
-      state.selectedBundleKey = bundleKey(first);
-      renderRequirementBundleList();
-      await openRequirementBundleInMain(first.bundle_ref);
-    }
+    await openPortalSection("bundles");
   });
   dom.homeOpenTasksBtn?.addEventListener("click", async () => {
-    await setActiveNavSection("tasks", { toggleIfSame: false });
-    if (state.myTasks.length) {
-      await openTaskDetailInMain(state.myTasks[0].id);
-    }
+    await openPortalSection("tasks");
   });
   document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
 
@@ -12366,7 +12450,7 @@ function bindEvents() {
 
   dom.usersMenuBtn?.addEventListener("click", openUsersPanel);
 
-  dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"));
+  dom.tasksMenuBtn?.addEventListener("click", () => openPortalSection("tasks"));
 
   dom.addTaskBtn?.addEventListener("click", async () => {
     try {
@@ -12375,7 +12459,7 @@ function bindEvents() {
       showToast(`Open task create failed: ${error.message}`);
     }
   });
-  dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"));
+  dom.runtimeProfilesMenuBtn?.addEventListener("click", () => openPortalSection("runtime-profiles"));
   window.addEventListener("resize", () => {
     if (!state.toolPanelPinned) return;
     if (!isWideEnoughToPinToolPanel()) {
