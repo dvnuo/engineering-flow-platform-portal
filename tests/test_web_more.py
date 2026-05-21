@@ -123,7 +123,7 @@ def test_managed_settings_initializer_hooks_present():
     assert "function initializeManagedSettingsPanels()" in js
     assert 'target?.id === "workspace-detail-content"' in js
     assert "initializeManagedSettingsPanels();" in js
-    assert "loadRuntimeProfilePanelContent(profileId)" in js
+    assert "loadRuntimeProfilePanelContent(profileId, { updateRoute: false })" in js
 
 
 def test_chat_ui_layout_persistence_source_markers_present():
@@ -136,11 +136,11 @@ def test_chat_ui_layout_persistence_source_markers_present():
     assert "clearToolPanelPreference = false" in js
     assert "const existing = readUiLayoutPreferences()" in js
     assert "async function restorePinnedToolPanelFromPreferencesOnce()" in js
-    assert "async function refreshAll({ preserveLayout = false } = {})" in js
+    assert "async function refreshAll({ preserveLayout = false, skipRouteApply = false } = {})" in js
     assert "preserveCollapsed" in js
     assert "includeToolPanel: false" in js
     assert "clearToolPanelPreference: true" in js
-    assert "await refreshAll({ preserveLayout: true });" in js
+    assert "await refreshAll({ preserveLayout: true, skipRouteApply: true });" in js
     assert "await restorePinnedToolPanelFromPreferencesOnce();" in js
 
 
