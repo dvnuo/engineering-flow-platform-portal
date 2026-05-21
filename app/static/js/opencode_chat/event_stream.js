@@ -11,14 +11,28 @@ const EVENT_NAMES = [
   "opencode.error",
 ];
 
+function mergeEnvelopeData(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const nested = parsed.data && typeof parsed.data === "object" && !Array.isArray(parsed.data)
+    ? parsed.data
+    : {};
+  return {
+    ...nested,
+    ...parsed,
+    raw_data: nested,
+  };
+}
+
 function parseEventPayload(eventName, rawData) {
   if (rawData && typeof rawData === "object") {
-    return { type: eventName === "message" ? (rawData.type || eventName) : eventName, data: rawData.data || rawData };
+    const type = eventName === "message" ? (rawData.type || rawData.event || eventName) : eventName;
+    return { type, data: mergeEnvelopeData(rawData) };
   }
   try {
     const parsed = JSON.parse(String(rawData || "{}"));
     if (parsed && typeof parsed === "object") {
-      return { type: eventName === "message" ? (parsed.type || eventName) : eventName, data: parsed.data || parsed };
+      const type = eventName === "message" ? (parsed.type || parsed.event || eventName) : eventName;
+      return { type, data: mergeEnvelopeData(parsed) };
     }
   } catch {
     return { type: eventName, data: { message: String(rawData || "") } };

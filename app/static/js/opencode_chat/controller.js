@@ -198,7 +198,15 @@ export class OpenCodeChatController {
         ...options,
       });
       this.draftText = "";
-      if (response?.status) applyStatusSnapshot(this.store, response);
+      const responseStatus = response?.status;
+      if (responseStatus && typeof responseStatus === "object") {
+        applyStatusSnapshot(this.store, response);
+      } else if (
+        typeof responseStatus === "string" &&
+        ["idle", "busy", "retry", "aborting", "unknown", "missing"].includes(responseStatus.toLowerCase())
+      ) {
+        applyStatusSnapshot(this.store, response);
+      }
       this.connectEvents();
       setTimeout(() => this.refreshStatus().then(() => this.render()).catch(() => {}), 250);
     } catch (error) {

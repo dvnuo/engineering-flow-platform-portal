@@ -66,6 +66,19 @@ def test_opencode_chat_controller_flows_node():
         assert.equal(sendApi.calls.some((call) => JSON.stringify(call).includes("/api/chat")), false);
         assert.equal(sendApi.calls.some((call) => call[0] === "getChildren"), true);
 
+        const acceptedApi = makeApi({
+          async send(_conversationId, body) {
+            this.calls.push(["send", body]);
+            return { ok: true, status: "accepted", action_hint: "watch_events_then_reconcile" };
+          },
+        });
+        const acceptedController = new OpenCodeChatController({ agentId: "agent-1", rootElement: null, api: acceptedApi });
+        acceptedController.store.conversationId = "conversation-1";
+        acceptedController.store.sessionStatus = "idle";
+        await acceptedController.send("hello");
+        assert.notEqual(acceptedController.store.sessionStatus, "unknown");
+        assert.equal(acceptedController.store.localSubmit != null, true);
+
         const busyApi = makeApi({
           async getStatus() {
             this.calls.push(["getStatus"]);

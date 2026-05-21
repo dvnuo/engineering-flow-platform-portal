@@ -54,7 +54,11 @@ function messageInfoFrom(value) {
   const info = asObject(candidate.info);
   const id = firstNonEmpty(
     info.id,
+    info.messageID,
+    info.message_id,
+    info.messageId,
     candidate.id,
+    candidate.messageID,
     candidate.message_id,
     candidate.messageId,
     candidate.info_id,
@@ -71,12 +75,17 @@ function messageInfoFrom(value) {
 
 function normalizePart(part, messageId = "") {
   const candidate = asObject(part);
-  const id = firstNonEmpty(candidate.id, candidate.part_id, candidate.partId);
+  const id = firstNonEmpty(candidate.id, candidate.partID, candidate.part_id, candidate.partId);
   if (!id) return null;
   return {
     ...candidate,
     id,
-    messageId: firstNonEmpty(candidate.messageId, candidate.message_id, messageId),
+    messageId: firstNonEmpty(
+      candidate.messageId,
+      candidate.messageID,
+      candidate.message_id,
+      messageId,
+    ),
     type: firstNonEmpty(candidate.type, candidate.kind, "text"),
   };
 }
@@ -138,8 +147,10 @@ export function applyStatusSnapshot(store, payload) {
   store.opencodeSessionId = firstNonEmpty(
     status.session_id,
     status.sessionID,
+    status.opencode_session_id,
     data.session_id,
     data.sessionID,
+    data.opencode_session_id,
     store.opencodeSessionId,
   );
   const active = status.active ?? data.active;
@@ -211,20 +222,28 @@ export function applyOpenCodeEvent(store, event) {
   }
 
   if (type === "opencode.message.part.updated") {
-    const part = normalizePart(payload.part || payload, firstNonEmpty(payload.message_id, payload.messageId));
+    const part = normalizePart(payload.part || payload, firstNonEmpty(payload.message_id, payload.messageID, payload.messageId));
     if (part) store.partsById.set(part.id, { ...(store.partsById.get(part.id) || {}), ...part });
     return store;
   }
 
   if (type === "opencode.message.part.delta") {
-    const partId = firstNonEmpty(payload.part_id, payload.partId, payload.id, payload.part?.id);
+    const partId = firstNonEmpty(
+      payload.part_id,
+      payload.partID,
+      payload.partId,
+      payload.id,
+      payload.part?.id,
+      payload.part?.partID,
+      payload.part?.part_id,
+    );
     if (!partId) return store;
     const field = firstNonEmpty(payload.field, "text");
     const deltaValue = payload.delta ?? payload.text_delta ?? payload.text ?? payload.content ?? "";
     const delta = String(deltaValue);
     const existing = store.partsById.get(partId) || {
       id: partId,
-      messageId: firstNonEmpty(payload.message_id, payload.messageId),
+      messageId: firstNonEmpty(payload.message_id, payload.messageID, payload.messageId),
       type: firstNonEmpty(payload.type, payload.kind, "text"),
     };
     store.partsById.set(partId, {
@@ -235,7 +254,12 @@ export function applyOpenCodeEvent(store, event) {
   }
 
   if (type === "opencode.permission.requested") {
-    const permissionId = firstNonEmpty(payload.permission_id, payload.permissionId, payload.id);
+    const permissionId = firstNonEmpty(
+      payload.permission_id,
+      payload.permissionID,
+      payload.permissionId,
+      payload.id,
+    );
     if (permissionId) store.permissionsById.set(permissionId, { ...payload, permission_id: permissionId });
     return store;
   }
