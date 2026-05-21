@@ -59,18 +59,18 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "default_runtime_type": _default_runtime_type_from_settings(),
         "runtime_types": [
             {
-                "value": "native",
-                "label": "EFP Native Runtime",
-                "image_repo": _native_runtime_image_repo(),
-                "image_tag": _native_runtime_image_tag(),
-                "default_mount_path": settings.default_agent_mount_path or "/root/.efp",
-            },
-            {
                 "value": "opencode",
                 "label": "OpenCode Runtime",
                 "image_repo": _opencode_runtime_image_repo(),
                 "image_tag": _opencode_runtime_image_tag(),
                 "default_mount_path": "/workspace",
+            },
+            {
+                "value": "native",
+                "label": "EFP Native Runtime",
+                "image_repo": _native_runtime_image_repo(),
+                "image_tag": _native_runtime_image_tag(),
+                "default_mount_path": settings.default_agent_mount_path or "/root/.efp",
             },
         ],
         "enable_runtime_source_overlay": settings.enable_runtime_source_overlay,
@@ -166,7 +166,10 @@ def _normalize_runtime_type(value: str | None, *, allow_default: bool = False) -
 
 
 def _default_runtime_type_from_settings() -> str:
-    return _normalize_runtime_type(settings.default_runtime_type, allow_default=True)
+    raw = (settings.default_runtime_type or "").strip()
+    if not raw:
+        return "opencode"
+    return _normalize_runtime_type(raw, allow_default=False)
 
 
 def _native_runtime_image_repo() -> str:
