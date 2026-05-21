@@ -19,6 +19,7 @@ def test_opencode_chat_controller_flows_node():
             async createConversation() { calls.push(["createConversation"]); return { id: "conversation-1" }; },
             async getStatus() { calls.push(["getStatus"]); return { status: { type: "idle", active: false } }; },
             async getMessages() { calls.push(["getMessages"]); return { messages: [] }; },
+            async getChildren() { calls.push(["getChildren"]); return { children: [] }; },
             async send(_conversationId, body) { calls.push(["send", body]); return { accepted: true, status: { type: "busy", active: true } }; },
             async abort() { calls.push(["abort"]); return { status: { type: "idle", active: false } }; },
             connectEvents() { calls.push(["connectEvents"]); return { close() { calls.push(["closeEvents"]); } }; },
@@ -42,6 +43,7 @@ def test_opencode_chat_controller_flows_node():
           "getStatus",
           "getMessages",
         ]);
+        assert.equal(initApi.calls.some((call) => call[0] === "getChildren"), true);
 
         const sendApi = makeApi({
           async getMessages() {
@@ -62,6 +64,7 @@ def test_opencode_chat_controller_flows_node():
         await sendController.refreshSnapshot();
         assert.equal(sendController.store.localSubmit, null);
         assert.equal(sendApi.calls.some((call) => JSON.stringify(call).includes("/api/chat")), false);
+        assert.equal(sendApi.calls.some((call) => call[0] === "getChildren"), true);
 
         const busyApi = makeApi({
           async getStatus() {

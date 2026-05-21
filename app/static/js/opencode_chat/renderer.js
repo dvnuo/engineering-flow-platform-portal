@@ -99,7 +99,7 @@ export function renderOpenCodeChat(rootElement, viewState, handlers = {}, option
             <button type="button" data-opencode-panel="diff">Diff</button>
           </div>
           <section class="opencode-panel-body" data-opencode-panel-body="thinking">
-            ${renderTracePanel(viewState.thinkingItems)}
+            ${renderTracePanel(viewState.thinkingItems, viewState.children)}
           </section>
           <section class="opencode-panel-body" data-opencode-panel-body="permissions">
             ${renderPermissionPanel(viewState.permissionRequests)}

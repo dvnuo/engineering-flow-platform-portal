@@ -66,6 +66,7 @@ def test_opencode_chat_projector_state_transitions_node():
         store.children = [{ id: "child-1", status: "busy" }];
         view = deriveViewState(store);
         assert.equal(view.canSend, true);
+        assert.deepEqual(view.children, [{ id: "child-1", status: "busy" }]);
         """
     )
 

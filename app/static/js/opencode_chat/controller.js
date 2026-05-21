@@ -16,6 +16,13 @@ function listFromPayload(payload) {
   return [];
 }
 
+function childrenFromPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.children)) return payload.children;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
 function generatedMessageId() {
   if (globalThis.crypto?.randomUUID) return `portal-${globalThis.crypto.randomUUID()}`;
   return `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -61,6 +68,7 @@ export class OpenCodeChatController {
       await this.ensureConversation();
       await this.refreshStatus();
       await this.refreshMessages();
+      await this.refreshChildren();
       if (["busy", "retry"].includes(this.store.sessionStatus)) this.connectEvents();
     } catch (error) {
       this.store.errors.push({ message: errorMessage(error, "Unable to initialize OpenCode chat") });
@@ -128,11 +136,21 @@ export class OpenCodeChatController {
     applyMessageSnapshot(this.store, await this.api.getMessages(this.store.conversationId));
   }
 
+  async refreshChildren() {
+    if (!this.store.conversationId || typeof this.api.getChildren !== "function") return;
+    try {
+      this.store.children = childrenFromPayload(await this.api.getChildren(this.store.conversationId));
+    } catch {
+      this.store.children = [];
+    }
+  }
+
   async refreshSnapshot() {
     if (!this.store.conversationId) return;
     try {
       await this.refreshStatus();
       await this.refreshMessages();
+      await this.refreshChildren();
       if (["busy", "retry"].includes(this.store.sessionStatus)) this.connectEvents();
       this.store.snapshotNeeded = false;
     } catch (error) {
