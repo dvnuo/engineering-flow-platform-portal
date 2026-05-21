@@ -1604,6 +1604,7 @@ def test_load_session_busy_status_hydrates_active_request_and_reconnects_node_sm
                 _extract_js_function(src, "openCodeRuntimeUiStatusText"),
                 _extract_js_function(src, "setChatStatus"),
                 _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent"),
+                _extract_js_function(src, "isRuntimeRunActuallyActive"),
                 _extract_js_function(src, "hydrateActiveRequestFromRun"),
                 _extract_js_function(src, "buildSyntheticRunFromSessionStatus"),
                 _extract_js_function(src, "hydrateActiveRequestFromSessionStatus"),
@@ -1760,11 +1761,17 @@ def test_acceptance_refresh_busy_then_session_abort_and_completion_snapshot_node
                 _extract_js_function(src, "setChatStatus"),
                 _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent"),
                 _extract_js_function(src, "normalizeChatRunStatus"),
+                _extract_js_function(src, "isRuntimeRunActuallyActive"),
                 _extract_js_function(src, "hydrateActiveRequestFromRun"),
                 _extract_js_function(src, "buildSyntheticRunFromSessionStatus"),
                 _extract_js_function(src, "hydrateActiveRequestFromSessionStatus"),
                 _extract_js_function(src, "loadSessionForAgent"),
                 _extract_js_function(src, "isSyntheticOpenCodeSessionRequest"),
+                _extract_js_function(src, "requestContextIdCandidates"),
+                _extract_js_function(src, "activeRequestMatchesRequestContext"),
+                _extract_js_function(src, "clearStaleActiveRequest"),
+                _extract_js_function(src, "runtimeAbortSucceeded"),
+                _extract_js_function(src, "runtimeAbortIndicatesInactive"),
                 _extract_js_function(src, "abortSessionForAgent"),
                 _extract_js_function(src, "handleSessionAbortSuccess"),
                 _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
@@ -1948,19 +1955,21 @@ def test_acceptance_refresh_busy_then_session_abort_and_completion_snapshot_node
               assert.equal(url, "/a/agent-1/api/sessions/sess-1/abort");
               assert.equal(options?.method, "POST");
               sessionMode = "idle";
-              return {
-                ok: true,
-                status: 200,
-                async json() {
                   return {
-                    success: true,
-                    aborted: true,
-                    action_hint: "safe_to_send",
-                    run: null,
-                    abort_result: { success: true },
+                    ok: true,
+                    status: 200,
+                    async json() {
+                      return {
+                        success: true,
+                        active: false,
+                        aborted: true,
+                        action_hint: "safe_to_send",
+                        status: { type: "idle" },
+                        run: null,
+                        abort_result: { success: true },
+                      };
+                    },
                   };
-                },
-              };
             }
 
             const realSyncSelectedAgentChatActionControls = syncSelectedAgentChatActionControls;
@@ -1994,7 +2003,8 @@ def test_acceptance_refresh_busy_then_session_abort_and_completion_snapshot_node
               assert.ok(calls.some((item) => item[0] === "fetch" && item[1] === "/a/agent-1/api/sessions/sess-1/abort" && item[2] === "POST"));
               assert.equal(calls.some((item) => item[0] === "api" && item[1].includes("/api/chat/runs/opencode-session-op-1/abort")), false);
               assert.equal(chatState.activeRequest, null);
-              assert.equal(chatState.inflightThinking, null);
+              assert.equal(chatState.inflightThinking.completed, true);
+              assert.equal(chatState.inflightThinking.stale, true);
               assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
               assert.equal(chatState.openCodeProjection.sessionStatusPayload.active, false);
               assert.equal(chatState.openCodeProjection.sessionStatusPayload.active_run, null);
@@ -2121,9 +2131,14 @@ def test_non_success_hint_avoids_continue_for_active_run_node_smoke():
             const assert = require("node:assert/strict");
 
             const busy = nonSuccessHintForPayload({ error: "chat_run_already_active" });
-            assert.match(busy, /previous OpenCode run is still active/i);
-            assert.match(busy, /Stop run/);
+            assert.match(busy, /previous message is still running/i);
+            assert.match(busy, /stop the run|reset this session/);
             assert.equal(busy.includes('send "continue"'), false);
+
+            const stillActive = nonSuccessHintForPayload({ error: "opencode_abort_still_active" });
+            assert.match(stillActive, /OpenCode still reports/i);
+            assert.match(stillActive, /Reset the session|start a new chat/);
+            assert.equal(stillActive.includes('send "continue"'), false);
 
             const running = nonSuccessHintForPayload({ status: "busy" });
             assert.match(running, /previous message is still running/i);
@@ -2149,6 +2164,9 @@ def test_active_run_preflight_blocks_submit_node_smoke():
             [
                 _extract_js_function(src, "isActiveRequestBlocking"),
                 _extract_js_function(src, "hasIncompleteInflightThinking"),
+                _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
+                _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
+                _extract_js_function(src, "isOpenCodeSessionBlocking"),
                 _extract_js_function(src, "hasActiveChatRequestForAgent"),
                 _extract_js_function(src, "guardNoActiveChatRequestForAgent"),
                 _extract_js_function(src, "normalizeChatRunStatus"),
@@ -2360,6 +2378,7 @@ def test_chat_run_already_active_without_active_run_uses_session_status_node_smo
                 _extract_js_function(src, "normalizeOpenCodeSessionStatusType"),
                 _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
                 _extract_js_function(src, "refreshOpenCodeSessionStatusForAgent"),
+                _extract_js_function(src, "isRuntimeRunActuallyActive"),
                 _extract_js_function(src, "hydrateActiveRequestFromRun"),
                 _extract_js_function(src, "buildSyntheticRunFromSessionStatus"),
                 _extract_js_function(src, "hydrateActiveRequestFromSessionStatus"),
@@ -2940,8 +2959,11 @@ def test_abort_active_chat_request_clears_active_request_node_smoke():
                 _extract_js_function(src, "activeRequestMatchesRequestContext"),
                 _extract_js_function(src, "fallbackRequestContextForAgent"),
                 _extract_js_function(src, "clearStaleActiveRequest"),
+                _extract_js_function(src, "normalizeChatRunStatus"),
                 _extract_js_function(src, "runtimeAbortSucceeded"),
                 _extract_js_function(src, "runtimeAbortIndicatesInactive"),
+                _extract_js_function(src, "abortSessionForAgent"),
+                _extract_js_function(src, "handleSessionAbortSuccess"),
                 _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
             ]
         )
@@ -2976,9 +2998,16 @@ def test_abort_active_chat_request_clears_active_request_node_smoke():
             function syncSelectedAgentChatActionControls() {}
             function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
             function showToast(message) { calls.push(["toast", message]); }
-            async function agentApiFor(agentId, path, options) {
-              calls.push(["api", path, options.method]);
-              return { success: true, abort_result: { success: true }, run: { status: "aborted" } };
+            async function loadSessionForAgent(agentId, sessionId, options) { calls.push(["load", agentId, sessionId, options.render]); }
+            async function fetch(url, options) {
+              calls.push(["fetch", url, options.method, options.body]);
+              return {
+                ok: true,
+                status: 200,
+                async json() {
+                  return { success: true, active: false, action_hint: "safe_to_send", status: { type: "idle" }, abort_result: { success: true } };
+                },
+              };
             }
 
             (async () => {
@@ -2986,9 +3015,194 @@ def test_abort_active_chat_request_clears_active_request_node_smoke():
               assert.equal(chatState.activeRequest, null);
               assert.equal(chatState.inflightThinking.completed, true);
               assert.equal(chatState.inflightThinking.stale, true);
-              assert.ok(calls.some((item) => item[0] === "api" && item[1] === "/api/chat/runs/runtime-1/abort" && item[2] === "POST"));
+              assert.ok(calls.some((item) => item[0] === "fetch" && item[1] === "/a/agent-1/api/sessions/sess-1/abort" && item[2] === "POST"));
+              assert.ok(calls.some((item) => item[0] === "fetch" && item[3] === JSON.stringify({ force_detach: true })));
               assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.abort.completed"));
               assert.ok(calls.some((item) => item[0] === "toast" && item[1] === "Stopped current run."));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_abort_still_active_triggers_hard_reset_once_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "requestContextIdCandidates"),
+                _extract_js_function(src, "activeRequestMatchesRequestContext"),
+                _extract_js_function(src, "fallbackRequestContextForAgent"),
+                _extract_js_function(src, "clearStaleActiveRequest"),
+                _extract_js_function(src, "normalizeChatRunStatus"),
+                _extract_js_function(src, "runtimeAbortSucceeded"),
+                _extract_js_function(src, "runtimeAbortIndicatesInactive"),
+                _extract_js_function(src, "handleSessionAbortSuccess"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "runtime-1",
+              runtimeRequestId: "runtime-1",
+              sessionIdAtSend: "sess-1",
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: false,
+              sessionId: "sess-1",
+              inflightThinking: { id: "client-1", requestId: "client-1", sessionId: "sess-1", completed: false },
+              openCodeProjection: {
+                sessionStatus: "busy",
+                sessionStatusPayload: { source_of_truth: "opencode", active: true, status_type: "busy" },
+              },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+            let hardResetCalls = 0;
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function cancelAssistantTypewriter() {}
+            function stopChatRunReconcileLoop(ctx) { ctx.reconcileStopped = true; calls.push(["stopReconcile", ctx.runtimeRequestId]); }
+            function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", ctx.runtimeRequestId, options?.immediate]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["syncControls"]); }
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function showToast(message) { calls.push(["toast", message]); }
+            async function loadSessionForAgent(agentId, sessionId, options) { calls.push(["load", agentId, sessionId, options.render]); }
+            async function hardResetSessionForAgent(agentId, sessionId) {
+              hardResetCalls += 1;
+              assert.equal(agentId, "agent-1");
+              assert.equal(sessionId, "sess-1");
+              return {
+                success: true,
+                detached_old_session: true,
+                old_opencode_session_id: "old-opencode",
+                opencode_session_id: "new-opencode",
+                active: false,
+                action_hint: "safe_to_send",
+                status: { type: "idle" },
+              };
+            }
+
+            (async () => {
+              const result = await handleSessionAbortSuccess("agent-1", chatState, requestCtx, "sess-1", {
+                success: false,
+                error: "opencode_abort_still_active",
+                active: true,
+                action_hint: "hard_reset_or_new_session",
+                can_hard_reset: true,
+              });
+              assert.equal(result, "inactive");
+              assert.equal(hardResetCalls, 1);
+              assert.equal(requestCtx.hardResetAttempted, true);
+              assert.equal(chatState.activeRequest, null);
+              assert.equal(chatState.inflightThinking.completed, true);
+              assert.equal(chatState.inflightThinking.stale, true);
+              assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
+              assert.equal(chatState.openCodeProjection.sessionStatusPayload.active, false);
+              assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.abort.still_active"));
+              assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.abort.detached_old_opencode_session"));
+              assert.ok(calls.some((item) => item[0] === "load" && item[2] === "sess-1"));
+              assert.ok(calls.some((item) => item[0] === "status" && item[1] === "Stopped old run and reset session."));
+            })();
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_abort_hard_reset_failure_does_not_retry_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "requestContextIdCandidates"),
+                _extract_js_function(src, "activeRequestMatchesRequestContext"),
+                _extract_js_function(src, "fallbackRequestContextForAgent"),
+                _extract_js_function(src, "clearStaleActiveRequest"),
+                _extract_js_function(src, "normalizeChatRunStatus"),
+                _extract_js_function(src, "runtimeAbortSucceeded"),
+                _extract_js_function(src, "runtimeAbortIndicatesInactive"),
+                _extract_js_function(src, "handleSessionAbortSuccess"),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "runtime-1",
+              runtimeRequestId: "runtime-1",
+              sessionIdAtSend: "sess-1",
+            };
+            const chatState = {
+              activeRequest: requestCtx,
+              isSubmitting: false,
+              sessionId: "sess-1",
+              inflightThinking: { id: "client-1", requestId: "client-1", sessionId: "sess-1", completed: false },
+              openCodeProjection: {
+                sessionStatus: "busy",
+                sessionStatusPayload: { source_of_truth: "opencode", active: true, status_type: "busy" },
+              },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+            let hardResetCalls = 0;
+            const stillActiveResult = {
+              success: false,
+              error: "opencode_abort_still_active",
+              active: true,
+              action_hint: "hard_reset_or_new_session",
+              can_hard_reset: true,
+            };
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type, data) { calls.push(["event", type, data]); }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function cancelAssistantTypewriter() {}
+            function stopChatRunReconcileLoop(ctx) { ctx.reconcileStopped = true; }
+            function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", ctx.runtimeRequestId, options?.immediate]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["syncControls"]); }
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function showToast(message) { calls.push(["toast", message]); }
+            async function loadSessionForAgent() { throw new Error("failed reset must not load a fake idle session"); }
+            async function hardResetSessionForAgent() {
+              hardResetCalls += 1;
+              throw new Error("reset unavailable");
+            }
+
+            (async () => {
+              const first = await handleSessionAbortSuccess("agent-1", chatState, requestCtx, "sess-1", stillActiveResult);
+              const second = await handleSessionAbortSuccess("agent-1", chatState, requestCtx, "sess-1", stillActiveResult);
+              assert.equal(first, "failed");
+              assert.equal(second, "still_active");
+              assert.equal(hardResetCalls, 1);
+              assert.equal(requestCtx.hardResetAttempted, true);
+              assert.equal(chatState.activeRequest, requestCtx);
+              assert.equal(chatState.openCodeProjection.sessionStatus, "busy");
+              assert.equal(chatState.openCodeProjection.sessionStatusPayload.active, true);
+              assert.ok(calls.some((item) => item[0] === "status" && item[1] === "Unable to reset session. Start a new chat."));
+              assert.ok(calls.some((item) => item[0] === "toast" && item[1] === "Unable to reset session. Start a new chat."));
+              assert.ok(calls.some((item) => item[0] === "reconcile" && item[2] === true));
             })();
             """
         )
@@ -3007,6 +3221,13 @@ def test_abort_synthetic_opencode_session_run_uses_session_abort_endpoint_node_s
                 _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload"),
                 _extract_js_function(src, "isOpenCodeSessionBlocking"),
                 _extract_js_function(src, "isSyntheticOpenCodeSessionRequest"),
+                _extract_js_function(src, "normalizeChatRunStatus"),
+                _extract_js_function(src, "requestContextIdCandidates"),
+                _extract_js_function(src, "activeRequestMatchesRequestContext"),
+                _extract_js_function(src, "fallbackRequestContextForAgent"),
+                _extract_js_function(src, "clearStaleActiveRequest"),
+                _extract_js_function(src, "runtimeAbortSucceeded"),
+                _extract_js_function(src, "runtimeAbortIndicatesInactive"),
                 _extract_js_function(src, "abortSessionForAgent"),
                 _extract_js_function(src, "handleSessionAbortSuccess"),
                 _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
@@ -3043,6 +3264,8 @@ def test_abort_synthetic_opencode_session_run_uses_session_abort_endpoint_node_s
             }
             function setChatStatus(message) { calls.push(["status", message]); }
             function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function cancelAssistantTypewriter() {}
             function stopChatRunReconcileLoop(ctx) { ctx.reconcileStopped = true; calls.push(["stopReconcile", ctx.runtimeRequestId]); }
             function syncSelectedAgentChatActionControls() { calls.push(["syncControls"]); }
             function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
@@ -3055,7 +3278,7 @@ def test_abort_synthetic_opencode_session_run_uses_session_abort_endpoint_node_s
               return {
                 ok: true,
                 status: 200,
-                async json() { return { success: true, abort_result: { success: true } }; },
+                async json() { return { success: true, active: false, action_hint: "safe_to_send", status: { type: "idle" }, abort_result: { success: true } }; },
               };
             }
 
@@ -3065,7 +3288,8 @@ def test_abort_synthetic_opencode_session_run_uses_session_abort_endpoint_node_s
               assert.ok(calls.some((item) => item[0] === "fetch" && item[1] === "/a/agent-1/api/sessions/portal-session-1/abort" && item[2] === "POST"));
               assert.ok(calls.some((item) => item[0] === "syncControls"));
               assert.equal(chatState.activeRequest, null);
-              assert.equal(chatState.inflightThinking, null);
+              assert.equal(chatState.inflightThinking.completed, true);
+              assert.equal(chatState.inflightThinking.stale, true);
               assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
               assert.equal(chatState.openCodeProjection.sessionStatusPayload.active, false);
               assert.equal(chatState.openCodeProjection.sessionStatusPayload.active_run, null);
@@ -3086,6 +3310,7 @@ def test_abort_active_chat_request_failure_keeps_active_request_node_smoke():
             [
                 _extract_js_function(src, "runtimeAbortSucceeded"),
                 _extract_js_function(src, "runtimeAbortIndicatesInactive"),
+                _extract_js_function(src, "abortSessionForAgent"),
                 _extract_js_function(src, "abortActiveChatRequestForSelectedAgent"),
             ]
         )
@@ -3117,16 +3342,20 @@ def test_abort_active_chat_request_failure_keeps_active_request_node_smoke():
             function syncSelectedAgentChatActionControls() { calls.push(["syncControls"]); }
             function startChatRunReconcileLoop(agentId, ctx, options) { calls.push(["reconcile", agentId, ctx.clientRequestId, options?.immediate]); }
             function showToast(message) { calls.push(["toast", message]); }
-            async function agentApiFor(agentId, path, options) {
-              calls.push(["api", path, options.method]);
-              return { success: false, abort_result: { success: false, errors: ["opencode refused abort"] } };
+            async function fetch(url, options) {
+              calls.push(["fetch", url, options.method]);
+              return {
+                ok: false,
+                status: 409,
+                async json() { return { success: false, error: "opencode_abort_failed" }; },
+              };
             }
 
             (async () => {
               await abortActiveChatRequestForSelectedAgent();
               assert.equal(chatState.activeRequest, requestCtx);
               assert.equal(chatState.inflightThinking.completed, false);
-              assert.ok(calls.some((item) => item[0] === "api" && item[1] === "/api/chat/runs/runtime-1/abort" && item[2] === "POST"));
+              assert.ok(calls.some((item) => item[0] === "fetch" && item[1] === "/a/agent-1/api/sessions/sess-1/abort" && item[2] === "POST"));
               assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.abort.failed"));
               assert.ok(calls.some((item) => item[0] === "status" && item[1] === "Unable to stop current run." && item[2] === true));
               assert.ok(calls.some((item) => item[0] === "toast" && item[1].startsWith("Unable to stop current run:")));

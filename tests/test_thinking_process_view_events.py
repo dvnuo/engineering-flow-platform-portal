@@ -201,7 +201,11 @@ def test_chat_run_already_active_thinking_display_and_continue_hint_contract():
 
             const active = nonSuccessHintForPayload({ error: "chat_run_already_active" });
             assert.equal(active.includes('send "continue"'), false);
-            assert.match(active, /Stop run/);
+            assert.match(active, /stop the run|reset this session/);
+
+            const stillActive = nonSuccessHintForPayload({ error: "opencode_abort_still_active" });
+            assert.equal(stillActive.includes('send "continue"'), false);
+            assert.match(stillActive, /Reset the session|start a new chat/);
 
             const incomplete = nonSuccessHintForPayload({
               completion_state: "incomplete",

@@ -732,30 +732,41 @@ function isOpenCodeSessionBlocking(chatState) {
 function hasActiveChatRequestForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return false;
-  const activeRequestBlocking = (typeof isActiveRequestBlocking === "function")
-    ? isActiveRequestBlocking(chatState)
-    : (() => {
-      const req = chatState?.["activeRequest"];
-      if (!req) return false;
-      if (req.aborted || req.stale || req.completed || req.failed || req.runtimeInactive || req.opencodeInactive) {
-        return false;
-      }
-      return true;
-    })();
-  const inflightThinkingBlocking = (typeof hasIncompleteInflightThinking === "function")
-    ? hasIncompleteInflightThinking(chatState)
-    : Boolean(chatState.inflightThinking && chatState.inflightThinking.completed === false && !chatState.inflightThinking.stale);
-  const openCodeSessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
+  if (chatState.isSubmitting === true) return true;
+
+  const sessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
     ? isOpenCodeSessionBlocking(chatState)
     : false;
-  // Phase-A constraint: one in-flight chat request per agent.
-  // This keeps guard behavior deterministic without per-session concurrency state.
-  return Boolean(
-    chatState.isSubmitting
-    || activeRequestBlocking
-    || inflightThinkingBlocking
-    || openCodeSessionBlocking
+  if (sessionBlocking) return true;
+
+  const statusPayload = chatState.openCodeProjection?.sessionStatusPayload || {};
+  const actionHint = String(statusPayload.action_hint || "").trim().toLowerCase();
+  const statusType = normalizeChatRunStatus(
+    statusPayload.status_type ||
+    statusPayload.status?.type ||
+    statusPayload.status ||
+    chatState.openCodeProjection?.sessionStatus ||
+    ""
   );
+  const opencodeInactive = Boolean(
+    statusPayload.active === false
+    || actionHint === "safe_to_send"
+    || ["idle", "aborted", "stopped", "missing", "stale", "completed", "complete", "done"].includes(statusType)
+  );
+
+  if (opencodeInactive) {
+    if (chatState.activeRequest) {
+      clearStaleActiveRequest(agentId, chatState.activeRequest, "opencode_status_not_active");
+    } else if (chatState.inflightThinking && chatState.inflightThinking.completed === false) {
+      chatState.inflightThinking.completed = true;
+      chatState.inflightThinking.stale = true;
+      chatState.inflightThinking.completionState = "stale";
+      chatState.inflightThinking.status = "stale";
+    }
+    return false;
+  }
+
+  return false;
 }
 
 function shouldShowAbortChatRunButton(agentId) {
@@ -2572,7 +2583,11 @@ function nonSuccessHintForPayload(payload = {}) {
   ).toLowerCase();
 
   if (reason.includes("chat_run_already_active")) {
-    return "A previous OpenCode run is still active. Wait for it to finish or use Stop run.";
+    return "Previous message is still running. You can wait, reconnect, stop the run, or reset this session.";
+  }
+
+  if (reason.includes("opencode_abort_still_active")) {
+    return "Stop was requested, but OpenCode still reports this session is running. Reset the session or start a new chat.";
   }
 
   const status = String(payload.status || payload.completion_state || "").toLowerCase();
@@ -6252,22 +6267,34 @@ function clearStaleActiveRequest(agentId, requestCtx, reason = "opencode_not_act
 
 function runtimeAbortSucceeded(result = {}) {
   if (!result || typeof result !== "object") return false;
-  if (result.success === false) return false;
-  const abortResult = result.abort_result || result.abortResult || {};
-  if (abortResult && typeof abortResult === "object") {
-    if (abortResult.success === false) return false;
-    if (Array.isArray(abortResult.errors) && abortResult.errors.length) return false;
-  }
-  return result.success === true || abortResult.success === true || result.stale === true;
+  if (result.success !== true) return false;
+  if (result.error === "opencode_abort_still_active") return false;
+  if (result.active === true || result.opencode_active === true) return false;
+  if (result.detached_old_session === true) return true;
+  return runtimeAbortIndicatesInactive(result);
 }
 
 function runtimeAbortIndicatesInactive(result = {}) {
-  const abortResult = result?.abort_result || result?.abortResult || {};
-  if (result?.stale === true) return true;
-  if (Array.isArray(abortResult?.missing_session_ids) && abortResult.missing_session_ids.length && !(abortResult.errors || []).length) return true;
-  const run = result?.run || {};
-  const status = String(run.status || run.state || "").toLowerCase();
-  return ["aborted", "stale", "completed", "incomplete", "failed", "cancelled", "canceled"].includes(status);
+  if (!result || typeof result !== "object") return false;
+  if (result.error === "opencode_abort_still_active") return false;
+  if (result.active === true || result.opencode_active === true) return false;
+  if (result.detached_old_session === true) return true;
+  if (result.active === false) return true;
+  const status = normalizeChatRunStatus(
+    result.status_type ||
+    result.status?.type ||
+    result.status ||
+    result.run?.status ||
+    result.run?.state ||
+    ""
+  );
+  if (["idle", "aborted", "stopped", "missing", "stale", "completed", "complete", "done", "cancelled", "canceled", "failed", "incomplete"].includes(status)) {
+    return true;
+  }
+  const actionHint = String(result.action_hint || "").trim().toLowerCase();
+  if (actionHint === "safe_to_send") return true;
+  const abortResult = result.abort_result || result.abortResult || {};
+  return Boolean(Array.isArray(abortResult?.missing_session_ids) && abortResult.missing_session_ids.length && !(abortResult.errors || []).length);
 }
 
 function isSyntheticOpenCodeSessionRequest(requestCtx = {}, chatState = {}) {
@@ -6317,11 +6344,13 @@ function isMissingChatRunAbortFailure(value = {}) {
   return ["404", "409", "422", "not found", "missing", "no run", "chatrunstore"].some((marker) => message.includes(marker));
 }
 
-async function abortSessionForAgent(agentId, sessionId) {
+async function abortSessionForAgent(agentId, sessionId, options = {}) {
   if (!agentId || !sessionId) throw new Error("No active session to stop.");
+  const forceDetach = options.forceDetach !== false;
   const resp = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force_detach: forceDetach }),
   });
   let payload = {};
   try {
@@ -6330,6 +6359,13 @@ async function abortSessionForAgent(agentId, sessionId) {
     payload = {};
   }
   if (!resp.ok || payload.success === false) {
+    if (
+      payload?.error === "opencode_abort_still_active"
+      || payload?.active === true
+      || payload?.action_hint === "hard_reset_or_new_session"
+    ) {
+      return { ...payload, http_status: resp.status };
+    }
     const message =
       payload.detail ||
       payload.error ||
@@ -6343,19 +6379,65 @@ async function abortSessionForAgent(agentId, sessionId) {
   return payload;
 }
 
-async function handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result = {}) {
-  if (requestCtx) {
-    requestCtx.aborted = true;
-    requestCtx.streamCompleted = true;
-    stopChatRunReconcileLoop(requestCtx);
+async function hardResetSessionForAgent(agentId, sessionId) {
+  if (!agentId || !sessionId) throw new Error("No active session to reset.");
+  const resp = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/hard-reset`, {
+    method: "POST",
+  });
+  let payload = {};
+  try {
+    payload = await resp.json();
+  } catch (_error) {
+    payload = {};
   }
-  if (chatState) {
-    chatState.activeRequest = null;
-    chatState.inflightThinking = null;
-    if (chatState.openCodeProjection) {
+  if (!resp.ok || payload.success === false) {
+    const message =
+      payload.detail ||
+      payload.error ||
+      payload.message ||
+      `Hard reset failed (HTTP ${resp.status})`;
+    const error = new Error(message);
+    error.status = resp.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+async function handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result = {}) {
+  const ctx = requestCtx || fallbackRequestContextForAgent(agentId, "user_aborted");
+  const inactive = runtimeAbortSucceeded(result) && runtimeAbortIndicatesInactive(result);
+  const stillActive = Boolean(
+    result?.error === "opencode_abort_still_active"
+    || result?.active === true
+    || result?.action_hint === "hard_reset_or_new_session"
+  );
+
+  if (inactive) {
+    if (requestCtx) {
+      requestCtx.aborted = true;
+      requestCtx.streamCompleted = true;
+      stopChatRunReconcileLoop(requestCtx);
+    }
+    clearStaleActiveRequest(
+      agentId,
+      ctx,
+      result?.detached_old_session === true
+        ? "opencode_abort_still_active_detached"
+        : result?.stale ? "opencode_session_missing_after_abort" : "user_aborted"
+    );
+    if (chatState) {
+      chatState.activeRequest = null;
+      if (chatState.inflightThinking) {
+        chatState.inflightThinking.completed = true;
+        chatState.inflightThinking.stale = true;
+        chatState.inflightThinking.status = "stale";
+        chatState.inflightThinking.completionState = "stale";
+      }
+      if (!chatState.openCodeProjection) chatState.openCodeProjection = {};
       chatState.openCodeProjection.sessionStatus = "idle";
       chatState.openCodeProjection.sessionStatusPayload = {
-        ...(chatState.openCodeProjection.sessionStatusPayload || {}),
+        source_of_truth: "opencode",
         active: false,
         status: { type: "idle" },
         status_type: "idle",
@@ -6363,18 +6445,73 @@ async function handleSessionAbortSuccess(agentId, chatState, requestCtx, session
         active_run: null,
       };
     }
+    appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.completed", {
+      message: result?.detached_old_session === true
+        ? "Previous OpenCode session was detached and this chat was reset."
+        : "Current OpenCode run was stopped.",
+      result,
+    });
+    if (result?.detached_old_session === true) {
+      appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.detached_old_opencode_session", {
+        message: "Previous OpenCode session did not stop, so this chat was reset to a fresh session.",
+        old_opencode_session_id: result.old_opencode_session_id || "",
+        opencode_session_id: result.opencode_session_id || "",
+      });
+    }
+    setChatSubmittingForAgent(agentId, false);
+    syncSelectedAgentChatActionControls();
+    if (result?.detached_old_session === true) {
+      setChatStatus("Stopped old run and reset session.");
+      showToast("Previous OpenCode session did not stop, so this chat was reset to a fresh session.");
+    } else {
+      setChatStatus("Stopped current run.");
+      showToast("Stopped current run.");
+    }
+    if (sessionId) {
+      await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId });
+    }
+    return "inactive";
   }
-  appendPortalChatRuntimeEvent(agentId, requestCtx || fallbackRequestContextForAgent(agentId, "user_aborted"), "portal.abort.completed", {
-    message: "Current OpenCode session run was stopped.",
+
+  if (stillActive) {
+    appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.still_active", {
+      message: "Stop requested, but OpenCode still reports this session is running.",
+      result,
+    });
+    setChatStatus("Stop requested, but OpenCode still reports this session is running.", true);
+    showToast("OpenCode still reports this session is running.");
+    startChatRunReconcileLoop(agentId, ctx, { immediate: true });
+    syncSelectedAgentChatActionControls();
+    if (sessionId && (result?.can_hard_reset === true || result?.action_hint === "hard_reset_or_new_session") && !ctx.hardResetAttempted) {
+      ctx.hardResetAttempted = true;
+      try {
+        const resetResult = await hardResetSessionForAgent(agentId, sessionId);
+        return await handleSessionAbortSuccess(agentId, chatState, ctx, sessionId, resetResult);
+      } catch (error) {
+        appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.failed", {
+          message: "Unable to reset session. Start a new chat.",
+          error: String(error?.message || error || ""),
+          result: error?.payload || null,
+        });
+        setChatStatus("Unable to reset session. Start a new chat.", true);
+        showToast("Unable to reset session. Start a new chat.");
+        startChatRunReconcileLoop(agentId, ctx, { immediate: true });
+        syncSelectedAgentChatActionControls();
+        return "failed";
+      }
+    }
+    return "still_active";
+  }
+
+  appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.failed", {
+    message: "Unable to stop current run.",
     result,
   });
-  setChatSubmittingForAgent(agentId, false);
+  setChatStatus("Unable to stop current run.", true);
+  showToast("Unable to stop current run: " + String(result?.error || result?.detail || "abort failed"));
+  startChatRunReconcileLoop(agentId, ctx, { immediate: true });
   syncSelectedAgentChatActionControls();
-  setChatStatus("Run stopped. Syncing session...");
-  showToast("Stopped current run.");
-  if (sessionId) {
-    await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId });
-  }
+  return "failed";
 }
 
 async function abortActiveChatRequestForSelectedAgent() {
@@ -6393,13 +6530,6 @@ async function abortActiveChatRequestForSelectedAgent() {
     agentId,
     sessionIdAtSend: sessionId,
   };
-  const localIsSyntheticOpenCodeSessionRequest = (typeof isSyntheticOpenCodeSessionRequest === "function")
-    ? isSyntheticOpenCodeSessionRequest
-    : () => false;
-  const localIsMissingChatRunAbortFailure = (typeof isMissingChatRunAbortFailure === "function")
-    ? isMissingChatRunAbortFailure
-    : () => false;
-  const shouldAbortSession = !req || localIsSyntheticOpenCodeSessionRequest(requestCtx, chatState || {});
 
   setChatStatus("Stopping current run…");
   if (typeof dom !== "undefined" && dom.abortChatRunBtn) dom.abortChatRunBtn.disabled = true;
@@ -6409,45 +6539,21 @@ async function abortActiveChatRequestForSelectedAgent() {
 
   try {
     let result = null;
-    if (shouldAbortSession) {
-      result = await abortSessionForAgent(agentId, sessionId);
-      await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result);
-      return;
-    }
-    if (requestId) {
-      try {
-        result = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/abort`, {
-          method: "POST",
-        });
-      } catch (error) {
-        if (sessionId && localIsMissingChatRunAbortFailure(error)) {
-          result = await abortSessionForAgent(agentId, sessionId);
-          await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result);
-          return;
-        }
-        throw error;
-      }
-    } else if (sessionId) {
-      result = await abortSessionForAgent(agentId, sessionId);
+    if (sessionId) {
+      result = await abortSessionForAgent(agentId, sessionId, { forceDetach: true });
       await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result);
       return;
     }
 
+    if (requestId) {
+      result = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/abort`, {
+        method: "POST",
+      });
+    }
+
     if (!runtimeAbortSucceeded(result)) {
-      if (sessionId && localIsMissingChatRunAbortFailure(result)) {
-        const sessionAbortResult = await abortSessionForAgent(agentId, sessionId);
-        await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, sessionAbortResult);
-      } else {
-        const message = String(result?.error || result?.detail || "Runtime could not stop the OpenCode run.");
-        appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.failed", {
-          message,
-          result,
-        });
-        setChatStatus("Unable to stop current run.", true);
-        showToast("Unable to stop current run: " + message);
-        startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-        syncSelectedAgentChatActionControls();
-      }
+      const handled = await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result || {});
+      if (handled === "inactive") return;
       return;
     }
 
@@ -9001,6 +9107,29 @@ function hydrateActiveRequestFromRun(agentId, sessionId, run = {}, metadata = {}
   requestCtx.sessionIdAtSend = sessionId;
   requestCtx.streamDetached = requestCtx.streamDetached || normalizeChatRunStatus(run.status || run.state) === "stream_detached";
   chatState.activeRequest = requestCtx;
+  if (isRuntimeRunActuallyActive(run)) {
+    if (!chatState.openCodeProjection) {
+      chatState.openCodeProjection = {
+        messagesById: {},
+        partsById: {},
+        sessionStatus: "unknown",
+        sessionStatusPayload: null,
+        needsSnapshot: false,
+      };
+    }
+    const statusType = normalizeChatRunStatus(run.status || run.state || run.opencode_status || "busy") || "busy";
+    chatState.openCodeProjection.sessionStatus = statusType;
+    chatState.openCodeProjection.sessionStatusPayload = {
+      ...(chatState.openCodeProjection.sessionStatusPayload || {}),
+      source_of_truth: "opencode",
+      active: true,
+      status: { type: statusType },
+      status_type: statusType,
+      action_hint: run.action_hint || "wait_reconnect_or_stop",
+      can_abort: run.can_abort !== false,
+      active_run: run,
+    };
+  }
   if (!chatState.inflightThinking || chatState.inflightThinking.completed === true) {
     chatState.inflightThinking = {
       id: runtimeRequestId || clientRequestId,
