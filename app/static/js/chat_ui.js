@@ -17,6 +17,8 @@ const dom = {
   selectedStatus: document.getElementById("selected-status"),
   centerPlaceholder: document.getElementById("center-placeholder"),
   agentChatApp: document.getElementById("agent-chat-app"),
+  legacyChatRoot: document.querySelector("[data-legacy-chat-root='1']"),
+  opencodeChatRoot: document.getElementById("opencode-chat-root"),
   workspaceDetailView: document.getElementById("workspace-detail-view"),
   workspaceDetailContent: document.getElementById("workspace-detail-content"),
   messageList: document.getElementById("message-list"),
@@ -1609,6 +1611,41 @@ function getSelectedAgentStatus() {
   const agent = (typeof getSelectedAgent === "function") ? getSelectedAgent() : {};
   if (!agent) return "idle";
   return (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+}
+
+function getOpenCodeChatUiMode() {
+  const configured = String(
+    window.EFP_OPENCODE_CHAT_UI_MODE ||
+    dom.opencodeChatRoot?.dataset.chatMode ||
+    "thin"
+  ).trim().toLowerCase();
+  return configured === "thin" ? "thin" : "legacy";
+}
+
+function agentUsesThinOpenCodeChat(agent = getSelectedAgent()) {
+  const runtimeType = String(agent?.runtime_type || "native").trim().toLowerCase();
+  return runtimeType === "opencode" && getOpenCodeChatUiMode() === "thin";
+}
+
+function syncOpenCodeChatRootForAgent(agent = getSelectedAgent()) {
+  const root = dom.opencodeChatRoot;
+  const legacyRoot = dom.legacyChatRoot;
+  const runtimeType = String(agent?.runtime_type || "native").trim().toLowerCase() || "native";
+  const mode = getOpenCodeChatUiMode();
+  const useThin = Boolean(agent?.id && runtimeType === "opencode" && mode === "thin");
+  if (root) {
+    const nextAgentId = useThin ? String(agent.id) : "";
+    if (root.dataset.agentId !== nextAgentId) root.dataset.conversationId = "";
+    root.dataset.agentId = nextAgentId;
+    root.dataset.runtimeType = runtimeType;
+    root.dataset.chatMode = mode;
+    root.classList.toggle("hidden", !useThin);
+    root.dispatchEvent(new CustomEvent("opencode-chat:agent-changed", {
+      detail: { agentId: root.dataset.agentId, runtimeType, mode },
+    }));
+  }
+  legacyRoot?.classList.toggle("hidden", useThin);
+  return useThin;
 }
 
 function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
@@ -5187,6 +5224,7 @@ async function selectAgentById(agentId, { updateRoute = true } = {}) {
   restoreComposerForAgent(agentId);
   clearAgentUnread(agentId);
   clearMessageListToWelcome();
+  syncOpenCodeChatRootForAgent(selectedAgent);
 
   await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
   renderAgentList();
@@ -5201,6 +5239,7 @@ async function syncSelectedAgentState() {
   const sessionsBtn = document.getElementById("btn-sessions");
 
   if (!agent) {
+    syncOpenCodeChatRootForAgent(null);
     dom.embedTitle.textContent = "Select an assistant";
     dom.selectedStatus.textContent = "idle";
     setChatStatus("Ready");
@@ -5220,6 +5259,7 @@ async function syncSelectedAgentState() {
   }
 
   const status = getSelectedAgentStatus();
+  const useThinOpenCodeChat = syncOpenCodeChatRootForAgent(agent);
   state.selectedAgentName = agent.name || null;
   updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
@@ -5246,6 +5286,10 @@ async function syncSelectedAgentState() {
   syncMainHeader();
 
   if (running) {
+    if (useThinOpenCodeChat) {
+      setChatStatus("OpenCode chat ready");
+      return;
+    }
     const chatState = ensureChatState(agent.id);
     if (chatState?.needsReload && chatState.sessionId) {
       await loadSessionForAgent(agent.id, chatState.sessionId, { render: true });
@@ -11136,6 +11180,12 @@ async function clearChat() {
 
 async function startNewChatForSelectedAgent() {
   if (!ensureRunningSelectedAssistant("start a new chat")) return;
+  if (typeof agentUsesThinOpenCodeChat === "function" && agentUsesThinOpenCodeChat()) {
+    closeSessionsDrawer();
+    dom.opencodeChatRoot?.dispatchEvent(new CustomEvent("opencode-chat:new-chat"));
+    setChatStatus("New OpenCode chat started");
+    return;
+  }
   if (!guardNoActiveChatRequestForAgent(state.selectedAgentId, "start a new chat")) return;
 
   closeSessionsDrawer();
@@ -13366,10 +13416,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("chat-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (agentUsesThinOpenCodeChat()) return;
     await submitChatForSelectedAgent();
   });
   dom.abortChatRunBtn?.addEventListener("click", async (event) => {
     event.preventDefault();
+    if (agentUsesThinOpenCodeChat()) return;
     await abortActiveChatRequestForSelectedAgent();
   });
 
