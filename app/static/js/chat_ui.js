@@ -10836,8 +10836,28 @@ function runtimeImagePreview(config) {
   return repo ? `${repo}:${tag}` : "";
 }
 
+function isRuntimeTypeAvailable(defaults, value) {
+  const target = String(value || "").trim().toLowerCase();
+  return getRuntimeTypes(defaults).some((item) => String(item?.value || "").trim().toLowerCase() === target);
+}
+
+function getCreateRuntimeTypes(defaults) {
+  const runtimeTypes = getRuntimeTypes(defaults);
+  const opencodeTypes = runtimeTypes.filter((item) => String(item?.value || "").trim().toLowerCase() === "opencode");
+  const otherTypes = runtimeTypes.filter((item) => String(item?.value || "").trim().toLowerCase() !== "opencode");
+  return [...opencodeTypes, ...otherTypes];
+}
+
 function getCreateDefaultRuntimeType(defaults) {
-  return normalizeRuntimeTypeValue(defaults?.default_runtime_type || "opencode", defaults);
+  if (isRuntimeTypeAvailable(defaults, "opencode")) {
+    return "opencode";
+  }
+  const normalized = normalizeRuntimeTypeValue(defaults?.default_runtime_type || "opencode", defaults);
+  if (isRuntimeTypeAvailable(defaults, normalized)) {
+    return normalized;
+  }
+  const firstRuntimeType = getCreateRuntimeTypes(defaults)[0]?.value;
+  return normalizeRuntimeTypeValue(firstRuntimeType || normalized, defaults);
 }
 
 function runtimeTypeDescription(item) {
@@ -10862,8 +10882,8 @@ function populateRuntimeTypeSelect(selectEl, defaults, selectedValue = "") {
 
 function populateRuntimeTypeRadioGroup(groupEl, defaults, selectedValue = "") {
   if (!groupEl) return;
-  const runtimeTypes = getRuntimeTypes(defaults);
-  const selected = normalizeRuntimeTypeValue(selectedValue || defaults?.default_runtime_type || "opencode", defaults);
+  const runtimeTypes = getCreateRuntimeTypes(defaults);
+  const selected = normalizeRuntimeTypeValue(selectedValue || getCreateDefaultRuntimeType(defaults), defaults);
   groupEl.innerHTML = runtimeTypes.map((item) => {
     const value = String(item.value || "").trim();
     const label = item.label || value;
@@ -10897,7 +10917,7 @@ function populateRuntimeTypeRadioGroup(groupEl, defaults, selectedValue = "") {
 function updateCreateRuntimeTypeHint(form, defaults) {
   const runtimeTypeControl = form?.elements?.["runtime_type"];
   const hintEl = document.getElementById("create-runtime-type-hint");
-  const runtimeTypeValue = runtimeTypeControl?.value || defaults?.default_runtime_type || "opencode";
+  const runtimeTypeValue = runtimeTypeControl?.value || getCreateDefaultRuntimeType(defaults);
   const config = findRuntimeTypeConfig(defaults, runtimeTypeValue);
   const image = runtimeImagePreview(config);
   const mountPath = config?.default_mount_path || defaults?.mount_path || "";
