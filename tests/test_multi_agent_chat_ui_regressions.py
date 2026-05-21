@@ -2025,6 +2025,10 @@ def test_switching_to_b_while_a_submitting_reenables_send_for_b():
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
+    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
+    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
+    status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
+    session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     sync_controls = _extract_js_function(js_file, "syncSelectedAgentChatActionControls")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
@@ -2056,6 +2060,10 @@ function renderComposerModelSelectorForAgent() {{}}
 {create_state}
 {ensure_state}
 {normalize_status}
+{normalize_opencode_status}
+{inactive_payload}
+{status_blocking}
+{session_blocking}
 {has_active}
 {sync_controls}
 {set_submitting}
@@ -2083,6 +2091,10 @@ def test_start_new_chat_ignores_stale_local_active_request_without_opencode_busy
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
+    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
+    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
+    status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
+    session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     active_message = _extract_js_function(js_file, "activeChatRequestMessage")
     guard_active = _extract_js_function(js_file, "guardNoActiveChatRequestForAgent")
@@ -2119,6 +2131,10 @@ function getChatState() {{ return ensureChatState(state.selectedAgentId); }}
 {create_state}
 {ensure_state}
 {normalize_status}
+{normalize_opencode_status}
+{inactive_payload}
+{status_blocking}
+{session_blocking}
 {has_active}
 {active_message}
 {guard_active}
@@ -2273,6 +2289,10 @@ def test_event_message_does_not_claim_empty_session_without_matching_request():
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
     update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
     normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
+    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
+    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
+    status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
+    session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
@@ -2297,6 +2317,10 @@ function scheduleThinkingPanelRefresh() {{}}
 {has_contents}
 {update_context}
 {normalize_status}
+{normalize_opencode_status}
+{inactive_payload}
+{status_blocking}
+{session_blocking}
 {has_active}
 {handle_event}
 const chatState = ensureChatState("agent-A");

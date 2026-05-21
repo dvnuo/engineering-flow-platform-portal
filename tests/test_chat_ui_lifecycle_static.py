@@ -10,10 +10,13 @@ def _src():
     return SRC.read_text(encoding='utf-8')
 
 
-def test_has_active_chat_request_still_checks_inflight_thinking_completed():
+def test_has_active_chat_request_uses_opencode_projection_not_inflight_leftovers():
     src = _src()
     body = _extract_js_function(src, "hasActiveChatRequestForAgent")
-    assert 'chatState.inflightThinking && chatState.inflightThinking.completed === false' in body
+    assert 'isOpenCodeSessionInactivePayload(payload)' in body
+    assert 'isOpenCodeSessionBlocking(chatState)' in body
+    assert 'chatState.inflightThinking && chatState.inflightThinking.completed === false' not in body
+    assert 'hasIncompleteInflightThinking(chatState)' not in body
 
 
 def test_terminal_thinking_cleanup_clears_busy_state():
