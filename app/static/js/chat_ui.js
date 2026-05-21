@@ -774,6 +774,7 @@ function markOpenCodeProjectionInactive(agentId, chatState, reason = "opencode_s
   chatState.openCodeProjection.sessionStatus = normalizedStatus;
   chatState.openCodeProjection.sessionStatusPayload = inactivePayload;
   chatState.openCodeProjection.needsSnapshot = true;
+  delete chatState.openCodeProjection.pendingLocalSubmit;
 
   if (agentId && chatState.activeRequest) {
     clearStaleActiveRequest(agentId, chatState.activeRequest, reason);
@@ -839,9 +840,39 @@ function isOpenCodeSessionBlocking(chatState) {
   ].includes(status);
 }
 
+function isLocalSubmitPendingBeforeOpenCodeStatus(chatState) {
+  if (!chatState || chatState.isSubmitting !== true) return false;
+
+  const req = chatState.activeRequest;
+  if (!req) return false;
+
+  if (
+    req.aborted === true ||
+    req.stale === true ||
+    req.completed === true ||
+    req.failed === true ||
+    req.streamCompleted === true ||
+    req.runtimeInactive === true ||
+    req.opencodeInactive === true
+  ) {
+    return false;
+  }
+
+  // Short client-side bridge between local submit and authoritative OpenCode status.
+  const pendingLocalSubmit = chatState.openCodeProjection?.pendingLocalSubmit || {};
+  const startedAt = Number(req.startedAt || req.streamStartedAt || pendingLocalSubmit.startedAt || 0);
+  if (!startedAt || !Number.isFinite(startedAt)) return false;
+  const ageMs = Date.now() - startedAt;
+  if (ageMs > 120000) return false;
+
+  return true;
+}
+
 function hasActiveChatRequestForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return false;
+
+  if (isLocalSubmitPendingBeforeOpenCodeStatus(chatState)) return true;
 
   const projection = chatState.openCodeProjection || {};
   const payload = projection.sessionStatusPayload || {};
@@ -870,22 +901,14 @@ function hasActiveChatRequestForAgent(agentId) {
 
   if (isOpenCodeSessionBlocking(chatState)) return true;
 
-  if (
-    chatState.isSubmitting === true &&
-    !payload.status &&
-    !payload.status_type &&
-    !payload.statusType &&
-    !projection.sessionStatus
-  ) {
-    return true;
-  }
-
   return false;
 }
 
 function shouldShowAbortChatRunButton(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return false;
+
+  if (isLocalSubmitPendingBeforeOpenCodeStatus(chatState)) return true;
 
   const projection = chatState.openCodeProjection || {};
   const payload = projection.sessionStatusPayload || {};
@@ -912,16 +935,6 @@ function shouldShowAbortChatRunButton(agentId) {
   }
 
   if (isOpenCodeSessionBlocking(chatState)) return true;
-
-  if (
-    chatState.isSubmitting === true &&
-    !payload.status &&
-    !payload.status_type &&
-    !payload.statusType &&
-    !projection.sessionStatus
-  ) {
-    return true;
-  }
 
   return false;
 }
@@ -3260,6 +3273,7 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
         event_type: rawType,
         raw_type: data.raw_type || rawType,
       });
+      delete projection.pendingLocalSubmit;
       projection.needsSnapshot = true;
       return true;
     }
@@ -3278,6 +3292,7 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
         action_hint: data.action_hint || "wait_reconnect_or_stop",
         can_abort: data.can_abort !== false,
       };
+      delete projection.pendingLocalSubmit;
       if (reconcileHint === "fetch_session_messages") projection.needsSnapshot = true;
       return true;
     }
@@ -3289,6 +3304,7 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
       event_type: rawType,
       raw_type: data.raw_type || rawType,
     });
+    delete projection.pendingLocalSubmit;
     projection.needsSnapshot = true;
     return true;
   }
@@ -3299,6 +3315,7 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
       event_type: rawType,
       raw_type: rawType,
     });
+    delete projection.pendingLocalSubmit;
     projection.needsSnapshot = true;
     return true;
   }
@@ -3425,6 +3442,7 @@ async function refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatStat
         action_hint: payload.action_hint || "wait_reconnect_or_stop",
         can_abort: payload.can_abort !== false,
       };
+      delete chatState.openCodeProjection.pendingLocalSubmit;
       chatState.openCodeProjection.sessionStatusError = "";
       chatState.openCodeProjection.activeChildSessions = Array.isArray(payload?.active_child_sessions)
         ? payload.active_child_sessions
@@ -5418,6 +5436,23 @@ async function submitChatForSelectedAgent() {
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
   setChatStatus("Sending...");
+  if (!chatState.openCodeProjection) {
+    chatState.openCodeProjection = {
+      messagesById: {},
+      partsById: {},
+      sessionStatus: "",
+      sessionStatusPayload: null,
+      needsSnapshot: false,
+    };
+  } else {
+    chatState.openCodeProjection.sessionStatus = "";
+    chatState.openCodeProjection.sessionStatusPayload = null;
+  }
+  chatState.openCodeProjection.pendingLocalSubmit = {
+    sessionId: sessionIdAtSend || "",
+    requestId: clientRequestId,
+    startedAt: Date.now(),
+  };
   chatState.activeRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
   localStartWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx);

@@ -471,13 +471,21 @@ def test_refresh_busy_session_reconnects_and_refreshes_snapshot_static_contract(
 def test_active_request_busy_state_uses_runtime_blocking_helper():
     src = _src()
     has_active = _extract_js_function(src, "hasActiveChatRequestForAgent")
+    local_submit = _extract_js_function(src, "isLocalSubmitPendingBeforeOpenCodeStatus")
     blocking = _extract_js_function(src, "isActiveRequestBlocking")
     session_blocking = _extract_js_function(src, "isOpenCodeSessionBlocking")
     status_blocking = _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload")
     sync_controls = _extract_js_function(src, "syncSelectedAgentChatActionControls")
     abort_visibility = _extract_js_function(src, "shouldShowAbortChatRunButton")
 
-    assert "chatState.isSubmitting === true" in has_active
+    assert "function isLocalSubmitPendingBeforeOpenCodeStatus" in src
+    assert "chatState.isSubmitting !== true" in local_submit
+    assert "ageMs > 120000" in local_submit
+    assert "req.stale === true" in local_submit
+    assert "isLocalSubmitPendingBeforeOpenCodeStatus(chatState)" in has_active
+    assert "isLocalSubmitPendingBeforeOpenCodeStatus(chatState)" in abort_visibility
+    assert has_active.index("isLocalSubmitPendingBeforeOpenCodeStatus(chatState)") < has_active.index("const knownInactive")
+    assert abort_visibility.index("isLocalSubmitPendingBeforeOpenCodeStatus(chatState)") < abort_visibility.index("isOpenCodeSessionInactivePayload(payload)")
     assert "isOpenCodeSessionBlocking(chatState)" in has_active
     assert "isOpenCodeSessionInactivePayload(payload)" in has_active
     assert "markOpenCodeProjectionInactive(agentId, chatState" in has_active
@@ -505,6 +513,17 @@ def test_active_request_busy_state_uses_runtime_blocking_helper():
         assert marker in blocking
     assert "isActiveRequestBlocking(chatState)" not in has_active
     assert "hasIncompleteInflightThinking(chatState)" not in has_active
+
+
+def test_submit_chat_clears_old_opencode_projection_before_active_request():
+    src = _src()
+    submit_fn = _extract_js_function(src, "submitChatForSelectedAgent")
+
+    assert "pendingLocalSubmit" in submit_fn
+    assert "chatState.openCodeProjection.sessionStatusPayload = null" in submit_fn
+    assert "chatState.openCodeProjection.sessionStatus = \"\"" in submit_fn
+    assert submit_fn.index("chatState.openCodeProjection.sessionStatusPayload = null") < submit_fn.index("chatState.activeRequest = requestCtx")
+    assert submit_fn.index("chatState.activeRequest = requestCtx") < submit_fn.index("setChatSubmittingForAgent(agentIdAtSend, true)")
 
 
 def test_opencode_long_chat_does_not_use_task_mode_or_direct_opencode():

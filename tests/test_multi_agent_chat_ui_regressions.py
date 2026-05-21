@@ -2029,6 +2029,7 @@ def test_switching_to_b_while_a_submitting_reenables_send_for_b():
     inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
     status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
     session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
+    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     sync_controls = _extract_js_function(js_file, "syncSelectedAgentChatActionControls")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
@@ -2064,6 +2065,7 @@ function renderComposerModelSelectorForAgent() {{}}
 {inactive_payload}
 {status_blocking}
 {session_blocking}
+{local_submit}
 {has_active}
 {sync_controls}
 {set_submitting}
@@ -2095,6 +2097,7 @@ def test_start_new_chat_ignores_stale_local_active_request_without_opencode_busy
     inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
     status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
     session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
+    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     active_message = _extract_js_function(js_file, "activeChatRequestMessage")
     guard_active = _extract_js_function(js_file, "guardNoActiveChatRequestForAgent")
@@ -2135,6 +2138,7 @@ function getChatState() {{ return ensureChatState(state.selectedAgentId); }}
 {inactive_payload}
 {status_blocking}
 {session_blocking}
+{local_submit}
 {has_active}
 {active_message}
 {guard_active}
@@ -2293,6 +2297,7 @@ def test_event_message_does_not_claim_empty_session_without_matching_request():
     inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
     status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
     session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
+    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
@@ -2321,6 +2326,7 @@ function scheduleThinkingPanelRefresh() {{}}
 {inactive_payload}
 {status_blocking}
 {session_blocking}
+{local_submit}
 {has_active}
 {handle_event}
 const chatState = ensureChatState("agent-A");
