@@ -29,6 +29,18 @@ function conflictCode(error) {
   return error?.body?.error || error?.body?.code || error?.code || "";
 }
 
+function permissionResponseBody(decision, remember) {
+  const normalized = String(decision || "").trim().toLowerCase();
+  let response = "";
+  if (["allow", "allow_once", "once"].includes(normalized)) response = "once";
+  if (["allow_always", "always"].includes(normalized)) response = "always";
+  if (["deny", "reject"].includes(normalized)) response = "reject";
+  if (!response) response = normalized;
+  const body = { response };
+  if (remember === true) body.remember = true;
+  return body;
+}
+
 export class OpenCodeChatController {
   constructor({ agentId, rootElement, api } = {}) {
     if (!agentId) throw new Error("agentId is required");
@@ -211,8 +223,7 @@ export class OpenCodeChatController {
     if (!this.store.conversationId || !permissionId) return;
     try {
       await this.api.respondPermission(this.store.conversationId, permissionId, {
-        decision,
-        remember: remember === true,
+        ...permissionResponseBody(decision, remember),
       });
       this.store.permissionsById.delete(permissionId);
     } catch (error) {

@@ -8,6 +8,7 @@ TEMPLATE = Path("app/templates/partials/opencode_chat_container.html")
 
 def test_renderer_buttons_are_derived_from_view_state():
     src = RENDERER.read_text(encoding="utf-8")
+    permission_src = (MODULE_DIR / "permission_panel.js").read_text(encoding="utf-8")
 
     assert "viewState.canSend ? \"\" : \"disabled\"" in src
     assert "viewState.canStop" in src
@@ -15,6 +16,8 @@ def test_renderer_buttons_are_derived_from_view_state():
     assert "data-opencode-stop" in src
     assert "data-opencode-reconnect" in src
     assert "data-opencode-new-chat" in src
+    assert 'data-permission-decision="allow_once"' in permission_src
+    assert 'data-permission-decision="deny"' in permission_src
 
 
 def test_local_pending_placeholder_is_not_canonical_message():

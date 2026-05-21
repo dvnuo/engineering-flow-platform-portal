@@ -16,7 +16,7 @@ export function renderPermissionPanel(permissionRequests = []) {
         </div>
         <div class="opencode-permission-actions">
           <button type="button" class="opencode-btn" data-permission-decision="deny" data-permission-id="${escapeHtml(id)}">Deny</button>
-          <button type="button" class="opencode-btn is-primary" data-permission-decision="allow" data-permission-id="${escapeHtml(id)}">Allow</button>
+          <button type="button" class="opencode-btn is-primary" data-permission-decision="allow_once" data-permission-id="${escapeHtml(id)}">Allow once</button>
         </div>
       </section>
     `;

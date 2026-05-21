@@ -116,7 +116,9 @@ def test_opencode_chat_controller_flows_node():
         const permissionController = new OpenCodeChatController({ agentId: "agent-1", rootElement: null, api: permissionApi });
         permissionController.store.conversationId = "conversation-1";
         await permissionController.respondPermission("perm-1", "allow", true);
-        assert.deepEqual(permissionApi.calls.at(-1), ["respondPermission", "perm-1", { decision: "allow", remember: true }]);
+        assert.deepEqual(permissionApi.calls.at(-1), ["respondPermission", "perm-1", { response: "once", remember: true }]);
+        await permissionController.respondPermission("perm-2", "deny", false);
+        assert.deepEqual(permissionApi.calls.at(-1), ["respondPermission", "perm-2", { response: "reject" }]);
         """
     )
 
