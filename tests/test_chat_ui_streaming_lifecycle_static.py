@@ -83,6 +83,20 @@ def test_missing_final_detached_lifecycle_keeps_active_request_and_reconnects():
     assert "startChatRunReconcileLoop(agentIdAtSend, requestCtx, { immediate: true })" in detached
 
 
+def test_completed_lifecycle_missing_final_uses_snapshot_before_detach():
+    src = _src()
+    stream_submit = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    snapshot_helper = _extract_js_function(src, "finalizeFromSessionSnapshotAfterCompletedLifecycle")
+    assert "requestCtx.awaitingAuthoritativeFinal" in stream_submit
+    assert "requestCtx.sawAssistantMessageCompleted" in stream_submit
+    assert "requestCtx.sawRunCompleted" in stream_submit
+    assert "finalizeFromSessionSnapshotAfterCompletedLifecycle(" in stream_submit
+    assert stream_submit.index("finalizeFromSessionSnapshotAfterCompletedLifecycle(") < stream_submit.index("handleChatStreamMissingFinal(agentIdAtSend, requestCtx)")
+    assert "`/api/sessions/${encodeURIComponent(sessionId)}`" in snapshot_helper
+    assert "applySessionProjectionThenClearStaleRun(agentId, requestCtx, sessionPayload, reason)" in snapshot_helper
+    assert '"portal.final_snapshot.failed"' in snapshot_helper
+
+
 def test_reconcile_lifecycle_finalizes_only_after_runtime_terminal_state():
     src = _src()
     apply_projection = _extract_js_function(src, "applyChatRunProjection")

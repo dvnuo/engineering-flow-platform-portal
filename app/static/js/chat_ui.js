@@ -2592,22 +2592,26 @@ function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatc
     updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true });
   }
   if (type === "assistant.message.completed" || type === "message.completed") {
-    updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { completed: true });
-    const runStatus = normalizeChatRunStatus(data.run_status || data.status || data.completion_state || data.state || "");
-    if (isChatRunCompletedStatus(runStatus)) {
-      const finalPayload = {
-        ...rowPayload,
-        completion_state: getCompletionState(rowPayload) || "completed",
-        assistant_message_ids: normalizeAssistantMessageIds(rowPayload),
-        runtime_events: [],
-        events: [],
-      };
-      void handleAgentChatSuccess(agentId, requestCtx, finalPayload);
-      return "finalized";
-    } else {
-      startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-      return "completed_reconcile";
+    if (visibleText || displayBlocks.length) {
+      updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, {
+        partial: true,
+        completed: false,
+      });
     }
+
+    requestCtx.sawAssistantMessageCompleted = true;
+    requestCtx.awaitingAuthoritativeFinal = true;
+    requestCtx.assistantCompletedPreview = {
+      response: visibleText,
+      display_blocks: displayBlocks,
+      assistant_message_id: rowPayload.assistant_message_id || "",
+      assistant_message_ids: normalizeAssistantMessageIds(rowPayload),
+      request_id: rowPayload.request_id,
+      session_id: rowPayload.session_id,
+    };
+
+    startChatRunReconcileLoop(agentId, requestCtx, { immediate: false });
+    return "completed_reconcile";
   }
   return "updated";
 }
@@ -5014,6 +5018,52 @@ function getAssociatedRuntimeDeltaEvent(requestCtx, deltaText) {
   }
   return candidate;
 }
+function isSyntheticFinalDeltaEvent(eventData = {}, associatedEvent = null) {
+  const associatedData = associatedEvent?.data && typeof associatedEvent.data === "object"
+    ? associatedEvent.data
+    : {};
+  return Boolean(
+    eventData?.synthetic_final_delta === true
+    || eventData?.syntheticFinalDelta === true
+    || associatedEvent?.synthetic_final_delta === true
+    || associatedEvent?.syntheticFinalDelta === true
+    || associatedData?.synthetic_final_delta === true
+    || associatedData?.syntheticFinalDelta === true
+  );
+}
+function isLikelySyntheticFinalPreviewDelta(eventData = {}, requestCtx = {}, associatedEvent = null) {
+  if (isSyntheticFinalDeltaEvent(eventData, associatedEvent)) return true;
+
+  const deltaText = getChatStreamTextPayload(eventData);
+  if (!deltaText) return false;
+
+  const hasSyntheticPreview = Boolean(requestCtx?.syntheticFinalDeltaPreview);
+  const awaitingFinal = Boolean(
+    requestCtx?.awaitingAuthoritativeFinal
+    || requestCtx?.sawAssistantMessageCompleted
+    || requestCtx?.sawRunCompleted
+  );
+
+  if (!hasSyntheticPreview || !awaitingFinal) return false;
+
+  const observedAt = Number(requestCtx.syntheticFinalDeltaPreview?.observedAt || 0);
+  if (observedAt && Date.now() - observedAt > 5000) return false;
+
+  const rawType = String(eventData?.raw_type || eventData?.rawType || "").trim();
+  const role = String(eventData?.message_role || eventData?.messageRole || "").trim();
+  const partType = String(eventData?.part_type || eventData?.partType || "").trim();
+  const messageId = String(eventData?.message_id || eventData?.messageId || "").trim();
+  const partId = String(eventData?.part_id || eventData?.partId || "").trim();
+
+  const lacksCanonicalMarkers = !rawType && !role && !partType && !messageId && !partId;
+
+  if (!lacksCanonicalMarkers) return false;
+
+  const existingPreview = String(requestCtx.syntheticFinalDeltaPreview?.response || "");
+  const containsEllipsis = deltaText.includes("…") || existingPreview.includes("…");
+
+  return containsEllipsis || deltaText.length >= 80;
+}
 function buildAssistantStreamDeltaGuardSource(eventData, associatedEvent = null) {
   const hasAssociated = associatedEvent && typeof associatedEvent === "object";
   if (!hasAssociated) return eventData || {};
@@ -6669,6 +6719,9 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const localClearWaitingForRuntimeEventsTimer = (typeof clearWaitingForRuntimeEventsTimer === "function")
     ? clearWaitingForRuntimeEventsTimer
     : () => {};
+  const localIsSyntheticFinalDeltaEvent = (typeof isSyntheticFinalDeltaEvent === "function")
+    ? isSyntheticFinalDeltaEvent
+    : () => false;
   const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
     ? normalizeAssistantMessageIds
     : (payload = {}) => {
@@ -6702,6 +6755,20 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     };
     handleAgentEventMessage(JSON.stringify(streamEventPayload), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "", requestId: requestCtx.clientRequestId});
     rememberAssociatedRuntimeDeltaEvent(requestCtx, eventData, embeddedType);
+    const wrapperDeltaText = getChatStreamTextPayload(eventData);
+    if (localIsSyntheticFinalDeltaEvent(eventData, null)) {
+      requestCtx.awaitingAuthoritativeFinal = true;
+      requestCtx.syntheticFinalDeltaPreview = {
+        response: wrapperDeltaText || requestCtx.streamedText || "",
+        request_id: eventData.request_id || requestCtx.clientRequestId,
+        session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+        observedAt: Date.now(),
+      };
+    }
+    if (["chat.run.completed", "complete", "execution.completed"].includes(embeddedType)) {
+      requestCtx.sawRunCompleted = true;
+      requestCtx.awaitingAuthoritativeFinal = true;
+    }
     if (isDirectCompletionEventName(embeddedType)) {
       const candidateText = getChatStreamTextPayload(eventData);
       if (candidateText && !requestCtx.streamFinalCandidate) {
@@ -6726,6 +6793,40 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     requestCtx.sawDelta = true;
     const deltaText = getChatStreamTextPayload(eventData);
     const associatedEvent = getAssociatedRuntimeDeltaEvent(requestCtx, deltaText);
+    const isSyntheticPreviewDelta = (typeof isLikelySyntheticFinalPreviewDelta === "function")
+      ? isLikelySyntheticFinalPreviewDelta(eventData, requestCtx, associatedEvent)
+      : localIsSyntheticFinalDeltaEvent(eventData, associatedEvent);
+
+    if (isSyntheticPreviewDelta) {
+      const existingPreview = String(
+        requestCtx.syntheticFinalDeltaPreview?.response
+        || requestCtx.streamedText
+        || ""
+      );
+      const nextPreview = String(deltaText || "");
+      const previewText = nextPreview.length > existingPreview.length
+        ? nextPreview
+        : existingPreview;
+
+      requestCtx.streamedText = previewText;
+      requestCtx.awaitingAuthoritativeFinal = true;
+      requestCtx.syntheticFinalDeltaPreview = {
+        ...(requestCtx.syntheticFinalDeltaPreview || {}),
+        response: previewText,
+        request_id: eventData.request_id || requestCtx.clientRequestId,
+        session_id: eventData.session_id || requestCtx.sessionIdAtSend || "",
+        observedAt: requestCtx.syntheticFinalDeltaPreview?.observedAt || Date.now(),
+      };
+
+      if (previewText) {
+        updatePendingAssistantStreamContent(agentIdAtSend, previewText, {
+          streaming: true,
+          requestCtx,
+        });
+      }
+
+      return "event";
+    }
 
     if (shouldIgnoreAssistantStreamDelta(eventData, requestCtx, associatedEvent)) {
       return "event";
@@ -6780,6 +6881,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     requestCtx.sawFinal = true;
     localClearWaitingForRuntimeEventsTimer(requestCtx);
     requestCtx.streamSawFinal = true;
+    requestCtx.authoritativeFinalReceived = true;
     requestCtx.streamFinalPayload = eventData;
     requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
@@ -6801,7 +6903,23 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       return "final_incomplete";
     }
     requestCtx.streamCompleted = true;
-    await handleAgentChatSuccess(agentIdAtSend, requestCtx, {response: finalText, display_blocks: eventData?.display_blocks || [], session_id: eventData?.session_id || requestCtx.sessionIdAtSend || '', user_message_id: eventData?.user_message_id || '', assistant_message_id: eventData?.assistant_message_id || "", assistant_message_ids: localNormalizeAssistantMessageIds(eventData), request_id: eventData?.request_id || requestCtx.clientRequestId, events: eventData?.events || [], runtime_events: eventData?.runtime_events || []});
+    const finalPayload = {
+      ...eventData,
+      response: finalText,
+      display_blocks: eventData?.display_blocks || [],
+      session_id: eventData?.session_id || requestCtx.sessionIdAtSend || "",
+      request_id: eventData?.request_id || requestCtx.clientRequestId,
+      user_message_id: eventData?.user_message_id || "",
+      assistant_message_id: eventData?.assistant_message_id || "",
+      assistant_message_ids: localNormalizeAssistantMessageIds(eventData),
+      events: eventData?.events || [],
+      runtime_events: eventData?.runtime_events || [],
+      completion_state: localGetCompletionState(eventData) || "completed",
+    };
+    await handleAgentChatSuccess(agentIdAtSend, requestCtx, finalPayload, {
+      source: "stream_final",
+      allowFinalWithoutActiveRequest: true,
+    });
     return 'final';
   }
 
@@ -6883,6 +7001,24 @@ async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
   return handleChatStreamDetached(agentIdAtSend, requestCtx, "missing_final", {
     streamedTextPreview: requestCtx?.streamedText || "",
   });
+}
+
+async function finalizeFromSessionSnapshotAfterCompletedLifecycle(agentId, requestCtx, reason = "stream_final_missing_after_completed_event") {
+  const sessionId = requestCtx.sessionIdAtSend || currentSessionIdForAgent(agentId) || "";
+  if (!sessionId) return "missing_session";
+
+  try {
+    const sessionPayload = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
+    return await applySessionProjectionThenClearStaleRun(agentId, requestCtx, sessionPayload, reason);
+  } catch (error) {
+    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.final_snapshot.failed", {
+      message: "Completed lifecycle event was seen but stream final was missing; snapshot sync failed.",
+      error: String(error?.message || error || ""),
+      reason,
+    });
+    startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
+    return "running";
+  }
 }
 
 async function handleChatStreamDetached(agentIdAtSend, requestCtx, reason = "stream_detached", payload = {}) {
@@ -6984,6 +7120,19 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     sawFinal ||
     sawError
   ) return "handled";
+  if (!sawFinal && !sawError && (
+    requestCtx.awaitingAuthoritativeFinal
+    || requestCtx.sawAssistantMessageCompleted
+    || requestCtx.sawRunCompleted
+  )) {
+    const result = await finalizeFromSessionSnapshotAfterCompletedLifecycle(
+      agentIdAtSend,
+      requestCtx,
+      "stream_final_missing_after_completed_event"
+    );
+    if (result === "terminal" || result === "stopped") return "handled";
+    if (result === "running") return "detached";
+  }
   if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate)) {
     const candidate = requestCtx.streamFinalCandidate;
     const candidateText = finalResponseText(candidate) || getChatStreamTextPayload(candidate);
@@ -7028,7 +7177,7 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   return 'unsupported';
 }
 
-async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
+async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, options = {}) {
   const localHasRenderableAssistantPayload = (typeof hasRenderableAssistantPayload === "function")
     ? hasRenderableAssistantPayload
     : (candidate) => {
@@ -7058,10 +7207,43 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     ? normalizePayloadThinkingEvents
     : (events) => Array.isArray(events) ? events : [];
   const chatState = ensureChatState(agentIdAtSend);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  const activeMatches = Boolean(
+    chatState?.activeRequest
+    && chatState.activeRequest.clientRequestId === requestCtx.clientRequestId
+  );
+
+  const finalForSameRequest = Boolean(
+    options?.allowFinalWithoutActiveRequest === true
+    && (
+      requestCtx.streamSawFinal === true
+      || requestCtx.authoritativeFinalReceived === true
+      || payload?.request_id === requestCtx.clientRequestId
+      || payload?.request_id === requestCtx.requestId
+      || payload?.request_id === requestCtx.runtimeRequestId
+    )
+  );
+
+  if (!activeMatches && !finalForSameRequest) return;
+
+  const clearOpenCodeProjectionBusyState = () => {
+    if (chatState.openCodeProjection) {
+      chatState.openCodeProjection.sessionStatus = "idle";
+      chatState.openCodeProjection.sessionStatusPayload = {
+        ...(chatState.openCodeProjection.sessionStatusPayload || {}),
+        active: false,
+        status: { type: "idle" },
+        status_type: "idle",
+        action_hint: "safe_to_send",
+        active_run: null,
+      };
+      chatState.openCodeProjection.needsSnapshot = false;
+    }
+  };
+
   if (!localHasRenderableAssistantPayload(payload)) {
     const finalSessionId = payload?.session_id || requestCtx?.sessionIdAtSend || chatState?.sessionId || "";
     removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true });
+    clearOpenCodeProjectionBusyState();
     chatState.activeRequest = null;
     chatState.inflightThinking = null;
     chatState.pendingThinkingEvents = null;
@@ -7071,7 +7253,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
     if (finalSessionId) {
       await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
     }
-    syncSelectedAgentChatActionControls();
+    if (typeof syncSelectedAgentChatActionControls === "function") syncSelectedAgentChatActionControls();
     return;
   }
   const payloadThinkingEvents = [
@@ -7159,11 +7341,13 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload) {
   chatState.lastThinkingSnapshot = finalThinkingSnapshot;
   const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
   if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
+  clearOpenCodeProjectionBusyState();
   chatState.activeRequest = null;
   chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
+  if (typeof syncSelectedAgentChatActionControls === "function") syncSelectedAgentChatActionControls();
   if (state.selectedAgentId !== agentIdAtSend) {
     if (canRenderThinkingPanel) {
       if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);

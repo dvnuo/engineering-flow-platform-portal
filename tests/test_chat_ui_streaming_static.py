@@ -836,10 +836,83 @@ def test_events_update_assistant_bubble_and_do_not_show_hidden_reasoning():
         assert event_type in predicate
     assert "assistantRuntimeEventResult = handleAssistantMessageRuntimeEvent(" in handle_event
     assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true })" in assistant_handler
-    assert "updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { completed: true })" in assistant_handler
+    assert "completed: false" in assistant_handler
+    assert "requestCtx.awaitingAuthoritativeFinal = true" in assistant_handler
+    assert 'return "completed_reconcile"' in assistant_handler
     assert "requestCtx.streamedText" in assistant_handler
     assert 'role === "user"' in guard
     assert 'rawType === "message.part.updated"' in guard
+
+
+def test_authoritative_stream_final_contracts():
+    src = _src()
+    assistant_handler = _extract_js_function(src, "handleAssistantMessageRuntimeEvent")
+    stream_handler = _extract_js_function(src, "handleChatStreamEvent")
+    stream_submit = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
+    success_handler = _extract_js_function(src, "handleAgentChatSuccess")
+    preview_helper = _extract_js_function(src, "isLikelySyntheticFinalPreviewDelta")
+
+    assert "void handleAgentChatSuccess" not in assistant_handler
+    assert "requestCtx.awaitingAuthoritativeFinal = true" in assistant_handler
+    assert 'return "completed_reconcile"' in assistant_handler
+
+    assert "function isSyntheticFinalDeltaEvent" in src
+    assert "function isLikelySyntheticFinalPreviewDelta" in src
+    assert "isSyntheticFinalDeltaEvent(eventData, associatedEvent)" in preview_helper
+    assert "requestCtx?.syntheticFinalDeltaPreview" in preview_helper
+    assert "requestCtx?.awaitingAuthoritativeFinal" in preview_helper
+    assert "requestCtx?.sawAssistantMessageCompleted" in preview_helper
+    assert "requestCtx?.sawRunCompleted" in preview_helper
+    assert "lacksCanonicalMarkers" in preview_helper
+    assert "containsEllipsis || deltaText.length >= 80" in preview_helper
+
+    wrapper_idx = stream_handler.index("rememberAssociatedRuntimeDeltaEvent(requestCtx, eventData, embeddedType);")
+    wrapper_record_idx = stream_handler.index("requestCtx.syntheticFinalDeltaPreview = {", wrapper_idx)
+    assert wrapper_idx < wrapper_record_idx
+    assert "localIsSyntheticFinalDeltaEvent(eventData, null)" in stream_handler[wrapper_idx:wrapper_record_idx]
+    assert "response: wrapperDeltaText || requestCtx.streamedText || \"\"" in stream_handler[wrapper_record_idx:]
+    assert "observedAt: Date.now()" in stream_handler[wrapper_record_idx:]
+
+    delta_idx = stream_handler.index("if (isChatStreamDeltaEventName(outerType))")
+    associated_idx = stream_handler.index("const associatedEvent = getAssociatedRuntimeDeltaEvent(requestCtx, deltaText);", delta_idx)
+    synthetic_idx = stream_handler.index("isLikelySyntheticFinalPreviewDelta(", delta_idx)
+    preview_idx = stream_handler.index("if (isSyntheticPreviewDelta)", synthetic_idx)
+    append_idx = stream_handler.index('requestCtx.streamedText = (requestCtx.streamedText || "") + (deltaText || "")', delta_idx)
+    helper_call = stream_handler[synthetic_idx:preview_idx]
+    preview_branch = stream_handler[preview_idx:append_idx]
+    assert associated_idx < synthetic_idx < preview_idx < append_idx
+    assert "eventData" in helper_call
+    assert "requestCtx" in helper_call
+    assert "associatedEvent" in helper_call
+    assert "const existingPreview = String(" in preview_branch
+    assert "const nextPreview = String(deltaText || \"\")" in preview_branch
+    assert "nextPreview.length > existingPreview.length" in preview_branch
+    assert "requestCtx.streamedText = previewText" in preview_branch
+    assert "requestCtx.awaitingAuthoritativeFinal = true" in preview_branch
+    assert "response: previewText" in preview_branch
+    assert "observedAt: requestCtx.syntheticFinalDeltaPreview?.observedAt || Date.now()" in preview_branch
+    assert "updatePendingAssistantStreamContent(agentIdAtSend, previewText" in preview_branch
+    assert "queueAssistantTypewriter" not in preview_branch
+    assert '(requestCtx.streamedText || "") + (deltaText || "")' not in preview_branch
+
+    final_idx = stream_handler.index("if (isChatStreamFinalEventName(outerType) || isDirectCompletionEventName(outerType))")
+    final_branch = stream_handler[final_idx:]
+    assert "requestCtx.authoritativeFinalReceived = true" in final_branch
+    assert "allowFinalWithoutActiveRequest: true" in final_branch
+    assert 'source: "stream_final"' in final_branch
+
+    assert 'chatState.openCodeProjection.sessionStatus = "idle"' in success_handler
+    assert "active: false" in success_handler
+    assert "active_run: null" in success_handler
+    assert "chatState.openCodeProjection.needsSnapshot = false" in success_handler
+
+    assert "finalizeFromSessionSnapshotAfterCompletedLifecycle" in src
+    assert "requestCtx.awaitingAuthoritativeFinal" in stream_submit
+    assert "requestCtx.sawAssistantMessageCompleted" in stream_submit
+    assert "requestCtx.sawRunCompleted" in stream_submit
+    assert "stream_final_missing_after_completed_event" in stream_submit
+    assert ":4096" not in src
+    assert "/api/tasks" not in stream_submit
 
 
 def test_terminal_runtime_event_is_null_safe_after_assistant_finalization():
