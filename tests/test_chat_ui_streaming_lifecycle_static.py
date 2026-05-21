@@ -140,10 +140,12 @@ def test_user_abort_and_agent_lifecycle_clear_active_request():
     assert 'setChatStatus("Stopping current run…")' in abort_fn
     assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
     assert '`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_session
-    assert "abortSessionForAgent(agentId, sessionId)" in abort_fn
+    assert "abortSessionForAgent(agentId, sessionId, { forceDetach: true })" in abort_fn
+    assert "body: JSON.stringify({ force_detach: forceDetach })" in abort_session
+    assert abort_fn.index("if (sessionId)") < abort_fn.index("`/api/chat/runs/${encodeURIComponent(requestId)}/abort`")
     assert "if (!runtimeAbortSucceeded(result))" in abort_fn
     assert "runtimeAbortIndicatesInactive(result)" in abort_fn
-    assert 'clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted")' in abort_fn
+    assert "handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result)" in abort_fn
     assert "parseAgentLifecycleAction(path)" in action_fn
     assert "clearStaleActiveRequest(" in action_fn
     assert '"agent_stopped"' in action_fn
@@ -187,14 +189,16 @@ def test_restart_lifecycle_waits_for_runtime_ready_before_success_status():
 def test_abort_failed_keeps_active_request_and_reconcile_continues():
     src = _src()
     abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    session_success = _extract_js_function(src, "handleSessionAbortSuccess")
     failure_start = abort_fn.index("if (!runtimeAbortSucceeded(result))")
     failure_end = abort_fn.index("return;", failure_start)
     failure_branch = abort_fn[failure_start:failure_end]
 
-    assert '"portal.abort.failed"' in failure_branch
-    assert 'setChatStatus("Unable to stop current run.", true)' in failure_branch
-    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in failure_branch
-    assert "syncSelectedAgentChatActionControls()" in failure_branch
+    assert "handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result || {})" in failure_branch
+    assert '"portal.abort.failed"' in session_success
+    assert 'setChatStatus("Unable to stop current run.", true)' in session_success
+    assert "startChatRunReconcileLoop(agentId, ctx, { immediate: true })" in session_success
+    assert "syncSelectedAgentChatActionControls()" in session_success
     assert "clearStaleActiveRequest" not in failure_branch
 
 

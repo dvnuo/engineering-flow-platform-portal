@@ -342,6 +342,9 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
         "function canonicalMessagesToThinkingItems",
         "function applyOpenCodeCanonicalEventToChatState",
         "function normalizeOpenCodeSessionStatusType",
+        "function isOpenCodeSessionInactivePayload",
+        "function buildOpenCodeInactiveSessionStatusPayload",
+        "function markOpenCodeProjectionInactive",
         "function isOpenCodeSessionStatusBlockingPayload",
         "function isOpenCodeSessionBlocking",
         "function computeOpenCodeRuntimeUiState",
@@ -354,6 +357,7 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
         assert helper in src
 
     assert 'rawType === "session.status"' in session_state_only
+    assert 'rawType === "session.updated"' in session_state_only
     assert 'rawType === "session.idle"' in session_state_only
     assert 'reconcileHint === "fetch_session_messages"' in session_state_only
 
@@ -375,6 +379,7 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
 
     assert "applyOpenCodeCanonicalEventToChatState" in handle_event
     assert "localApplyOpenCodeCanonicalEventToChatState(chatState, entry)" in handle_event
+    assert "markOpenCodeProjectionInactive(" in handle_event
     assert "maybeRefreshSessionSnapshotForOpenCodeEvent" in handle_event
     assert "isCurrentSessionCanonicalSnapshotEvent" in handle_event
     assert "!isCurrentSessionCanonicalSnapshotEvent" in handle_event
@@ -401,6 +406,8 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "`/api/sessions/${encodeURIComponent(sessionId)}/status`" in refresh_status
     assert "agentApiFor(" in refresh_status
     assert "sessionStatusPayload" in refresh_status
+    assert "isOpenCodeSessionInactivePayload(payload)" in refresh_status
+    assert "markOpenCodeProjectionInactive(" in refresh_status
     assert "activeChildSessions" in refresh_status
     assert "sessionStatusError" in refresh_status
 
@@ -415,6 +422,10 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "openCodeRuntimeUiStatusText(uiState)" in set_status
     assert '["busy", "retry"].includes' in set_status
     assert "statusDetail.join" in set_status
+    canonical_apply = _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState")
+    assert 'eventType === "session.updated"' in canonical_apply
+    assert 'rawType !== "session.updated"' in canonical_apply
+    assert 'rawType === "session.status" || rawType === "session.updated"' in canonical_apply
     assert ":4096" not in src
     assert "/api/tasks" not in handle_event
     assert "/api/tasks" not in load_session
@@ -440,6 +451,12 @@ def test_refresh_busy_session_reconnects_and_refreshes_snapshot_static_contract(
     assert '"session.idle"' in canonical_apply
     assert "projection.needsSnapshot = true" in canonical_apply
     assert 'projection.sessionStatus = "idle"' in canonical_apply
+    idle_start = canonical_apply.index('if (rawType === "session.idle")')
+    idle_branch = canonical_apply[idle_start:canonical_apply.index("return true;", idle_start)]
+    assert "projection.sessionStatusPayload" in idle_branch
+    assert "buildOpenCodeInactiveSessionStatusPayload" in idle_branch
+    assert '"safe_to_send"' in _extract_js_function(src, "buildOpenCodeInactiveSessionStatusPayload")
+    assert "active_run: null" in _extract_js_function(src, "buildOpenCodeInactiveSessionStatusPayload")
 
     assert "maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState" in handle_event
     assert "appliedCanonicalEvent && !chatState.activeRequest" in handle_event
@@ -454,23 +471,37 @@ def test_refresh_busy_session_reconnects_and_refreshes_snapshot_static_contract(
 def test_active_request_busy_state_uses_runtime_blocking_helper():
     src = _src()
     has_active = _extract_js_function(src, "hasActiveChatRequestForAgent")
+    local_submit = _extract_js_function(src, "isLocalSubmitPendingBeforeOpenCodeStatus")
     blocking = _extract_js_function(src, "isActiveRequestBlocking")
     session_blocking = _extract_js_function(src, "isOpenCodeSessionBlocking")
     status_blocking = _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload")
     sync_controls = _extract_js_function(src, "syncSelectedAgentChatActionControls")
     abort_visibility = _extract_js_function(src, "shouldShowAbortChatRunButton")
 
-    assert "isActiveRequestBlocking(chatState)" in has_active
-    assert "hasIncompleteInflightThinking(chatState)" in has_active
+    assert "function isLocalSubmitPendingBeforeOpenCodeStatus" in src
+    assert "chatState.isSubmitting !== true" in local_submit
+    assert "ageMs > 120000" in local_submit
+    assert "req.stale === true" in local_submit
+    assert "isLocalSubmitPendingBeforeOpenCodeStatus(chatState)" in has_active
+    assert "isLocalSubmitPendingBeforeOpenCodeStatus(chatState)" in abort_visibility
+    assert has_active.index("isLocalSubmitPendingBeforeOpenCodeStatus(chatState)") < has_active.index("const knownInactive")
+    assert abort_visibility.index("isLocalSubmitPendingBeforeOpenCodeStatus(chatState)") < abort_visibility.index("isOpenCodeSessionInactivePayload(payload)")
     assert "isOpenCodeSessionBlocking(chatState)" in has_active
-    assert "openCodeSessionBlocking" in has_active
-    assert "isOpenCodeSessionStatusBlockingPayload(projection.sessionStatusPayload || {})" in session_blocking
+    assert "isOpenCodeSessionInactivePayload(payload)" in has_active
+    assert "markOpenCodeProjectionInactive(agentId, chatState" in has_active
+    assert '"opencode_status_not_active"' in has_active
+    assert "isOpenCodeSessionInactivePayload(payload)" in session_blocking
+    assert "isOpenCodeSessionStatusBlockingPayload(payload)" in session_blocking
     assert "payload?.active === true" in status_blocking
     assert 'payload?.action_hint === "wait_reconnect_or_stop"' in status_blocking
     assert '"busy"' in status_blocking
     assert '"retry"' in status_blocking
     assert "shouldShowAbortChatRunButton(agentId)" in sync_controls
     assert "isOpenCodeSessionBlocking(chatState)" in abort_visibility
+    assert "isOpenCodeSessionInactivePayload(payload)" in abort_visibility
+    assert "markOpenCodeProjectionInactive(agentId, chatState" in abort_visibility
+    assert "chatState?.activeRequest" not in abort_visibility
+    assert "hasIncompleteInflightThinking(chatState)" not in abort_visibility
     for marker in [
         "req.aborted",
         "req.stale",
@@ -480,7 +511,31 @@ def test_active_request_busy_state_uses_runtime_blocking_helper():
         "req.opencodeInactive",
     ]:
         assert marker in blocking
-    assert "chatState.activeRequest" not in has_active.replace("isActiveRequestBlocking(chatState)", "")
+    assert "isActiveRequestBlocking(chatState)" not in has_active
+    assert "hasIncompleteInflightThinking(chatState)" not in has_active
+
+
+def test_inactive_opencode_event_deferral_runs_before_canonical_apply():
+    src = _src()
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+
+    assert "function shouldDeferInactiveOpenCodeEventForFreshLocalSubmit" in src
+    assert "function isInactiveOpenCodeSessionEvent" in src
+    assert "function runtimeEventTimestampMs" in src
+    assert "shouldDeferInactiveOpenCodeEventForFreshLocalSubmit(" in handle_event
+    assert handle_event.index("shouldDeferInactiveOpenCodeEventForFreshLocalSubmit(") < handle_event.index("localApplyOpenCodeCanonicalEventToChatState(chatState, entry)")
+    assert '"portal.opencode_inactive_event.deferred"' in handle_event
+
+
+def test_submit_chat_clears_old_opencode_projection_before_active_request():
+    src = _src()
+    submit_fn = _extract_js_function(src, "submitChatForSelectedAgent")
+
+    assert "pendingLocalSubmit" in submit_fn
+    assert "chatState.openCodeProjection.sessionStatusPayload = null" in submit_fn
+    assert "chatState.openCodeProjection.sessionStatus = \"\"" in submit_fn
+    assert submit_fn.index("chatState.openCodeProjection.sessionStatusPayload = null") < submit_fn.index("chatState.activeRequest = requestCtx")
+    assert submit_fn.index("chatState.activeRequest = requestCtx") < submit_fn.index("setChatSubmittingForAgent(agentIdAtSend, true)")
 
 
 def test_opencode_long_chat_does_not_use_task_mode_or_direct_opencode():
@@ -544,7 +599,8 @@ def test_live_thinking_panel_renders_status_banner_and_safe_details():
     assert "nonSuccessHintForPayload" in render_panel
     assert 'You can send "continue"' in hint_helper
     assert "chat_run_already_active" in hint_helper
-    assert "Wait for it to finish or use Stop run" in hint_helper
+    assert "stop the run, or reset this session" in hint_helper
+    assert "opencode_abort_still_active" in hint_helper
     assert "Still running. Live events will continue to appear here." in render_panel
     assert "Historical" in render_panel
     assert "portal-event-detail" in render_panel
@@ -723,10 +779,14 @@ def test_abort_active_chat_request_uses_runtime_abort_endpoints():
     assert "function abortActiveChatRequestForSelectedAgent" in src
     assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
     assert '`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_session
-    assert "abortSessionForAgent(agentId, sessionId)" in abort_fn
+    assert "abortSessionForAgent(agentId, sessionId, { forceDetach: true })" in abort_fn
+    assert "body: JSON.stringify({ force_detach: forceDetach })" in abort_session
+    assert "const forceDetach = options.forceDetach !== false" in abort_session
+    assert abort_fn.index("if (sessionId)") < abort_fn.index("`/api/chat/runs/${encodeURIComponent(requestId)}/abort`")
+    assert "hardResetSessionForAgent" in src
     assert "runtimeAbortSucceeded(result)" in abort_fn
     assert "runtimeAbortIndicatesInactive(result)" in abort_fn
-    assert 'clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted")' in abort_fn
+    assert "handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result)" in abort_fn
     assert '"portal.abort.started"' in abort_fn
     assert '"portal.abort.completed"' in abort_fn
     assert '"portal.abort.failed"' in abort_fn
@@ -752,18 +812,20 @@ def test_abort_synthetic_opencode_session_run_uses_session_abort_endpoint():
     assert "requestCtx.fromSessionStatus === true" in synthetic
 
     assert '`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`' in abort_session
-    assert "localIsSyntheticOpenCodeSessionRequest(requestCtx, chatState || {})" in abort_fn
-    assert "if (shouldAbortSession)" in abort_fn
-    assert "abortSessionForAgent(agentId, sessionId)" in abort_fn
+    assert "if (sessionId)" in abort_fn
+    assert "abortSessionForAgent(agentId, sessionId, { forceDetach: true })" in abort_fn
     assert '`/api/chat/runs/${encodeURIComponent(requestId)}/abort`' in abort_fn
-    assert "localIsMissingChatRunAbortFailure(error)" in abort_fn
-    assert "localIsMissingChatRunAbortFailure(result)" in abort_fn
     assert "handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId" in abort_fn
 
     assert 'chatState.openCodeProjection.sessionStatus = "idle"' in session_success
-    assert "active: false" in session_success
-    assert 'status_type: "idle"' in session_success
-    assert "active_run: null" in session_success
+    assert 'buildOpenCodeInactiveSessionStatusPayload("idle", result)' in session_success
+    inactive_payload = _extract_js_function(src, "buildOpenCodeInactiveSessionStatusPayload")
+    assert "active: false" in inactive_payload
+    assert 'source_of_truth: "opencode"' in inactive_payload
+    assert "status_type: normalizedStatus" in inactive_payload
+    assert "active_run: null" in inactive_payload
+    assert '"portal.abort.detached_old_opencode_session"' in session_success
+    assert "hardResetSessionForAgent(agentId, sessionId)" in session_success
     assert "syncSelectedAgentChatActionControls()" in session_success
     assert "loadSessionForAgent(agentId, sessionId" in session_success
 
@@ -774,12 +836,13 @@ def test_abort_active_chat_request_checks_runtime_abort_result():
     success_helper = _extract_js_function(src, "runtimeAbortSucceeded")
     inactive_helper = _extract_js_function(src, "runtimeAbortIndicatesInactive")
 
-    assert "result.success === false" in success_helper
-    assert "abortResult.success === false" in success_helper
-    assert "Array.isArray(abortResult.errors) && abortResult.errors.length" in success_helper
-    assert "result.success === true || abortResult.success === true || result.stale === true" in success_helper
+    assert "result.success !== true" in success_helper
+    assert 'result.error === "opencode_abort_still_active"' in success_helper
+    assert "result.active === true" in success_helper
+    assert "result.detached_old_session === true" in success_helper
     assert "missing_session_ids" in inactive_helper
-    assert '"aborted", "stale", "completed", "incomplete", "failed", "cancelled", "canceled"' in inactive_helper
+    assert '"idle", "aborted", "stopped", "missing", "stale", "completed"' in inactive_helper
+    assert 'actionHint === "safe_to_send"' in inactive_helper
     assert "if (!runtimeAbortSucceeded(result))" in abort_fn
     assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in abort_fn
 
@@ -787,16 +850,20 @@ def test_abort_active_chat_request_checks_runtime_abort_result():
 def test_abort_failure_does_not_clear_active_request():
     src = _src()
     abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
+    session_success = _extract_js_function(src, "handleSessionAbortSuccess")
     failure_start = abort_fn.index("if (!runtimeAbortSucceeded(result))")
     failure_end = abort_fn.index("return;", failure_start)
     failure_branch = abort_fn[failure_start:failure_end]
+    helper_failure_start = session_success.rindex('appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.failed"')
+    helper_failure_branch = session_success[helper_failure_start:]
 
-    assert '"portal.abort.failed"' in failure_branch
-    assert 'setChatStatus("Unable to stop current run.", true)' in failure_branch
-    assert "showToast(\"Unable to stop current run: \" + message)" in failure_branch
-    assert "startChatRunReconcileLoop(agentId, requestCtx, { immediate: true })" in failure_branch
-    assert "syncSelectedAgentChatActionControls()" in failure_branch
-    assert "clearStaleActiveRequest" not in failure_branch
+    assert "handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result || {})" in failure_branch
+    assert '"portal.abort.failed"' in session_success
+    assert 'setChatStatus("Unable to stop current run.", true)' in helper_failure_branch
+    assert 'showToast("Unable to stop current run: " + String(result?.error || result?.detail || "abort failed"))' in helper_failure_branch
+    assert "startChatRunReconcileLoop(agentId, ctx, { immediate: true })" in helper_failure_branch
+    assert "syncSelectedAgentChatActionControls()" in helper_failure_branch
+    assert "clearStaleActiveRequest" not in helper_failure_branch
 
 
 def test_remove_temporary_assistant_rows_is_request_scoped_and_content_safe():
