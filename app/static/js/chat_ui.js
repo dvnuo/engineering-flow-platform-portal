@@ -757,7 +757,7 @@ function buildOpenCodeInactiveSessionStatusPayload(statusType = "idle", extra = 
   };
 }
 
-function markOpenCodeProjectionInactive(agentId, chatState, reason = "opencode_session_idle", statusType = "idle", extra = {}) {
+function markOpenCodeProjectionInactive(agentId, chatState, reason = "opencode_session_idle", statusType = "idle", extra = {}, options = {}) {
   if (!chatState) return;
   if (!chatState.openCodeProjection) {
     chatState.openCodeProjection = {
@@ -776,8 +776,13 @@ function markOpenCodeProjectionInactive(agentId, chatState, reason = "opencode_s
   chatState.openCodeProjection.needsSnapshot = true;
   delete chatState.openCodeProjection.pendingLocalSubmit;
 
+  if (options.clearLocalState === false) return;
+
   if (agentId && chatState.activeRequest) {
-    clearStaleActiveRequest(agentId, chatState.activeRequest, reason);
+    clearStaleActiveRequest(agentId, chatState.activeRequest, reason, {
+      suppressSync: options.suppressSync === true,
+      suppressRuntimeEvent: options.suppressRuntimeEvent === true,
+    });
   } else if (chatState.inflightThinking && chatState.inflightThinking.completed === false) {
     chatState.inflightThinking.completed = true;
     chatState.inflightThinking.stale = true;
@@ -984,10 +989,7 @@ function hasActiveChatRequestForAgent(agentId) {
     ].includes(status)
   );
 
-  if (knownInactive) {
-    markOpenCodeProjectionInactive(agentId, chatState, "opencode_status_not_active", status || "idle", payload);
-    return false;
-  }
+  if (knownInactive) return false;
 
   if (isOpenCodeSessionBlocking(chatState)) return true;
 
@@ -1020,7 +1022,6 @@ function shouldShowAbortChatRunButton(agentId) {
       "failed",
     ].includes(status)
   ) {
-    markOpenCodeProjectionInactive(agentId, chatState, "opencode_status_not_active", status || "idle", payload);
     return false;
   }
 
@@ -1124,6 +1125,9 @@ function syncSelectedAgentChatActionControls() {
     }
     return;
   }
+
+  const chatState = ensureChatState(agentId);
+  if (chatState?.clearingStaleActiveRequest === true) return;
 
   const busy = hasActiveChatRequestForAgent(agentId);
   if (dom.abortChatRunBtn) {
@@ -4767,10 +4771,11 @@ function removeWelcomeMessageIfPresent() {
   if (onlyWelcome) welcome.remove();
 }
 
-function setChatSubmittingForAgent(agentId, active) {
+function setChatSubmittingForAgent(agentId, active, options = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.isSubmitting = !!active;
+  if (options.suppressSync === true) return;
   if (agentId !== state.selectedAgentId) return;
   if (typeof syncSelectedAgentChatActionControls === "function") {
     syncSelectedAgentChatActionControls();
@@ -6632,55 +6637,68 @@ function fallbackRequestContextForAgent(agentId, reason = "opencode_not_active")
   };
 }
 
-function clearStaleActiveRequest(agentId, requestCtx, reason = "opencode_not_active") {
+function clearStaleActiveRequest(agentId, requestCtx, reason = "opencode_not_active", options = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
 
-  const activeRequest = chatState.activeRequest;
-  const clearCtx = requestCtx || activeRequest || fallbackRequestContextForAgent(agentId, reason);
-  const shouldClearActive = Boolean(
-    activeRequest
-    && (
-      activeRequestMatchesRequestContext(activeRequest, clearCtx)
-      || String(activeRequest.sessionIdAtSend || "") === String(clearCtx.sessionIdAtSend || "")
-    )
-  );
+  if (chatState.clearingStaleActiveRequest === true) return;
+  chatState.clearingStaleActiveRequest = true;
 
-  if (shouldClearActive) {
-    activeRequest.stale = true;
-    activeRequest.runtimeInactive = true;
-    activeRequest.opencodeInactive = true;
-    activeRequest.staleReason = reason;
-    activeRequest.aborted = reason === "user_aborted";
+  let activeRequest = null;
+  let clearCtx = null;
+  let shouldClearActive = false;
+
+  try {
+    activeRequest = chatState.activeRequest;
+    clearCtx = requestCtx || activeRequest || fallbackRequestContextForAgent(agentId, reason);
+    shouldClearActive = Boolean(
+      activeRequest
+      && (
+        activeRequestMatchesRequestContext(activeRequest, clearCtx)
+        || String(activeRequest.sessionIdAtSend || "") === String(clearCtx.sessionIdAtSend || "")
+      )
+    );
+
+    if (shouldClearActive) {
+      activeRequest.stale = true;
+      activeRequest.runtimeInactive = true;
+      activeRequest.opencodeInactive = true;
+      activeRequest.staleReason = reason;
+      activeRequest.aborted = reason === "user_aborted";
+    }
+
+    clearWaitingForRuntimeEventsTimer(clearCtx);
+    stopChatRunReconcileLoop(clearCtx);
+    cancelAssistantTypewriter(clearCtx);
+
+    if (chatState.inflightThinking) {
+      chatState.inflightThinking.completed = true;
+      chatState.inflightThinking.stale = true;
+      chatState.inflightThinking.status = "stale";
+      chatState.inflightThinking.completionState = "stale";
+    }
+
+    if (shouldClearActive && chatState.activeRequest === activeRequest) {
+      chatState.activeRequest = null;
+    }
+
+    setChatSubmittingForAgent(agentId, false, { suppressSync: true });
+  } finally {
+    chatState.clearingStaleActiveRequest = false;
   }
 
-  if (chatState.inflightThinking) {
-    chatState.inflightThinking.completed = true;
-    chatState.inflightThinking.stale = true;
-    chatState.inflightThinking.status = "stale";
-  }
-
-  clearWaitingForRuntimeEventsTimer(clearCtx);
-  cancelAssistantTypewriter(clearCtx);
-  setChatSubmittingForAgent(agentId, false);
-  stopChatRunReconcileLoop(clearCtx);
-  appendPortalChatRuntimeEvent(agentId, clearCtx, "portal.active_request.cleared", {
-    reason,
-    message: "Runtime reports that the OpenCode session is no longer active.",
-  });
-  if (shouldClearActive && chatState.activeRequest === activeRequest) {
-    chatState.activeRequest = null;
-  }
-
-  if (chatState.inflightThinking) {
-    chatState.inflightThinking.completed = true;
-    chatState.inflightThinking.stale = true;
-    chatState.inflightThinking.status = "stale";
+  if (options.suppressRuntimeEvent !== true) {
+    appendPortalChatRuntimeEvent(agentId, clearCtx, "portal.active_request.cleared", {
+      reason,
+      message: "Runtime reports that the OpenCode session is no longer active.",
+    });
   }
 
   if (state.selectedAgentId === agentId) {
     setChatStatus(reason === "user_aborted" ? "Stopped current run." : "Previous run is no longer active.");
-    syncSelectedAgentChatActionControls();
+    if (options.suppressSync !== true) {
+      syncSelectedAgentChatActionControls();
+    }
   }
 }
 

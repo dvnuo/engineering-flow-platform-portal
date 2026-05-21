@@ -477,6 +477,8 @@ def test_active_request_busy_state_uses_runtime_blocking_helper():
     status_blocking = _extract_js_function(src, "isOpenCodeSessionStatusBlockingPayload")
     sync_controls = _extract_js_function(src, "syncSelectedAgentChatActionControls")
     abort_visibility = _extract_js_function(src, "shouldShowAbortChatRunButton")
+    set_submit = _extract_js_function(src, "setChatSubmittingForAgent")
+    clear_stale = _extract_js_function(src, "clearStaleActiveRequest")
 
     assert "function isLocalSubmitPendingBeforeOpenCodeStatus" in src
     assert "chatState.isSubmitting !== true" in local_submit
@@ -488,8 +490,8 @@ def test_active_request_busy_state_uses_runtime_blocking_helper():
     assert abort_visibility.index("isLocalSubmitPendingBeforeOpenCodeStatus(chatState)") < abort_visibility.index("isOpenCodeSessionInactivePayload(payload)")
     assert "isOpenCodeSessionBlocking(chatState)" in has_active
     assert "isOpenCodeSessionInactivePayload(payload)" in has_active
-    assert "markOpenCodeProjectionInactive(agentId, chatState" in has_active
-    assert '"opencode_status_not_active"' in has_active
+    assert "markOpenCodeProjectionInactive(" not in has_active
+    assert "clearStaleActiveRequest(" not in has_active
     assert "isOpenCodeSessionInactivePayload(payload)" in session_blocking
     assert "isOpenCodeSessionStatusBlockingPayload(payload)" in session_blocking
     assert "payload?.active === true" in status_blocking
@@ -499,9 +501,17 @@ def test_active_request_busy_state_uses_runtime_blocking_helper():
     assert "shouldShowAbortChatRunButton(agentId)" in sync_controls
     assert "isOpenCodeSessionBlocking(chatState)" in abort_visibility
     assert "isOpenCodeSessionInactivePayload(payload)" in abort_visibility
-    assert "markOpenCodeProjectionInactive(agentId, chatState" in abort_visibility
+    assert "markOpenCodeProjectionInactive(" not in abort_visibility
+    assert "clearStaleActiveRequest(" not in abort_visibility
     assert "chatState?.activeRequest" not in abort_visibility
     assert "hasIncompleteInflightThinking(chatState)" not in abort_visibility
+    assert "options = {}" in set_submit
+    assert "options.suppressSync === true" in set_submit
+    assert "clearingStaleActiveRequest" in clear_stale
+    assert "setChatSubmittingForAgent(agentId, false, { suppressSync: true })" in clear_stale
+    assert clear_stale.index("chatState.activeRequest = null") < clear_stale.index("setChatSubmittingForAgent(agentId, false")
+    assert clear_stale.index("chatState.activeRequest = null") < clear_stale.index("appendPortalChatRuntimeEvent")
+    assert clear_stale.index("chatState.activeRequest = null") < clear_stale.index("syncSelectedAgentChatActionControls()")
     for marker in [
         "req.aborted",
         "req.stale",
