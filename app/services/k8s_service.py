@@ -15,6 +15,7 @@ from app.utils.git_urls import normalize_git_repo_url
 
 
 OPENCODE_INTERNAL_HTTP_PORT = 2 ** 12
+MERGE_PATCH_CONTENT_TYPE = "application/merge-patch+json"
 
 
 @dataclass
@@ -322,11 +323,72 @@ class K8sService:
                 }
             }
         }
-        self.apps_api.patch_namespaced_deployment(
-            name=agent.deployment_name,
-            namespace=agent.namespace,
-            body=patch,
-            _content_type="application/merge-patch+json",
+        self._patch_agent_deployment_merge(agent, patch)
+
+    def _apps_v1_merge_patch(self, *, path: str, path_params: dict, body: dict, response_type: str):
+        return self.apps_api.api_client.call_api(
+            path,
+            "PATCH",
+            path_params=path_params,
+            query_params=[],
+            header_params={
+                "Accept": "application/json",
+                "Content-Type": MERGE_PATCH_CONTENT_TYPE,
+            },
+            body=body,
+            post_params=[],
+            files={},
+            response_type=response_type,
+            auth_settings=["BearerToken"],
+            async_req=False,
+            _return_http_data_only=True,
+            _preload_content=True,
+            collection_formats={},
+        )
+
+    def _core_v1_merge_patch(self, *, path: str, path_params: dict, body: dict, response_type: str):
+        return self.core_api.api_client.call_api(
+            path,
+            "PATCH",
+            path_params=path_params,
+            query_params=[],
+            header_params={
+                "Accept": "application/json",
+                "Content-Type": MERGE_PATCH_CONTENT_TYPE,
+            },
+            body=body,
+            post_params=[],
+            files={},
+            response_type=response_type,
+            auth_settings=["BearerToken"],
+            async_req=False,
+            _return_http_data_only=True,
+            _preload_content=True,
+            collection_formats={},
+        )
+
+    def _patch_agent_deployment_merge(self, agent, body: dict, *, response_type: str = "V1Deployment"):
+        return self._apps_v1_merge_patch(
+            path="/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
+            path_params={"namespace": agent.namespace, "name": agent.deployment_name},
+            body=body,
+            response_type=response_type,
+        )
+
+    def _patch_agent_deployment_scale_merge(self, agent, replicas: int):
+        return self._apps_v1_merge_patch(
+            path="/apis/apps/v1/namespaces/{namespace}/deployments/{name}/scale",
+            path_params={"namespace": agent.namespace, "name": agent.deployment_name},
+            body={"spec": {"replicas": replicas}},
+            response_type="V1Scale",
+        )
+
+    def _patch_agent_service_merge(self, agent, body: dict):
+        return self._core_v1_merge_patch(
+            path="/api/v1/namespaces/{namespace}/services/{name}",
+            path_params={"namespace": agent.namespace, "name": agent.service_name},
+            body=body,
+            response_type="V1Service",
         )
 
     def _patch_service_metadata(self, agent) -> None:
@@ -336,11 +398,7 @@ class K8sService:
                 "annotations": self._agent_patch_annotations(agent),
             }
         }
-        self.core_api.patch_namespaced_service(
-            name=agent.service_name,
-            namespace=agent.namespace,
-            body=patch,
-        )
+        self._patch_agent_service_merge(agent, patch)
 
     def start_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
@@ -369,11 +427,7 @@ class K8sService:
         return RuntimeStatus(status="running")
 
     def _scale_agent_deployment(self, agent, replicas: int) -> None:
-        self.apps_api.patch_namespaced_deployment_scale(
-            name=agent.deployment_name,
-            namespace=agent.namespace,
-            body={"spec": {"replicas": replicas}},
-        )
+        self._patch_agent_deployment_scale_merge(agent, replicas)
 
     def stop_agent(self, agent) -> RuntimeStatus:
         if not self.enabled:
@@ -398,10 +452,9 @@ class K8sService:
             self._scale_agent_deployment(agent, 1)
             restarted_at = datetime.now(timezone.utc).isoformat()
             restart_request_id = str(uuid4())
-            self.apps_api.patch_namespaced_deployment(
-                name=agent.deployment_name,
-                namespace=agent.namespace,
-                body={
+            self._patch_agent_deployment_merge(
+                agent,
+                {
                     "spec": {
                         "template": {
                             "metadata": {
@@ -415,7 +468,6 @@ class K8sService:
                         }
                     }
                 },
-                _content_type="application/merge-patch+json",
             )
         except Exception as exc:
             logger.exception("Failed to roll restart agent deployment")
@@ -481,14 +533,15 @@ class K8sService:
                     )
                 ):
                     condition_message = self._get_k8s_attr(condition, "message")
+                    message_parts = [part for part in (condition_reason, condition_message) if part]
                     return RuntimeStatus(
                         status="failed",
-                        message=condition_message or condition_reason,
+                        message=": ".join(message_parts) if message_parts else None,
                         cpu_usage="N/A",
                         memory_usage="N/A",
                     )
 
-            status_while_pending = "restarting" if str(getattr(agent, "status", "") or "").lower() == "restarting" else "creating"
+            status_while_pending = self._pending_rollout_status(agent)
 
             if observed_generation is not None and generation is not None and observed_generation < generation:
                 return RuntimeStatus(status=status_while_pending, cpu_usage="N/A", memory_usage="N/A")
@@ -505,6 +558,9 @@ class K8sService:
             return RuntimeStatus(status="running", cpu_usage="N/A", memory_usage="N/A")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc), cpu_usage="N/A", memory_usage="N/A")
+
+    def _pending_rollout_status(self, agent) -> str:
+        return "restarting" if str(getattr(agent, "status", "") or "").lower() == "restarting" else "creating"
 
     def _get_k8s_attr(self, obj, *names):
         if obj is None:
