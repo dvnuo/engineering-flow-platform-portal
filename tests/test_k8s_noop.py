@@ -97,6 +97,21 @@ def test_k8s_service_noop_stop_agent():
     assert result.status == "stopped"
 
 
+def test_k8s_service_noop_restart_agent_is_unsupported():
+    """Test restart is not reported as running in noop mode."""
+    service = K8sService()
+    service.enabled = False
+
+    mock_agent = MagicMock()
+    mock_agent.id = "test-agent"
+    mock_agent.namespace = "test-ns"
+
+    result = service.restart_agent(mock_agent)
+
+    assert result.status == "failed"
+    assert "restart is unsupported" in result.message
+
+
 def test_k8s_service_noop_get_status():
     """Test getting status in noop mode."""
     service = K8sService()

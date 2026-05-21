@@ -147,9 +147,41 @@ def test_user_abort_and_agent_lifecycle_clear_active_request():
     assert "parseAgentLifecycleAction(path)" in action_fn
     assert "clearStaleActiveRequest(" in action_fn
     assert '"agent_stopped"' in action_fn
-    assert '"agent_restarted"' in action_fn
-    assert "loadSessionForAgent(lifecycle.agentId, chatState.sessionId" in action_fn
+    assert '"agent_restarting"' in action_fn
+    assert '"agent_restarted"' not in action_fn
+    assert "loadSessionForAgent(lifecycle.agentId, chatState.sessionId" not in action_fn
     assert "(stop|restart)" in parser
+
+
+def test_restart_lifecycle_waits_for_runtime_ready_before_success_status():
+    src = _src()
+    render_actions = _extract_js_function(src, "renderAgentActions")
+    action_fn = _extract_js_function(src, "action")
+    poll_fn = _extract_js_function(src, "pollAgentUntilRestartComplete")
+
+    assert "action(`/api/agents/${agent.id}/restart`)" in render_actions
+    assert 'setChatStatus("Restarting assistant…")' in action_fn
+    assert 'setChatStatus("Restart requested.\\nWaiting for runtime pod to restart…")' in action_fn
+    assert "pollAgentUntilRestartComplete(lifecycle.agentId)" in action_fn
+    assert 'setChatStatus("Assistant restarted.")' not in action_fn
+    assert "loadSessionForAgent(lifecycle.agentId" not in action_fn
+    restart_start = action_fn.index('if (lifecycle.action === "restart")')
+    restart_end = action_fn.index("return;", restart_start)
+    restart_branch = action_fn[restart_start:restart_end]
+    assert restart_branch.index("await refreshAll({ preserveLayout: true });") < restart_branch.index("pollAgentUntilRestartComplete(lifecycle.agentId)")
+    assert restart_branch.count("applyLocalAgentStatus(") == 1
+    assert 'setChatStatus("Assistant restart completed.")' in poll_fn
+    assert 'setChatStatus("Restarting assistant… waiting for runtime pod to become ready.")' in poll_fn
+    assert "`/api/agents/${encodeURIComponent(agentId)}/status`" in poll_fn
+    assert 'if (status === "running")' in poll_fn
+    assert 'if (status === "failed" || status === "stopped")' in poll_fn
+    assert "applyLocalAgentStatus(agentId, status" in poll_fn
+    assert "loadSessionForAgent(agentId, chatState.sessionId" in poll_fn
+
+    restart_surface = "\n".join([action_fn, poll_fn])
+    assert ":4096" not in restart_surface
+    assert "/api/tasks" not in restart_surface
+    assert "/api/internal" not in restart_surface
 
 
 def test_abort_failed_keeps_active_request_and_reconcile_continues():

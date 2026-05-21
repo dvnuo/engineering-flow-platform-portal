@@ -16,6 +16,10 @@ def test_render_agent_actions_has_no_settings_button_and_keeps_core_actions():
     assert 'label: "Edit"' in render_agent_actions
     assert 'label: "Delete"' in render_agent_actions
     assert 'label: "Destroy"' in render_agent_actions
+    assert "action(`/api/agents/${agent.id}/restart`)" in render_agent_actions
+    assert ":4096" not in render_agent_actions
+    assert "/api/tasks" not in render_agent_actions
+    assert "/api/internal" not in render_agent_actions
 
     assert 'agent.visibility === "public" ? "Unshare" : "Share"' in render_agent_actions
     assert 'agent.visibility === "public" ? "unshare" : "share"' in render_agent_actions
