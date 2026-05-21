@@ -85,13 +85,13 @@ class K8sServiceNoopTest(unittest.TestCase):
         def _patch_service_metadata(_agent):
             calls.append("patch_service_metadata")
 
-        def _scale(**kwargs):
+        def _scale_agent_deployment(_agent, replicas):
             calls.append("scale")
-            scale_calls.append(kwargs)
+            scale_calls.append({"body": {"spec": {"replicas": replicas}}})
 
         self.service._patch_deployment = _patch_deployment
         self.service._patch_service_metadata = _patch_service_metadata
-        self.service.apps_api = SimpleNamespace(patch_namespaced_deployment_scale=_scale)
+        self.service._scale_agent_deployment = _scale_agent_deployment
 
         status = self.service.start_agent(agent)
 
@@ -112,13 +112,13 @@ class K8sServiceNoopTest(unittest.TestCase):
         def _patch_service_metadata(_agent):
             calls.append("patch_service_metadata")
 
-        def _scale(**kwargs):
+        def _scale_agent_deployment(_agent, replicas):
             calls.append("scale")
-            scale_calls.append(kwargs)
+            scale_calls.append({"body": {"spec": {"replicas": replicas}}})
 
         self.service._patch_deployment = _patch_deployment
         self.service._patch_service_metadata = _patch_service_metadata
-        self.service.apps_api = SimpleNamespace(patch_namespaced_deployment_scale=_scale)
+        self.service._scale_agent_deployment = _scale_agent_deployment
 
         status = self.service.start_agent(agent)
 
@@ -127,6 +127,80 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("bad skill subdir", status.message)
         self.assertIn("scale", calls)
         self.assertEqual(scale_calls[0]["body"], {"spec": {"replicas": 1}})
+
+    def test_patch_deployment_merge_uses_call_api_content_type_without_generated_content_type_kwarg(self):
+        self.service.enabled = True
+        calls = []
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents")
+        body = {"spec": {"template": {"metadata": {"annotations": {"x": "y"}}}}}
+
+        def _call_api(*args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace()
+
+        self.service.apps_api = SimpleNamespace(api_client=SimpleNamespace(call_api=_call_api))
+
+        self.service._patch_agent_deployment_merge(agent, body)
+
+        self.assertEqual(len(calls), 1)
+        args, kwargs = calls[0]
+        self.assertEqual(args[0], "/apis/apps/v1/namespaces/{namespace}/deployments/{name}")
+        self.assertEqual(args[1], "PATCH")
+        self.assertEqual(kwargs["path_params"], {"namespace": "efp-agents", "name": "agent-a1"})
+        self.assertEqual(kwargs["body"], body)
+        self.assertEqual(kwargs["header_params"]["Content-Type"], "application/merge-patch+json")
+        self.assertEqual(kwargs["header_params"]["Accept"], "application/json")
+        self.assertNotIn("_content_type", kwargs)
+
+    def test_patch_service_merge_uses_call_api_content_type(self):
+        self.service.enabled = True
+        calls = []
+        agent = SimpleNamespace(service_name="agent-a1-svc", namespace="efp-agents")
+        body = {"metadata": {"annotations": {"x": "y"}}}
+
+        def _call_api(*args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace()
+
+        self.service.core_api = SimpleNamespace(api_client=SimpleNamespace(call_api=_call_api))
+
+        self.service._patch_agent_service_merge(agent, body)
+
+        self.assertEqual(len(calls), 1)
+        args, kwargs = calls[0]
+        self.assertEqual(args[0], "/api/v1/namespaces/{namespace}/services/{name}")
+        self.assertEqual(args[1], "PATCH")
+        self.assertEqual(kwargs["path_params"], {"namespace": "efp-agents", "name": "agent-a1-svc"})
+        self.assertEqual(kwargs["body"], body)
+        self.assertEqual(kwargs["header_params"]["Content-Type"], "application/merge-patch+json")
+        self.assertEqual(kwargs["header_params"]["Accept"], "application/json")
+
+    def test_patch_deployment_scale_merge_uses_call_api_content_type(self):
+        self.service.enabled = True
+        calls = []
+        agent = SimpleNamespace(deployment_name="agent-a1", namespace="efp-agents")
+
+        def _call_api(*args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace()
+
+        self.service.apps_api = SimpleNamespace(api_client=SimpleNamespace(call_api=_call_api))
+
+        self.service._patch_agent_deployment_scale_merge(agent, 1)
+
+        self.assertEqual(len(calls), 1)
+        args, kwargs = calls[0]
+        self.assertEqual(args[0], "/apis/apps/v1/namespaces/{namespace}/deployments/{name}/scale")
+        self.assertEqual(args[1], "PATCH")
+        self.assertEqual(kwargs["path_params"], {"namespace": "efp-agents", "name": "agent-a1"})
+        self.assertEqual(kwargs["body"], {"spec": {"replicas": 1}})
+        self.assertEqual(kwargs["header_params"]["Content-Type"], "application/merge-patch+json")
+        self.assertEqual(kwargs["response_type"], "V1Scale")
+
+    def test_k8s_service_does_not_pass_generated_content_type_kwarg(self):
+        source = Path("app/services/k8s_service.py").read_text(encoding="utf-8")
+        self.assertNotIn("_content_type=", source)
+        self.assertNotIn("set_default_header", source)
 
     def test_restart_agent_does_not_scale_to_zero_and_rolls_out(self):
         self.service.enabled = True
@@ -141,20 +215,18 @@ class K8sServiceNoopTest(unittest.TestCase):
         def _patch_service_metadata(_agent):
             calls.append("patch_service_metadata")
 
-        def _scale(**kwargs):
+        def _scale_agent_deployment(_agent, replicas):
             calls.append("scale")
-            scale_calls.append(kwargs)
+            scale_calls.append({"body": {"spec": {"replicas": replicas}}})
 
-        def _patch_namespaced_deployment(**kwargs):
+        def _patch_agent_deployment_merge(_agent, body):
             calls.append("rollout_patch")
-            deployment_patch_calls.append(kwargs)
+            deployment_patch_calls.append({"body": body})
 
         self.service._patch_deployment = _patch_deployment
         self.service._patch_service_metadata = _patch_service_metadata
-        self.service.apps_api = SimpleNamespace(
-            patch_namespaced_deployment_scale=_scale,
-            patch_namespaced_deployment=_patch_namespaced_deployment,
-        )
+        self.service._scale_agent_deployment = _scale_agent_deployment
+        self.service._patch_agent_deployment_merge = _patch_agent_deployment_merge
 
         status = self.service.restart_agent(agent)
 
@@ -166,6 +238,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertTrue(deployment_patch_calls)
         body = deployment_patch_calls[-1]["body"]
         annotations = body["spec"]["template"]["metadata"]["annotations"]
+        self.assertIn("efp.dvnuo.io/restarted-at", annotations)
         self.assertIn("kubectl.kubernetes.io/restartedAt", annotations)
         self.assertIn("efp.dvnuo.io/restart-request-id", annotations)
         self.assertIn("efp.dvnuo.io/restart-requested-at", annotations)
@@ -186,13 +259,13 @@ class K8sServiceNoopTest(unittest.TestCase):
             calls.append("scale")
             self.assertEqual(replicas, 1)
 
-        def _patch_namespaced_deployment(**_kwargs):
+        def _patch_agent_deployment_merge(_agent, _body):
             calls.append("rollout_patch")
 
         self.service._patch_deployment = _patch_deployment
         self.service._patch_service_metadata = _patch_service_metadata
         self.service._scale_agent_deployment = _scale_agent_deployment
-        self.service.apps_api = SimpleNamespace(patch_namespaced_deployment=_patch_namespaced_deployment)
+        self.service._patch_agent_deployment_merge = _patch_agent_deployment_merge
 
         status = self.service.restart_agent(agent)
 
@@ -352,6 +425,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         status = self.service.get_agent_runtime_status(agent)
 
         self.assertEqual(status.status, "failed")
+        self.assertIn("ProgressDeadlineExceeded", status.message)
         self.assertIn("progress deadline", status.message)
 
     def test_skill_clone_shell_accepts_directory_skill_and_copies_resources(self):

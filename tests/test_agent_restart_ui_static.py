@@ -21,6 +21,9 @@ def test_agent_restart_ui_waits_for_status_endpoint_before_completed_message():
     assert 'setChatStatus("Assistant restart completed.")' in poll_fn
     assert "loadSessionForAgent(lifecycle.agentId" not in action_fn
     assert "loadSessionForAgent(agentId, chatState.sessionId" in poll_fn
+    restart_surface = "\n".join([action_fn, poll_fn])
+    assert ":4096" not in restart_surface
+    assert "/api/tasks" not in restart_surface
 
 
 def test_restart_action_starts_poll_after_refresh_without_post_refresh_stale_apply():
