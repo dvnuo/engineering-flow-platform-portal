@@ -922,6 +922,14 @@ def test_handle_agent_event_message_merges_late_event_for_completed_request_into
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
     update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
+    normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
+    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
+    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
+    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
+    runtime_event_timestamp = _extract_js_function(js_file, "runtimeEventTimestampMs")
+    inactive_event = _extract_js_function(js_file, "isInactiveOpenCodeSessionEvent")
+    current_ids = _extract_js_function(js_file, "currentActiveRequestIds")
+    should_defer_inactive = _extract_js_function(js_file, "shouldDeferInactiveOpenCodeEventForFreshLocalSubmit")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
     script = f"""
@@ -944,6 +952,14 @@ function scheduleThinkingPanelRefresh() {{}}
 {has_meaningful}
 {has_contents}
 {update_context}
+{normalize_status}
+{normalize_opencode_status}
+{inactive_payload}
+{local_submit}
+{runtime_event_timestamp}
+{inactive_event}
+{current_ids}
+{should_defer_inactive}
 {handle_event}
 const chatState = ensureChatState("agent-A");
 chatState.activeRequest = null;
@@ -2298,6 +2314,10 @@ def test_event_message_does_not_claim_empty_session_without_matching_request():
     status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
     session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
     local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
+    runtime_event_timestamp = _extract_js_function(js_file, "runtimeEventTimestampMs")
+    inactive_event = _extract_js_function(js_file, "isInactiveOpenCodeSessionEvent")
+    current_ids = _extract_js_function(js_file, "currentActiveRequestIds")
+    should_defer_inactive = _extract_js_function(js_file, "shouldDeferInactiveOpenCodeEventForFreshLocalSubmit")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
@@ -2327,6 +2347,10 @@ function scheduleThinkingPanelRefresh() {{}}
 {status_blocking}
 {session_blocking}
 {local_submit}
+{runtime_event_timestamp}
+{inactive_event}
+{current_ids}
+{should_defer_inactive}
 {has_active}
 {handle_event}
 const chatState = ensureChatState("agent-A");
@@ -2373,6 +2397,14 @@ def test_event_message_can_claim_empty_session_when_matching_active_request():
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
     update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
+    normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
+    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
+    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
+    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
+    runtime_event_timestamp = _extract_js_function(js_file, "runtimeEventTimestampMs")
+    inactive_event = _extract_js_function(js_file, "isInactiveOpenCodeSessionEvent")
+    current_ids = _extract_js_function(js_file, "currentActiveRequestIds")
+    should_defer_inactive = _extract_js_function(js_file, "shouldDeferInactiveOpenCodeEventForFreshLocalSubmit")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
     script = f"""
@@ -2395,6 +2427,14 @@ function scheduleThinkingPanelRefresh() {{}}
 {has_meaningful}
 {has_contents}
 {update_context}
+{normalize_status}
+{normalize_opencode_status}
+{inactive_payload}
+{local_submit}
+{runtime_event_timestamp}
+{inactive_event}
+{current_ids}
+{should_defer_inactive}
 {handle_event}
 const chatState = ensureChatState("agent-A");
 chatState.sessionId = "";

@@ -515,6 +515,18 @@ def test_active_request_busy_state_uses_runtime_blocking_helper():
     assert "hasIncompleteInflightThinking(chatState)" not in has_active
 
 
+def test_inactive_opencode_event_deferral_runs_before_canonical_apply():
+    src = _src()
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
+
+    assert "function shouldDeferInactiveOpenCodeEventForFreshLocalSubmit" in src
+    assert "function isInactiveOpenCodeSessionEvent" in src
+    assert "function runtimeEventTimestampMs" in src
+    assert "shouldDeferInactiveOpenCodeEventForFreshLocalSubmit(" in handle_event
+    assert handle_event.index("shouldDeferInactiveOpenCodeEventForFreshLocalSubmit(") < handle_event.index("localApplyOpenCodeCanonicalEventToChatState(chatState, entry)")
+    assert '"portal.opencode_inactive_event.deferred"' in handle_event
+
+
 def test_submit_chat_clears_old_opencode_projection_before_active_request():
     src = _src()
     submit_fn = _extract_js_function(src, "submitChatForSelectedAgent")

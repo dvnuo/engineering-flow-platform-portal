@@ -868,6 +868,96 @@ function isLocalSubmitPendingBeforeOpenCodeStatus(chatState) {
   return true;
 }
 
+function runtimeEventTimestampMs(entry = {}) {
+  const candidates = [
+    entry.ts,
+    entry.timestamp,
+    entry.created_at,
+    entry.createdAt,
+    entry.data?.ts,
+    entry.data?.timestamp,
+    entry.data?.created_at,
+    entry.data?.createdAt,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      // Runtime events may arrive in seconds or milliseconds.
+      return value < 100000000000 ? value * 1000 : value;
+    }
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function isInactiveOpenCodeSessionEvent(entry = {}) {
+  const data = entry.data && typeof entry.data === "object" ? entry.data : {};
+  const eventType = String(entry.type || "").toLowerCase();
+  const rawType = String(data.raw_type || entry.raw_type || eventType || "").toLowerCase();
+
+  if (rawType === "session.idle") return true;
+  if (rawType !== "session.status" && rawType !== "session.updated") return false;
+
+  return isOpenCodeSessionInactivePayload(data);
+}
+
+function currentActiveRequestIds(chatState = {}) {
+  return new Set([
+    chatState.activeRequest?.clientRequestId,
+    chatState.activeRequest?.requestId,
+    chatState.activeRequest?.runtimeRequestId,
+    chatState.inflightThinking?.requestId,
+    chatState.inflightThinking?.id,
+  ].map((value) => String(value || "")).filter(Boolean));
+}
+
+function shouldDeferInactiveOpenCodeEventForFreshLocalSubmit(chatState, entry = {}, socketCtx = {}) {
+  if (!isLocalSubmitPendingBeforeOpenCodeStatus(chatState)) return false;
+  if (!isInactiveOpenCodeSessionEvent(entry)) return false;
+
+  const req = chatState?.activeRequest;
+  if (!req) return false;
+
+  // Once the current request has authoritative completion evidence, an inactive
+  // event is allowed to clear the bridge.
+  if (
+    req.sawFinal === true ||
+    req.sawRunCompleted === true ||
+    req.sawAssistantMessageCompleted === true ||
+    req.streamCompleted === true
+  ) {
+    return false;
+  }
+
+  const ids = currentActiveRequestIds(chatState);
+  const entryRequestId = String(entry.request_id || entry.data?.request_id || "");
+  const socketRequestId = String(socketCtx.requestId || "");
+
+  // Explicit correlation to the current request wins over stale-event deferral.
+  if (entryRequestId && ids.has(entryRequestId)) return false;
+  if (socketRequestId && entryRequestId && entryRequestId === socketRequestId) return false;
+
+  const startedAt = Number(req.startedAt || req.streamStartedAt || chatState.openCodeProjection?.pendingLocalSubmit?.startedAt || 0);
+  const eventMs = runtimeEventTimestampMs(entry);
+
+  // Timestamped events from before this local submit are stale.
+  if (startedAt && eventMs && eventMs < startedAt) return true;
+
+  // Uncorrelated inactive events without a useful timestamp are the common late
+  // session.idle case after a fresh local submit.
+  if (!entryRequestId && !eventMs) return true;
+
+  // Defer very fresh uncorrelated inactive events once, even when normalizeRuntimeEvent
+  // synthesized an arrival timestamp.
+  if (!entryRequestId && startedAt && Date.now() - startedAt < 5000) return true;
+
+  return false;
+}
+
 function hasActiveChatRequestForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return false;
@@ -3605,6 +3695,44 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const localApplyOpenCodeCanonicalEventToChatState = (typeof applyOpenCodeCanonicalEventToChatState === "function")
     ? applyOpenCodeCanonicalEventToChatState
     : () => false;
+  const shouldDeferInactiveSessionEvent = shouldDeferInactiveOpenCodeEventForFreshLocalSubmit(
+    chatState,
+    entry,
+    socketCtx
+  );
+
+  if (shouldDeferInactiveSessionEvent) {
+    if (!chatState.openCodeProjection) {
+      chatState.openCodeProjection = {
+        messagesById: {},
+        partsById: {},
+        sessionStatus: "",
+        sessionStatusPayload: null,
+        needsSnapshot: false,
+      };
+    }
+
+    chatState.openCodeProjection.needsSnapshot = true;
+    appendPortalChatRuntimeEvent(
+      currentAgentId,
+      chatState.activeRequest || fallbackRequestContextForAgent(currentAgentId, "deferred_stale_opencode_inactive_event"),
+      "portal.opencode_inactive_event.deferred",
+      {
+        message: "Deferred an inactive OpenCode session event while a fresh local submit is pending.",
+        source_event: entry.raw_type || entry.type || "",
+        request_id: entry.request_id || "",
+        session_id: entry.session_id || currentSessionId || "",
+      }
+    );
+
+    if (typeof maybeRefreshSessionSnapshotForOpenCodeEvent === "function") {
+      maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState, entry.session_id || currentSessionId, entry);
+    }
+
+    syncSelectedAgentChatActionControls();
+    return;
+  }
+
   const appliedCanonicalEvent = localApplyOpenCodeCanonicalEventToChatState(chatState, entry);
   const entryData = entry.data && typeof entry.data === "object" ? entry.data : {};
   const rawType = String(entryData.raw_type || entry.raw_type || entry.type || "").toLowerCase();
