@@ -29,6 +29,12 @@ def test_opencode_chat_projector_state_transitions_node():
         assert.equal(view.canSend, false);
         assert.equal(view.canStop, true);
 
+        applyStatusSnapshot(store, { ok: true, status: "accepted", action_hint: "watch_events_then_reconcile" });
+        view = deriveViewState(store);
+        assert.equal(store.sessionStatus, "busy");
+        assert.equal(view.canSend, false);
+        assert.equal(view.canStop, true);
+
         const snapshot = {
           messages: [
             { info: { id: "m1", role: "user", time: "1" }, parts: [{ id: "p1", type: "text", text: "hello" }] },

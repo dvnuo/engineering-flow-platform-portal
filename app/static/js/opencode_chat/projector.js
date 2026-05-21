@@ -33,7 +33,7 @@ function normalizeHealth(value) {
 function normalizeStatus(value) {
   const raw = String(value || "").trim().toLowerCase();
   if (["idle", "ready", "completed", "complete", "done"].includes(raw)) return "idle";
-  if (["busy", "running", "active", "working"].includes(raw)) return "busy";
+  if (["busy", "running", "active", "working", "accepted", "submitted", "queued"].includes(raw)) return "busy";
   if (["retry", "retrying", "recovering"].includes(raw)) return "retry";
   if (["aborting", "stopping", "cancelling", "canceling"].includes(raw)) return "aborting";
   return "unknown";
