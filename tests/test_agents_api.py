@@ -314,12 +314,27 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
         assert "default_skill_branch" in body
         assert body["default_runtime_type"] == "opencode"
         assert "runtime_types" in body
-        values = {item["value"] for item in body["runtime_types"]}
-        assert values == {"native", "opencode"}
+        values = [item["value"] for item in body["runtime_types"]]
+        assert set(values) == {"native", "opencode"}
+        assert values.index("opencode") < values.index("native")
         assert "default_tool_repo_url" not in body
         assert "default_tool_branch" not in body
         assert body["default_repo_url"] == body["default_skill_repo_url"]
         assert body["default_branch"] == body["default_skill_branch"]
+    finally:
+        cleanup()
+
+
+def test_defaults_blank_runtime_type_falls_back_to_opencode(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+
+        monkeypatch.setattr(agents_api.settings, "default_runtime_type", "")
+        response = client.get("/api/agents/defaults")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["default_runtime_type"] == "opencode"
     finally:
         cleanup()
 

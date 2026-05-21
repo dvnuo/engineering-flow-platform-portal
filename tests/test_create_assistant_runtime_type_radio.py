@@ -32,13 +32,51 @@ def test_create_assistant_opencode_radio_is_static_default():
     )
 
 
+def test_create_assistant_static_runtime_order_is_opencode_first():
+    block = _create_form_block()
+    assert block.index('value="opencode"') < block.index('value="native"')
+    assert block.index("OpenCode Runtime") < block.index("EFP Native Runtime")
+
+
 def test_create_runtime_type_radio_js_helpers_exist():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert "function populateRuntimeTypeRadioGroup(" in js
     assert "function getCreateDefaultRuntimeType(" in js
-    assert 'defaults?.default_runtime_type || "opencode"' in js
+    assert "function getCreateRuntimeTypes(" in js
+    assert "function isRuntimeTypeAvailable(" in js
     assert 'formData.get("runtime_type")' in js
     assert "runtime_type: runtimeType" in js
+
+
+def test_create_runtime_type_dynamic_helpers_force_opencode_first_and_default():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "function getCreateRuntimeTypes(" in js
+    assert "function isRuntimeTypeAvailable(" in js
+    assert 'isRuntimeTypeAvailable(defaults, "opencode")' in js
+    assert 'return "opencode"' in js
+    assert "getCreateRuntimeTypes(defaults)" in js
+    assert "selectedValue || getCreateDefaultRuntimeType(defaults)" in js
+    assert 'runtimeTypeValue = runtimeTypeControl?.value || getCreateDefaultRuntimeType(defaults)' in js
+
+
+def test_create_runtime_type_radio_population_does_not_default_to_backend_native():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    start = js.index("function populateRuntimeTypeRadioGroup(")
+    end = js.index("function updateCreateRuntimeTypeHint", start)
+    block = js[start:end]
+    assert 'defaults?.default_runtime_type || "opencode"' not in block
+    assert "getCreateDefaultRuntimeType(defaults)" in block
+
+
+def test_create_runtime_type_default_falls_back_to_first_available_when_opencode_missing():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    start = js.index("function getCreateDefaultRuntimeType(")
+    end = js.index("function runtimeTypeDescription", start)
+    block = js[start:end]
+    assert 'isRuntimeTypeAvailable(defaults, "opencode")' in block
+    assert "isRuntimeTypeAvailable(defaults, normalized)" in block
+    assert "const firstRuntimeType = getCreateRuntimeTypes(defaults)[0]?.value" in block
+    assert "return normalizeRuntimeTypeValue(firstRuntimeType || normalized, defaults)" in block
 
 
 def test_runtime_type_radio_css_exists():
@@ -56,3 +94,13 @@ def test_config_default_runtime_type_is_opencode_but_contract_legacy_default_sta
     assert 'default_runtime_type: str = Field(default="opencode"' in config
     assert 'DEFAULT_RUNTIME_TYPE = "native"' in contract
     assert 'runtime_type: str = "native"' in schema
+
+
+def test_k8s_manifests_set_default_runtime_type_opencode():
+    for path in [
+        "k8s/efp-portal-deployment.yaml",
+        "k8s/portal-git-clone/efp-portal-deployment.yaml",
+    ]:
+        text = Path(path).read_text(encoding="utf-8")
+        assert "name: DEFAULT_RUNTIME_TYPE" in text
+        assert 'value: "opencode"' in text

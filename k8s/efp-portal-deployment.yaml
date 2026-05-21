@@ -66,6 +66,8 @@ spec:
               value: "true"
             - name: AGENTS_NAMESPACE
               value: "efp-agents"
+            - name: DEFAULT_RUNTIME_TYPE
+              value: "opencode"
             - name: BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
