@@ -3150,7 +3150,12 @@ function maybeStartStalledAssistantReconcile(agentId, chatState) {
 function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
   const data = event.data && typeof event.data === "object" ? event.data : {};
   const eventType = String(event.type || "").toLowerCase();
-  const canonicalEventType = eventType.startsWith("message.") || eventType === "session.status" || eventType === "session.idle"
+  const canonicalEventType = (
+    eventType.startsWith("message.")
+    || eventType === "session.status"
+    || eventType === "session.updated"
+    || eventType === "session.idle"
+  )
     ? eventType
     : "";
   const rawType = String(data.raw_type || event.raw_type || canonicalEventType || "").toLowerCase();
@@ -3158,6 +3163,7 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
   if (
     !rawType.startsWith("message.")
     && rawType !== "session.status"
+    && rawType !== "session.updated"
     && rawType !== "session.idle"
     && reconcileHint !== "fetch_session_messages"
   ) {
@@ -3183,6 +3189,7 @@ function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
       "message.completed",
       "session.idle",
       "session.status",
+      "session.updated",
     ].includes(rawType)
   ) {
     projection.needsSnapshot = true;

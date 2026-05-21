@@ -1334,6 +1334,187 @@ def test_session_idle_event_clears_stale_active_payload_node_smoke():
     assert result.returncode == 0, result.stderr
 
 
+def test_session_updated_idle_event_clears_stale_active_payload_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeRuntimeEventTypeAlias"),
+                _extract_js_function(src, "normalizeRuntimeEvent"),
+                _extract_js_function(src, "isCompletionRuntimeState"),
+                _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent"),
+                _extract_js_function(src, "isOpenCodeCanonicalSnapshotEvent"),
+                _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
+                _extract_js_function(src, "handleAgentEventMessage"),
+                _opencode_projection_state_js(src),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+            const requestCtx = {
+              clientRequestId: "client-1",
+              requestId: "runtime-1",
+              runtimeRequestId: "runtime-1",
+              sessionIdAtSend: "sess-1",
+            };
+            const chatState = {
+              sessionId: "sess-1",
+              isSubmitting: false,
+              activeRequest: requestCtx,
+              inflightThinking: { id: "runtime-1", requestId: "runtime-1", sessionId: "sess-1", completed: false },
+              openCodeProjection: {
+                messagesById: {},
+                partsById: {},
+                sessionStatus: "busy",
+                sessionStatusPayload: {
+                  source_of_truth: "opencode",
+                  active: true,
+                  status: { type: "busy" },
+                  status_type: "busy",
+                  action_hint: "wait_reconnect_or_stop",
+                  active_run: { status: "busy" },
+                },
+              },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function cancelAssistantTypewriter() {}
+            function stopChatRunReconcileLoop(ctx) { ctx.reconcileStopped = true; }
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type, data) { calls.push(["event", type, data?.reason || ""]); }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["sync"]); }
+            function maybeRefreshSessionSnapshotForOpenCodeEvent() { calls.push(["snapshot"]); }
+            function isThinkingPanelActiveForAgent() { return false; }
+            function scheduleThinkingPanelRefresh() {}
+            function isTrackableThinkingEvent() { return false; }
+            function updateThinkingContextFromEvent() {}
+            function mergeThinkingEvents(first = [], second = []) { return [...first, ...second]; }
+
+            handleAgentEventMessage(JSON.stringify({
+              type: "session.updated",
+              event_type: "session.updated",
+              session_id: "sess-1",
+              data: {
+                session_id: "sess-1",
+                status: { type: "idle" },
+              },
+            }), { agentId: "agent-1", sessionId: "sess-1" });
+
+            assert.equal(chatState.openCodeProjection.sessionStatus, "idle");
+            assert.equal(chatState.openCodeProjection.sessionStatusPayload.active, false);
+            assert.equal(chatState.openCodeProjection.sessionStatusPayload.action_hint, "safe_to_send");
+            assert.equal(chatState.openCodeProjection.sessionStatusPayload.active_run, null);
+            assert.equal(isOpenCodeSessionBlocking(chatState), false);
+            assert.equal(hasActiveChatRequestForAgent("agent-1"), false);
+            assert.equal(shouldShowAbortChatRunButton("agent-1"), false);
+            assert.equal(chatState.activeRequest, null);
+            assert.equal(requestCtx.stale, true);
+            assert.equal(chatState.inflightThinking.completed, true);
+            assert.equal(chatState.inflightThinking.stale, true);
+            assert.ok(calls.some((item) => item[0] === "event" && item[1] === "portal.active_request.cleared"));
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_session_updated_busy_event_sets_blocking_payload_node_smoke():
+    src = SRC.read_text(encoding="utf-8")
+    script = (
+        "\n".join(
+            [
+                _extract_js_function(src, "normalizeRuntimeEventTypeAlias"),
+                _extract_js_function(src, "normalizeRuntimeEvent"),
+                _extract_js_function(src, "isCompletionRuntimeState"),
+                _extract_js_function(src, "isOpenCodeSessionStateOnlyEvent"),
+                _extract_js_function(src, "isOpenCodeCanonicalSnapshotEvent"),
+                _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState"),
+                _extract_js_function(src, "handleAgentEventMessage"),
+                _opencode_projection_state_js(src),
+            ]
+        )
+        + "\n"
+        + textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+            const chatState = {
+              sessionId: "sess-1",
+              isSubmitting: false,
+              activeRequest: null,
+              inflightThinking: null,
+              openCodeProjection: {
+                messagesById: {},
+                partsById: {},
+                sessionStatus: "idle",
+                sessionStatusPayload: {
+                  source_of_truth: "opencode",
+                  active: false,
+                  status: { type: "idle" },
+                  status_type: "idle",
+                  action_hint: "safe_to_send",
+                  active_run: null,
+                },
+              },
+            };
+            const state = { selectedAgentId: "agent-1" };
+            const calls = [];
+
+            function ensureChatState(agentId) {
+              assert.equal(agentId, "agent-1");
+              return chatState;
+            }
+            function clearWaitingForRuntimeEventsTimer() {}
+            function cancelAssistantTypewriter() {}
+            function stopChatRunReconcileLoop() {}
+            function setChatSubmittingForAgent(_agentId, active) { chatState.isSubmitting = active; }
+            function appendPortalChatRuntimeEvent(agentId, ctx, type) { calls.push(["event", type]); }
+            function setChatStatus(message) { calls.push(["status", message]); }
+            function syncSelectedAgentChatActionControls() { calls.push(["sync"]); }
+            function maybeRefreshSessionSnapshotForOpenCodeEvent() { calls.push(["snapshot"]); }
+            function isThinkingPanelActiveForAgent() { return false; }
+            function scheduleThinkingPanelRefresh() {}
+            function isTrackableThinkingEvent() { return false; }
+            function updateThinkingContextFromEvent() {}
+            function mergeThinkingEvents(first = [], second = []) { return [...first, ...second]; }
+
+            handleAgentEventMessage(JSON.stringify({
+              type: "session.updated",
+              event_type: "session.updated",
+              session_id: "sess-1",
+              data: {
+                session_id: "sess-1",
+                status: { type: "busy" },
+                active: true,
+              },
+            }), { agentId: "agent-1", sessionId: "sess-1" });
+
+            assert.equal(chatState.openCodeProjection.sessionStatus, "busy");
+            assert.equal(chatState.openCodeProjection.sessionStatusPayload.active, true);
+            assert.equal(chatState.openCodeProjection.sessionStatusPayload.status_type, "busy");
+            assert.equal(chatState.openCodeProjection.sessionStatusPayload.action_hint, "wait_reconnect_or_stop");
+            assert.equal(isOpenCodeSessionBlocking(chatState), true);
+            assert.equal(shouldShowAbortChatRunButton("agent-1"), true);
+            """
+        )
+    )
+
+    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_local_active_request_with_opencode_idle_does_not_show_stop_node_smoke():
     src = SRC.read_text(encoding="utf-8")
     script = (

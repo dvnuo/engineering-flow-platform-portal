@@ -422,6 +422,10 @@ def test_opencode_canonical_snapshot_and_status_helpers_are_wired():
     assert "openCodeRuntimeUiStatusText(uiState)" in set_status
     assert '["busy", "retry"].includes' in set_status
     assert "statusDetail.join" in set_status
+    canonical_apply = _extract_js_function(src, "applyOpenCodeCanonicalEventToChatState")
+    assert 'eventType === "session.updated"' in canonical_apply
+    assert 'rawType !== "session.updated"' in canonical_apply
+    assert 'rawType === "session.status" || rawType === "session.updated"' in canonical_apply
     assert ":4096" not in src
     assert "/api/tasks" not in handle_event
     assert "/api/tasks" not in load_session
