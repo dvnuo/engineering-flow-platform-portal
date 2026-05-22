@@ -106,6 +106,23 @@ def test_thinking_process_view_keeps_event_types_without_runtime_aliases():
         assert "raw_event_type" not in event["safe_detail_payload"]
 
 
+def test_thinking_process_view_does_not_special_case_long_run_event_names():
+    src = Path("app/services/thinking_process_view.py").read_text(encoding="utf-8")
+    forbidden = [
+        "chat." + "stream_" + "detached",
+        "chat." + "run.completed",
+        "chat." + "run.started",
+        "continuation." + "completed",
+        "chat." + "timeout_" + "recovery",
+        "timeout_" + "recovery",
+        "portal." + "reconcile",
+        "portal." + "active_" + "request.cleared",
+    ]
+
+    for marker in forbidden:
+        assert marker not in src
+
+
 def test_thinking_process_view_final_severity_uses_completion_state_and_reason():
     view = build_thinking_process_view({
         "runtime_events": [

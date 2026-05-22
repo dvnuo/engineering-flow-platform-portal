@@ -3793,14 +3793,12 @@ function markAgentUnread(agentId, status) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.unreadCount += 1;
-  chatState.backgroundStatus = status || chatState.backgroundStatus || "completed";
 }
 
 function clearAgentUnread(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.unreadCount = 0;
-  chatState.backgroundStatus = "";
 }
 
 // Helper to update owner-only button visibility
@@ -3848,8 +3846,6 @@ function renderAgentList() {
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
       if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
-      else if (chatState?.backgroundStatus === "completed") runtimeBadge = '<span class="portal-agent-chat-badge is-completed">completed</span>';
-      else if (chatState?.backgroundStatus === "error") runtimeBadge = '<span class="portal-agent-chat-badge is-error">error</span>';
       const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
       const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       row.innerHTML = `
@@ -4730,7 +4726,7 @@ function isLikelySyntheticFinalPreviewDelta(eventData = {}, requestCtx = {}, ass
   const awaitingFinal = Boolean(
     requestCtx?.awaitingAuthoritativeFinal
     || requestCtx?.sawAssistantMessageCompleted
-    || requestCtx?.sawRunCompleted
+    || requestCtx?.sawExecutionCompleted
   );
 
   if (!hasSyntheticPreview || !awaitingFinal) return false;
@@ -5277,7 +5273,6 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
 function renderCompletionStateWarning(payload = {}) {
   const completionState = escapeHtml(String(payload?.completion_state || payload?.completionState || "unknown"));
   const incompleteReason = escapeHtml(String(payload?.incomplete_reason || payload?.incompleteReason || ""));
-  const continuationCount = escapeHtml(String(payload?.continuation_count ?? payload?.continuationCount ?? ""));
   const progressPreview = escapeHtml(String(
     payload?.progress_preview
     || payload?._llm_debug?.completion_probe?.diagnostics?.progress_preview
@@ -5285,7 +5280,6 @@ function renderCompletionStateWarning(payload = {}) {
   ));
   return `<div class="chat-completion-warning"><strong>completion_state:</strong> ${completionState}`
     + `${incompleteReason ? `<div><strong>incomplete_reason:</strong> ${incompleteReason}</div>` : ""}`
-    + `${continuationCount ? `<div><strong>continuation_count:</strong> ${continuationCount}</div>` : ""}`
     + `${progressPreview ? `<div><strong>progress_preview:</strong> ${progressPreview}</div>` : ""}</div>`;
 }
 function renderCompletionDiagnosticFields(finalPayload = {}) {
@@ -5302,7 +5296,6 @@ function renderCompletionDiagnosticFields(finalPayload = {}) {
   const fields = [
     ["completion_state", finalPayload?.completion_state || finalPayload?.completionState || "unknown"],
     ["incomplete_reason", finalPayload?.incomplete_reason || finalPayload?.incompleteReason || ""],
-    ["continuation_count", finalPayload?.continuation_count ?? finalPayload?.continuationCount ?? ""],
     ["progress_preview", progressPreview],
     ["context_state", contextSummary],
   ];
@@ -5367,8 +5360,6 @@ function mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload = {}) {
     status,
     completion_state: completionState || "completed",
     incomplete_reason: finalPayload?.incomplete_reason || "",
-    continuation_count: finalPayload?.continuation_count ?? null,
-    continuationCount: finalPayload?.continuation_count ?? null,
     contextState: finalContextState,
     context_state: finalContextState,
     requestId: finalPayload?.request_id || requestCtx?.requestId || requestCtx?.clientRequestId || "",
@@ -5404,7 +5395,6 @@ function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
     status,
     completion_state: completionState,
     incomplete_reason: finalPayload?.incomplete_reason || "",
-    continuation_count: finalPayload?.continuation_count ?? null,
     context_state: finalPayload?.context_state || existing.context_state || null,
     requestId,
     sessionId,
@@ -5587,8 +5577,8 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
         observedAt: Date.now(),
       };
     }
-    if (["chat.run.completed", "complete", "execution.completed"].includes(embeddedType)) {
-      requestCtx.sawRunCompleted = true;
+    if (["complete", "execution.completed"].includes(embeddedType)) {
+      requestCtx.sawExecutionCompleted = true;
       requestCtx.awaitingAuthoritativeFinal = true;
     }
     if (isDirectCompletionEventName(embeddedType)) {
@@ -6204,7 +6194,6 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     chatState.draftText = restoredMessage;
     chatState.pendingFiles = [];
     chatState.pendingThinkingEvents = null;
-    chatState.backgroundStatus = "error";
     chatState.needsReload = false;
     markAgentUnread(agentIdAtSend, "error");
     renderAgentList();
@@ -9912,7 +9901,6 @@ function handleEditedRegenerationFailure(agentId, requestCtx, message = "regener
     const chatState = ensureChatState(agentId);
     if (chatState) {
       chatState.needsReload = true;
-      chatState.backgroundStatus = "error";
     }
     if (typeof markAgentUnread === "function") markAgentUnread(agentId, "error");
     if (typeof renderAgentList === "function") renderAgentList();
@@ -9924,7 +9912,6 @@ function finalizeEditedSessionMessages(agentId, sessionId, requestCtx, data = {}
   const chatState = ensureChatState(agentId);
   if (chatState) {
     chatState.needsReload = false;
-    chatState.backgroundStatus = "";
   }
 
   if (shouldRenderEditedSessionForAgent(agentId, sessionId)) {
@@ -9936,7 +9923,6 @@ function finalizeEditedSessionMessages(agentId, sessionId, requestCtx, data = {}
   } else {
     if (chatState) {
       chatState.needsReload = true;
-      chatState.backgroundStatus = "completed";
     }
     if (typeof markAgentUnread === "function") markAgentUnread(agentId, "completed");
     if (typeof renderAgentList === "function") renderAgentList();
@@ -9990,7 +9976,6 @@ async function pollEditedSessionUntilComplete(agentId, finalSessionId, requestId
   if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestId) return;
   const message = "Regeneration is still running or timed out; refresh the session to check the latest result.";
   chatState.needsReload = true;
-  chatState.backgroundStatus = "timeout";
   const finalPayload = {
     completion_state: "timeout",
     incomplete_reason: message,
@@ -10349,7 +10334,6 @@ function bindEvents() {
         scrollToBottom();
       } else if (chatState) {
         chatState.needsReload = true;
-        chatState.backgroundStatus = "regenerating";
       }
 
       chatState.currentRequest = requestCtx;

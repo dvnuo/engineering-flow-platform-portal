@@ -26,7 +26,7 @@ def test_thinking_event_types_and_request_id_guards_present():
         assert marker in src
     assert 'request_id' in src
     assert 'mergeFinalThinkingSnapshot' in src
-    for marker in ['completion_state', 'incomplete_reason', 'continuation_count', 'context_state']:
+    for marker in ['completion_state', 'incomplete_reason', 'context_state']:
         assert marker in src
 
 
@@ -36,7 +36,6 @@ def test_merge_final_thinking_snapshot_preserves_terminal_diagnostics():
     for marker in [
         'completion_state: completionState || "completed"',
         'incomplete_reason: finalPayload?.incomplete_reason || ""',
-        'continuation_count: finalPayload?.continuation_count ?? null',
         'contextState: finalContextState',
         'context_state: finalContextState',
     ]:

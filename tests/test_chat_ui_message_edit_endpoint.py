@@ -669,7 +669,6 @@ const chatState = {{
     events: [],
   }},
   needsReload: false,
-  backgroundStatus: "",
 }};
 const agentApiCalls = [];
 const renderCalls = [];
@@ -730,7 +729,6 @@ function showToast() {{}}
     inflightThinkingCleared: chatState.inflightThinking === null,
     lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
     needsReload: chatState.needsReload,
-    backgroundStatus: chatState.backgroundStatus,
     controlsSynced,
     editButtons,
     icons,
@@ -748,8 +746,6 @@ function showToast() {{}}
     assert data["inflightThinkingCleared"] is True
     assert data["lastThinkingCompleted"] is True
     assert data["needsReload"] is True
-    assert data["backgroundStatus"] in {"timeout", "needs_reload"}
-    assert data["backgroundStatus"] != "regenerating"
     assert data["status"][-1] == {
         "value": "Regeneration is still running or timed out; refresh the session to check the latest result.",
         "isError": True,

@@ -1259,11 +1259,6 @@ function setChatStatus() {{}}
 function safe(v) {{ return String(v); }}
 function scrollToBottom() {{}}
 function renderIcons() {{}}
-function markAgentUnread(agentId, status) {{
-  const chatState = ensureChatState(agentId);
-  chatState.unreadCount += 1;
-  chatState.backgroundStatus = status;
-}}
 function renderAgentList() {{ renderCalls += 1; }}
 function notifyAgentCompletion() {{}}
 {create_state}
@@ -1281,7 +1276,6 @@ handleAgentChatFailure("agent-A", {{
 console.log(JSON.stringify({{
   draftText: ensureChatState("agent-A").draftText,
   pendingFiles: ensureChatState("agent-A").pendingFiles,
-  backgroundStatus: ensureChatState("agent-A").backgroundStatus,
   unreadCount: ensureChatState("agent-A").unreadCount,
   needsReload: ensureChatState("agent-A").needsReload,
   renderCalls
@@ -1291,7 +1285,6 @@ console.log(JSON.stringify({{
     data = json.loads(completed.stdout)
     assert data["draftText"] == "msg"
     assert data["pendingFiles"] == []
-    assert data["backgroundStatus"] == "error"
     assert data["unreadCount"] >= 1
     assert data["needsReload"] is False
     assert data["renderCalls"] == 1

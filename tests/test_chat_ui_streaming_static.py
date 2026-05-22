@@ -58,6 +58,11 @@ def test_opencode_long_task_markers_are_removed_from_chat_ui():
         "markOpenCode" + "ProjectionInactive",
         "openCode" + "Projection",
         "active_" + "run",
+        "chat." + "run.completed",
+        "saw" + "RunCompleted",
+        "continuation_" + "count",
+        "continuationCount",
+        "backgroundStatus",
         "stream" + "Detached",
         "stream_" + "detached",
         "wait_reconnect" + "_or_stop",
@@ -92,6 +97,15 @@ def test_missing_final_native_stream_finishes_as_incomplete_without_reconnect():
     assert 'handleIncompleteChatStream(agentIdAtSend, requestCtx, "missing_final"' in missing_final
     assert "handleChatStreamDetached" not in src
     assert "Reconnecting" not in missing_final
+
+
+def test_stream_completion_markers_keep_execution_completed_without_chat_run_completed():
+    src = _src()
+    handle_stream = _extract_js_function(src, "handleChatStreamEvent")
+
+    assert "execution.completed" in handle_stream
+    assert '"complete"' in handle_stream or "'complete'" in handle_stream
+    assert "chat." + "run.completed" not in handle_stream
 
 
 def test_default_chat_state_only_initializes_legacy_native_fields():
