@@ -86,8 +86,14 @@ export function connectOpenCodeEvents({
 
   const handlePayload = (eventName, rawData) => {
     const payload = parseEventPayload(eventName, rawData);
+    const wasSnapshotNeeded = store.snapshotNeeded === true;
     applyOpenCodeEvent(store, payload);
+    const shouldRefreshSnapshot = store.snapshotNeeded === true && !wasSnapshotNeeded;
     onChange();
+
+    if (shouldRefreshSnapshot) {
+      void notifySnapshotNeeded(`event:${payload.type || eventName}`);
+    }
   };
 
   const scheduleReconnect = () => {

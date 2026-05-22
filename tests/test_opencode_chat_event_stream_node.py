@@ -184,3 +184,263 @@ def test_event_stream_preserves_runtime_thin_adapter_envelope_node():
         capture_output=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_event_stream_session_idle_triggers_snapshot_refresh_node():
+    script = textwrap.dedent(
+        r"""
+        import assert from "node:assert/strict";
+        import { createOpenCodeChatStore } from "./app/static/js/opencode_chat/store.js";
+        import { connectOpenCodeEvents } from "./app/static/js/opencode_chat/event_stream.js";
+
+        class FakeSource {
+          constructor() {
+            this.listeners = new Map();
+          }
+          addEventListener(name, fn) {
+            const listeners = this.listeners.get(name) || [];
+            listeners.push(fn);
+            this.listeners.set(name, listeners);
+          }
+          emit(name, data = {}) {
+            for (const fn of this.listeners.get(name) || []) fn({ data: JSON.stringify(data) });
+          }
+          close() {}
+        }
+
+        const store = createOpenCodeChatStore({ agentId: "agent-1" });
+        store.sessionStatus = "busy";
+        store.eventConnection = "connected";
+
+        let source = null;
+        let snapshots = 0;
+        const api = {
+          connectEvents(conversationId, handlers) {
+            assert.equal(conversationId, "conversation-1");
+            source = new FakeSource();
+            source.addEventListener("open", handlers.open);
+            source.addEventListener("message", handlers.message);
+            source.addEventListener("error", handlers.error);
+            return source;
+          },
+        };
+
+        connectOpenCodeEvents({
+          api,
+          store,
+          conversationId: "conversation-1",
+          maxReconnects: 0,
+          onSnapshotNeeded: async ({ reason }) => {
+            snapshots += 1;
+            assert.match(reason, /opencode.session.status|session.status|event:/);
+          },
+        });
+
+        source.emit("opencode.session.status", {
+          conversation_id: "pc-1",
+          opencode_session_id: "ses-1",
+          opencode_event_type: "session.idle",
+          status: "idle",
+          active: false,
+          can_send: true,
+          snapshot_required: true,
+        });
+
+        await Promise.resolve();
+        assert.equal(store.sessionStatus, "idle");
+        assert.equal(store.snapshotNeeded, true);
+        assert.equal(snapshots, 1);
+        """
+    )
+
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_event_stream_snapshot_required_triggers_snapshot_refresh_node():
+    script = textwrap.dedent(
+        r"""
+        import assert from "node:assert/strict";
+        import { createOpenCodeChatStore } from "./app/static/js/opencode_chat/store.js";
+        import { connectOpenCodeEvents } from "./app/static/js/opencode_chat/event_stream.js";
+
+        class FakeSource {
+          constructor() {
+            this.listeners = new Map();
+          }
+          addEventListener(name, fn) {
+            const listeners = this.listeners.get(name) || [];
+            listeners.push(fn);
+            this.listeners.set(name, listeners);
+          }
+          emit(name, data = {}) {
+            for (const fn of this.listeners.get(name) || []) fn({ data: JSON.stringify(data) });
+          }
+          close() {}
+        }
+
+        const store = createOpenCodeChatStore({ agentId: "agent-1" });
+        let source = null;
+        let snapshots = 0;
+        const api = {
+          connectEvents(conversationId, handlers) {
+            assert.equal(conversationId, "conversation-1");
+            source = new FakeSource();
+            source.addEventListener("open", handlers.open);
+            source.addEventListener("message", handlers.message);
+            source.addEventListener("error", handlers.error);
+            return source;
+          },
+        };
+
+        connectOpenCodeEvents({
+          api,
+          store,
+          conversationId: "conversation-1",
+          maxReconnects: 0,
+          onSnapshotNeeded: async () => { snapshots += 1; },
+        });
+
+        source.emit("opencode.snapshot.required", { reason: "test" });
+        await Promise.resolve();
+        assert.equal(store.snapshotNeeded, true);
+        assert.equal(snapshots, 1);
+        """
+    )
+
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_event_stream_busy_status_does_not_trigger_snapshot_refresh_node():
+    script = textwrap.dedent(
+        r"""
+        import assert from "node:assert/strict";
+        import { createOpenCodeChatStore } from "./app/static/js/opencode_chat/store.js";
+        import { connectOpenCodeEvents } from "./app/static/js/opencode_chat/event_stream.js";
+
+        class FakeSource {
+          constructor() {
+            this.listeners = new Map();
+          }
+          addEventListener(name, fn) {
+            const listeners = this.listeners.get(name) || [];
+            listeners.push(fn);
+            this.listeners.set(name, listeners);
+          }
+          emit(name, data = {}) {
+            for (const fn of this.listeners.get(name) || []) fn({ data: JSON.stringify(data) });
+          }
+          close() {}
+        }
+
+        const store = createOpenCodeChatStore({ agentId: "agent-1" });
+        let source = null;
+        let snapshots = 0;
+        const api = {
+          connectEvents(conversationId, handlers) {
+            assert.equal(conversationId, "conversation-1");
+            source = new FakeSource();
+            source.addEventListener("open", handlers.open);
+            source.addEventListener("message", handlers.message);
+            source.addEventListener("error", handlers.error);
+            return source;
+          },
+        };
+
+        connectOpenCodeEvents({
+          api,
+          store,
+          conversationId: "conversation-1",
+          maxReconnects: 0,
+          onSnapshotNeeded: async () => { snapshots += 1; },
+        });
+
+        source.emit("opencode.session.status", { status: "busy", active: true });
+        await Promise.resolve();
+        assert.equal(store.sessionStatus, "busy");
+        assert.equal(store.snapshotNeeded, false);
+        assert.equal(snapshots, 0);
+        """
+    )
+
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_event_stream_existing_snapshot_needed_does_not_repeat_refresh_node():
+    script = textwrap.dedent(
+        r"""
+        import assert from "node:assert/strict";
+        import { createOpenCodeChatStore } from "./app/static/js/opencode_chat/store.js";
+        import { connectOpenCodeEvents } from "./app/static/js/opencode_chat/event_stream.js";
+
+        class FakeSource {
+          constructor() {
+            this.listeners = new Map();
+          }
+          addEventListener(name, fn) {
+            const listeners = this.listeners.get(name) || [];
+            listeners.push(fn);
+            this.listeners.set(name, listeners);
+          }
+          emit(name, data = {}) {
+            for (const fn of this.listeners.get(name) || []) fn({ data: JSON.stringify(data) });
+          }
+          close() {}
+        }
+
+        const store = createOpenCodeChatStore({ agentId: "agent-1" });
+        store.snapshotNeeded = true;
+
+        let source = null;
+        let snapshots = 0;
+        const api = {
+          connectEvents(conversationId, handlers) {
+            assert.equal(conversationId, "conversation-1");
+            source = new FakeSource();
+            source.addEventListener("open", handlers.open);
+            source.addEventListener("message", handlers.message);
+            source.addEventListener("error", handlers.error);
+            return source;
+          },
+        };
+
+        connectOpenCodeEvents({
+          api,
+          store,
+          conversationId: "conversation-1",
+          maxReconnects: 0,
+          onSnapshotNeeded: async () => { snapshots += 1; },
+        });
+
+        source.emit("opencode.session.status", { status: "idle", active: false });
+        await Promise.resolve();
+        assert.equal(store.sessionStatus, "idle");
+        assert.equal(store.snapshotNeeded, true);
+        assert.equal(snapshots, 0);
+        """
+    )
+
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr

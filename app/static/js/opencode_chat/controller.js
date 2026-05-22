@@ -208,7 +208,7 @@ export class OpenCodeChatController {
         applyStatusSnapshot(this.store, response);
       }
       this.connectEvents();
-      setTimeout(() => this.refreshStatus().then(() => this.render()).catch(() => {}), 250);
+      setTimeout(() => this.refreshSnapshot().catch(() => {}), 500);
     } catch (error) {
       this.store.localSubmit = null;
       if (error?.status === 409 && conflictCode(error) === "opencode_session_busy") {
