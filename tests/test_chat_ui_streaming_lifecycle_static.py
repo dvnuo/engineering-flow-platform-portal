@@ -26,8 +26,8 @@ def test_reconcile_loop_and_run_lookup_are_removed():
 
     assert "startChatRun" + "ReconcileLoop" not in src
     assert "reconcileChatRun" + "Once" not in src
-    assert "/api/chat/runs" not in abort_fn
-    assert "/active-run" not in abort_fn
+    assert "/api/chat/" + "runs" not in abort_fn
+    assert "/active" + "-run" not in abort_fn
     assert "refreshOpenCodeSessionStatusForAgent" not in abort_fn
 
 

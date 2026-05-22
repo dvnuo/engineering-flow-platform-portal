@@ -46,11 +46,29 @@ def test_opencode_long_task_markers_are_removed_from_chat_ui():
         "chat_run" + "_already_active",
         "handleChatRun" + "AlreadyActive",
         "startChatRun" + "ReconcileLoop",
+        "stopChatRun" + "ReconcileLoop",
         "reconcileChatRun" + "Once",
+        "buildChatRun" + "Projection",
+        "applyChatRun" + "Projection",
+        "getActiveRun" + "FromPayload",
+        "getChatRun" + "Object",
+        "clearStale" + "ActiveRequest",
+        "activeRequest" + "MatchesRequestContext",
+        "fallbackRequest" + "ContextForAgent",
+        "markOpenCode" + "ProjectionInactive",
+        "openCode" + "Projection",
+        "active_" + "run",
         "stream" + "Detached",
+        "stream_" + "detached",
         "wait_reconnect" + "_or_stop",
-        "/active-run",
-        "/api/chat/runs",
+        "/active" + "-run",
+        "/api/chat/" + "runs",
+        "portal." + "reconcile",
+        "portal." + "stream_" + "detached",
+        "portal." + "active_" + "request.cleared",
+        "continuation." + "completed",
+        "timeout_" + "recovery",
+        "transport_" + "recovery",
         "Previous message" + " still running",
         "Still running. Reconnecting",
     ]
@@ -74,3 +92,53 @@ def test_missing_final_native_stream_finishes_as_incomplete_without_reconnect():
     assert 'handleIncompleteChatStream(agentIdAtSend, requestCtx, "missing_final"' in missing_final
     assert "handleChatStreamDetached" not in src
     assert "Reconnecting" not in missing_final
+
+
+def test_default_chat_state_only_initializes_legacy_native_fields():
+    src = _src()
+    default_state = _extract_js_function(src, "createDefaultChatState")
+    allowed_fields = [
+        "sessionId",
+        "isSubmitting",
+        "pendingFiles",
+        "inflightThinking",
+        "lastThinkingSnapshot",
+        "pendingThinkingEvents",
+        "draftText",
+        "needsReload",
+        "unreadCount",
+        "profileProvider",
+        "profileDefaultModel",
+        "modelOverride",
+    ]
+    removed_fields = [
+        "openCode" + "Projection",
+        "active" + "Request",
+        "currentRequest",
+        "backgroundStatus",
+        "lastCompletedRequestId",
+    ]
+
+    for field in allowed_fields:
+        assert f"{field}:" in default_state
+    for field in removed_fields:
+        assert field not in default_state
+
+
+def test_submit_request_context_does_not_reintroduce_long_run_fields():
+    src = _src()
+    submit_chat = _extract_js_function(src, "submitChatForSelectedAgent")
+    forbidden = [
+        "runtimeRequestId",
+        "stream" + "Detached",
+        "runtimeInactive",
+        "opencodeInactive",
+        "active_" + "run",
+        "activeRun",
+        "staleReason",
+    ]
+
+    assert "trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody)" in submit_chat
+    assert "fetch(`/a/${agentIdAtSend}/api/chat`" in submit_chat
+    for marker in forbidden:
+        assert marker not in submit_chat

@@ -360,7 +360,7 @@ function notifyAgentCompletion() {{}}
 {merge_events}
 {handle_success}
 const aState = ensureChatState("agent-A");
-aState.activeRequest = {{ clientRequestId: "req-a" }};
+aState.currentRequest = {{ clientRequestId: "req-a" }};
 (async () => {{
   await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{ session_id: "s-a2", response: "ok" }});
   console.log(JSON.stringify({{
@@ -432,7 +432,7 @@ function loadSessionForAgent() {{ throw new Error("should not reload"); }}
 {get_selected_assistant_display_name}
 {handle_success}
 const chatState = ensureChatState("agent-A");
-chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.currentRequest = {{ clientRequestId: "req-a" }};
 chatState.inflightThinking = {{ events: [{{type: "execution.started", request_id: "req-a", session_id: "s-a", data: {{ message: "ws" }} }}] }};
 (async () => {{
   await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{
@@ -661,7 +661,7 @@ async function loadSessionForAgent() {{}}
 {latest_from_events}
 {handle_success}
 const chatState = ensureChatState("agent-A");
-chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.currentRequest = {{ clientRequestId: "req-a" }};
 chatState.inflightThinking = {{
   events: [{{ type: "context_snapshot", request_id: "req-a", session_id: "s-a", data: {{ context_state: {{ summary: "Live summary" }} }} }}],
   contextState: {{ summary: "Live summary", next_step: "Keep me" }},
@@ -747,7 +747,7 @@ async function loadSessionForAgent() {{}}
 {pick_context_budget}
 {handle_success}
 const chatState = ensureChatState("agent-A");
-chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.currentRequest = {{ clientRequestId: "req-a" }};
 chatState.inflightThinking = {{ events: [], contextState: null, contextBudget: {{ usage_percent: 7 }} }};
 (async () => {{
   await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{
@@ -864,7 +864,7 @@ async function loadSessionForAgent() {{}}
 {get_active_snapshot}
 {handle_success}
 const chatState = ensureChatState("agent-A");
-chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.currentRequest = {{ clientRequestId: "req-a" }};
 chatState.inflightThinking = {{
   requestId: "req-a",
   sessionId: "s-a",
@@ -922,14 +922,6 @@ def test_handle_agent_event_message_merges_late_event_for_completed_request_into
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
     update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
-    normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
-    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
-    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
-    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
-    runtime_event_timestamp = _extract_js_function(js_file, "runtimeEventTimestampMs")
-    inactive_event = _extract_js_function(js_file, "isInactiveOpenCodeSessionEvent")
-    current_ids = _extract_js_function(js_file, "currentActiveRequestIds")
-    should_defer_inactive = _extract_js_function(js_file, "shouldDeferInactiveOpenCodeEventForFreshLocalSubmit")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
     script = f"""
@@ -952,18 +944,9 @@ function scheduleThinkingPanelRefresh() {{}}
 {has_meaningful}
 {has_contents}
 {update_context}
-{normalize_status}
-{normalize_opencode_status}
-{inactive_payload}
-{local_submit}
-{runtime_event_timestamp}
-{inactive_event}
-{current_ids}
-{should_defer_inactive}
 {handle_event}
 const chatState = ensureChatState("agent-A");
-chatState.activeRequest = null;
-chatState.lastCompletedRequestId = "req-a";
+chatState.currentRequest = null;
 chatState.lastThinkingSnapshot = {{
   requestId: "req-a",
   sessionId: "s-a",
@@ -1158,7 +1141,7 @@ async function loadSessionForAgent(agentId, sessionId, options) {{ reloadCalls.p
 {merge_events}
 {handle_success}
 const chatState = ensureChatState("agent-A");
-chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.currentRequest = {{ clientRequestId: "req-a" }};
 (async () => {{
   await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{ session_id: "s-a2", response: "done" }});
   console.log(JSON.stringify({{ reloadCalls }}));
@@ -1216,7 +1199,7 @@ function showToast() {{ toastCalls += 1; }}
 {handle_failure}
 const chatState = ensureChatState("agent-A");
 chatState.pendingFiles = [{{ id: "pf-1" }}];
-chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.currentRequest = {{ clientRequestId: "req-a" }};
 handleAgentChatFailure("agent-A", {{
   clientRequestId: "req-a",
   backupMessage: "msg"
@@ -1289,7 +1272,7 @@ function notifyAgentCompletion() {{}}
 {mark_unread}
 {handle_failure}
 const chatStateA = ensureChatState("agent-A");
-chatStateA.activeRequest = {{ clientRequestId: "req-a" }};
+chatStateA.currentRequest = {{ clientRequestId: "req-a" }};
 chatStateA.pendingFiles = [{{ id: "pf-1" }}];
 handleAgentChatFailure("agent-A", {{
   clientRequestId: "req-a",
@@ -1861,7 +1844,7 @@ function loadSessionForAgent() {{ throw new Error("should not reload"); }}
 {get_selected_assistant_display_name}
 {handle_success}
 const chatState = ensureChatState("agent-A");
-chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.currentRequest = {{ clientRequestId: "req-a" }};
 (async () => {{
   await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{
     session_id: "s-a2",
@@ -1901,7 +1884,7 @@ const state = {{
   eventWsRequestId: null,
 }};
 function currentSessionIdForSelectedAgent() {{ return "s-1"; }}
-function ensureChatState() {{ return {{ activeRequest: {{ clientRequestId: "req-live-1" }} }}; }}
+function ensureChatState() {{ return {{ currentRequest: {{ clientRequestId: "req-live-1" }} }}; }}
 function disconnectEventSocket() {{}}
 function handleAgentEventMessage() {{}}
 class FakeWebSocket {{
@@ -2040,13 +2023,8 @@ def test_switching_to_b_while_a_submitting_reenables_send_for_b():
     js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
-    normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
-    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
-    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
-    status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
-    session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
-    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
+    should_show_abort = _extract_js_function(js_file, "shouldShowAbortChatRunButton")
     sync_controls = _extract_js_function(js_file, "syncSelectedAgentChatActionControls")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
     restore_composer = _extract_js_function(js_file, "restoreComposerForAgent")
@@ -2076,13 +2054,8 @@ function renderInputPreview() {{}}
 function renderComposerModelSelectorForAgent() {{}}
 {create_state}
 {ensure_state}
-{normalize_status}
-{normalize_opencode_status}
-{inactive_payload}
-{status_blocking}
-{session_blocking}
-{local_submit}
 {has_active}
+{should_show_abort}
 {sync_controls}
 {set_submitting}
 {restore_composer}
@@ -2108,12 +2081,6 @@ def test_start_new_chat_ignores_stale_local_active_request_without_opencode_busy
     js_file = _chat_ui_js_source()
     create_state = _extract_js_function(js_file, "createDefaultChatState")
     ensure_state = _extract_js_function(js_file, "ensureChatState")
-    normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
-    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
-    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
-    status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
-    session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
-    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     active_message = _extract_js_function(js_file, "activeChatRequestMessage")
     guard_active = _extract_js_function(js_file, "guardNoActiveChatRequestForAgent")
@@ -2149,18 +2116,12 @@ function resetChatInputHeight() {{}}
 function getChatState() {{ return ensureChatState(state.selectedAgentId); }}
 {create_state}
 {ensure_state}
-{normalize_status}
-{normalize_opencode_status}
-{inactive_payload}
-{status_blocking}
-{session_blocking}
-{local_submit}
 {has_active}
 {active_message}
 {guard_active}
 {start_new_chat}
 const chatState = ensureChatState("agent-A");
-chatState.activeRequest = {{ clientRequestId: "req-a" }};
+chatState.currentRequest = {{ clientRequestId: "req-a" }};
 chatState.sessionId = "s-a";
 (async () => {{
   await startNewChatForSelectedAgent();
@@ -2170,7 +2131,7 @@ chatState.sessionId = "s-a";
     sessionId: chatState.sessionId,
     toast: calls.toast,
     status: calls.status,
-    activeRequest: chatState.activeRequest,
+    currentRequest: chatState.currentRequest,
   }}));
 }})();
 """
@@ -2179,7 +2140,7 @@ chatState.sessionId = "s-a";
     assert data["updatedSession"] == 1
     assert data["setChatSubmittingFalse"] == 1
     assert data["sessionId"] == ""
-    assert data["activeRequest"] is None
+    assert data["currentRequest"] is None
     assert data["toast"] == []
     assert any(item[0] == "New chat started" and item[1] is False for item in data["status"])
 
@@ -2259,7 +2220,7 @@ def test_success_completion_clears_active_request_before_resyncing_controls():
     assert success_start >= 0
     success_slice = js_source[success_start: success_start + 4500]
 
-    idx_clear_active = success_slice.find("chatState.activeRequest = null;")
+    idx_clear_active = success_slice.find("chatState.currentRequest = null;")
     idx_clear_inflight = success_slice.find("chatState.inflightThinking = null;")
     idx_clear_pending = success_slice.find("chatState.pendingThinkingEvents = null;")
     idx_resync_controls = success_slice.find("setChatSubmittingForAgent(agentIdAtSend, false);")
@@ -2280,7 +2241,7 @@ def test_failure_completion_marks_inflight_done_before_resyncing_controls():
     assert failure_start >= 0
     failure_slice = js_source[failure_start: failure_start + 3000]
 
-    idx_clear_active = failure_slice.find("chatState.activeRequest = null;")
+    idx_clear_active = failure_slice.find("chatState.currentRequest = null;")
     idx_mark_done = failure_slice.find("chatState.inflightThinking.completed = true;")
     idx_resync_controls = failure_slice.find("setChatSubmittingForAgent(agentIdAtSend, false);")
 
@@ -2308,16 +2269,6 @@ def test_event_message_does_not_claim_empty_session_without_matching_request():
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
     update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
-    normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
-    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
-    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
-    status_blocking = _extract_js_function(js_file, "isOpenCodeSessionStatusBlockingPayload")
-    session_blocking = _extract_js_function(js_file, "isOpenCodeSessionBlocking")
-    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
-    runtime_event_timestamp = _extract_js_function(js_file, "runtimeEventTimestampMs")
-    inactive_event = _extract_js_function(js_file, "isInactiveOpenCodeSessionEvent")
-    current_ids = _extract_js_function(js_file, "currentActiveRequestIds")
-    should_defer_inactive = _extract_js_function(js_file, "shouldDeferInactiveOpenCodeEventForFreshLocalSubmit")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
@@ -2341,21 +2292,11 @@ function scheduleThinkingPanelRefresh() {{}}
 {has_meaningful}
 {has_contents}
 {update_context}
-{normalize_status}
-{normalize_opencode_status}
-{inactive_payload}
-{status_blocking}
-{session_blocking}
-{local_submit}
-{runtime_event_timestamp}
-{inactive_event}
-{current_ids}
-{should_defer_inactive}
 {has_active}
 {handle_event}
 const chatState = ensureChatState("agent-A");
 chatState.sessionId = "";
-chatState.activeRequest = null;
+chatState.currentRequest = null;
 handleAgentEventMessage(JSON.stringify({{
   type: "execution.started",
   event_type: "execution.started",
@@ -2397,14 +2338,6 @@ def test_event_message_can_claim_empty_session_when_matching_active_request():
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
     update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
-    normalize_status = _extract_js_function(js_file, "normalizeChatRunStatus")
-    normalize_opencode_status = _extract_js_function(js_file, "normalizeOpenCodeSessionStatusType")
-    inactive_payload = _extract_js_function(js_file, "isOpenCodeSessionInactivePayload")
-    local_submit = _extract_js_function(js_file, "isLocalSubmitPendingBeforeOpenCodeStatus")
-    runtime_event_timestamp = _extract_js_function(js_file, "runtimeEventTimestampMs")
-    inactive_event = _extract_js_function(js_file, "isInactiveOpenCodeSessionEvent")
-    current_ids = _extract_js_function(js_file, "currentActiveRequestIds")
-    should_defer_inactive = _extract_js_function(js_file, "shouldDeferInactiveOpenCodeEventForFreshLocalSubmit")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
     script = f"""
@@ -2427,18 +2360,10 @@ function scheduleThinkingPanelRefresh() {{}}
 {has_meaningful}
 {has_contents}
 {update_context}
-{normalize_status}
-{normalize_opencode_status}
-{inactive_payload}
-{local_submit}
-{runtime_event_timestamp}
-{inactive_event}
-{current_ids}
-{should_defer_inactive}
 {handle_event}
 const chatState = ensureChatState("agent-A");
 chatState.sessionId = "";
-chatState.activeRequest = {{ clientRequestId: "req-new" }};
+chatState.currentRequest = {{ clientRequestId: "req-new" }};
 handleAgentEventMessage(JSON.stringify({{
   type: "execution.started",
   event_type: "execution.started",

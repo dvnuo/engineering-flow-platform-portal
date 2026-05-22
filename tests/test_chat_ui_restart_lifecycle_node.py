@@ -20,6 +20,7 @@ def _restart_lifecycle_functions(src):
             "waitForAgentRuntimeStatus",
             "pollAgentUntilRestartComplete",
             "agentRestartErrorMessage",
+            "resetLocalChatSubmissionForAgent",
             "action",
         ]
     )
@@ -41,7 +42,7 @@ const statusCalls = [];
 const calls = [];
 const statusQueue = ["restarting", "running"];
 const chatState = {
-  activeRequest: { clientRequestId: "req-1", sessionIdAtSend: "s-1" },
+  currentRequest: { clientRequestId: "req-1", sessionIdAtSend: "s-1" },
   sessionId: "s-1",
 };
 
@@ -69,12 +70,11 @@ function ensureChatState(agentId) {
   assert.equal(agentId, "agent-1");
   return chatState;
 }
-function fallbackRequestContextForAgent(agentId, reason) {
-  return { agentId, reason, clientRequestId: "fallback" };
-}
-function clearStaleActiveRequest(agentId, requestCtx, reason) {
-  calls.push(["clear", agentId, reason, requestCtx.clientRequestId]);
-  chatState.activeRequest = null;
+function clearWaitingForRuntimeEventsTimer(requestCtx) { calls.push(["clearWaiting", requestCtx.clientRequestId]); }
+function cancelAssistantTypewriter(requestCtx) { calls.push(["cancelTypewriter", requestCtx.clientRequestId]); }
+function setChatSubmittingForAgent(agentId, submitting) {
+  calls.push(["setSubmitting", agentId, submitting]);
+  chatState.isSubmitting = submitting;
 }
 async function refreshAll() { calls.push(["refreshAll"]); }
 function disconnectEventSocket() { calls.push(["disconnectEventSocket"]); state.eventWsAgentId = null; }
@@ -103,7 +103,8 @@ async function api(path, options = {}) {
 
   assert.equal(apiCalls[0].path, "/api/agents/agent-1/restart");
   assert.equal(apiCalls.filter((call) => call.path === "/api/agents/agent-1/status").length, 2);
-  assert.ok(calls.some((call) => call[0] === "clear" && call[2] === "agent_restarting"));
+  assert.ok(calls.some((call) => call[0] === "clearWaiting" && call[1] === "req-1"));
+  assert.ok(calls.some((call) => call[0] === "setSubmitting" && call[2] === false));
   assert.ok(calls.some((call) => call[0] === "disconnectEventSocket"));
   assert.ok(calls.some((call) => call[0] === "loadSessionForAgent" && call[2] === "s-1"));
   assert.ok(calls.some((call) => call[0] === "ensureEventSocketForSelectedAgent"));
@@ -116,7 +117,7 @@ async function api(path, options = {}) {
   assert.ok(final, "restart should show final ready status");
   assert.ok(final.apiCallCount >= 3, "final ready status must wait for restart plus status polling");
   assert.equal(statusCalls.some((call) => call.text === "Assistant restarted."), false);
-  assert.equal(chatState.activeRequest, null);
+  assert.equal(chatState.currentRequest, null);
   assert.equal(state.agentStatus.get("agent-1").status, "running");
 })().catch((error) => {
   console.error(error);
@@ -143,7 +144,7 @@ const assert = require("node:assert/strict");
 const apiCalls = [];
 const statusCalls = [];
 const calls = [];
-const chatState = { activeRequest: null, sessionId: "s-1" };
+const chatState = { currentRequest: null, sessionId: "s-1" };
 const state = {
   selectedAgentId: "agent-1",
   mineAgents: [{ id: "agent-1", name: "Assistant", status: "running" }],
@@ -166,11 +167,11 @@ function ensureChatState(agentId) {
   assert.equal(agentId, "agent-1");
   return chatState;
 }
-function fallbackRequestContextForAgent(agentId, reason) {
-  return { agentId, reason, clientRequestId: "fallback" };
-}
-function clearStaleActiveRequest(agentId, requestCtx, reason) {
-  calls.push(["clear", agentId, reason, requestCtx.clientRequestId]);
+function clearWaitingForRuntimeEventsTimer(requestCtx) { if (requestCtx) calls.push(["clearWaiting", requestCtx.clientRequestId]); }
+function cancelAssistantTypewriter(requestCtx) { if (requestCtx) calls.push(["cancelTypewriter", requestCtx.clientRequestId]); }
+function setChatSubmittingForAgent(agentId, submitting) {
+  calls.push(["setSubmitting", agentId, submitting]);
+  chatState.isSubmitting = submitting;
 }
 async function refreshAll() {
   calls.push(["refreshAll"]);

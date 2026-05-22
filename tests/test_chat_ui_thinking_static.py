@@ -13,7 +13,6 @@ def _src():
 def test_thinking_event_types_and_request_id_guards_present():
     src = _src()
     for marker in [
-        'continuation.started',
         'chat.incomplete',
         'chat.blocked',
         'provider.retry',
@@ -25,7 +24,6 @@ def test_thinking_event_types_and_request_id_guards_present():
         'permission_request',
     ]:
         assert marker in src
-    assert 'lastCompletedRequestId' in src
     assert 'request_id' in src
     assert 'mergeFinalThinkingSnapshot' in src
     for marker in ['completion_state', 'incomplete_reason', 'continuation_count', 'context_state']:
@@ -41,13 +39,13 @@ def test_merge_final_thinking_snapshot_preserves_terminal_diagnostics():
         'continuation_count: finalPayload?.continuation_count ?? null',
         'contextState: finalContextState',
         'context_state: finalContextState',
-        'lastCompletedRequestId',
     ]:
         assert marker in body
 
 
-def test_stale_event_guard_uses_request_ids_and_last_completed_request_id():
+def test_stale_event_guard_uses_request_ids_and_last_thinking_snapshot():
     src = _src()
-    assert 'lastCompletedRequestId' in src
+    handle_event = _extract_js_function(src, "handleAgentEventMessage")
     assert 'request_id' in src
+    assert 'lastThinkingSnapshot?.requestId' in handle_event
     assert 'expectedRequestId' in src

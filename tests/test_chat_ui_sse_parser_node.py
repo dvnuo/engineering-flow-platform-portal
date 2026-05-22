@@ -131,8 +131,8 @@ def test_opencode_long_task_sse_recovery_markers_are_removed():
         "startChatRun" + "ReconcileLoop",
         "reconcileChatRun" + "Once",
         "stream" + "Detached",
-        "/active-run",
-        "/api/chat/runs",
+        "/active" + "-run",
+        "/api/chat/" + "runs",
         "Previous message" + " still running",
         "Still running. Reconnecting",
     ]
