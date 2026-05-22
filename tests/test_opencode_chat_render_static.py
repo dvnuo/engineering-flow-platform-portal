@@ -6,17 +6,18 @@ RENDERER = MODULE_DIR / "renderer.js"
 TEMPLATE = Path("app/templates/partials/opencode_chat_container.html")
 
 
-def test_renderer_buttons_are_derived_from_view_state():
+def test_renderer_keeps_simple_sync_chat_controls():
     src = RENDERER.read_text(encoding="utf-8")
     permission_src = (MODULE_DIR / "permission_panel.js").read_text(encoding="utf-8")
     trace_src = (MODULE_DIR / "trace_panel.js").read_text(encoding="utf-8")
 
     assert "viewState.canSend ? \"\" : \"disabled\"" in src
-    assert "viewState.canStop" in src
-    assert "viewState.showReconnect" in src
-    assert "data-opencode-stop" in src
-    assert "data-opencode-reconnect" in src
+    assert "viewState.canStop" not in src
+    assert "viewState.showReconnect" not in src
+    assert "data-opencode-stop" not in src
+    assert "data-opencode-reconnect" not in src
     assert "data-opencode-new-chat" in src
+    assert "data-opencode-composer" in src
     assert 'data-permission-decision="allow_once"' in permission_src
     assert 'data-permission-decision="deny"' in permission_src
     assert 'data-child-session-id=' in trace_src

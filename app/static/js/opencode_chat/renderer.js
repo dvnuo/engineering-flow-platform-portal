@@ -49,12 +49,6 @@ function renderErrors(errors = []) {
 }
 
 function renderToolbar(viewState, creatingConversation) {
-  const stopButton = viewState.canStop
-    ? '<button type="button" class="opencode-btn" data-opencode-stop>Stop</button>'
-    : "";
-  const reconnectButton = viewState.showReconnect
-    ? '<button type="button" class="opencode-btn" data-opencode-reconnect>Reconnect</button>'
-    : "";
   return `
     <div class="opencode-chat-toolbar">
       <div class="opencode-chat-badges">
@@ -62,8 +56,6 @@ function renderToolbar(viewState, creatingConversation) {
         <span class="opencode-badge ${badgeClass(viewState.sessionBadge.status)}">Session: ${escapeHtml(viewState.sessionBadge.label)}</span>
       </div>
       <div class="opencode-chat-actions">
-        ${reconnectButton}
-        ${stopButton}
         <button type="button" class="opencode-btn" data-opencode-new-chat ${creatingConversation ? "disabled" : ""}>New chat</button>
       </div>
     </div>
@@ -121,8 +113,6 @@ export function renderOpenCodeChat(rootElement, viewState, handlers = {}, option
     event.preventDefault();
     handlers.onSend?.(input?.value || "");
   });
-  rootElement.querySelector("[data-opencode-stop]")?.addEventListener("click", () => handlers.onStop?.());
-  rootElement.querySelector("[data-opencode-reconnect]")?.addEventListener("click", () => handlers.onReconnect?.());
   rootElement.querySelector("[data-opencode-new-chat]")?.addEventListener("click", () => handlers.onNewChat?.());
   rootElement.querySelectorAll("[data-permission-decision]").forEach((button) => {
     button.addEventListener("click", () => {

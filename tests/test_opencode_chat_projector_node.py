@@ -27,13 +27,14 @@ def test_opencode_chat_projector_state_transitions_node():
         view = deriveViewState(store);
         assert.equal(store.sessionStatus, "busy");
         assert.equal(view.canSend, false);
-        assert.equal(view.canStop, true);
+        assert.equal(view.canStop, false);
+        assert.equal(view.showReconnect, false);
 
         applyStatusSnapshot(store, { ok: true, status: "accepted", action_hint: "watch_events_then_reconcile" });
         view = deriveViewState(store);
         assert.equal(store.sessionStatus, "busy");
         assert.equal(view.canSend, false);
-        assert.equal(view.canStop, true);
+        assert.equal(view.canStop, false);
 
         const snapshot = {
           messages: [
@@ -47,55 +48,43 @@ def test_opencode_chat_projector_state_transitions_node():
         assert.equal(store.partsById.size, 2);
         assert.deepEqual(store.messageOrder, ["m1", "m2"]);
 
+        const messageCountBeforeEvent = store.messagesById.size;
         applyOpenCodeEvent(store, { type: "opencode.message.updated", data: { info: { id: "m3", role: "assistant", time: "3" } } });
-        assert.equal(store.messagesById.get("m3").info.role, "assistant");
-
-        applyOpenCodeEvent(store, {
-          type: "opencode.message.updated",
-          data: {
-            messageID: "msg-1",
-            role: "assistant",
-            parts: [{ partID: "part-1", messageID: "msg-1", type: "text", text: "hello" }],
-          },
-        });
-        assert.equal(store.messagesById.has("msg-1"), true);
-        assert.equal(store.partsById.has("part-1"), true);
-
-        applyOpenCodeEvent(store, { type: "opencode.message.part.updated", data: { id: "p3", message_id: "m3", type: "tool", tool: "bash", text: "running" } });
-        assert.equal(store.partsById.get("p3").tool, "bash");
-
-        applyOpenCodeEvent(store, {
-          type: "opencode.message.part.updated",
-          data: { partID: "part-2", messageID: "msg-1", type: "text", text: "x" },
-        });
-        assert.equal(store.partsById.get("part-2").messageId, "msg-1");
-
-        applyOpenCodeEvent(store, { type: "opencode.message.part.delta", data: { part_id: "p3", field: "text", delta: " done" } });
-        assert.equal(store.partsById.get("p3").text, "running done");
+        assert.equal(store.messagesById.size, messageCountBeforeEvent);
 
         store.localSubmit = { messageId: "local-1", text: "pending", startedAt: Date.now() };
-        applyOpenCodeEvent(store, { type: "opencode.session.status", data: { status: { type: "idle", active: false } } });
+        applyStatusSnapshot(store, { status: { type: "idle", active: false } });
         view = deriveViewState(store);
         assert.equal(store.sessionStatus, "idle");
-        assert.equal(store.snapshotNeeded, true);
         assert.equal(store.localSubmit, null);
         assert.equal(view.canSend, true);
 
-        applyOpenCodeEvent(store, { type: "opencode.permission.requested", data: { permission_id: "perm-1", tool: "bash" } });
+        store.permissionsById.set("perm-1", { permission_id: "perm-1", tool: "bash" });
         view = deriveViewState(store);
         assert.equal(view.permissionRequests.length, 1);
         assert.equal(view.permissionRequests[0].permission_id, "perm-1");
-
-        applyOpenCodeEvent(store, {
-          type: "opencode.permission.requested",
-          data: { permissionID: "perm-2" },
-        });
-        assert.equal(store.permissionsById.has("perm-2"), true);
 
         store.children = [{ id: "child-1", status: "busy" }];
         view = deriveViewState(store);
         assert.equal(view.canSend, true);
         assert.deepEqual(view.children, [{ id: "child-1", status: "busy" }]);
+
+        const traceStore = createOpenCodeChatStore({ agentId: "agent-1" });
+        applyMessageSnapshot(traceStore, {
+          messages: [
+            {
+              info: { id: "trace-message", role: "assistant", time: "1" },
+              parts: [
+                { id: "reason-1", type: "reasoning", text: "inspect code" },
+                { id: "tool-1", type: "tool", tool: "bash", text: "pytest" },
+              ],
+            },
+          ],
+        });
+        const traceView = deriveViewState(traceStore);
+        assert.equal(traceView.thinkingItems.length, 2);
+        assert.equal(traceView.thinkingItems[0].type, "reasoning");
+        assert.equal(traceView.thinkingItems[1].type, "tool");
         """
     )
 

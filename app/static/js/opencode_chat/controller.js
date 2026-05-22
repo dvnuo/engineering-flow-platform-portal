@@ -1,5 +1,4 @@
 import { OpenCodeChatApi } from "./api_client.js";
-import { connectOpenCodeEvents } from "./event_stream.js";
 import { applyHealthSnapshot, applyMessageSnapshot, applyStatusSnapshot, deriveViewState } from "./projector.js";
 import { renderOpenCodeChat } from "./renderer.js";
 import { createOpenCodeChatStore } from "./store.js";
@@ -56,7 +55,6 @@ export class OpenCodeChatController {
     this.api = api || new OpenCodeChatApi({ agentId });
     this.store = createOpenCodeChatStore({ agentId });
     this.draftText = "";
-    this.events = null;
     this.creatingConversation = false;
     this.destroyed = false;
   }
@@ -69,7 +67,6 @@ export class OpenCodeChatController {
       await this.refreshStatus();
       await this.refreshMessages();
       await this.refreshChildren();
-      if (["busy", "retry"].includes(this.store.sessionStatus)) this.connectEvents();
     } catch (error) {
       this.store.errors.push({ message: errorMessage(error, "Unable to initialize OpenCode chat") });
     }
@@ -112,8 +109,6 @@ export class OpenCodeChatController {
     if (!conversationId) return "";
     const normalized = String(conversationId);
     if (this.store.conversationId !== normalized) {
-      this.events?.close();
-      this.events = null;
       this.store.conversationId = normalized;
       this.store.messagesById.clear();
       this.store.partsById.clear();
@@ -151,7 +146,6 @@ export class OpenCodeChatController {
       await this.refreshStatus();
       await this.refreshMessages();
       await this.refreshChildren();
-      if (["busy", "retry"].includes(this.store.sessionStatus)) this.connectEvents();
       this.store.snapshotNeeded = false;
     } catch (error) {
       this.store.snapshotNeeded = true;
@@ -161,17 +155,7 @@ export class OpenCodeChatController {
   }
 
   connectEvents() {
-    if (!this.store.conversationId || this.destroyed) return;
-    if (this.events) return;
-    this.events = connectOpenCodeEvents({
-      api: this.api,
-      store: this.store,
-      conversationId: this.store.conversationId,
-      onChange: () => this.render(),
-      onSnapshotNeeded: async () => {
-        await this.refreshSnapshot();
-      },
-    });
+    return null;
   }
 
   async send(text, options = {}) {
@@ -180,8 +164,8 @@ export class OpenCodeChatController {
     this.draftText = trimmed;
     await this.ensureConversation();
     await this.refreshStatus();
-    if (["busy", "retry"].includes(this.store.sessionStatus)) {
-      this.store.errors.push({ message: "Previous message still running." });
+    if (["busy", "retry", "aborting"].includes(this.store.sessionStatus)) {
+      this.store.errors.push({ message: "OpenCode is currently busy. Try again later or start a new chat." });
       this.render();
       return;
     }
@@ -198,22 +182,23 @@ export class OpenCodeChatController {
         ...options,
       });
       this.draftText = "";
-      const responseStatus = response?.status;
-      if (responseStatus && typeof responseStatus === "object") {
-        applyStatusSnapshot(this.store, response);
-      } else if (
-        typeof responseStatus === "string" &&
-        ["idle", "busy", "retry", "aborting", "unknown", "missing"].includes(responseStatus.toLowerCase())
-      ) {
-        applyStatusSnapshot(this.store, response);
+      this.store.localSubmit = null;
+
+      if (response?.messages) {
+        applyMessageSnapshot(this.store, response);
       }
-      this.connectEvents();
-      setTimeout(() => this.refreshSnapshot().catch(() => {}), 500);
+      if (response?.session_status || response?.status) {
+        applyStatusSnapshot(this.store, response.session_status ? { status: response.session_status } : response);
+      }
+
+      await this.refreshStatus();
+      await this.refreshMessages();
+      await this.refreshChildren();
     } catch (error) {
       this.store.localSubmit = null;
       if (error?.status === 409 && conflictCode(error) === "opencode_session_busy") {
         applyStatusSnapshot(this.store, error.body?.status || error.body || { status: { type: "busy", active: true } });
-        this.store.errors.push({ message: "Previous message still running." });
+        this.store.errors.push({ message: "OpenCode is currently busy. Try again later or start a new chat." });
       } else {
         this.store.errors.push({ message: errorMessage(error, "Unable to send message") });
       }
@@ -228,15 +213,11 @@ export class OpenCodeChatController {
     try {
       const response = await this.api.abort(this.store.conversationId);
       applyStatusSnapshot(this.store, response?.status ? response : { status: response });
-      const status = response?.status || response || {};
-      if (status.active === false || status?.status?.active === false) {
-        await this.refreshSnapshot();
-      } else {
-        await this.refreshStatus();
-      }
+      await this.refreshStatus();
+      await this.refreshMessages();
     } catch (error) {
       if (error?.status === 409 && conflictCode(error) === "opencode_abort_still_active") {
-        this.store.errors.push({ message: "OpenCode still reports this session is running." });
+        this.store.errors.push({ message: "OpenCode could not stop the current request." });
         await this.refreshStatus();
       } else {
         this.store.errors.push({ message: errorMessage(error, "Unable to stop OpenCode") });
@@ -285,8 +266,6 @@ export class OpenCodeChatController {
           this.draftText = value;
         },
         onSend: (value) => this.send(value),
-        onStop: () => this.abort(),
-        onReconnect: () => this.refreshSnapshot(),
         onNewChat: () => this.createNewConversation(),
         onPermission: (permissionId, decision, remember) => this.respondPermission(permissionId, decision, remember),
       },
@@ -296,8 +275,6 @@ export class OpenCodeChatController {
 
   destroy() {
     this.destroyed = true;
-    this.events?.close();
-    this.events = null;
     if (this.rootElement) this.rootElement.innerHTML = "";
   }
 }

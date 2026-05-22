@@ -1,5 +1,6 @@
 import subprocess
 import textwrap
+from pathlib import Path
 
 
 def test_opencode_chat_controller_flows_node():
@@ -7,8 +8,6 @@ def test_opencode_chat_controller_flows_node():
         r"""
         import assert from "node:assert/strict";
         import { OpenCodeChatController } from "./app/static/js/opencode_chat/controller.js";
-
-        globalThis.setTimeout = () => 0;
 
         function makeApi(overrides = {}) {
           const calls = [];
@@ -20,9 +19,8 @@ def test_opencode_chat_controller_flows_node():
             async getStatus() { calls.push(["getStatus"]); return { status: { type: "idle", active: false } }; },
             async getMessages() { calls.push(["getMessages"]); return { messages: [] }; },
             async getChildren() { calls.push(["getChildren"]); return { children: [] }; },
-            async send(_conversationId, body) { calls.push(["send", body]); return { accepted: true, status: { type: "busy", active: true } }; },
+            async send(_conversationId, body) { calls.push(["send", body]); return { ok: true, status: { type: "idle", active: false } }; },
             async abort() { calls.push(["abort"]); return { status: { type: "idle", active: false } }; },
-            connectEvents() { calls.push(["connectEvents"]); return { close() { calls.push(["closeEvents"]); } }; },
             async respondPermission(_conversationId, permissionId, body) {
               calls.push(["respondPermission", permissionId, body]);
               return { ok: true };
@@ -44,6 +42,7 @@ def test_opencode_chat_controller_flows_node():
           "getMessages",
         ]);
         assert.equal(initApi.calls.some((call) => call[0] === "getChildren"), true);
+        assert.equal(initApi.calls.some((call) => call[0] === "connectEvents"), false);
 
         const sendApi = makeApi({
           async getMessages() {
@@ -60,14 +59,14 @@ def test_opencode_chat_controller_flows_node():
         await sendController.send("hello");
         assert.equal(sendApi.calls.some((call) => call[0] === "send"), true);
         assert.equal(sendController.draftText, "");
-        assert.notEqual(sendController.store.localSubmit, null);
-        await sendController.refreshSnapshot();
         assert.equal(sendController.store.localSubmit, null);
         assert.equal(sendApi.calls.some((call) => JSON.stringify(call).includes("/api/chat")), false);
         assert.equal(sendApi.calls.some((call) => call[0] === "getChildren"), true);
+        assert.equal(sendApi.calls.some((call) => call[0] === "connectEvents"), false);
 
-        globalThis.setTimeout = (fn) => {
-          fn();
+        let timeoutCalled = false;
+        globalThis.setTimeout = () => {
+          timeoutCalled = true;
           return 0;
         };
         const acceptedApi = makeApi({
@@ -80,10 +79,10 @@ def test_opencode_chat_controller_flows_node():
         acceptedController.store.conversationId = "conversation-1";
         acceptedController.store.sessionStatus = "idle";
         await acceptedController.send("hello");
-        await Promise.resolve();
         assert.equal(acceptedApi.calls.some((call) => call[0] === "getMessages"), true);
         assert.equal(acceptedApi.calls.some((call) => call[0] === "getStatus"), true);
         assert.notEqual(acceptedController.store.sessionStatus, "unknown");
+        assert.equal(timeoutCalled, false);
 
         const busyApi = makeApi({
           async getStatus() {
@@ -96,7 +95,10 @@ def test_opencode_chat_controller_flows_node():
         await busyController.send("keep this");
         assert.equal(busyApi.calls.some((call) => call[0] === "send"), false);
         assert.equal(busyController.draftText, "keep this");
-        assert.match(busyController.store.errors.at(-1).message, /Previous message still running/);
+        assert.equal(
+          busyController.store.errors.at(-1).message,
+          "OpenCode is currently busy. Try again later or start a new chat.",
+        );
 
         const conflictApi = makeApi({
           async send() {
@@ -131,7 +133,7 @@ def test_opencode_chat_controller_flows_node():
         const stillActiveController = new OpenCodeChatController({ agentId: "agent-1", rootElement: null, api: stillActiveApi });
         stillActiveController.store.conversationId = "conversation-1";
         await stillActiveController.abort();
-        assert.match(stillActiveController.store.errors.at(-1).message, /still reports/);
+        assert.equal(stillActiveController.store.errors.at(-1).message, "OpenCode could not stop the current request.");
         assert.equal(stillActiveApi.calls.some((call) => call[0] === "createConversation"), false);
 
         const permissionApi = makeApi();
@@ -151,3 +153,13 @@ def test_opencode_chat_controller_flows_node():
         capture_output=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_opencode_chat_controller_has_no_event_stream_dependency():
+    src = Path("app/static/js/opencode_chat/controller.js").read_text(encoding="utf-8")
+
+    assert "connectOpenCodeEvents" not in src
+    assert "event_stream" not in src
+    assert "EventSource" not in src
+    assert "Previous message still running" not in src
+    assert "Reconnecting" not in src

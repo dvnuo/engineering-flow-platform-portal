@@ -9,11 +9,12 @@ function chatMode(root) {
 }
 
 function shouldRun(root) {
+  const mode = chatMode(root);
   return Boolean(
     root &&
     root.dataset.agentId &&
     normalized(root.dataset.runtimeType) === "opencode" &&
-    chatMode(root) === "thin",
+    (mode === "thin" || mode === "simple"),
   );
 }
 

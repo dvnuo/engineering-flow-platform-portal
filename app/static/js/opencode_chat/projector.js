@@ -1,4 +1,3 @@
-const BUSY_STATUSES = new Set(["busy", "retry", "aborting"]);
 const THINKING_PART_TYPES = new Set([
   "reasoning",
   "tool",
@@ -37,16 +36,6 @@ function normalizeStatus(value) {
   if (["retry", "retrying", "recovering"].includes(raw)) return "retry";
   if (["aborting", "stopping", "cancelling", "canceling"].includes(raw)) return "aborting";
   return "unknown";
-}
-
-function eventPayload(event) {
-  const candidate = asObject(event);
-  const data = asObject(candidate.data);
-  return Object.keys(data).length ? data : candidate;
-}
-
-function eventType(event) {
-  return firstNonEmpty(event?.type, event?.event, event?.name);
 }
 
 function messageInfoFrom(value) {
@@ -195,85 +184,6 @@ export function applyMessageSnapshot(store, payload) {
 }
 
 export function applyOpenCodeEvent(store, event) {
-  const type = eventType(event);
-  const payload = eventPayload(event);
-
-  if (type === "opencode.connected") {
-    store.eventConnection = "connected";
-    return store;
-  }
-
-  if (type === "opencode.session.status") {
-    applyStatusSnapshot(store, payload);
-    if (store.sessionStatus === "idle") store.snapshotNeeded = true;
-    return store;
-  }
-
-  if (type === "opencode.message.updated") {
-    const message = payload.message || payload;
-    const info = messageInfoFrom(message);
-    if (!info) return store;
-    const existing = store.messagesById.get(info.id) || {};
-    const parts = messageParts(message, info.id);
-    store.messagesById.set(info.id, { ...existing, ...message, info, parts: parts.length ? parts : existing.parts || [] });
-    if (!store.messageOrder.includes(info.id)) store.messageOrder.push(info.id);
-    parts.forEach((part) => store.partsById.set(part.id, part));
-    return store;
-  }
-
-  if (type === "opencode.message.part.updated") {
-    const part = normalizePart(payload.part || payload, firstNonEmpty(payload.message_id, payload.messageID, payload.messageId));
-    if (part) store.partsById.set(part.id, { ...(store.partsById.get(part.id) || {}), ...part });
-    return store;
-  }
-
-  if (type === "opencode.message.part.delta") {
-    const partId = firstNonEmpty(
-      payload.part_id,
-      payload.partID,
-      payload.partId,
-      payload.id,
-      payload.part?.id,
-      payload.part?.partID,
-      payload.part?.part_id,
-    );
-    if (!partId) return store;
-    const field = firstNonEmpty(payload.field, "text");
-    const deltaValue = payload.delta ?? payload.text_delta ?? payload.text ?? payload.content ?? "";
-    const delta = String(deltaValue);
-    const existing = store.partsById.get(partId) || {
-      id: partId,
-      messageId: firstNonEmpty(payload.message_id, payload.messageID, payload.messageId),
-      type: firstNonEmpty(payload.type, payload.kind, "text"),
-    };
-    store.partsById.set(partId, {
-      ...existing,
-      [field]: `${existing[field] || ""}${delta}`,
-    });
-    return store;
-  }
-
-  if (type === "opencode.permission.requested") {
-    const permissionId = firstNonEmpty(
-      payload.permission_id,
-      payload.permissionID,
-      payload.permissionId,
-      payload.id,
-    );
-    if (permissionId) store.permissionsById.set(permissionId, { ...payload, permission_id: permissionId });
-    return store;
-  }
-
-  if (type === "opencode.snapshot.required") {
-    store.snapshotNeeded = true;
-    return store;
-  }
-
-  if (type === "opencode.error") {
-    store.errors.push(payload);
-    return store;
-  }
-
   return store;
 }
 
@@ -315,8 +225,8 @@ export function deriveViewState(store) {
 
   const permissionRequests = Array.from(store.permissionsById.values());
   const canSend = store.runtimeHealth === "online" && store.sessionStatus === "idle" && store.localSubmit == null;
-  const canStop = BUSY_STATUSES.has(store.sessionStatus) || store.localSubmit != null;
-  const showReconnect = store.eventConnection === "disconnected" && ["busy", "retry"].includes(store.sessionStatus);
+  const canStop = false;
+  const showReconnect = false;
 
   return {
     runtimeBadge: { label: store.runtimeHealth, status: store.runtimeHealth },

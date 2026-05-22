@@ -108,18 +108,6 @@ export class OpenCodeChatApi {
     });
   }
 
-  connectEvents(conversationId, handlers = {}) {
-    const EventSourceImpl = handlers.EventSourceImpl || globalThis.EventSource;
-    if (typeof EventSourceImpl !== "function") throw new Error("EventSource is not available");
-    const source = new EventSourceImpl(
-      `${this.basePath}/conversations/${encodeURIComponent(conversationId)}/events`,
-    );
-    if (typeof handlers.open === "function") source.addEventListener("open", handlers.open);
-    if (typeof handlers.message === "function") source.addEventListener("message", handlers.message);
-    if (typeof handlers.error === "function") source.addEventListener("error", handlers.error);
-    return source;
-  }
-
   respondPermission(conversationId, permissionId, body) {
     return this.request(
       `/conversations/${encodeURIComponent(conversationId)}/permissions/${encodeURIComponent(permissionId)}`,

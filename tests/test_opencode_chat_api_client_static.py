@@ -22,10 +22,12 @@ def test_api_client_uses_portal_opencode_proxy_paths_only():
     assert "/api/chat" not in src
     assert "/api/chat/stream" not in src
     assert "/api/tasks" not in src
+    assert "EventSource" not in src
+    assert "connectEvents" not in src
 
 
-def test_portal_proxy_streams_opencode_conversation_events():
-    proxy_src = Path("app/api/proxy.py").read_text(encoding="utf-8")
+def test_api_client_keeps_sync_chat_endpoints():
+    src = SRC.read_text(encoding="utf-8")
 
-    assert 'normalized.startswith("api/opencode/conversations/")' in proxy_src
-    assert 'normalized.endswith("/events")' in proxy_src
+    assert "/conversations/${encodeURIComponent(conversationId)}/send" in src
+    assert "/conversations/${encodeURIComponent(conversationId)}/messages" in src
