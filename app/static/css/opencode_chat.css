@@ -1,0 +1,285 @@
+.opencode-chat-root {
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.opencode-chat-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--portal-surface, #ffffff);
+  color: var(--portal-text, #111827);
+}
+
+.opencode-chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.opencode-chat-badges,
+.opencode-chat-actions,
+.opencode-permission-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.opencode-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.opencode-badge.is-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.opencode-badge.is-busy {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.opencode-badge.is-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.opencode-chat-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  min-height: 0;
+  height: 100%;
+}
+
+.opencode-chat-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.opencode-message-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+.opencode-message {
+  max-width: 860px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.opencode-message.is-user {
+  margin-left: auto;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.opencode-message.is-pending {
+  margin-left: auto;
+  border-style: dashed;
+  background: #f8fafc;
+}
+
+.opencode-message-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.opencode-message-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.opencode-message-pending,
+.opencode-chat-empty {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.opencode-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.opencode-composer textarea {
+  width: 100%;
+  min-height: 46px;
+  max-height: 180px;
+  resize: vertical;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: inherit;
+}
+
+.opencode-send,
+.opencode-btn {
+  min-height: 36px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.opencode-send,
+.opencode-btn.is-primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.opencode-send:disabled,
+.opencode-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.opencode-side-panel {
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid rgba(148, 163, 184, 0.28);
+  background: #f8fafc;
+  overflow: auto;
+}
+
+.opencode-panel-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.opencode-panel-tabs button {
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: transparent;
+  color: #475569;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.opencode-panel-tabs button.is-active {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.opencode-panel-body {
+  padding: 12px;
+}
+
+.opencode-trace-item,
+.opencode-permission {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.opencode-permission {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.opencode-trace-kind {
+  min-width: 64px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.opencode-trace-item p,
+.opencode-permission p {
+  margin: 4px 0 0;
+  color: #475569;
+  overflow-wrap: anywhere;
+}
+
+.opencode-diff {
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.opencode-banner-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px 18px 0;
+}
+
+.opencode-banner {
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 13px;
+}
+
+.opencode-banner.is-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+@media (max-width: 900px) {
+  .opencode-chat-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .opencode-side-panel {
+    max-height: 42vh;
+    border-left: 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.28);
+  }
+}
+
+[data-theme="dark"] .opencode-chat-shell,
+[data-theme="dark"] .opencode-message,
+[data-theme="dark"] .opencode-composer textarea,
+[data-theme="dark"] .opencode-btn {
+  background: #111827;
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .opencode-message.is-user {
+  background: #172554;
+  border-color: #1d4ed8;
+}
+
+[data-theme="dark"] .opencode-side-panel,
+[data-theme="dark"] .opencode-message.is-pending {
+  background: #0f172a;
+}
