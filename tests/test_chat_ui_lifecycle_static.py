@@ -10,11 +10,12 @@ def _src():
     return SRC.read_text(encoding='utf-8')
 
 
-def test_has_active_chat_request_uses_opencode_projection_not_inflight_leftovers():
+def test_has_active_chat_request_uses_only_local_submit_state():
     src = _src()
     body = _extract_js_function(src, "hasActiveChatRequestForAgent")
-    assert 'isOpenCodeSessionInactivePayload(payload)' in body
-    assert 'isOpenCodeSessionBlocking(chatState)' in body
+    assert "chatState?.isSubmitting" in body
+    assert 'isOpenCodeSessionInactivePayload(payload)' not in body
+    assert 'isOpenCodeSessionBlocking(chatState)' not in body
     assert 'chatState.inflightThinking && chatState.inflightThinking.completed === false' not in body
     assert 'hasIncompleteInflightThinking(chatState)' not in body
 
@@ -101,5 +102,6 @@ def test_missing_final_guard_respects_stream_failed():
     ]:
         assert marker in missing_final
     guard_index = missing_final.index("return \"handled\";")
-    detached_index = missing_final.index("handleChatStreamDetached(")
-    assert guard_index < detached_index
+    incomplete_index = missing_final.index("handleIncompleteChatStream(")
+    assert guard_index < incomplete_index
+    assert "handleChatStreamDetached" not in src

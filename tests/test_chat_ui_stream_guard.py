@@ -16,11 +16,10 @@ def test_chat_ui_does_not_success_from_streamed_text_only():
 def test_chat_ui_has_incomplete_stream_handler():
     src = _source()
     assert "handleIncompleteChatStream" in src
-    assert "handleChatStreamDetached" in src
+    assert "handleChatStreamDetached" not in src
     assert "completion_state" in src or "completionState" in src
     assert "missing_final" in src
-    assert "portal.stream_detached" in src
-    assert "The live stream ended before final response; the runtime may still be running." in src
+    assert "handleIncompleteChatStream(agentIdAtSend, requestCtx, \"missing_final\"" in src
 
 
 def test_chat_ui_final_success_requires_final_event():

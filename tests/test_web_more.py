@@ -1770,14 +1770,13 @@ def test_chat_stream_sse_helpers_cover_final_string_and_nested_event_data():
     assert "if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate))" in js
 
 
-def test_chat_stream_missing_final_branch_detaches_and_reconciles_source_marker():
+def test_chat_stream_missing_final_branch_finishes_incomplete_source_marker():
     js = _chat_ui_js_source()
     assert "async function handleChatStreamMissingFinal" in js
-    assert "async function handleChatStreamDetached" in js
-    assert "setChatSubmittingForAgent(agentIdAtSend, false)" in js
-    assert "requestCtx.streamDetached = true" in js
-    assert "portal.stream_detached" in js
-    assert "startChatRunReconcileLoop(agentIdAtSend, requestCtx" in js
+    assert "async function handleChatStreamDetached" not in js
+    assert 'handleIncompleteChatStream(agentIdAtSend, requestCtx, "missing_final"' in js
+    assert "requestCtx.stream" + "Detached = true" not in js
+    assert "startChatRun" + "ReconcileLoop(agentIdAtSend, requestCtx" not in js
     assert "await handleChatStreamMissingFinal(agentIdAtSend, requestCtx)" in js
 
 

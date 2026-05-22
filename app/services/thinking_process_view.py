@@ -247,7 +247,6 @@ def _build_thinking_event_display(event_type: str, data: dict) -> dict:
         "portal.reconcile.completed": _display(icon="check-circle-2", title="Reconcile Completed", detail=data.get("message") or "Chat run completed", kind="success"),
         "portal.reconcile.failed": _display(icon="x-circle", title="Reconcile Failed", detail=data.get("error") or data.get("message") or "Chat run reconcile failed", kind="error"),
         "portal.active_request.cleared": _display(icon="alert-triangle", title="Active Request Cleared", detail=data.get("message") or "Portal cleared stale active request", kind="warning"),
-        "portal.chat_run_already_active": _display(icon="alert-triangle", title="Previous Run Active", detail=data.get("message") or "Previous message still running", kind="warning", severity="running"),
         "portal.abort.started": _display(icon="square", title="Abort Started", detail=data.get("message") or "Stopping current run", kind="info"),
         "portal.abort.completed": _display(icon="check-circle-2", title="Abort Completed", detail=data.get("message") or "Current run stopped", kind="success"),
         "portal.abort.failed": _display(icon="x-circle", title="Abort Failed", detail=data.get("error") or data.get("message") or "Unable to stop current run", kind="error"),

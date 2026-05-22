@@ -67,7 +67,6 @@ def test_thinking_process_view_maps_required_runtime_events():
         ("portal.reconcile.completed", {}, "success", "success", "Reconcile Completed"),
         ("portal.reconcile.failed", {}, "error", "error", "Reconcile Failed"),
         ("portal.active_request.cleared", {}, "warning", "warning", "Active Request Cleared"),
-        ("portal.chat_run_already_active", {"message": "Previous message still running"}, "warning", "running", "Previous Run Active"),
         ("portal.abort.completed", {}, "success", "success", "Abort Completed"),
         ("portal.abort.failed", {}, "error", "error", "Abort Failed"),
         ("event_bridge.connected", {}, "success", "success", "Event Bridge Connected"),
@@ -180,17 +179,7 @@ def test_thinking_process_view_unknown_event_keeps_safe_detail_payload():
     assert event["safe_detail_payload"]["password"] == "[redacted]"
 
 
-def test_chat_run_already_active_thinking_display_and_continue_hint_contract():
-    view = build_thinking_process_view({
-        "runtime_events": [
-            _event("portal.chat_run_already_active", {"message": "Previous message still running"}),
-        ],
-    })
-    event = view["events"][0]
-    assert event["display_title"] == "Previous Run Active"
-    assert event["kind"] == "warning"
-    assert event["severity"] == "running"
-
+def test_non_success_hint_contract_without_active_run_special_case():
     src = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     script = (
         _extract_js_function(src, "nonSuccessHintForPayload")
@@ -199,9 +188,9 @@ def test_chat_run_already_active_thinking_display_and_continue_hint_contract():
             r"""
             const assert = require("node:assert/strict");
 
-            const active = nonSuccessHintForPayload({ error: "chat_run_already_active" });
-            assert.equal(active.includes('send "continue"'), false);
-            assert.match(active, /stop the run|reset this session/);
+            const busy = nonSuccessHintForPayload({ status: "busy" });
+            assert.equal(busy.includes('send "continue"'), false);
+            assert.match(busy, /still working/);
 
             const stillActive = nonSuccessHintForPayload({ error: "opencode_abort_still_active" });
             assert.equal(stillActive.includes('send "continue"'), false);
