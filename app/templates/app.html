@@ -148,8 +148,7 @@
       </section>
 
       <section id="agent-chat-app" class="portal-conversation hidden" aria-label="Assistant chat workspace">
-        {% include "partials/opencode_chat_container.html" %}
-        <div class="portal-conversation-main" data-legacy-chat-root="1">
+        <div class="portal-conversation-main">
           <div id="message-scroll" class="portal-message-scroll">
             <div id="message-list" class="portal-message-list">
               <div class="message-row message-row-assistant" data-welcome="1">
@@ -458,5 +457,4 @@
 </div>
 
 <script src="/static/js/chat_ui.js"></script>
-<script type="module" src="/static/js/opencode_chat/index.js"></script>
 {% endblock %}

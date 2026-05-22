@@ -9,7 +9,6 @@
 - User-facing proxy route: `/a/{agent_id}/api/*`.
 - Portal targets runtime service port `:8000`.
 - OpenCode internal `:4096` is pod-internal only; Portal does not expose `/opencode/*` user routes.
-- OpenCode thin chat uses `/a/{agent_id}/api/opencode/*`; the browser still talks only to Portal and never to OpenCode `:4096`.
 - For chat UX, Portal should prefer `POST /a/{agent_id}/api/chat/stream` (SSE) over waiting for long blocking JSON responses.
 
 ## 3) Runtime types
