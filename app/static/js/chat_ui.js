@@ -1037,15 +1037,11 @@ function shouldShowAbortChatRunButton(agentId) {
 function activeChatRequestMessage(agentId, actionLabel = "perform this action") {
   const chatState = ensureChatState(agentId);
   if (!hasActiveChatRequestForAgent(agentId)) return "";
-  const activeRequest = chatState?.activeRequest;
   const sessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
     ? isOpenCodeSessionBlocking(chatState)
     : false;
   if (!sessionBlocking) return "";
-  if (activeRequest?.streamDetached) {
-    return "The previous message is still running. Reconnecting and syncing. Wait for it to finish before sending another message.";
-  }
-  return "The previous message is still running. Reconnecting and syncing. Wait for it to finish or use Stop run.";
+  return `This assistant is still working. Wait for it to finish before you ${actionLabel}.`;
 }
 
 function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this action") {
@@ -1058,7 +1054,7 @@ function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this a
   const message = activeChatRequestMessage(agentId, actionLabel);
   if (message) showToast(message);
   if (activeRequest?.streamDetached || sessionBlocking) {
-    setChatStatus("Previous message still running…");
+    setChatStatus("Assistant is still working…");
   } else if (message) {
     setChatStatus(message, true);
   }
@@ -1066,52 +1062,6 @@ function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this a
 }
 
 async function preflightActiveRunForSession(agentId, sessionId) {
-  if (agentUsesThinOpenCodeChat(getAgentById(agentId))) return false;
-  if (!agentId || !sessionId) return false;
-
-  try {
-    const payload = await agentApiFor(
-      agentId,
-      `/api/sessions/${encodeURIComponent(sessionId)}/active-run`
-    );
-    const activeRun = getActiveRunFromPayload(payload);
-
-    if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
-      const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
-        active_run: activeRun,
-      });
-
-      if (requestCtx) {
-        appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.chat_run_already_active", {
-          message: "Runtime reports an active OpenCode run before sending; send was not submitted.",
-          active_run: activeRun,
-        });
-        ensureEventSocketForAgent(
-          agentId,
-          sessionId,
-          requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId
-        );
-        startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-      }
-
-      setChatSubmittingForAgent(agentId, false);
-      setChatStatus("Previous message still running. Reconnecting…");
-      showToast("The previous message is still running. Wait for it to finish or use Stop run.");
-      syncSelectedAgentChatActionControls();
-      return true;
-    }
-  } catch (error) {
-    appendPortalChatRuntimeEvent(
-      agentId,
-      fallbackRequestContextForAgent(agentId, "preflight_active_run_failed"),
-      "portal.active_run_preflight.failed",
-      {
-        message: "Unable to preflight active run before sending; runtime will validate on submit.",
-        error: String(error?.message || error || ""),
-      }
-    );
-  }
-
   return false;
 }
 
@@ -2622,7 +2572,6 @@ function getThinkingEventDisplay(event) {
     "portal.reconcile.completed": { icon: "check-circle-2", title: "Reconcile Completed", detail: data.message || "Chat run completed" },
     "portal.reconcile.failed": { icon: "x-circle", title: "Reconcile Failed", detail: data.error || data.message || "Chat run reconcile failed", kind: "error" },
     "portal.active_request.cleared": { icon: "alert-triangle", title: "Active Request Cleared", detail: data.message || "Portal cleared stale active request", kind: "warning" },
-    "portal.chat_run_already_active": { icon: "alert-triangle", title: "Previous Run Active", detail: data.message || "Previous message still running", kind: "warning" },
     "portal.abort.started": { icon: "square", title: "Abort Started", detail: data.message || "Stopping current run" },
     "portal.abort.completed": { icon: "check-circle-2", title: "Abort Completed", detail: data.message || "Current run stopped", kind: "success" },
     "portal.abort.failed": { icon: "x-circle", title: "Abort Failed", detail: data.error || data.message || "Unable to stop current run", kind: "error" },
@@ -2879,17 +2828,13 @@ function nonSuccessHintForPayload(payload = {}) {
     ""
   ).toLowerCase();
 
-  if (reason.includes("chat_run_already_active")) {
-    return "Previous message is still running. You can wait, reconnect, stop the run, or reset this session.";
-  }
-
   if (reason.includes("opencode_abort_still_active")) {
     return "Stop was requested, but OpenCode still reports this session is running. Reset the session or start a new chat.";
   }
 
   const status = String(payload.status || payload.completion_state || "").toLowerCase();
   if (["busy", "running", "streaming", "retry"].includes(status)) {
-    return "The previous message is still running. You can wait, reconnect, or use Stop run.";
+    return "The assistant is still working. Wait for it to finish before sending another message.";
   }
 
   return 'You can send "continue" to ask the runtime to resume, or inspect the event details here.';
@@ -2902,7 +2847,7 @@ function getThinkingSnapshotStatus(snapshot) {
     if (isNonSuccessCompletionState(completionState) || snapshot?.incomplete_reason) return "Incomplete";
     return "Completed";
   }
-  if (snapshot?.connectionStatus === "reconnecting" || snapshot?.status === "reconnecting") return "Reconnecting";
+  if (snapshot?.connectionStatus === "reconnecting" || snapshot?.status === "reconnecting") return "Syncing";
   if (snapshot?.connectionStatus === "disconnected") return "Disconnected";
   return "Connected";
 }
@@ -4197,7 +4142,7 @@ function openCodeRuntimeUiStatusText(uiState = {}) {
   const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
   if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
   if (sessionStatus === "idle") return "Assistant online. Ready.";
-  if (sessionStatus === "busy") return "Assistant online. Session busy. Previous message still running.";
+  if (sessionStatus === "busy") return "Assistant online. Session busy.";
   if (sessionStatus === "retry") return "Assistant online. Session retrying. Provider retrying.";
   return "Assistant online. Session status unknown.";
 }
@@ -5471,9 +5416,17 @@ function buildAttachmentsFromChatState(agentId, chatState) {
 
 async function submitChatForSelectedAgent() {
   const agentIdAtSend = state.selectedAgentId;
-  const selectedAgent = getAgentById(agentIdAtSend);
-  if (agentUsesThinOpenCodeChat(selectedAgent)) {
-    syncOpenCodeChatRootForAgent(selectedAgent);
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!agentIdAtSend || !chatState) return;
+  if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
+
+  const localGetAgentById = (typeof getAgentById === "function") ? getAgentById : () => null;
+  const localAgentUsesThinOpenCodeChat = (typeof agentUsesThinOpenCodeChat === "function")
+    ? agentUsesThinOpenCodeChat
+    : () => false;
+  const selectedAgent = localGetAgentById(agentIdAtSend);
+  if (localAgentUsesThinOpenCodeChat(selectedAgent)) {
+    if (typeof syncOpenCodeChatRootForAgent === "function") syncOpenCodeChatRootForAgent(selectedAgent);
     setChatStatus("OpenCode chat ready");
     return;
   }
@@ -5498,9 +5451,6 @@ async function submitChatForSelectedAgent() {
   const localClearWaitingForRuntimeEventsTimer = (typeof clearWaitingForRuntimeEventsTimer === "function")
     ? clearWaitingForRuntimeEventsTimer
     : () => {};
-  const chatState = ensureChatState(agentIdAtSend);
-  if (!agentIdAtSend || !chatState) return;
-  if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   const uploadingFiles = chatState.pendingFiles.filter((pf) => pf.status === "uploading");
   const parsingFiles = chatState.pendingFiles.filter((pf) => pf.status === "parsing");
   if (uploadingFiles.length) {
@@ -7057,12 +7007,6 @@ async function abortActiveChatRequestForSelectedAgent() {
       return;
     }
 
-    if (requestId) {
-      result = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/abort`, {
-        method: "POST",
-      });
-    }
-
     if (!runtimeAbortSucceeded(result)) {
       const handled = await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result || {});
       if (handled === "inactive") return;
@@ -7115,7 +7059,7 @@ function startChatRunReconcileLoop(agentId, requestCtx, options = {}) {
     requestCtx.reconcileStartedAt = Date.now();
     requestCtx.reconcileAttempt = 0;
     appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.started", {
-      message: "Reconnecting and syncing chat run state.",
+      message: "Syncing chat run state.",
     });
   }
   if (requestCtx.reconcileTimerId) return;
@@ -7238,44 +7182,11 @@ function getActiveRunFromPayload(payload = {}) {
 }
 
 function isChatRunAlreadyActivePayload(payload = {}) {
-  if (!payload || typeof payload !== "object") return false;
-  const error = String(
-    payload.error ||
-    payload.detail ||
-    payload.incomplete_reason ||
-    payload.incompleteReason ||
-    payload.reason ||
-    ""
-  ).toLowerCase();
-
-  if (error.includes("chat_run_already_active")) return true;
-
-  const activeRun = payload.active_run || payload.activeRun || payload.run || payload.active || payload.data?.active_run || payload.data?.activeRun || payload.data?.run || payload.data?.active;
-  if (!activeRun) return false;
-
-  return isRuntimeRunActuallyActive(activeRun);
+  return false;
 }
 
 async function handleChatRunAlreadyActive(agentId, requestCtx, payload = {}) {
   const chatState = ensureChatState(agentId);
-  const sessionId =
-    payload.session_id ||
-    payload.sessionId ||
-    requestCtx?.sessionIdAtSend ||
-    chatState?.sessionId ||
-    "";
-
-  const activeRun =
-    payload.active_run ||
-    payload.activeRun ||
-    payload.run ||
-    payload.active ||
-    payload.data?.active_run ||
-    payload.data?.activeRun ||
-    payload.data?.run ||
-    payload.data?.active ||
-    null;
-
   if (requestCtx?.clientRequestId) {
     removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false });
   }
@@ -7296,71 +7207,10 @@ async function handleChatRunAlreadyActive(agentId, requestCtx, payload = {}) {
   }
 
   setChatSubmittingForAgent(agentId, false);
-
-  const rejectedClientRequestId = String(requestCtx?.clientRequestId || "");
-  if (
-    rejectedClientRequestId
-    && chatState?.activeRequest
-    && chatState.activeRequest.clientRequestId === rejectedClientRequestId
-  ) {
-    stopChatRunReconcileLoop(chatState.activeRequest);
-    chatState.activeRequest = null;
-  }
-
-  if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
-    const activeCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
-      active_run: activeRun,
-    });
-
-    if (activeCtx) {
-      ensureEventSocketForAgent(
-        agentId,
-        sessionId,
-        activeCtx.runtimeRequestId || activeCtx.requestId || activeCtx.clientRequestId
-      );
-      startChatRunReconcileLoop(agentId, activeCtx, { immediate: true });
-    }
-
-    appendPortalChatRuntimeEvent(agentId, activeCtx || requestCtx, "portal.chat_run_already_active", {
-      message: "Runtime reports an active OpenCode run; send was not submitted.",
-      active_run: activeRun,
-    });
-
-    setChatStatus("Previous message still running. Reconnecting…");
-    showToast("Previous message is still running. Wait or use Stop run.");
-    syncSelectedAgentChatActionControls();
-    return "handled";
-  }
-
-  if (sessionId && chatState) {
-    const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState);
-    if (statusPayload && isOpenCodeSessionStatusBlockingPayload(statusPayload)) {
-      const statusCtx = hydrateActiveRequestFromSessionStatus(agentId, sessionId, statusPayload);
-      if (statusCtx) {
-        ensureEventSocketForAgent(
-          agentId,
-          sessionId,
-          statusCtx.runtimeRequestId || statusCtx.requestId || statusCtx.clientRequestId
-        );
-        startChatRunReconcileLoop(agentId, statusCtx, { immediate: true });
-      }
-      appendPortalChatRuntimeEvent(agentId, statusCtx || requestCtx, "portal.chat_run_already_active", {
-        message: "Runtime reports an active OpenCode run; session status is blocking.",
-        session_status: statusPayload,
-      });
-      setChatStatus("Previous message still running. Reconnecting…");
-      showToast("Previous message is still running. Wait or use Stop run.");
-      syncSelectedAgentChatActionControls();
-      return "handled";
-    }
-  }
-
-  const preflightBlocked = await preflightActiveRunForSession(agentId, sessionId);
-  if (!preflightBlocked) {
-    setChatStatus("Previous message still running. Reconnecting…");
-    showToast("Previous message is still running. Wait or use Stop run.");
-    syncSelectedAgentChatActionControls();
-  }
+  if (chatState?.activeRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.activeRequest = null;
+  setChatStatus("OpenCode is currently busy. Try again later or start a new chat.", true);
+  showToast("OpenCode is currently busy. Try again later or start a new chat.");
+  syncSelectedAgentChatActionControls();
   return "handled";
 }
 
@@ -7489,7 +7339,7 @@ async function applyChatRunProjection(agentId, requestCtx, projection = {}) {
   const authoritativeRun = projection.run && Object.keys(projection.run || {}).length ? projection.run : projection.activeRun;
   const runtimeRunActive = isRuntimeRunActuallyActive(authoritativeRun);
   if (isChatRunRunningStatus(projection.status) && runtimeRunActive) {
-    setChatStatus(projection.status === "stream_detached" ? "Still running. Reconnecting…" : "Still running…");
+    setChatStatus(projection.status === "stream_detached" ? "Still running. Syncing…" : "Still running…");
     if (projection.text || (projection.displayBlocks || []).length) {
       updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true });
     }
@@ -7565,74 +7415,20 @@ async function reconcileChatRunOnce(agentId, requestCtx) {
   if (requestCtx.reconcileInFlight) return "running";
   requestCtx.reconcileInFlight = true;
   requestCtx.lastReconcileAt = Date.now();
-  const requestId = requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
   const sessionId = requestCtx.sessionIdAtSend || chatState.sessionId || "";
   try {
-    let runPayload = null;
-    let shouldCheckActiveRun = Boolean(sessionId);
-    if (requestId) {
-      try {
-        const lookupPayload = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}?validate=opencode`);
-        const lookupRun = getChatRunObject(lookupPayload);
-        const lookupStatus = normalizeChatRunStatus(lookupRun.status || lookupRun.state || lookupPayload?.status || lookupPayload?.state || "");
-        if (!isNullOrStaleRunPayload(lookupPayload) && (isRuntimeRunActuallyActive(lookupRun) || runPayloadHasTerminalStatus(lookupPayload))) {
-          runPayload = lookupPayload;
-          shouldCheckActiveRun = false;
-          if (isRuntimeRunActuallyActive(lookupRun)) {
-            appendPortalChatRuntimeEvent(agentId, requestCtx, "opencode.status.validated", {
-              message: "Validated active OpenCode run.",
-              status: lookupStatus,
-              opencode_active: lookupRun.opencode_active,
-            });
-          }
-        } else {
-          appendPortalChatRuntimeEvent(agentId, requestCtx, "chat.run.stale", {
-            message: "Run lookup is stale or no longer active in OpenCode.",
-            status: lookupStatus || "stale",
-            opencode_active: lookupRun?.opencode_active,
-          });
-        }
-      } catch (error) {
-        if (!isUnsupportedRunLookupError(error)) {
-          appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.failed", {
-            message: "Run lookup failed; falling back to session sync.",
-            error: String(error?.message || error || ""),
-          });
-        }
-      }
-    }
-    if (shouldCheckActiveRun && sessionId) {
-      const activeRunPayload = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}/active-run`);
-      const activeRun = getActiveRunFromPayload(activeRunPayload);
-      if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
-        runPayload = { run: activeRun };
-        appendPortalChatRuntimeEvent(agentId, requestCtx, "opencode.status.validated", {
-          message: "Validated active OpenCode run.",
-          status: normalizeChatRunStatus(activeRun.status || activeRun.state || ""),
-          opencode_active: activeRun.opencode_active,
-        });
-      } else {
-        appendPortalChatRuntimeEvent(agentId, requestCtx, "opencode.status.inactive", {
-          message: "Runtime reports that OpenCode is not active for this session.",
-          status: normalizeChatRunStatus(activeRun?.status || activeRun?.state || ""),
-          opencode_active: activeRun?.opencode_active,
-        });
-        const sessionPayload = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
-        return await applySessionProjectionThenClearStaleRun(agentId, requestCtx, sessionPayload, activeRun ? "opencode_not_active" : "active_run_null");
-      }
-    }
-    if (!runPayload && !sessionId) {
+    if (!sessionId) {
       clearStaleActiveRequest(agentId, requestCtx, "opencode_not_active");
       return "terminal";
     }
-    const projection = buildChatRunProjection(runPayload, null, requestCtx);
-    return await applyChatRunProjection(agentId, requestCtx, projection);
+    const sessionPayload = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
+    return await applySessionProjectionThenClearStaleRun(agentId, requestCtx, sessionPayload, "opencode_not_active");
   } catch (error) {
     appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.failed", {
       message: "Unable to sync chat run yet; will retry.",
       error: String(error?.message || error || ""),
     });
-    setChatStatus("Still running. Reconnecting…");
+    setChatStatus("Still running. Syncing…");
     return "running";
   } finally {
     requestCtx.reconcileInFlight = false;
@@ -7995,10 +7791,10 @@ async function handleChatStreamDetached(agentIdAtSend, requestCtx, reason = "str
   clearWaitingForRuntimeEventsTimer(requestCtx);
   cancelAssistantTypewriter(requestCtx);
   setChatSubmittingForAgent(agentIdAtSend, false);
-  if (state.selectedAgentId === agentIdAtSend) setChatStatus("Still running. Reconnecting…");
+  if (state.selectedAgentId === agentIdAtSend) setChatStatus("Still running. Syncing…");
   appendPortalChatRuntimeEvent(agentIdAtSend, requestCtx, "portal.stream_detached", {
     reason,
-    message: "The live stream ended before final response; the runtime may still be running. Reconnecting and syncing session.",
+    message: "The live stream ended before final response; the runtime may still be running. Syncing session.",
   });
   ensureEventSocketForAgent(
     agentIdAtSend,
@@ -8010,7 +7806,11 @@ async function handleChatStreamDetached(agentIdAtSend, requestCtx, reason = "str
 }
 
 async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
-  if (agentUsesThinOpenCodeChat(getAgentById(agentIdAtSend))) return "unsupported";
+  const localGetAgentById = (typeof getAgentById === "function") ? getAgentById : () => null;
+  const localAgentUsesThinOpenCodeChat = (typeof agentUsesThinOpenCodeChat === "function")
+    ? agentUsesThinOpenCodeChat
+    : () => false;
+  if (localAgentUsesThinOpenCodeChat(localGetAgentById(agentIdAtSend))) return "unsupported";
 
   const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
     ? isChatRunAlreadyActivePayload
@@ -9702,7 +9502,7 @@ function reconcileActiveRequestProjection(agentId, sessionId, metadata = {}, mes
       session_id: sessionId,
     });
     setChatSubmittingForAgent(agentId, false);
-    setChatStatus(activeStatus === "stream_detached" ? "Still running. Reconnecting…" : "Still running. Syncing…");
+    setChatStatus("Still running. Syncing…");
     ensureEventSocketForAgent(agentId, sessionId, requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId);
     startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
     return;
@@ -9731,7 +9531,7 @@ function reconcileActiveRequestProjection(agentId, sessionId, metadata = {}, mes
       session_id: sessionId,
     });
     setChatSubmittingForAgent(agentId, false);
-    setChatStatus("Previous message still running. Reconnecting…");
+    setChatStatus("Assistant is still working. Syncing…");
     ensureEventSocketForAgent(agentId, sessionId, requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId);
     startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
     syncSelectedAgentChatActionControls();
@@ -9819,7 +9619,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       );
       startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
       if (agentId === state.selectedAgentId) {
-        setChatStatus("Previous message still running. Reconnecting…");
+        setChatStatus("Assistant is still working. Syncing…");
         syncSelectedAgentChatActionControls();
       }
     }

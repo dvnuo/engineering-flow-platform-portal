@@ -37,13 +37,13 @@ def test_opencode_simple_mode_does_not_enter_legacy_submit_or_stream_paths():
     submit_fn = _extract_js_function(src, "submitChatForSelectedAgent")
     stream_fn = _extract_js_function(src, "trySubmitChatStreamForSelectedAgent")
 
-    guard_idx = submit_fn.index("if (agentUsesThinOpenCodeChat(selectedAgent))")
+    guard_idx = submit_fn.index("if (localAgentUsesThinOpenCodeChat(selectedAgent))")
     preflight_idx = submit_fn.index("preflightActiveRunForSession")
     stream_idx = submit_fn.index("trySubmitChatStreamForSelectedAgent")
     post_idx = submit_fn.index("fetch(`/a/${agentIdAtSend}/api/chat`")
     assert guard_idx < preflight_idx < stream_idx < post_idx
 
-    stream_guard_idx = stream_fn.index("if (agentUsesThinOpenCodeChat(getAgentById(agentIdAtSend))) return \"unsupported\";")
+    stream_guard_idx = stream_fn.index("if (localAgentUsesThinOpenCodeChat(localGetAgentById(agentIdAtSend))) return \"unsupported\";")
     stream_post_idx = stream_fn.index("fetch(`/a/${agentIdAtSend}/api/chat/stream`")
     assert stream_guard_idx < stream_post_idx
 
@@ -53,7 +53,7 @@ def test_opencode_simple_mode_skips_active_run_preflight_and_stop_button():
     preflight_fn = _extract_js_function(src, "preflightActiveRunForSession")
     abort_visibility_fn = _extract_js_function(src, "shouldShowAbortChatRunButton")
 
-    assert 'if (agentUsesThinOpenCodeChat(getAgentById(agentId))) return false;' in preflight_fn
+    assert preflight_fn.strip() == "async function preflightActiveRunForSession(agentId, sessionId) {\n  return false;\n}"
     assert 'if (agentUsesThinOpenCodeChat(getAgentById(agentId))) return false;' in abort_visibility_fn
 
 
