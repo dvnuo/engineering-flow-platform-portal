@@ -999,6 +999,8 @@ function hasActiveChatRequestForAgent(agentId) {
 }
 
 function shouldShowAbortChatRunButton(agentId) {
+  if (agentUsesThinOpenCodeChat(getAgentById(agentId))) return false;
+
   const chatState = ensureChatState(agentId);
   if (!chatState) return false;
 
@@ -1064,6 +1066,7 @@ function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this a
 }
 
 async function preflightActiveRunForSession(agentId, sessionId) {
+  if (agentUsesThinOpenCodeChat(getAgentById(agentId))) return false;
   if (!agentId || !sessionId) return false;
 
   try {
@@ -1607,6 +1610,10 @@ function getSelectedAgent() {
   return state.mineAgents.find((item) => item.id === state.selectedAgentId) || null;
 }
 
+function getAgentById(agentId) {
+  return state.mineAgents.find((item) => item.id === agentId) || null;
+}
+
 function getSelectedAgentStatus() {
   const agent = (typeof getSelectedAgent === "function") ? getSelectedAgent() : {};
   if (!agent) return "idle";
@@ -1619,12 +1626,14 @@ function getOpenCodeChatUiMode() {
     dom.opencodeChatRoot?.dataset.chatMode ||
     "thin"
   ).trim().toLowerCase();
-  return configured === "thin" ? "thin" : "legacy";
+  if (configured === "thin" || configured === "simple") return configured;
+  return "legacy";
 }
 
 function agentUsesThinOpenCodeChat(agent = getSelectedAgent()) {
   const runtimeType = String(agent?.runtime_type || "native").trim().toLowerCase();
-  return runtimeType === "opencode" && getOpenCodeChatUiMode() === "thin";
+  const mode = getOpenCodeChatUiMode();
+  return runtimeType === "opencode" && (mode === "thin" || mode === "simple");
 }
 
 function syncOpenCodeChatRootForAgent(agent = getSelectedAgent()) {
@@ -1632,7 +1641,7 @@ function syncOpenCodeChatRootForAgent(agent = getSelectedAgent()) {
   const legacyRoot = dom.legacyChatRoot;
   const runtimeType = String(agent?.runtime_type || "native").trim().toLowerCase() || "native";
   const mode = getOpenCodeChatUiMode();
-  const useThin = Boolean(agent?.id && runtimeType === "opencode" && mode === "thin");
+  const useThin = Boolean(agent?.id && runtimeType === "opencode" && (mode === "thin" || mode === "simple"));
   if (root) {
     const nextAgentId = useThin ? String(agent.id) : "";
     if (root.dataset.agentId !== nextAgentId) root.dataset.conversationId = "";
@@ -5462,6 +5471,12 @@ function buildAttachmentsFromChatState(agentId, chatState) {
 
 async function submitChatForSelectedAgent() {
   const agentIdAtSend = state.selectedAgentId;
+  const selectedAgent = getAgentById(agentIdAtSend);
+  if (agentUsesThinOpenCodeChat(selectedAgent)) {
+    syncOpenCodeChatRootForAgent(selectedAgent);
+    setChatStatus("OpenCode chat ready");
+    return;
+  }
   const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
     ? normalizeAssistantMessageIds
     : (candidate = {}) => {
@@ -7995,6 +8010,8 @@ async function handleChatStreamDetached(agentIdAtSend, requestCtx, reason = "str
 }
 
 async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
+  if (agentUsesThinOpenCodeChat(getAgentById(agentIdAtSend))) return "unsupported";
+
   const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
     ? isChatRunAlreadyActivePayload
     : () => false;
