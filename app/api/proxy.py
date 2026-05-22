@@ -131,13 +131,9 @@ def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
 def _is_streaming_runtime_path(method: str, subpath: str) -> bool:
     normalized = (subpath or "").strip("/").lower()
     method_upper = method.upper()
-    if method_upper == "POST" and normalized == "api/chat/stream":
-        return True
-    if method_upper != "GET":
-        return False
-    if normalized in {"api/events", "api/events/stream"}:
-        return True
-    return normalized.startswith("api/opencode/conversations/") and normalized.endswith("/events")
+    return (method_upper == "POST" and normalized == "api/chat/stream") or (
+        method_upper == "GET" and normalized in {"api/events", "api/events/stream"}
+    )
 
 
 def _content_type_is_json(content_type: str | None) -> bool:
