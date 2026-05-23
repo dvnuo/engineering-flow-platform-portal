@@ -8268,17 +8268,6 @@ window.initPasswordToggles = function(root = document) {
   });
 };
 
-function normalizeCopilotRuntimeType(runtimeType) {
-  const raw = String(runtimeType || "").trim().toLowerCase();
-  if (raw === "opencode") return "opencode";
-  return "native";
-}
-
-
-function copilotRuntimeLabel(runtimeType) {
-  return normalizeCopilotRuntimeType(runtimeType) === "opencode" ? "OpenCode Runtime" : "EFP Runtime";
-}
-
 function maskCopilotSecret(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -8286,7 +8275,7 @@ function maskCopilotSecret(value) {
   return `${raw.slice(0, 4)}…${raw.slice(-4)}`;
 }
 
-function setCopilotResultSummary(root, _runtimeType, message, kind = "") {
+function setCopilotResultSummary(root, message, kind = "") {
   const summary = root?.querySelector("[data-copilot-result-summary]");
   if (!summary) return;
   summary.textContent = message || "";
@@ -8294,22 +8283,17 @@ function setCopilotResultSummary(root, _runtimeType, message, kind = "") {
   summary.classList.toggle("is-error", kind === "error");
   summary.classList.toggle("is-success", kind === "success");
 }
-function getManagedCopilotState(root, runtimeType) {
-  if (!root.__managedCopilotState) root.__managedCopilotState = { byRuntime: {} };
-  const key = normalizeCopilotRuntimeType(runtimeType);
-  if (!root.__managedCopilotState.byRuntime[key]) root.__managedCopilotState.byRuntime[key] = { authInterval: null, timerInterval: null };
-  return root.__managedCopilotState.byRuntime[key];
+function getManagedCopilotState(root) {
+  if (!root.__managedCopilotState) root.__managedCopilotState = { authInterval: null, timerInterval: null };
+  return root.__managedCopilotState;
 }
 
-function stopCopilotPolling(root, runtimeType = null) {
-  const keys = runtimeType ? [normalizeCopilotRuntimeType(runtimeType)] : ["native", "opencode"];
-  for (const key of keys) {
-    const st = getManagedCopilotState(root, key);
-    if (st.authInterval) clearInterval(st.authInterval);
-    if (st.timerInterval) clearInterval(st.timerInterval);
-    st.authInterval = null;
-    st.timerInterval = null;
-  }
+function stopCopilotPolling(root) {
+  const st = getManagedCopilotState(root);
+  if (st.authInterval) clearInterval(st.authInterval);
+  if (st.timerInterval) clearInterval(st.timerInterval);
+  st.authInterval = null;
+  st.timerInterval = null;
 }
 
 function getManagedCopilotAuthBase(root) {
@@ -8334,11 +8318,11 @@ function getManagedGithubBaseUrl(root) {
   return (input?.value || "").trim();
 }
 
-function finishCopilotAuthWithMessage(root, runtimeType, message, kind = "error") {
-  stopCopilotPolling(root, runtimeType);
-    const finalMessage = message || "Authorization failed";
+function finishCopilotAuthWithMessage(root, message, kind = "error") {
+  stopCopilotPolling(root);
+  const finalMessage = message || "Authorization failed";
   if (typeof setCopilotResultSummary === "function") {
-    setCopilotResultSummary(root, runtimeType, finalMessage, kind);
+    setCopilotResultSummary(root, finalMessage, kind);
   }
 }
 
@@ -8354,7 +8338,7 @@ function updateCopilotAuthCardsVisibility(root, isCopilot) {
   if (!isCopilot) {
     stopCopilotPolling(root);
     authRoot.querySelector("[data-copilot-instructions]")?.classList.add("hidden");
-    setCopilotResultSummary(root, "", "", "");
+    setCopilotResultSummary(root, "", "");
   }
 }
 
@@ -8438,8 +8422,7 @@ async function runManagedSettingsTest(root, target, button) {
   }
 }
 
-async function startCopilotAuth(root, runtimeType) {
-  const key = normalizeCopilotRuntimeType(runtimeType);
+async function startCopilotAuth(root) {
   const instructions = root?.querySelector("[data-copilot-instructions]");
   const verifyLink = root?.querySelector("[data-copilot-verify-link]");
   const deviceLink = root?.querySelector("[data-copilot-device-link]");
@@ -8452,7 +8435,7 @@ async function startCopilotAuth(root, runtimeType) {
     const response = await fetch(`${authBase}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ runtime_type: key }),
+      body: JSON.stringify({}),
     });
     let data = null;
     try {
@@ -8483,18 +8466,17 @@ async function startCopilotAuth(root, runtimeType) {
     }
     if (userCode) userCode.textContent = data.user_code || "";
     if (typeof setCopilotResultSummary === "function") {
-      const runtimeLabel = typeof copilotRuntimeLabel === "function" ? copilotRuntimeLabel(key) : (key === "opencode" ? "OpenCode Runtime" : "EFP Runtime");
-      setCopilotResultSummary(root, key, `Device authorization started for ${runtimeLabel}. Complete GitHub verification, then wait for this panel to update.`);
+      setCopilotResultSummary(root, "Device authorization started. Complete GitHub verification, then wait for this panel to update.");
     }
 
     let remaining = Number(data.expires_in || 600);
     if (timer) timer.textContent = `${remaining}s`;
-    const st = getManagedCopilotState(root, key);
+    const st = getManagedCopilotState(root);
     st.timerInterval = setInterval(() => {
       remaining -= 1;
       if (timer) timer.textContent = `${Math.max(remaining, 0)}s`;
       if (remaining <= 0) {
-        finishCopilotAuthWithMessage(root, key, "Authorization timed out. Please start again.");
+        finishCopilotAuthWithMessage(root, "Authorization timed out. Please start again.");
       }
     }, 1000);
 
@@ -8507,7 +8489,7 @@ async function startCopilotAuth(root, runtimeType) {
           body: JSON.stringify({ auth_id: data.auth_id, device_code: data.device_code }),
         });
       } catch (error) {
-        finishCopilotAuthWithMessage(root, key, `Authorization check failed: ${safe(error.message)}`);
+        finishCopilotAuthWithMessage(root, `Authorization check failed: ${safe(error.message)}`);
         return;
       }
 
@@ -8515,33 +8497,32 @@ async function startCopilotAuth(root, runtimeType) {
       try {
         check = await checkResp.json();
       } catch (_error) {
-        finishCopilotAuthWithMessage(root, key, "Authorization check failed: invalid response");
+        finishCopilotAuthWithMessage(root, "Authorization check failed: invalid response");
         return;
       }
 
       if (!checkResp.ok) {
         finishCopilotAuthWithMessage(
           root,
-          key,
           check?.message || check?.details || check?.error || `Authorization check failed (HTTP ${checkResp.status})`,
         );
         return;
       }
 
       if (check?.error && !check?.status) {
-        finishCopilotAuthWithMessage(root, key, check.message || check.details || check.error);
+        finishCopilotAuthWithMessage(root, check.message || check.details || check.error);
         return;
       }
 
       if (!check?.status) {
-        finishCopilotAuthWithMessage(root, key, "Authorization check failed: missing status");
+        finishCopilotAuthWithMessage(root, "Authorization check failed: missing status");
         return;
       }
 
       if (check.status === "pending") return;
 
       if (check.status === "authorized") {
-        stopCopilotPolling(root, key);
+        stopCopilotPolling(root);
         if (instructions) instructions.classList.add("hidden");
         const token = check?.token || check?.oauth?.access || check?.oauth?.refresh || "";
         const updated = setCopilotApiKeyField(root, token);
@@ -8549,7 +8530,6 @@ async function startCopilotAuth(root, runtimeType) {
         if (!token || !updated) {
           finishCopilotAuthWithMessage(
             root,
-            key,
             "Authorization completed, but no token was returned. Please try again.",
             "error"
           );
@@ -8557,21 +8537,21 @@ async function startCopilotAuth(root, runtimeType) {
           return;
         }
 
-        setCopilotResultSummary(root, key, "Authorization complete. API Key field has been filled. Click Save Settings to persist.", "success");
+        setCopilotResultSummary(root, "Authorization complete. API Key field has been filled. Click Save Settings to persist.", "success");
         showToast("Authorization complete. API Key field has been filled. Click Save Settings to persist.");
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
         const errorMessage = check.message || check.error || "Authorization failed";
-        finishCopilotAuthWithMessage(root, key, errorMessage);
-        if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, key, errorMessage, "error");
+        finishCopilotAuthWithMessage(root, errorMessage);
+        if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, errorMessage, "error");
       } else {
         const unknownStatusMessage = `Authorization check failed: unknown status ${safe(check.status)}`;
-        finishCopilotAuthWithMessage(root, key, unknownStatusMessage);
-        if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, key, unknownStatusMessage, "error");
+        finishCopilotAuthWithMessage(root, unknownStatusMessage);
+        if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, unknownStatusMessage, "error");
       }
     }, (Number(data.interval) || 5) * 1000);
   } catch (error) {
     showToast(`Copilot authorization failed: ${safe(error.message)}`);
-    finishCopilotAuthWithMessage(root, key, `Copilot authorization failed: ${safe(error.message)}`);
+    finishCopilotAuthWithMessage(root, `Copilot authorization failed: ${safe(error.message)}`);
   }
 }
 
@@ -8656,7 +8636,7 @@ function initializeManagedSettingsRoot(root) {
     const btn = event.target.closest("[data-copilot-auth-button]");
     if (btn) {
       event.preventDefault();
-      await startCopilotAuth(root, btn.dataset.copilotAuthButton);
+      await startCopilotAuth(root);
       return;
     }
     const copyBtn = event.target.closest("[data-copilot-copy-button]");

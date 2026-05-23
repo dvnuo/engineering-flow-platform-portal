@@ -168,16 +168,10 @@ class RuntimeProfileTestService:
             return await self._provider_request(provider, model, f"{api_base}/messages", headers, payload)
 
         if runtime_key == "opencode":
-            by_runtime = llm_cfg.get("oauth_by_runtime") if isinstance(llm_cfg.get("oauth_by_runtime"), dict) else {}
-            op_oauth = by_runtime.get("opencode") if isinstance(by_runtime.get("opencode"), dict) else llm_cfg.get("oauth") if isinstance(llm_cfg.get("oauth"), dict) else None
-            if not isinstance(op_oauth, dict):
-                return False, "OpenCode Copilot OAuth is required."
-            return True, "OpenCode Copilot OAuth is present; runtime apply will validate through OpenCode."
+            if not api_key:
+                return False, "LLM API key is required."
+            return True, "GitHub Copilot API key is present; runtime apply will validate through OpenCode."
 
-        if not api_key:
-            by_runtime = llm_cfg.get("oauth_by_runtime") if isinstance(llm_cfg.get("oauth_by_runtime"), dict) else {}
-            native_oauth = by_runtime.get("native") if isinstance(by_runtime.get("native"), dict) else {}
-            api_key = str(native_oauth.get("access") or native_oauth.get("refresh") or "").strip()
         if not api_key:
             return False, "LLM API key is required."
 

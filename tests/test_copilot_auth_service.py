@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 import pytest
 import app.services.copilot_auth_service as svc_module
-from app.services.copilot_auth_service import COPILOT_OAUTH_CLIENT_IDS, CopilotAuthService
+from app.services.copilot_auth_service import COPILOT_OAUTH_CLIENT_ID, CopilotAuthService
 from app.utils.github_url import normalize_github_api_base_url, normalize_github_oauth_base_url
 
 class _Resp:
@@ -35,7 +35,7 @@ def test_normalize_github_oauth_base_url_cases():
 def test_start_uses_public_github_oauth_device_endpoint(monkeypatch):
     calls=[]
     monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})))
-    s,p=asyncio.run(CopilotAuthService().start_authorization("u","")); assert s==200; assert calls[0]["url"]=="https://github.com/login/device/code"; assert calls[0]["json"]["client_id"]==COPILOT_OAUTH_CLIENT_IDS["opencode"]; assert calls[0]["headers"]["Accept"]=="application/json"; assert p["auth_id"] and p["device_code"]
+    s,p=asyncio.run(CopilotAuthService().start_authorization("u","")); assert s==200; assert calls[0]["url"]=="https://github.com/login/device/code"; assert calls[0]["json"]["client_id"]==COPILOT_OAUTH_CLIENT_ID; assert calls[0]["headers"]["Accept"]=="application/json"; assert calls[0]["headers"]["Content-Type"]=="application/json"; assert calls[0]["headers"]["User-Agent"]=="GitHubCopilotChat/0.35.0"; assert p["auth_id"] and p["device_code"]
 
 def test_start_ignores_enterprise_base_url_for_copilot_oauth(monkeypatch):
     calls=[]
@@ -49,7 +49,7 @@ def test_start_ignores_enterprise_base_url_for_copilot_oauth(monkeypatch):
     assert payload["auth_id"] and payload["device_code"] and payload["user_code"]
     assert payload["runtime_type"] == "opencode"
 
-def test_start_runtime_specific_client_ids(monkeypatch):
+def test_start_runtime_type_does_not_select_client_id(monkeypatch):
     calls=[]
     monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})))
     svc=CopilotAuthService()
@@ -57,10 +57,8 @@ def test_start_runtime_specific_client_ids(monkeypatch):
     asyncio.run(svc.start_authorization("u","",runtime_type="efp"))
     asyncio.run(svc.start_authorization("u","",runtime_type="opencode"))
     asyncio.run(svc.start_authorization("u","",runtime_type=None))
-    assert calls[0]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_IDS["native"]
-    assert calls[1]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_IDS["native"]
-    assert calls[2]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_IDS["opencode"]
-    assert calls[3]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_IDS["opencode"]
+    assert [call["json"]["client_id"] for call in calls] == [COPILOT_OAUTH_CLIENT_ID] * 4
+    assert "Ov23li8tweQw6odWQebz" not in Path("app/services/copilot_auth_service.py").read_text()
 
 def test_check_authorization_authorized_returns_oauth(monkeypatch):
     calls=[]
@@ -70,6 +68,8 @@ def test_check_authorization_authorized_returns_oauth(monkeypatch):
     monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,factory))
     svc=CopilotAuthService(); _,st=asyncio.run(svc.start_authorization("u","")); svc_module._pending_authorizations[st["auth_id"]]["latest_check"] = 0; _,res=asyncio.run(svc.check_authorization("u",st["auth_id"],st["device_code"]))
     assert res["status"]=="authorized" and res["oauth"]["access"]=="gho_TEST" and res["token"]=="gho_TEST"
+    token_calls = [call for call in calls if call["json"].get("grant_type") == "urn:ietf:params:oauth:grant-type:device_code"]
+    assert token_calls[0]["json"]["client_id"] == COPILOT_OAUTH_CLIENT_ID
 
 def test_check_pending(monkeypatch):
     calls=[]

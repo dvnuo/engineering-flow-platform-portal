@@ -450,7 +450,7 @@ def test_runtime_profile_json_sanitizer_omits_response_flow_when_absent():
     assert "response_flow" not in dumped["llm"]
 
 
-def test_parse_runtime_profile_config_json_keeps_llm_oauth():
+def test_parse_runtime_profile_config_json_drops_llm_oauth():
     parsed = parse_runtime_profile_config_json('{"llm":{"provider":"github_copilot","oauth":{"type":"oauth","access":"gho_A","refresh":"gho_R","expires":"0","enterpriseUrl":"https://github.company.com"}}}')
-    assert parsed["llm"]["api_key"] == "gho_A"
+    assert parsed["llm"] == {"provider": "github_copilot"}
     assert "oauth" not in parsed["llm"]
