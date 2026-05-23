@@ -37,7 +37,6 @@ def _base_functions(js: str) -> str:
         "finalResponseText",
         "handleChatStreamEvent",
         "handleChatStreamMissingFinal",
-        "handleChatStreamDetached",
         "trySubmitChatStreamForSelectedAgent",
     ]
     return "\n".join(_extract_js_function(js, name) for name in names)
@@ -49,7 +48,7 @@ def test_stream_behaviors_cover_delta_final_and_candidate_paths():
 let successCalls = [];
 let incompleteCalls = [];
 let status = [];
-let activeRequestCleared = false;
+let currentRequestCleared = false;
 const state = {{ selectedAgentId: "agent-1" }};
 const dom = {{ messageList: null }};
 function updatePendingAssistantStreamContent() {{}}
@@ -73,20 +72,19 @@ function clearWaitingForRuntimeEventsTimer() {{}}
 function cancelAssistantTypewriter() {{}}
 function appendPortalChatRuntimeEvent() {{}}
 function ensureEventSocketForAgent() {{}}
-function startChatRunReconcileLoop() {{}}
-async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ successCalls.push(payload); chatState.activeRequest = null; }}
-async function handleIncompleteChatStream(agentId, requestCtx, reason, payload) {{ incompleteCalls.push({{ reason, payload }}); requestCtx.completed = true; requestCtx.streamFailed = true; chatState.activeRequest = null; activeRequestCleared = true; }}
+async function handleAgentChatSuccess(agentId, requestCtx, payload) {{ successCalls.push(payload); chatState.currentRequest = null; }}
+async function handleIncompleteChatStream(agentId, requestCtx, reason, payload) {{ incompleteCalls.push({{ reason, payload }}); requestCtx.completed = true; requestCtx.streamFailed = true; chatState.currentRequest = null; currentRequestCleared = true; }}
 async function handleErrorResponse() {{ return "bad"; }}
 let fetchQueue = [];
 async function fetch() {{ return fetchQueue.shift(); }}
-const chatState = {{ activeRequest: null, sessionId: "s1", inflightThinking: null, pendingThinkingEvents: null, needsReload: false }};
+const chatState = {{ currentRequest: null, sessionId: "s1", inflightThinking: null, pendingThinkingEvents: null, needsReload: false }};
 {_base_functions(js)}
 
 (async () => {{
   // A: delta-only close
-  successCalls = []; incompleteCalls = []; activeRequestCleared = false;
+  successCalls = []; incompleteCalls = []; currentRequestCleared = false;
   const reqA = {{ clientRequestId: "rA", sessionIdAtSend: "s1", streamedText: "", streamEvents: [], runtimeEvents: [] }};
-  chatState.activeRequest = reqA;
+  chatState.currentRequest = reqA;
   fetchQueue.push({{
     status: 200, ok: true,
     body: {{
@@ -99,40 +97,40 @@ const chatState = {{ activeRequest: null, sessionId: "s1", inflightThinking: nul
     }}
   }});
   await trySubmitChatStreamForSelectedAgent("agent-1", reqA, {{}});
-  const caseA = {{ success: successCalls.length, incomplete: incompleteCalls.length, detached: reqA.streamDetached === true, cleared: activeRequestCleared, active: chatState.activeRequest === reqA }};
+  const caseA = {{ success: successCalls.length, incomplete: incompleteCalls.length, reason: incompleteCalls[0]?.reason || "", cleared: currentRequestCleared, active: chatState.currentRequest === reqA }};
 
   // B: final completed wins over streamedText
   successCalls = []; incompleteCalls = [];
   const reqB = {{ clientRequestId: "rB", sessionIdAtSend: "s1", streamedText: "I am fetching ...", streamEvents: [], runtimeEvents: [] }};
-  chatState.activeRequest = reqB;
+  chatState.currentRequest = reqB;
   await handleChatStreamEvent("agent-1", reqB, "final", {{ completion_state: "completed", response: "Agenda summary ...", session_id: "s1", request_id: "rB" }});
   const caseB = {{ success: successCalls.length, response: successCalls[0]?.response || "", incomplete: incompleteCalls.length }};
 
   // C: final non-success immediate incomplete
   successCalls = []; incompleteCalls = [];
   const reqC = {{ clientRequestId: "rC", sessionIdAtSend: "s1", streamedText: "", streamEvents: [], runtimeEvents: [] }};
-  chatState.activeRequest = reqC;
+  chatState.currentRequest = reqC;
   const resC = await handleChatStreamEvent("agent-1", reqC, "final", {{ ok: false, completion_state: "incomplete", response: "ended" }});
   const caseC = {{ result: resC, success: successCalls.length, incomplete: incompleteCalls.length }};
 
   // D/E: candidate legacy success + non-success
   successCalls = []; incompleteCalls = [];
   const reqD = {{ clientRequestId: "rD", sessionIdAtSend: "s1", streamedText: "", streamEvents: [], runtimeEvents: [], streamFinalCandidate: {{ response: "Legacy final" }} }};
-  chatState.activeRequest = reqD;
+  chatState.currentRequest = reqD;
   fetchQueue.push({{ status: 200, ok: true, body: {{ getReader() {{ return {{ read: async () => ({{ done: true }}) }}; }} }} }});
   await trySubmitChatStreamForSelectedAgent("agent-1", reqD, {{}});
   const caseD = {{ success: successCalls.length, response: successCalls[0]?.response || "", incomplete: incompleteCalls.length }};
 
   successCalls = []; incompleteCalls = [];
   const reqE = {{ clientRequestId: "rE", sessionIdAtSend: "s1", streamedText: "", streamEvents: [], runtimeEvents: [], streamFinalCandidate: {{ ok: false, completion_state: "blocked", response: "blocked" }} }};
-  chatState.activeRequest = reqE;
+  chatState.currentRequest = reqE;
   fetchQueue.push({{ status: 200, ok: true, body: {{ getReader() {{ return {{ read: async () => ({{ done: true }}) }}; }} }} }});
   await trySubmitChatStreamForSelectedAgent("agent-1", reqE, {{}});
   const caseE = {{ success: successCalls.length, incomplete: incompleteCalls.length }};
 
   successCalls = []; incompleteCalls = [];
   const reqH = {{ clientRequestId: "rH", sessionIdAtSend: "s1", streamedText: "", streamEvents: [], runtimeEvents: [] }};
-  chatState.activeRequest = reqH;
+  chatState.currentRequest = reqH;
   const resH = await handleChatStreamEvent("agent-1", reqH, "final", {{ ok: false, completion_state: "empty_final", response: "" }});
   const caseH = {{ result: resH, success: successCalls.length, incomplete: incompleteCalls.length }};
 
@@ -141,10 +139,10 @@ const chatState = {{ activeRequest: null, sessionId: "s1", inflightThinking: nul
 """
     data = _run_node(script)
     assert data["caseA"]["success"] == 0
-    assert data["caseA"]["incomplete"] == 0
-    assert data["caseA"]["detached"] is True
-    assert data["caseA"]["cleared"] is False
-    assert data["caseA"]["active"] is True
+    assert data["caseA"]["incomplete"] == 1
+    assert data["caseA"]["reason"] == "missing_final"
+    assert data["caseA"]["cleared"] is True
+    assert data["caseA"]["active"] is False
 
     assert data["caseB"]["success"] == 1
     assert data["caseB"]["response"] == "Agenda summary ..."
@@ -177,7 +175,7 @@ let chatState = {{
   pendingFiles: [],
   modelOverride: "",
   profileDefaultModel: "",
-  activeRequest: null,
+  currentRequest: null,
   sessionId: "s1",
   inflightThinking: null,
   pendingThinkingEvents: null,
@@ -223,7 +221,7 @@ async function fetch() {{ return fetchQueue.shift(); }}
   const caseF = {{ success: successCalls.length, incomplete: incompleteCalls.length }};
 
   successCalls = []; incompleteCalls = [];
-  chatState.activeRequest = null;
+  chatState.currentRequest = null;
   dom.chatInput.value = "hi again";
   fetchQueue.push({{ ok: true, json: async () => ({{ completion_state: "completed", message: "Agenda summary ..." }}) }});
   await submitChatForSelectedAgent();
@@ -239,7 +237,7 @@ async function fetch() {{ return fetchQueue.shift(); }}
     assert data["caseG"]["incomplete"] == 0
 
 
-def test_runtime_event_alias_and_dedup_helpers_handle_live_timeline_events():
+def test_runtime_event_normalization_and_dedup_helpers_handle_live_timeline_events():
     js = _js_source()
     script = f"""
 const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
@@ -253,36 +251,36 @@ const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "fin
 {_extract_js_function(js, "mergeThinkingEvents")}
 
 const normalized = normalizeRuntimeEvent({{
-  event_type: "continuation.no_progress_timeout",
+  event_type: "message.delta",
   runtime_event_id: "runtime-1",
   created_at: "2026-05-18T12:00:00Z",
-  detail_payload: {{ message: "No progress" }},
+  detail_payload: {{ delta: "hello" }},
 }});
 const duplicateByRuntimeId = {{
-  type: "continuation.no_progress",
+  type: "message.delta",
   runtime_event_id: "runtime-1",
   created_at: "2026-05-18T12:00:01Z",
   summary: "different summary",
   data: {{ message: "different summary" }},
 }};
 const fallbackA = {{
-  type: "chat.timeout_recovery.exhausted",
+  type: "provider.retry",
   created_at: "2026-05-18T12:00:02Z",
-  summary: "still stuck",
-  data: {{ message: "still stuck" }},
+  summary: "retrying",
+  data: {{ message: "retrying" }},
 }};
 const fallbackB = {{
-  type: "timeout_recovery.exhausted",
+  type: "provider.retry",
   created_at: "2026-05-18T12:00:02Z",
-  summary: "still stuck",
-  data: {{ message: "still stuck" }},
+  summary: "retrying",
+  data: {{ message: "retrying" }},
 }};
 const merged = mergeThinkingEvents([normalized, fallbackA], [duplicateByRuntimeId, fallbackB]);
 console.log(JSON.stringify({{
   normalizedType: normalized.type,
   rawType: normalized.raw_type,
   runtimeEventId: normalized.runtime_event_id,
-  trackableAlias: isTrackableThinkingEvent("timeout_recovery.exhausted"),
+  trackableRetry: isTrackableThinkingEvent("provider.retry"),
   trackableFinal: isTrackableThinkingEvent("final"),
   keyById: runtimeEventDedupKey(normalized),
   fallbackKeysMatch: runtimeEventDedupKey(fallbackA) === runtimeEventDedupKey(fallbackB),
@@ -291,12 +289,12 @@ console.log(JSON.stringify({{
 }}));
 """
     data = _run_node(script)
-    assert data["normalizedType"] == "continuation.no_progress"
-    assert data["rawType"] == "continuation.no_progress_timeout"
+    assert data["normalizedType"] == "message.delta"
+    assert data["rawType"] == "message.delta"
     assert data["runtimeEventId"] == "runtime-1"
-    assert data["trackableAlias"] is True
+    assert data["trackableRetry"] is True
     assert data["trackableFinal"] is True
     assert data["keyById"] == "id:runtime-1"
     assert data["fallbackKeysMatch"] is True
-    assert data["mergedTypes"] == ["continuation.no_progress", "chat.timeout_recovery.exhausted"]
+    assert data["mergedTypes"] == ["message.delta", "provider.retry"]
     assert data["mergedCount"] == 2

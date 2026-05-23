@@ -635,14 +635,10 @@ function createDefaultChatState() {
     pendingFiles: [],
     inflightThinking: null,
     lastThinkingSnapshot: null,
-    openCodeProjection: null,
     pendingThinkingEvents: null,
     draftText: "",
-    activeRequest: null,
     needsReload: false,
     unreadCount: 0,
-    backgroundStatus: "",
-    lastCompletedRequestId: "",
     profileProvider: "",
     profileDefaultModel: "",
     modelOverride: "",
@@ -668,445 +664,29 @@ function currentSessionIdForAgent(agentId) {
 }
 
 function isActiveRequestBlocking(chatState) {
-  const req = chatState?.activeRequest;
-  if (!req) return false;
-  if (req.aborted || req.stale || req.completed || req.failed || req.runtimeInactive || req.opencodeInactive) {
-    return false;
-  }
-  return true;
-}
-
-function hasIncompleteInflightThinking(chatState) {
-  return Boolean(
-    chatState?.inflightThinking
-    && chatState.inflightThinking.completed === false
-    && !chatState.inflightThinking.stale
-  );
-}
-
-function normalizeOpenCodeSessionStatusType(payload = {}) {
-  const status = payload?.status;
-  return String(
-    payload?.status_type
-    || payload?.statusType
-    || (status && typeof status === "object" ? status.type : "")
-    || (typeof status === "string" ? status : "")
-    || ""
-  ).trim().toLowerCase();
-}
-
-function isOpenCodeSessionInactivePayload(payload = {}) {
-  if (!payload || typeof payload !== "object") return false;
-
-  const actionHint = String(payload.action_hint || payload.actionHint || "").trim().toLowerCase();
-  const statusType = normalizeChatRunStatus(
-    payload.status_type ||
-    payload.statusType ||
-    payload.status?.type ||
-    payload.status ||
-    payload.state ||
-    payload.sessionStatus ||
-    ""
-  );
-
-  if (payload.active === false) return true;
-  if (payload.opencode_active === false) return true;
-  if (payload.can_abort === false && actionHint === "safe_to_send") return true;
-  if (actionHint === "safe_to_send") return true;
-
-  return [
-    "idle",
-    "aborted",
-    "stopped",
-    "missing",
-    "stale",
-    "completed",
-    "complete",
-    "done",
-    "cancelled",
-    "canceled",
-    "failed",
-  ].includes(statusType);
-}
-
-function buildOpenCodeInactiveSessionStatusPayload(statusType = "idle", extra = {}) {
-  const requestedStatus = normalizeChatRunStatus(statusType || "idle") || "idle";
-  const normalizedStatus = [
-    "idle",
-    "aborted",
-    "stopped",
-    "missing",
-    "stale",
-    "completed",
-    "complete",
-    "done",
-    "cancelled",
-    "canceled",
-    "failed",
-  ].includes(requestedStatus) ? requestedStatus : "idle";
-  return {
-    ...(extra && typeof extra === "object" ? extra : {}),
-    source_of_truth: "opencode",
-    active: false,
-    opencode_active: false,
-    can_abort: false,
-    status: { type: normalizedStatus },
-    status_type: normalizedStatus,
-    action_hint: "safe_to_send",
-    active_run: null,
-  };
-}
-
-function markOpenCodeProjectionInactive(agentId, chatState, reason = "opencode_session_idle", statusType = "idle", extra = {}, options = {}) {
-  if (!chatState) return;
-  if (!chatState.openCodeProjection) {
-    chatState.openCodeProjection = {
-      messagesById: {},
-      partsById: {},
-      sessionStatus: "unknown",
-      sessionStatusPayload: null,
-      needsSnapshot: false,
-    };
-  }
-
-  const inactivePayload = buildOpenCodeInactiveSessionStatusPayload(statusType, extra);
-  const normalizedStatus = inactivePayload.status_type || "idle";
-  chatState.openCodeProjection.sessionStatus = normalizedStatus;
-  chatState.openCodeProjection.sessionStatusPayload = inactivePayload;
-  chatState.openCodeProjection.needsSnapshot = true;
-  delete chatState.openCodeProjection.pendingLocalSubmit;
-
-  if (options.clearLocalState === false) return;
-
-  if (agentId && chatState.activeRequest) {
-    clearStaleActiveRequest(agentId, chatState.activeRequest, reason, {
-      suppressSync: options.suppressSync === true,
-      suppressRuntimeEvent: options.suppressRuntimeEvent === true,
-    });
-  } else if (chatState.inflightThinking && chatState.inflightThinking.completed === false) {
-    chatState.inflightThinking.completed = true;
-    chatState.inflightThinking.stale = true;
-    chatState.inflightThinking.status = "stale";
-    chatState.inflightThinking.completionState = "stale";
-  }
-}
-
-function isOpenCodeSessionStatusBlockingPayload(payload = {}) {
-  if (isOpenCodeSessionInactivePayload(payload)) return false;
-  const statusType = normalizeOpenCodeSessionStatusType(payload);
-  if (payload?.active === true) return true;
-  if (payload?.action_hint === "wait_reconnect_or_stop") return true;
-  return [
-    "busy",
-    "retry",
-    "running",
-    "streaming",
-    "working",
-    "pending",
-    "queued",
-    "processing",
-  ].includes(statusType);
-}
-
-function isOpenCodeSessionBlocking(chatState) {
-  const projection = chatState?.openCodeProjection || {};
-  const payload = projection.sessionStatusPayload || {};
-
-  if (isOpenCodeSessionInactivePayload(payload)) return false;
-
-  const status = normalizeChatRunStatus(projection.sessionStatus || "");
-  if ([
-    "idle",
-    "aborted",
-    "stopped",
-    "missing",
-    "stale",
-    "completed",
-    "complete",
-    "done",
-    "cancelled",
-    "canceled",
-    "failed",
-  ].includes(status)) {
-    return false;
-  }
-
-  if (isOpenCodeSessionStatusBlockingPayload(payload)) return true;
-
-  return [
-    "busy",
-    "retry",
-    "running",
-    "streaming",
-    "working",
-    "pending",
-    "queued",
-    "processing",
-  ].includes(status);
-}
-
-function isLocalSubmitPendingBeforeOpenCodeStatus(chatState) {
-  if (!chatState || chatState.isSubmitting !== true) return false;
-
-  const req = chatState.activeRequest;
-  if (!req) return false;
-
-  if (
-    req.aborted === true ||
-    req.stale === true ||
-    req.completed === true ||
-    req.failed === true ||
-    req.streamCompleted === true ||
-    req.runtimeInactive === true ||
-    req.opencodeInactive === true
-  ) {
-    return false;
-  }
-
-  // Short client-side bridge between local submit and authoritative OpenCode status.
-  const pendingLocalSubmit = chatState.openCodeProjection?.pendingLocalSubmit || {};
-  const startedAt = Number(req.startedAt || req.streamStartedAt || pendingLocalSubmit.startedAt || 0);
-  if (!startedAt || !Number.isFinite(startedAt)) return false;
-  const ageMs = Date.now() - startedAt;
-  if (ageMs > 120000) return false;
-
-  return true;
-}
-
-function runtimeEventTimestampMs(entry = {}) {
-  const candidates = [
-    entry.ts,
-    entry.timestamp,
-    entry.created_at,
-    entry.createdAt,
-    entry.data?.ts,
-    entry.data?.timestamp,
-    entry.data?.created_at,
-    entry.data?.createdAt,
-  ];
-
-  for (const value of candidates) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      // Runtime events may arrive in seconds or milliseconds.
-      return value < 100000000000 ? value * 1000 : value;
-    }
-    if (typeof value === "string" && value.trim()) {
-      const parsed = Date.parse(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-
-  return 0;
-}
-
-function isInactiveOpenCodeSessionEvent(entry = {}) {
-  const data = entry.data && typeof entry.data === "object" ? entry.data : {};
-  const eventType = String(entry.type || "").toLowerCase();
-  const rawType = String(data.raw_type || entry.raw_type || eventType || "").toLowerCase();
-
-  if (rawType === "session.idle") return true;
-  if (rawType !== "session.status" && rawType !== "session.updated") return false;
-
-  return isOpenCodeSessionInactivePayload(data);
-}
-
-function currentActiveRequestIds(chatState = {}) {
-  return new Set([
-    chatState.activeRequest?.clientRequestId,
-    chatState.activeRequest?.requestId,
-    chatState.activeRequest?.runtimeRequestId,
-    chatState.inflightThinking?.requestId,
-    chatState.inflightThinking?.id,
-  ].map((value) => String(value || "")).filter(Boolean));
-}
-
-function shouldDeferInactiveOpenCodeEventForFreshLocalSubmit(chatState, entry = {}, socketCtx = {}) {
-  if (!isLocalSubmitPendingBeforeOpenCodeStatus(chatState)) return false;
-  if (!isInactiveOpenCodeSessionEvent(entry)) return false;
-
-  const req = chatState?.activeRequest;
-  if (!req) return false;
-
-  // Once the current request has authoritative completion evidence, an inactive
-  // event is allowed to clear the bridge.
-  if (
-    req.sawFinal === true ||
-    req.sawRunCompleted === true ||
-    req.sawAssistantMessageCompleted === true ||
-    req.streamCompleted === true
-  ) {
-    return false;
-  }
-
-  const ids = currentActiveRequestIds(chatState);
-  const entryRequestId = String(entry.request_id || entry.data?.request_id || "");
-  const socketRequestId = String(socketCtx.requestId || "");
-
-  // Explicit correlation to the current request wins over stale-event deferral.
-  if (entryRequestId && ids.has(entryRequestId)) return false;
-  if (socketRequestId && entryRequestId && entryRequestId === socketRequestId) return false;
-
-  const startedAt = Number(req.startedAt || req.streamStartedAt || chatState.openCodeProjection?.pendingLocalSubmit?.startedAt || 0);
-  const eventMs = runtimeEventTimestampMs(entry);
-
-  // Timestamped events from before this local submit are stale.
-  if (startedAt && eventMs && eventMs < startedAt) return true;
-
-  // Uncorrelated inactive events without a useful timestamp are the common late
-  // session.idle case after a fresh local submit.
-  if (!entryRequestId && !eventMs) return true;
-
-  // Defer very fresh uncorrelated inactive events once, even when normalizeRuntimeEvent
-  // synthesized an arrival timestamp.
-  if (!entryRequestId && startedAt && Date.now() - startedAt < 5000) return true;
-
-  return false;
+  return Boolean(chatState?.isSubmitting && chatState?.currentRequest);
 }
 
 function hasActiveChatRequestForAgent(agentId) {
   const chatState = ensureChatState(agentId);
-  if (!chatState) return false;
-
-  if (isLocalSubmitPendingBeforeOpenCodeStatus(chatState)) return true;
-
-  const projection = chatState.openCodeProjection || {};
-  const payload = projection.sessionStatusPayload || {};
-  const status = normalizeChatRunStatus(projection.sessionStatus || "");
-  const knownInactive = Boolean(
-    isOpenCodeSessionInactivePayload(payload) ||
-    [
-      "idle",
-      "aborted",
-      "stopped",
-      "missing",
-      "stale",
-      "completed",
-      "complete",
-      "done",
-      "cancelled",
-      "canceled",
-      "failed",
-    ].includes(status)
-  );
-
-  if (knownInactive) return false;
-
-  if (isOpenCodeSessionBlocking(chatState)) return true;
-
-  return false;
+  return Boolean(chatState?.isSubmitting);
 }
 
 function shouldShowAbortChatRunButton(agentId) {
   const chatState = ensureChatState(agentId);
-  if (!chatState) return false;
-
-  if (isLocalSubmitPendingBeforeOpenCodeStatus(chatState)) return true;
-
-  const projection = chatState.openCodeProjection || {};
-  const payload = projection.sessionStatusPayload || {};
-  const status = normalizeChatRunStatus(projection.sessionStatus || "");
-
-  if (
-    isOpenCodeSessionInactivePayload(payload) ||
-    [
-      "idle",
-      "aborted",
-      "stopped",
-      "missing",
-      "stale",
-      "completed",
-      "complete",
-      "done",
-      "cancelled",
-      "canceled",
-      "failed",
-    ].includes(status)
-  ) {
-    return false;
-  }
-
-  if (isOpenCodeSessionBlocking(chatState)) return true;
-
-  return false;
+  return Boolean(chatState?.isSubmitting);
 }
 
 function activeChatRequestMessage(agentId, actionLabel = "perform this action") {
-  const chatState = ensureChatState(agentId);
   if (!hasActiveChatRequestForAgent(agentId)) return "";
-  const activeRequest = chatState?.activeRequest;
-  const sessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
-    ? isOpenCodeSessionBlocking(chatState)
-    : false;
-  if (!sessionBlocking) return "";
-  if (activeRequest?.streamDetached) {
-    return "The previous message is still running. Reconnecting and syncing. Wait for it to finish before sending another message.";
-  }
-  return "The previous message is still running. Reconnecting and syncing. Wait for it to finish or use Stop run.";
+  return "This assistant is responding. Please wait for the current response to finish.";
 }
 
 function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this action") {
   if (!hasActiveChatRequestForAgent(agentId)) return true;
-  const chatState = ensureChatState(agentId);
-  const activeRequest = chatState?.activeRequest;
-  const sessionBlocking = (typeof isOpenCodeSessionBlocking === "function")
-    ? isOpenCodeSessionBlocking(chatState)
-    : false;
   const message = activeChatRequestMessage(agentId, actionLabel);
   if (message) showToast(message);
-  if (activeRequest?.streamDetached || sessionBlocking) {
-    setChatStatus("Previous message still running…");
-  } else if (message) {
-    setChatStatus(message, true);
-  }
-  return false;
-}
-
-async function preflightActiveRunForSession(agentId, sessionId) {
-  if (!agentId || !sessionId) return false;
-
-  try {
-    const payload = await agentApiFor(
-      agentId,
-      `/api/sessions/${encodeURIComponent(sessionId)}/active-run`
-    );
-    const activeRun = getActiveRunFromPayload(payload);
-
-    if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
-      const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
-        active_run: activeRun,
-      });
-
-      if (requestCtx) {
-        appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.chat_run_already_active", {
-          message: "Runtime reports an active OpenCode run before sending; send was not submitted.",
-          active_run: activeRun,
-        });
-        ensureEventSocketForAgent(
-          agentId,
-          sessionId,
-          requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId
-        );
-        startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-      }
-
-      setChatSubmittingForAgent(agentId, false);
-      setChatStatus("Previous message still running. Reconnecting…");
-      showToast("The previous message is still running. Wait for it to finish or use Stop run.");
-      syncSelectedAgentChatActionControls();
-      return true;
-    }
-  } catch (error) {
-    appendPortalChatRuntimeEvent(
-      agentId,
-      fallbackRequestContextForAgent(agentId, "preflight_active_run_failed"),
-      "portal.active_run_preflight.failed",
-      {
-        message: "Unable to preflight active run before sending; runtime will validate on submit.",
-        error: String(error?.message || error || ""),
-      }
-    );
-  }
-
+  if (message) setChatStatus(message, true);
   return false;
 }
 
@@ -1955,39 +1535,6 @@ function canonicalMessagesToThinkingEvents(canonicalMessages = [], sessionId = "
 
 function applyCanonicalMessagesToChatState(agentId, sessionId, chatState, canonicalMessages = [], metadata = {}) {
   if (!chatState || !Array.isArray(canonicalMessages) || !canonicalMessages.length) return;
-  if (!chatState.openCodeProjection) {
-    chatState.openCodeProjection = {
-      messagesById: {},
-      partsById: {},
-      sessionStatus: "unknown",
-      sessionStatusPayload: null,
-      needsSnapshot: false,
-    };
-  }
-  canonicalMessages.forEach((message) => {
-    const messageId = String(message.message_id || message.info?.id || "");
-    if (messageId) {
-      chatState.openCodeProjection.messagesById[messageId] = {
-        ...(chatState.openCodeProjection.messagesById[messageId] || {}),
-        info: message.info || {},
-        parts: message.parts || [],
-        role: message.role || "",
-        source_of_truth: "opencode",
-      };
-    }
-    (message.parts || []).forEach((part, index) => {
-      const partId = String(part.id || `${messageId}:part:${index}`);
-      if (!partId) return;
-      chatState.openCodeProjection.partsById[partId] = {
-        ...(chatState.openCodeProjection.partsById[partId] || {}),
-        ...part,
-        id: partId,
-        messageID: part.messageID || part.messageId || part.message_id || messageId,
-        type: part.type,
-      };
-    });
-  });
-
   const canonicalEvents = canonicalMessagesToThinkingEvents(canonicalMessages, sessionId);
   if (!canonicalEvents.length) return;
   const target = chatState.inflightThinking && chatState.inflightThinking.completed !== true
@@ -2259,15 +1806,7 @@ function disconnectEventSocket({ clearReconnect = true } = {}) {
 
 function normalizeRuntimeEventTypeAlias(type) {
   const normalized = String(type || "").trim();
-  const aliases = {
-    "continuation.no_progress_timeout": "continuation.no_progress",
-    "chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted",
-    "timeout_recovery.started": "chat.timeout_recovery.started",
-    "timeout_recovery.poll": "chat.timeout_recovery.poll",
-    "timeout_recovery.recovered": "chat.timeout_recovery.recovered",
-    "timeout_recovery.exhausted": "chat.timeout_recovery.exhausted",
-  };
-  return aliases[normalized] || normalized;
+  return normalized;
 }
 
 function isTrackableThinkingEvent(type) {
@@ -2275,30 +1814,16 @@ function isTrackableThinkingEvent(type) {
     if (typeof normalizeRuntimeEventTypeAlias === "function") {
       return normalizeRuntimeEventTypeAlias(value);
     }
-    const normalized = String(value || "").trim();
-    const aliases = {
-      "continuation.no_progress_timeout": "continuation.no_progress",
-      "chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted",
-      "timeout_recovery.started": "chat.timeout_recovery.started",
-      "timeout_recovery.poll": "chat.timeout_recovery.poll",
-      "timeout_recovery.recovered": "chat.timeout_recovery.recovered",
-      "timeout_recovery.exhausted": "chat.timeout_recovery.exhausted",
-    };
-    return aliases[normalized] || normalized;
+    return String(value || "").trim();
   };
   const normalizedType = localNormalizeRuntimeEventTypeAlias(type);
   return [
     "stream.started",
-    "chat.stream_attached", "chat.stream_detached",
-    "chat.run.started", "chat.run.completed", "chat.run.incomplete", "chat.run.failed", "chat.run.abort_failed", "chat.run.stale", "chat.run.aborted",
     "chat.started", "heartbeat", "status",
     "execution.started", "execution.completed", "execution.failed",
     "execution.incomplete", "execution.blocked",
     "opencode.reasoning", "opencode.tool", "opencode.step.started", "opencode.step.finished",
-    "continuation.started", "continuation.prompt_sent", "continuation.completed", "continuation.failed",
-    "continuation.max_turns_reached", "continuation.wall_timeout", "continuation.no_progress", "continuation.suppressed",
     "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error", "final",
-    "chat.timeout_recovery.started", "chat.timeout_recovery.poll", "chat.timeout_recovery.recovered", "chat.timeout_recovery.exhausted",
     "edit.failed",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
     "skill_matched", "complete",
@@ -2316,11 +1841,9 @@ function isTrackableThinkingEvent(type) {
     "permission.denied", "permission.allowed",
     "provider.retry", "provider.status", "provider.rate_limit", "model.retry",
     "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "opencode.raw",
-    "opencode.session.aborted", "opencode.session.abort_failed", "opencode.session.missing", "opencode.status.validated", "opencode.status.inactive",
+    "opencode.status.validated",
     "assistant.message.started", "assistant.message.updated", "assistant.message.completed",
-    "portal.waiting_for_runtime_events", "portal.stream_disconnected", "portal.stream_detached",
-    "portal.reconcile.started", "portal.reconcile.updated", "portal.reconcile.completed", "portal.reconcile.failed",
-    "portal.active_request.cleared", "portal.abort.started", "portal.abort.completed", "portal.abort.failed",
+    "portal.waiting_for_runtime_events", "portal.stream_disconnected",
     "skill.loaded", "task.started", "task.completed", "usage.updated"
   ].includes(normalizedType);
 }
@@ -2335,16 +1858,7 @@ function normalizeRuntimeEvent(payload) {
     if (typeof normalizeRuntimeEventTypeAlias === "function") {
       return normalizeRuntimeEventTypeAlias(value);
     }
-    const normalized = String(value || "").trim();
-    const aliases = {
-      "continuation.no_progress_timeout": "continuation.no_progress",
-      "chat.timeout_recovery.recovery_exhausted": "chat.timeout_recovery.exhausted",
-      "timeout_recovery.started": "chat.timeout_recovery.started",
-      "timeout_recovery.poll": "chat.timeout_recovery.poll",
-      "timeout_recovery.recovered": "chat.timeout_recovery.recovered",
-      "timeout_recovery.exhausted": "chat.timeout_recovery.exhausted",
-    };
-    return aliases[normalized] || normalized;
+    return String(value || "").trim();
   };
   const wrapperTypes = new Set(["runtime_event", "event", "progress"]);
   const outerType = String(candidate?.event_type || candidate?.type || "").toLowerCase();
@@ -2528,33 +2042,12 @@ function getThinkingEventDisplay(event) {
     "permission.denied": { icon: "shield-alert", title: "Permission Denied", detail: data.message || data.reason || "Permission denied" },
     "permission.allowed": { icon: "shield-check", title: "Permission Allowed", detail: data.message || "Permission allowed" },
     "stream.started": { icon: "activity", title: "Stream Started", detail: data.message || "Streaming response started" },
-    "chat.stream_attached": { icon: "plug", title: "Stream Attached", detail: data.message || "Live stream attached" },
-    "chat.stream_detached": { icon: "unplug", title: "Stream Detached", detail: data.message || "Live stream detached; runtime may still be running", kind: "warning" },
-    "chat.run.started": { icon: "play-circle", title: "Run Started", detail: data.message || "Chat run started" },
-    "chat.run.completed": { icon: "check-circle-2", title: "Run Completed", detail: data.message || "Chat run completed" },
-    "chat.run.incomplete": { icon: "alert-triangle", title: "Run Incomplete", detail: data.incomplete_reason || data.message || "Chat run incomplete", kind: "warning" },
-    "chat.run.failed": { icon: "x-circle", title: "Run Failed", detail: data.error || data.message || "Chat run failed", kind: "error" },
-    "chat.run.abort_failed": { icon: "x-circle", title: "Run Abort Failed", detail: data.error || data.message || "Chat run abort failed", kind: "error" },
-    "chat.run.stale": { icon: "alert-triangle", title: "Run Stale", detail: data.message || "Chat run is no longer active", kind: "warning" },
-    "chat.run.aborted": { icon: "square", title: "Run Aborted", detail: data.message || "Chat run was aborted", kind: "warning" },
-    "continuation.started": { icon: "rotate-cw", title: "Continuation Started", detail: data.message || "Continuing automatically..." },
-    "continuation.prompt_sent": { icon: "send", title: "Continuation Prompt Sent", detail: data.message || "Continuation prompt sent" },
-    "continuation.completed": { icon: "check-circle-2", title: "Continuation Completed", detail: data.message || "Continuation complete" },
-    "continuation.failed": { icon: "x-circle", title: "Continuation Failed", detail: data.error || data.message || "Continuation failed" },
-    "continuation.max_turns_reached": { icon: "alert-triangle", title: "Max Turns Reached", detail: data.message || "Continuation reached max turns" },
-    "continuation.wall_timeout": { icon: "clock-alert", title: "Continuation Timeout", detail: data.message || "Continuation hit wall timeout" },
-    "continuation.no_progress": { icon: "alert-triangle", title: "No Progress", detail: data.message || "Continuation stopped without progress" },
-    "continuation.suppressed": { icon: "alert-triangle", title: "Continuation suppressed", detail: data.summary || data.metadata?.reason || data.reason || data.message || "Continuation suppressed", kind: "warning" },
     "chat.incomplete": { icon: "alert-triangle", title: "Incomplete", detail: data.incomplete_reason || data.message || "Incomplete after auto-continue" },
     "chat.blocked": { icon: "shield-alert", title: "Blocked", detail: data.message || "Blocked waiting for permission" },
     "chat.empty_final": { icon: "alert-triangle", title: "Empty Final", detail: data.message || "Empty final response" },
     "chat.failed": { icon: "x-circle", title: "Chat Failed", detail: data.error || data.message || "Chat failed" },
     "chat.completed": { icon: "check-circle-2", title: "Chat Completed", detail: data.message || "Chat completed" },
     final: { icon: "flag", title: "Final", detail: data.incomplete_reason || data.message || data.completion_state || "Final response received" },
-    "chat.timeout_recovery.started": { icon: "clock-alert", title: "Timeout Recovery Started", detail: data.message || "Runtime started timeout recovery" },
-    "chat.timeout_recovery.poll": { icon: "activity", title: "Timeout Recovery Poll", detail: data.message || "Polling runtime recovery" },
-    "chat.timeout_recovery.recovered": { icon: "check-circle-2", title: "Timeout Recovery Recovered", detail: data.message || "Runtime recovered" },
-    "chat.timeout_recovery.exhausted": { icon: "alert-triangle", title: "Timeout Recovery Exhausted", detail: data.message || "Runtime recovery exhausted" },
     "provider.retry": { icon: "refresh-cw", title: "Provider Retry", detail: data.message || "Provider API retrying" },
     "provider.rate_limit": { icon: "clock-alert", title: "Provider Rate Limit", detail: data.message || "Provider rate limit" },
     "model.retry": { icon: "refresh-cw", title: "Model Retry", detail: data.message || "Model retrying" },
@@ -2562,24 +2055,10 @@ function getThinkingEventDisplay(event) {
     "event_bridge.disconnected": { icon: "unplug", title: "Event Bridge Disconnected", detail: data.message || "Runtime event bridge disconnected" },
     "event_bridge.reconnected": { icon: "plug-zap", title: "Event Bridge Reconnected", detail: data.message || "Runtime event bridge reconnected" },
     "opencode.raw": { icon: "terminal", title: "OpenCode Event", detail: data.summary || data.message || "OpenCode runtime event" },
-    "opencode.session.aborted": { icon: "square", title: "OpenCode Session Aborted", detail: data.message || "OpenCode session was aborted", kind: "success" },
-    "opencode.session.abort_failed": { icon: "x-circle", title: "OpenCode Session Abort Failed", detail: data.error || data.message || "OpenCode session abort failed", kind: "error" },
-    "opencode.session.missing": { icon: "alert-triangle", title: "OpenCode Session Missing", detail: data.message || "OpenCode session is missing", kind: "warning" },
     "opencode.status.validated": { icon: "shield-check", title: "OpenCode Status Validated", detail: data.message || "OpenCode active status validated" },
-    "opencode.status.inactive": { icon: "alert-triangle", title: "OpenCode Inactive", detail: data.message || "OpenCode is not active", kind: "warning" },
     "assistant.message.started": { icon: "message-square", title: "Assistant Message Started", detail: data.message || "Assistant message started" },
     "assistant.message.updated": { icon: "message-square", title: "Assistant Message Updated", detail: data.message || data.delta || "Assistant message updated" },
     "assistant.message.completed": { icon: "message-square-check", title: "Assistant Message Completed", detail: data.message || "Assistant message completed" },
-    "portal.stream_detached": { icon: "unplug", title: "Stream Detached", detail: data.message || "The live stream ended before final response", kind: "warning" },
-    "portal.reconcile.started": { icon: "refresh-cw", title: "Reconcile Started", detail: data.message || "Syncing chat run" },
-    "portal.reconcile.updated": { icon: "refresh-cw", title: "Reconcile Updated", detail: data.message || "Chat run synced" },
-    "portal.reconcile.completed": { icon: "check-circle-2", title: "Reconcile Completed", detail: data.message || "Chat run completed" },
-    "portal.reconcile.failed": { icon: "x-circle", title: "Reconcile Failed", detail: data.error || data.message || "Chat run reconcile failed", kind: "error" },
-    "portal.active_request.cleared": { icon: "alert-triangle", title: "Active Request Cleared", detail: data.message || "Portal cleared stale active request", kind: "warning" },
-    "portal.chat_run_already_active": { icon: "alert-triangle", title: "Previous Run Active", detail: data.message || "Previous message still running", kind: "warning" },
-    "portal.abort.started": { icon: "square", title: "Abort Started", detail: data.message || "Stopping current run" },
-    "portal.abort.completed": { icon: "check-circle-2", title: "Abort Completed", detail: data.message || "Current run stopped", kind: "success" },
-    "portal.abort.failed": { icon: "x-circle", title: "Abort Failed", detail: data.error || data.message || "Unable to stop current run", kind: "error" },
     "provider.status": { icon: "activity", title: "Provider Status", detail: data.message || data.status || "Provider status update" },
     "skill.loaded": { icon: "zap", title: "Skill Loaded", detail: data.skill || data.message || "Skill loaded" },
     "skill.detected": { icon: "zap", title: "Skill Detected", detail: data.skill || data.message || "Skill detected" },
@@ -2833,17 +2312,13 @@ function nonSuccessHintForPayload(payload = {}) {
     ""
   ).toLowerCase();
 
-  if (reason.includes("chat_run_already_active")) {
-    return "Previous message is still running. You can wait, reconnect, stop the run, or reset this session.";
-  }
-
   if (reason.includes("opencode_abort_still_active")) {
     return "Stop was requested, but OpenCode still reports this session is running. Reset the session or start a new chat.";
   }
 
   const status = String(payload.status || payload.completion_state || "").toLowerCase();
   if (["busy", "running", "streaming", "retry"].includes(status)) {
-    return "The previous message is still running. You can wait, reconnect, or use Stop run.";
+    return "The assistant is still working. Wait for it to finish before sending another message.";
   }
 
   return 'You can send "continue" to ask the runtime to resume, or inspect the event details here.';
@@ -2856,7 +2331,7 @@ function getThinkingSnapshotStatus(snapshot) {
     if (isNonSuccessCompletionState(completionState) || snapshot?.incomplete_reason) return "Incomplete";
     return "Completed";
   }
-  if (snapshot?.connectionStatus === "reconnecting" || snapshot?.status === "reconnecting") return "Reconnecting";
+  if (snapshot?.connectionStatus === "reconnecting" || snapshot?.status === "reconnecting") return "Syncing";
   if (snapshot?.connectionStatus === "disconnected") return "Disconnected";
   return "Connected";
 }
@@ -2932,7 +2407,7 @@ function renderThinkingPanelFromClientState(chatState) {
       ? `<details class="portal-event-detail"><summary>Details</summary><pre class="portal-panel-pre">${safe(detailText)}</pre></details>`
       : "";
     const kind = String(event.kind || view.kind || "").trim().toLowerCase();
-    const running = kind === "running" || ["tool.started", "continuation.started", "continuation.prompt_sent", "chat.timeout_recovery.started", "chat.timeout_recovery.poll", "heartbeat"].includes(event.type);
+    const running = kind === "running" || ["tool.started", "heartbeat"].includes(event.type);
     const replayed = Boolean(event.replayed);
     const badges = [
       running ? '<span class="portal-live-chip is-running">Running</span>' : "",
@@ -3035,7 +2510,7 @@ async function openThinkingProcessPanel() {
     currentSessionId = (hiddenSessionInput.value || "").trim();
   }
   const localSnapshot = getActiveThinkingSnapshot(chatState);
-  const isLiveRun = !!(localSnapshot && (chatState.activeRequest || !localSnapshot.completed));
+  const isLiveRun = !!(localSnapshot && (chatState.currentRequest || !localSnapshot.completed));
   const localMatchesSession = !currentSessionId || !localSnapshot?.sessionId || localSnapshot.sessionId === currentSessionId;
   const canUseLocalSnapshot = localMatchesSession && (isLiveRun || hasMeaningfulThinkingSnapshot(localSnapshot));
   if (canUseLocalSnapshot) {
@@ -3158,8 +2633,8 @@ function isAssistantMessageRuntimeEvent(type) {
 }
 
 function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatchesActiveRequest, eventMatchesSocketRequest) {
-  if (!chatState?.activeRequest || !isAssistantMessageRuntimeEvent(entry?.type)) return "ignored";
-  const requestCtx = chatState.activeRequest;
+  if (!chatState?.currentRequest || !isAssistantMessageRuntimeEvent(entry?.type)) return "ignored";
+  const requestCtx = chatState.currentRequest;
   const canUseEvent = eventMatchesActiveRequest || eventMatchesSocketRequest || !entry.request_id;
   if (!canUseEvent) return "ignored";
   const data = entry.data && typeof entry.data === "object" ? entry.data : {};
@@ -3180,7 +2655,7 @@ function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatc
   const displayBlocks = extractAssistantDisplayBlocks(data);
   const rowPayload = {
     ...data,
-    request_id: entry.request_id || data.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
+    request_id: entry.request_id || data.request_id || requestCtx.requestId || requestCtx.clientRequestId,
     session_id: entry.session_id || data.session_id || requestCtx.sessionIdAtSend || chatState.sessionId || "",
     response: visibleText,
     display_blocks: displayBlocks,
@@ -3207,8 +2682,7 @@ function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatc
       session_id: rowPayload.session_id,
     };
 
-    startChatRunReconcileLoop(agentId, requestCtx, { immediate: false });
-    return "completed_reconcile";
+    return "completed";
   }
   return "updated";
 }
@@ -3244,383 +2718,6 @@ function markThinkingTerminalFromEvent(chatState, entry = {}) {
   return false;
 }
 
-function maybeStartStalledAssistantReconcile(agentId, chatState) {
-  const requestCtx = chatState?.activeRequest;
-  if (!requestCtx || requestCtx.reconcileTimerId || requestCtx.reconcileInFlight) return;
-  if (Date.now() - Number(requestCtx.startedAt || requestCtx.streamStartedAt || 0) < 10000) return;
-  if (!(chatState.inflightThinking?.events || []).length) return;
-  const article = findAssistantArticleForRequest(requestCtx, {});
-  if (assistantArticleHasVisibleContent(article)) return;
-  startChatRunReconcileLoop(agentId, requestCtx);
-}
-
-function applyOpenCodeCanonicalEventToChatState(chatState, event = {}) {
-  const data = event.data && typeof event.data === "object" ? event.data : {};
-  const eventType = String(event.type || "").toLowerCase();
-  const canonicalEventType = (
-    eventType.startsWith("message.")
-    || eventType === "session.status"
-    || eventType === "session.updated"
-    || eventType === "session.idle"
-  )
-    ? eventType
-    : "";
-  const rawType = String(data.raw_type || event.raw_type || canonicalEventType || "").toLowerCase();
-  const reconcileHint = String(data.reconcile_hint || "").toLowerCase();
-  if (
-    !rawType.startsWith("message.")
-    && rawType !== "session.status"
-    && rawType !== "session.updated"
-    && rawType !== "session.idle"
-    && reconcileHint !== "fetch_session_messages"
-  ) {
-    return false;
-  }
-
-  if (!chatState.openCodeProjection) {
-    chatState.openCodeProjection = {
-      messagesById: {},
-      partsById: {},
-      sessionStatus: "unknown",
-      needsSnapshot: false,
-    };
-  }
-
-  const projection = chatState.openCodeProjection;
-  if (
-    !chatState.activeRequest
-    && [
-      "message.updated",
-      "message.part.updated",
-      "message.part.delta",
-      "message.completed",
-      "session.idle",
-      "session.status",
-      "session.updated",
-    ].includes(rawType)
-  ) {
-    projection.needsSnapshot = true;
-  }
-
-  if (rawType === "message.updated") {
-    const info = data.info && typeof data.info === "object" ? data.info : {};
-    const messageId = String(data.message_id || info.id || "");
-    if (!messageId) return true;
-    const existing = projection.messagesById[messageId] || { info: {}, parts: [] };
-    projection.messagesById[messageId] = { ...existing, info: { ...existing.info, ...info } };
-    return true;
-  }
-
-  if (rawType === "message.part.updated") {
-    const part = data.part && typeof data.part === "object" ? data.part : {};
-    const partId = String(data.part_id || part.id || "");
-    const messageId = String(data.message_id || part.messageID || part.messageId || part.message_id || "");
-    if (!partId) return true;
-    projection.partsById[partId] = {
-      ...(projection.partsById[partId] || {}),
-      ...part,
-      id: partId,
-      messageID: messageId || part.messageID,
-      type: data.part_type || part.type,
-    };
-    return true;
-  }
-
-  if (rawType === "message.part.delta") {
-    const partId = String(data.part_id || "");
-    if (!partId) return true;
-    const existing = projection.partsById[partId] || { id: partId, type: data.part_type || "text", text: "" };
-    if (data.field === "text" || !data.field) {
-      existing.text = `${existing.text || ""}${data.delta || ""}`;
-    }
-    projection.partsById[partId] = existing;
-    return true;
-  }
-
-  if (rawType === "message.completed") {
-    return true;
-  }
-
-  if (rawType === "session.status" || rawType === "session.updated") {
-    const normalizedStatus = normalizeOpenCodeSessionStatusType(data)
-      || normalizeChatRunStatus(data.status || data.state || data.sessionStatus || "")
-      || "";
-    const inactiveStatus = [
-      "idle",
-      "aborted",
-      "stopped",
-      "missing",
-      "stale",
-      "completed",
-      "complete",
-      "done",
-      "cancelled",
-      "canceled",
-      "failed",
-    ].includes(normalizedStatus);
-
-    if (isOpenCodeSessionInactivePayload(data) || inactiveStatus) {
-      const inactiveStatusType = normalizedStatus || "idle";
-      projection.sessionStatus = inactiveStatusType;
-      projection.sessionStatusPayload = buildOpenCodeInactiveSessionStatusPayload(inactiveStatusType, {
-        ...data,
-        event_type: rawType,
-        raw_type: data.raw_type || rawType,
-      });
-      delete projection.pendingLocalSubmit;
-      projection.needsSnapshot = true;
-      return true;
-    }
-
-    if (isOpenCodeSessionStatusBlockingPayload(data)) {
-      const blockingStatus = normalizedStatus && normalizedStatus !== "unknown" && normalizedStatus !== "idle"
-        ? normalizedStatus
-        : "busy";
-      projection.sessionStatus = blockingStatus;
-      projection.sessionStatusPayload = {
-        ...data,
-        source_of_truth: "opencode",
-        active: true,
-        status: { ...(data.status && typeof data.status === "object" ? data.status : {}), type: blockingStatus },
-        status_type: blockingStatus,
-        action_hint: data.action_hint || "wait_reconnect_or_stop",
-        can_abort: data.can_abort !== false,
-      };
-      delete projection.pendingLocalSubmit;
-      if (reconcileHint === "fetch_session_messages") projection.needsSnapshot = true;
-      return true;
-    }
-
-    const inactiveStatusType = normalizedStatus || "idle";
-    projection.sessionStatus = inactiveStatusType;
-    projection.sessionStatusPayload = buildOpenCodeInactiveSessionStatusPayload(inactiveStatusType, {
-      ...data,
-      event_type: rawType,
-      raw_type: data.raw_type || rawType,
-    });
-    delete projection.pendingLocalSubmit;
-    projection.needsSnapshot = true;
-    return true;
-  }
-
-  if (rawType === "session.idle") {
-    projection.sessionStatus = "idle";
-    projection.sessionStatusPayload = buildOpenCodeInactiveSessionStatusPayload("idle", {
-      event_type: rawType,
-      raw_type: rawType,
-    });
-    delete projection.pendingLocalSubmit;
-    projection.needsSnapshot = true;
-    return true;
-  }
-
-  if (reconcileHint === "fetch_session_messages") {
-    projection.needsSnapshot = true;
-    return true;
-  }
-
-  return false;
-}
-
-function isOpenCodeSessionStateOnlyEvent(event = {}) {
-  const data = event.data && typeof event.data === "object" ? event.data : {};
-  const rawType = String(data.raw_type || event.raw_type || event.type || "").toLowerCase();
-  const reconcileHint = String(data.reconcile_hint || "").toLowerCase();
-  return (
-    rawType === "session.status"
-    || rawType === "session.updated"
-    || rawType === "session.idle"
-    || reconcileHint === "fetch_session_messages"
-  );
-}
-
-function isOpenCodeCanonicalSnapshotEvent(event = {}) {
-  const data = event.data && typeof event.data === "object" ? event.data : {};
-  const rawType = String(data.raw_type || event.raw_type || event.type || "").toLowerCase();
-  const reconcileHint = String(data.reconcile_hint || "").toLowerCase();
-  return (
-    [
-      "message.updated",
-      "message.part.updated",
-      "message.part.delta",
-      "message.completed",
-      "session.idle",
-      "session.status",
-      "session.updated",
-    ].includes(rawType)
-    || reconcileHint === "fetch_session_messages"
-  );
-}
-
-function maybeRefreshSessionSnapshotForOpenCodeEvent(agentId, chatState, sessionId = "", event = {}) {
-  const projection = chatState?.openCodeProjection;
-  if (!agentId || !chatState || !sessionId || !projection?.needsSnapshot) return;
-  if (projection.snapshotRefreshInFlight) return;
-  const lastFailedAt = Number(projection.snapshotRefreshLastFailedAt || 0);
-  if (lastFailedAt && Date.now() - lastFailedAt < 10000) return;
-  projection.snapshotRefreshInFlight = true;
-  chatState.needsReload = true;
-  return Promise.resolve()
-    .then(() => loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId }))
-    .then(() => {
-      projection.needsSnapshot = false;
-      projection.snapshotRefreshError = "";
-      if (agentId === state.selectedAgentId && typeof syncSelectedAgentChatActionControls === "function") {
-        syncSelectedAgentChatActionControls();
-      }
-    })
-    .catch((error) => {
-      projection.needsSnapshot = true;
-      projection.snapshotRefreshLastFailedAt = Date.now();
-      projection.snapshotRefreshError = String(error?.message || error || "");
-      appendPortalChatRuntimeEvent(agentId, fallbackRequestContextForAgent(agentId, "opencode_snapshot_refresh_failed"), "portal.reconcile.failed", {
-        message: "Unable to refresh OpenCode session snapshot after runtime event.",
-        error: projection.snapshotRefreshError,
-        source_event: event?.raw_type || event?.type || "",
-      });
-    })
-    .finally(() => {
-      projection.snapshotRefreshInFlight = false;
-    });
-}
-
-async function refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState) {
-  if (!agentId || !sessionId || !chatState) return null;
-
-  try {
-    const payload = await agentApiFor(
-      agentId,
-      `/api/sessions/${encodeURIComponent(sessionId)}/status`
-    );
-
-    if (!chatState.openCodeProjection) {
-      chatState.openCodeProjection = {
-        messagesById: {},
-        partsById: {},
-        sessionStatus: "unknown",
-        sessionStatusPayload: null,
-        needsSnapshot: false,
-      };
-    }
-
-    const statusType = normalizeOpenCodeSessionStatusType(payload)
-      || normalizeChatRunStatus(payload?.status || payload?.state || payload?.sessionStatus || "")
-      || "";
-
-    if (isOpenCodeSessionInactivePayload(payload)) {
-      markOpenCodeProjectionInactive(
-        agentId,
-        chatState,
-        "opencode_status_refresh_inactive",
-        statusType || "idle",
-        payload
-      );
-      chatState.openCodeProjection.sessionStatusError = "";
-      chatState.openCodeProjection.activeChildSessions = Array.isArray(payload?.active_child_sessions)
-        ? payload.active_child_sessions
-        : [];
-      return chatState.openCodeProjection.sessionStatusPayload;
-    }
-
-    if (isOpenCodeSessionStatusBlockingPayload(payload)) {
-      const nextStatus = statusType && statusType !== "unknown" && statusType !== "idle"
-        ? statusType
-        : "busy";
-      chatState.openCodeProjection.sessionStatus = nextStatus;
-      chatState.openCodeProjection.sessionStatusPayload = {
-        ...payload,
-        source_of_truth: "opencode",
-        active: true,
-        status: { ...(payload?.status && typeof payload.status === "object" ? payload.status : {}), type: nextStatus },
-        status_type: nextStatus,
-        action_hint: payload.action_hint || "wait_reconnect_or_stop",
-        can_abort: payload.can_abort !== false,
-      };
-      delete chatState.openCodeProjection.pendingLocalSubmit;
-      chatState.openCodeProjection.sessionStatusError = "";
-      chatState.openCodeProjection.activeChildSessions = Array.isArray(payload?.active_child_sessions)
-        ? payload.active_child_sessions
-        : [];
-      return chatState.openCodeProjection.sessionStatusPayload;
-    }
-
-    markOpenCodeProjectionInactive(
-      agentId,
-      chatState,
-      "opencode_status_refresh_not_blocking",
-      statusType || "idle",
-      payload
-    );
-    chatState.openCodeProjection.sessionStatusError = "";
-    chatState.openCodeProjection.activeChildSessions = Array.isArray(payload?.active_child_sessions)
-      ? payload.active_child_sessions
-      : [];
-
-    return chatState.openCodeProjection.sessionStatusPayload;
-  } catch (error) {
-    if (!chatState.openCodeProjection) {
-      chatState.openCodeProjection = {
-        messagesById: {},
-        partsById: {},
-        sessionStatus: "unknown",
-        sessionStatusPayload: null,
-        needsSnapshot: false,
-      };
-    }
-    chatState.openCodeProjection.sessionStatus = "unknown";
-    chatState.openCodeProjection.sessionStatusError = String(error?.message || error || "");
-    return null;
-  }
-}
-
-function buildSyntheticRunFromSessionStatus(sessionId, statusPayload = {}) {
-  const statusType = normalizeOpenCodeSessionStatusType(statusPayload) || "busy";
-  return {
-    request_id:
-      statusPayload.request_id
-      || statusPayload.current_request_id
-      || statusPayload.active_run?.request_id
-      || statusPayload.run?.request_id
-      || `opencode-session-${sessionId}`,
-    session_id: sessionId,
-    status: statusType,
-    state: statusType,
-    source_of_truth: "opencode",
-    opencode_active: true,
-    can_abort: statusPayload.can_abort !== false,
-    action_hint: statusPayload.action_hint || "wait_reconnect_or_stop",
-    diagnostics: statusPayload.diagnostics || {},
-  };
-}
-
-function hydrateActiveRequestFromSessionStatus(agentId, sessionId, statusPayload = {}) {
-  if (!isOpenCodeSessionStatusBlockingPayload(statusPayload)) return null;
-
-  const activeRun =
-    statusPayload.active_run
-    || statusPayload.run
-    || buildSyntheticRunFromSessionStatus(sessionId, statusPayload);
-
-  const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
-    session_status: statusPayload,
-    active_run: activeRun,
-  });
-
-  if (requestCtx) {
-    requestCtx.source_of_truth = "opencode_session_status";
-    requestCtx.sourceOfTruth = "opencode_session_status";
-    requestCtx.fromSessionStatus = true;
-    requestCtx.syntheticSessionRun = String(requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "").startsWith("opencode-session-");
-    const chatState = ensureChatState(agentId);
-    if (chatState?.inflightThinking) {
-      chatState.inflightThinking.contextSource = "opencode_session_state";
-      chatState.inflightThinking.status = "reconnecting";
-    }
-  }
-
-  return requestCtx;
-}
-
 function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
@@ -3633,60 +2730,49 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
-  const activeRequestIds = new Set([
-    chatState.activeRequest?.clientRequestId,
-    chatState.activeRequest?.requestId,
-    chatState.activeRequest?.runtimeRequestId,
+  const currentRequestIds = new Set([
+    chatState.currentRequest?.clientRequestId,
+    chatState.currentRequest?.requestId,
     chatState.inflightThinking?.requestId,
     chatState.inflightThinking?.id,
   ].map((value) => String(value || "")).filter(Boolean));
-  const activeRequestId = chatState.activeRequest?.runtimeRequestId
-    || chatState.activeRequest?.requestId
-    || chatState.activeRequest?.clientRequestId
+  const localRequestId = chatState.currentRequest?.requestId
+    || chatState.currentRequest?.clientRequestId
     || "";
   const socketRequestId = socketCtx.requestId || "";
-  const currentRequestId = socketRequestId || activeRequestId;
+  const currentRequestId = socketRequestId || localRequestId;
   const type = entry.type;
-  const isCurrentSessionCanonicalSnapshotEvent = Boolean(
-    typeof isOpenCodeCanonicalSnapshotEvent === "function"
-    && isOpenCodeCanonicalSnapshotEvent(entry)
-    && entry.session_id
-    && currentSessionId
-    && entry.session_id === currentSessionId
-  );
-  const eventMatchesActiveRequest = Boolean(entry.request_id && activeRequestIds.has(entry.request_id));
+  const eventMatchesCurrentRequest = Boolean(entry.request_id && currentRequestIds.has(entry.request_id));
   const eventMatchesSocketRequest = Boolean(
     entry.request_id && socketRequestId && entry.request_id === socketRequestId
   );
-  const canAdoptRuntimeRequestId = Boolean(
-    (type === "chat.started" || type === "chat.run.started" || type === "assistant.message.started")
+  const canAdoptRequestId = Boolean(
+    (type === "chat.started" || type === "assistant.message.started")
     && entry.request_id
-    && chatState.activeRequest
-    && !eventMatchesActiveRequest
+    && chatState.currentRequest
+    && !eventMatchesCurrentRequest
     && (!entry.session_id || !currentSessionId || entry.session_id === currentSessionId)
   );
   if (
     entry.request_id
     && currentRequestId
-    && !eventMatchesActiveRequest
+    && !eventMatchesCurrentRequest
     && !eventMatchesSocketRequest
-    && !canAdoptRuntimeRequestId
-    && !isCurrentSessionCanonicalSnapshotEvent
+    && !canAdoptRequestId
   ) return;
-  if (canAdoptRuntimeRequestId) {
-    chatState.activeRequest.runtimeRequestId = entry.request_id;
-    chatState.activeRequest.requestId = entry.request_id;
-    activeRequestIds.add(entry.request_id);
+  if (canAdoptRequestId) {
+    chatState.currentRequest.requestId = entry.request_id;
+    currentRequestIds.add(entry.request_id);
   }
   const eventMatchesLastCompletedRequest = Boolean(
     entry.request_id
-    && chatState.lastCompletedRequestId
-    && entry.request_id === chatState.lastCompletedRequestId
+    && chatState.lastThinkingSnapshot?.requestId
+    && entry.request_id === chatState.lastThinkingSnapshot.requestId
   );
   if (
     entry.session_id
     && !currentSessionId
-    && !(eventMatchesActiveRequest || eventMatchesSocketRequest || eventMatchesLastCompletedRequest || canAdoptRuntimeRequestId)
+    && !(eventMatchesCurrentRequest || eventMatchesSocketRequest || eventMatchesLastCompletedRequest || canAdoptRequestId)
   ) {
     // Drop unmatched stale events when no current session is bound.
     // Otherwise they can recreate inflightThinking and cause false busy/session pollution.
@@ -3696,97 +2782,10 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
   const lifecycleType = entry.lifecycle_type;
-  const localApplyOpenCodeCanonicalEventToChatState = (typeof applyOpenCodeCanonicalEventToChatState === "function")
-    ? applyOpenCodeCanonicalEventToChatState
-    : () => false;
-  const shouldDeferInactiveSessionEvent = shouldDeferInactiveOpenCodeEventForFreshLocalSubmit(
-    chatState,
-    entry,
-    socketCtx
-  );
-
-  if (shouldDeferInactiveSessionEvent) {
-    if (!chatState.openCodeProjection) {
-      chatState.openCodeProjection = {
-        messagesById: {},
-        partsById: {},
-        sessionStatus: "",
-        sessionStatusPayload: null,
-        needsSnapshot: false,
-      };
-    }
-
-    chatState.openCodeProjection.needsSnapshot = true;
-    appendPortalChatRuntimeEvent(
-      currentAgentId,
-      chatState.activeRequest || fallbackRequestContextForAgent(currentAgentId, "deferred_stale_opencode_inactive_event"),
-      "portal.opencode_inactive_event.deferred",
-      {
-        message: "Deferred an inactive OpenCode session event while a fresh local submit is pending.",
-        source_event: entry.raw_type || entry.type || "",
-        request_id: entry.request_id || "",
-        session_id: entry.session_id || currentSessionId || "",
-      }
-    );
-
-    if (typeof maybeRefreshSessionSnapshotForOpenCodeEvent === "function") {
-      maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState, entry.session_id || currentSessionId, entry);
-    }
-
-    syncSelectedAgentChatActionControls();
-    return;
-  }
-
-  const appliedCanonicalEvent = localApplyOpenCodeCanonicalEventToChatState(chatState, entry);
-  const entryData = entry.data && typeof entry.data === "object" ? entry.data : {};
-  const rawType = String(entryData.raw_type || entry.raw_type || entry.type || "").toLowerCase();
-  if (
-    appliedCanonicalEvent
-    && (
-      rawType === "session.idle"
-      || (
-        (rawType === "session.status" || rawType === "session.updated")
-        && isOpenCodeSessionInactivePayload(chatState.openCodeProjection?.sessionStatusPayload || {})
-      )
-    )
-  ) {
-    const inactivePayload = chatState.openCodeProjection?.sessionStatusPayload || entryData;
-    const inactiveStatus = normalizeOpenCodeSessionStatusType(inactivePayload)
-      || normalizeChatRunStatus(inactivePayload.status || inactivePayload.state || inactivePayload.sessionStatus || "")
-      || "idle";
-    markOpenCodeProjectionInactive(
-      currentAgentId,
-      chatState,
-      rawType === "session.idle" ? "opencode_session_idle_event" : "opencode_session_status_inactive_event",
-      inactiveStatus,
-      inactivePayload
-    );
-  }
-  if (appliedCanonicalEvent && typeof maybeRefreshSessionSnapshotForOpenCodeEvent === "function") {
-    maybeRefreshSessionSnapshotForOpenCodeEvent(currentAgentId, chatState, entry.session_id || currentSessionId, entry);
-  }
-  if (appliedCanonicalEvent && !chatState.activeRequest && isOpenCodeCanonicalSnapshotEvent(entry)) {
-    if (isThinkingPanelActiveForAgent(currentAgentId)) {
-      scheduleThinkingPanelRefresh(currentAgentId);
-    }
-    syncSelectedAgentChatActionControls();
-    return;
-  }
-  const isSessionStateOnlyCanonicalEvent = appliedCanonicalEvent
-    && typeof isOpenCodeSessionStateOnlyEvent === "function"
-    && isOpenCodeSessionStateOnlyEvent(entry);
-  if (isSessionStateOnlyCanonicalEvent) {
-    if (isThinkingPanelActiveForAgent(currentAgentId)) {
-      scheduleThinkingPanelRefresh(currentAgentId);
-    }
-    syncSelectedAgentChatActionControls();
-    return;
-  }
-
-  if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion && !appliedCanonicalEvent) return;
+  if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
 
   const isLateEventForCompletedRequest = Boolean(
-    !chatState.activeRequest
+    !chatState.currentRequest
     && eventMatchesLastCompletedRequest
     && chatState.lastThinkingSnapshot
   );
@@ -3828,7 +2827,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   if (
     entry.session_id
     && !chatState.sessionId
-    && (eventMatchesActiveRequest || eventMatchesSocketRequest || canAdoptRuntimeRequestId)
+    && (eventMatchesCurrentRequest || eventMatchesSocketRequest || canAdoptRequestId)
   ) {
     chatState.sessionId = entry.session_id;
     state.agentSessionIds.set(currentAgentId, entry.session_id);
@@ -3893,7 +2892,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   }
 
   updateThinkingContextFromEvent(chatState.inflightThinking, entry);
-  if (entry.request_id && canAdoptRuntimeRequestId && state.eventWsRequestId !== entry.request_id) {
+  if (entry.request_id && canAdoptRequestId && state.eventWsRequestId !== entry.request_id) {
     ensureEventSocketForAgent(currentAgentId, entry.session_id || currentSessionId, entry.request_id);
   }
   if (isThinkingPanelActiveForAgent(currentAgentId)) {
@@ -3906,7 +2905,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       currentAgentId,
       chatState,
       entry,
-      eventMatchesActiveRequest,
+      eventMatchesCurrentRequest,
       eventMatchesSocketRequest
     ) || "ignored";
   }
@@ -3922,11 +2921,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     return;
   }
 
-  if (typeof maybeStartStalledAssistantReconcile === "function") {
-    maybeStartStalledAssistantReconcile(currentAgentId, chatState);
-  }
-
-  if (type === "edit.failed" && chatState.activeRequest?.edit && eventMatchesActiveRequest) {
+  if (type === "edit.failed" && chatState.currentRequest?.edit && eventMatchesCurrentRequest) {
     const failureMessage = String(
       entry?.data?.error
       || entry?.data?.detail
@@ -3934,7 +2929,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       || entry?.data?.message
       || "regeneration failed"
     );
-    handleEditedRegenerationFailure(currentAgentId, chatState.activeRequest, failureMessage);
+    handleEditedRegenerationFailure(currentAgentId, chatState.currentRequest, failureMessage);
     return;
   }
 
@@ -3962,9 +2957,8 @@ function hasLiveEventSocketWork(agentId, requestId = "") {
   if (isActiveRequestBlocking(chatState)) {
     if (!requestId) return true;
     return [
-      chatState.activeRequest.clientRequestId,
-      chatState.activeRequest.requestId,
-      chatState.activeRequest.runtimeRequestId,
+      chatState.currentRequest.clientRequestId,
+      chatState.currentRequest.requestId,
     ].map((value) => String(value || "")).includes(String(requestId));
   }
   return Boolean(chatState.inflightThinking && chatState.inflightThinking.completed === false);
@@ -4043,34 +3037,8 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
     } catch (error) {
       console.error("Portal chat event handler failed", error);
       const latestChatState = ensureChatState(agentId);
-      appendPortalChatRuntimeEvent(
-        agentId,
-        latestChatState?.activeRequest || fallbackRequestContextForAgent(agentId, "event_handler_failed"),
-        "portal.event_handler.failed",
-        {
-          message: "Portal failed to process a live runtime event; syncing session snapshot.",
-          error: String(error?.message || error || ""),
-        }
-      );
-
-      if (latestChatState?.activeRequest) {
-        startChatRunReconcileLoop(agentId, latestChatState.activeRequest, { immediate: true });
-        setChatStatus("Still running. Syncing session…");
-      } else if (session) {
-        if (!latestChatState.openCodeProjection) {
-          latestChatState.openCodeProjection = {
-            messagesById: {},
-            partsById: {},
-            sessionStatus: "unknown",
-            sessionStatusPayload: null,
-            needsSnapshot: false,
-          };
-        }
-        latestChatState.openCodeProjection.needsSnapshot = true;
-        maybeRefreshSessionSnapshotForOpenCodeEvent(agentId, latestChatState, session, {
-          type: "portal.event_handler.failed",
-          data: { reconcile_hint: "fetch_session_messages" },
-        });
+      if (latestChatState?.currentRequest) {
+        setChatStatus("Live event update failed. Waiting for the final response...", true);
       }
 
       syncSelectedAgentChatActionControls();
@@ -4099,7 +3067,7 @@ function ensureEventSocketForSelectedAgent() {
   const agentId = state.selectedAgentId;
   if (!agentId) return;
   const chatState = ensureChatState(agentId);
-  const requestId = chatState?.activeRequest?.clientRequestId || "";
+  const requestId = chatState?.currentRequest?.clientRequestId || "";
   ensureEventSocketForAgent(agentId, currentSessionIdForSelectedAgent(), requestId || null);
 }
 
@@ -4113,30 +3081,13 @@ function normalizeRuntimeHealthStatus(value) {
 function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
   const runtimeHealth = agent.runtime_status || agent.status || "unknown";
   const normalizedRuntimeHealth = normalizeRuntimeHealthStatus(runtimeHealth);
-  const projection = chatState.openCodeProjection || {};
-  const payload = projection.sessionStatusPayload || {};
-  const sessionBlocking = isOpenCodeSessionBlocking(chatState);
-  const projectedSessionStatus = normalizeOpenCodeSessionStatusType(payload)
-    || normalizeChatRunStatus(projection.sessionStatus || "unknown")
-    || "unknown";
-
-  let sessionStatus = normalizedRuntimeHealth === "offline"
+  const submitting = Boolean(chatState?.isSubmitting);
+  const sessionStatus = normalizedRuntimeHealth === "offline"
     ? "unknown"
-    : projectedSessionStatus;
-  if (normalizedRuntimeHealth !== "offline" && isOpenCodeSessionInactivePayload(payload)) {
-    sessionStatus = buildOpenCodeInactiveSessionStatusPayload(projection.sessionStatus || projectedSessionStatus || "idle").status_type;
-  } else if (
-    sessionBlocking
-    && (!sessionStatus || sessionStatus === "unknown" || sessionStatus === "idle")
-  ) {
-    sessionStatus = "busy";
-  }
-
-  let messageProgress = "idle";
-  if (sessionStatus === "retry") messageProgress = "retrying";
-  if (sessionBlocking && messageProgress === "idle") messageProgress = "reconnecting";
-  if (sessionStatus === "busy" && messageProgress === "idle") messageProgress = "running";
-  if (normalizedRuntimeHealth === "offline") messageProgress = "unknown";
+    : (submitting ? "busy" : "idle");
+  const messageProgress = normalizedRuntimeHealth === "offline"
+    ? "unknown"
+    : (submitting ? "running" : "idle");
 
   return {
     runtimeHealth,
@@ -4151,8 +3102,7 @@ function openCodeRuntimeUiStatusText(uiState = {}) {
   const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
   if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
   if (sessionStatus === "idle") return "Assistant online. Ready.";
-  if (sessionStatus === "busy") return "Assistant online. Session busy. Previous message still running.";
-  if (sessionStatus === "retry") return "Assistant online. Session retrying. Provider retrying.";
+  if (sessionStatus === "busy") return "Assistant online. Response in progress.";
   return "Assistant online. Session status unknown.";
 }
 
@@ -4843,14 +3793,12 @@ function markAgentUnread(agentId, status) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.unreadCount += 1;
-  chatState.backgroundStatus = status || chatState.backgroundStatus || "completed";
 }
 
 function clearAgentUnread(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.unreadCount = 0;
-  chatState.backgroundStatus = "";
 }
 
 // Helper to update owner-only button visibility
@@ -4898,8 +3846,6 @@ function renderAgentList() {
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
       if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
-      else if (chatState?.backgroundStatus === "completed") runtimeBadge = '<span class="portal-agent-chat-badge is-completed">completed</span>';
-      else if (chatState?.backgroundStatus === "error") runtimeBadge = '<span class="portal-agent-chat-badge is-error">error</span>';
       const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
       const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       row.innerHTML = `
@@ -5418,6 +4364,9 @@ function buildAttachmentsFromChatState(agentId, chatState) {
 
 async function submitChatForSelectedAgent() {
   const agentIdAtSend = state.selectedAgentId;
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!agentIdAtSend || !chatState) return;
+  if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
     ? normalizeAssistantMessageIds
     : (candidate = {}) => {
@@ -5439,9 +4388,6 @@ async function submitChatForSelectedAgent() {
   const localClearWaitingForRuntimeEventsTimer = (typeof clearWaitingForRuntimeEventsTimer === "function")
     ? clearWaitingForRuntimeEventsTimer
     : () => {};
-  const chatState = ensureChatState(agentIdAtSend);
-  if (!agentIdAtSend || !chatState) return;
-  if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   const uploadingFiles = chatState.pendingFiles.filter((pf) => pf.status === "uploading");
   const parsingFiles = chatState.pendingFiles.filter((pf) => pf.status === "parsing");
   if (uploadingFiles.length) {
@@ -5459,11 +4405,6 @@ async function submitChatForSelectedAgent() {
   const requestMessage = messageAtSend || "[attachment]";
   const displayMessage = messageAtSend || "📎 Attachment";
   const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
-  const localPreflightActiveRunForSession = (typeof preflightActiveRunForSession === "function")
-    ? preflightActiveRunForSession
-    : async () => false;
-  const activeRunBlocked = await localPreflightActiveRunForSession(agentIdAtSend, sessionIdAtSend);
-  if (activeRunBlocked) return;
 
   const clientRequestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
     ? globalThis.crypto.randomUUID()
@@ -5504,7 +4445,7 @@ async function submitChatForSelectedAgent() {
   if (slashInvocation && matchedSkill && matchedSkill.callable === false) {
     showToast(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.");
     setChatStatus(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.", true);
-    chatState.activeRequest = null;
+    chatState.currentRequest = null;
     cancelAssistantTypewriter(requestCtx);
   setChatSubmittingForAgent(agentIdAtSend, false);
     return;
@@ -5569,62 +4510,22 @@ async function submitChatForSelectedAgent() {
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
   setChatStatus("Sending...");
-  if (!chatState.openCodeProjection) {
-    chatState.openCodeProjection = {
-      messagesById: {},
-      partsById: {},
-      sessionStatus: "",
-      sessionStatusPayload: null,
-      needsSnapshot: false,
-    };
-  } else {
-    chatState.openCodeProjection.sessionStatus = "";
-    chatState.openCodeProjection.sessionStatusPayload = null;
-  }
-  chatState.openCodeProjection.pendingLocalSubmit = {
-    sessionId: sessionIdAtSend || "",
-    requestId: clientRequestId,
-    startedAt: Date.now(),
-  };
-  chatState.activeRequest = requestCtx;
+  chatState.currentRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
   localStartWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx);
-  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
-    ? isChatRunAlreadyActivePayload
-    : () => false;
-  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
-    ? handleChatRunAlreadyActive
-    : async () => "handled";
 
   try {
     const streamResult = await trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody);
     if (streamResult === "handled") return;
-    if (streamResult === "detached") return;
     const resp = await fetch(`/a/${agentIdAtSend}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
     if (!resp.ok) {
-      let structuredError = null;
-      try {
-        structuredError = await resp.clone().json();
-      } catch (_) {
-        structuredError = null;
-      }
-
-      if (localIsChatRunAlreadyActivePayload(structuredError)) {
-        await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, structuredError);
-        return;
-      }
-
       throw new Error(await handleErrorResponse(resp));
     }
     const payload = await resp.json();
-    if (localIsChatRunAlreadyActivePayload(payload)) {
-      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, payload);
-      return;
-    }
     const responseText = finalResponseText(payload);
     if (payload?.ok === false || isNonSuccessFinalPayload(payload)) {
       if (typeof handleIncompleteChatStream === "function") {
@@ -5825,7 +4726,7 @@ function isLikelySyntheticFinalPreviewDelta(eventData = {}, requestCtx = {}, ass
   const awaitingFinal = Boolean(
     requestCtx?.awaitingAuthoritativeFinal
     || requestCtx?.sawAssistantMessageCompleted
-    || requestCtx?.sawRunCompleted
+    || requestCtx?.sawExecutionCompleted
   );
 
   if (!hasSyntheticPreview || !awaitingFinal) return false;
@@ -6071,7 +4972,6 @@ function getRequestIdCandidatesForAssistantRow(requestCtx = {}, payload = {}) {
   return [
     requestCtx.clientRequestId,
     requestCtx.requestId,
-    requestCtx.runtimeRequestId,
     payload.client_request_id,
     payload.clientRequestId,
     payload.request_id,
@@ -6156,7 +5056,7 @@ function findAssistantArticleForRequest(requestCtx = {}, payload = {}) {
     if (isAssistantArticle(containing)) return containing;
   }
   const selectedChatState = ensureChatState(state.selectedAgentId);
-  if (requestCtx?.clientRequestId && selectedChatState?.activeRequest?.clientRequestId === requestCtx.clientRequestId) {
+  if (requestCtx?.clientRequestId && selectedChatState?.currentRequest?.clientRequestId === requestCtx.clientRequestId) {
     const pending = dom.messageList.querySelector(
       [
         `article.assistant-message[data-pending-assistant="1"][data-client-request-id="${CSS.escape(requestCtx.clientRequestId)}"]`,
@@ -6197,7 +5097,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
     article = null;
   }
   if (!article) {
-    const requestId = payload?.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
+    const requestId = payload?.request_id || requestCtx.requestId || requestCtx.clientRequestId || "";
     const clientRequestId = requestCtx.clientRequestId || payload?.client_request_id || "";
     const messageIds = normalizeAssistantMessageIds(payload);
     const primaryMessageId = getPrimaryAssistantMessageId(payload);
@@ -6258,7 +5158,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
     article.dataset.primaryMessageId = primaryMessageId;
   }
   if (messageIds.length) article.dataset.messageIds = JSON.stringify(messageIds);
-  const requestId = payload?.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
+  const requestId = payload?.request_id || requestCtx.requestId || requestCtx.clientRequestId || "";
   if (requestId) article.dataset.requestId = requestId;
   if (requestCtx.clientRequestId) article.dataset.clientRequestId = requestCtx.clientRequestId;
   if (payload?.user_message_id || requestCtx.userMessageId) {
@@ -6373,7 +5273,6 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
 function renderCompletionStateWarning(payload = {}) {
   const completionState = escapeHtml(String(payload?.completion_state || payload?.completionState || "unknown"));
   const incompleteReason = escapeHtml(String(payload?.incomplete_reason || payload?.incompleteReason || ""));
-  const continuationCount = escapeHtml(String(payload?.continuation_count ?? payload?.continuationCount ?? ""));
   const progressPreview = escapeHtml(String(
     payload?.progress_preview
     || payload?._llm_debug?.completion_probe?.diagnostics?.progress_preview
@@ -6381,7 +5280,6 @@ function renderCompletionStateWarning(payload = {}) {
   ));
   return `<div class="chat-completion-warning"><strong>completion_state:</strong> ${completionState}`
     + `${incompleteReason ? `<div><strong>incomplete_reason:</strong> ${incompleteReason}</div>` : ""}`
-    + `${continuationCount ? `<div><strong>continuation_count:</strong> ${continuationCount}</div>` : ""}`
     + `${progressPreview ? `<div><strong>progress_preview:</strong> ${progressPreview}</div>` : ""}</div>`;
 }
 function renderCompletionDiagnosticFields(finalPayload = {}) {
@@ -6398,7 +5296,6 @@ function renderCompletionDiagnosticFields(finalPayload = {}) {
   const fields = [
     ["completion_state", finalPayload?.completion_state || finalPayload?.completionState || "unknown"],
     ["incomplete_reason", finalPayload?.incomplete_reason || finalPayload?.incompleteReason || ""],
-    ["continuation_count", finalPayload?.continuation_count ?? finalPayload?.continuationCount ?? ""],
     ["progress_preview", progressPreview],
     ["context_state", contextSummary],
   ];
@@ -6463,8 +5360,6 @@ function mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload = {}) {
     status,
     completion_state: completionState || "completed",
     incomplete_reason: finalPayload?.incomplete_reason || "",
-    continuation_count: finalPayload?.continuation_count ?? null,
-    continuationCount: finalPayload?.continuation_count ?? null,
     contextState: finalContextState,
     context_state: finalContextState,
     requestId: finalPayload?.request_id || requestCtx?.requestId || requestCtx?.clientRequestId || "",
@@ -6473,7 +5368,6 @@ function mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload = {}) {
     event_count: mergedEvents.length,
     events: mergedEvents,
   };
-  chatState.lastCompletedRequestId = chatState.lastThinkingSnapshot.requestId;
   if (isThinkingPanelActiveForAgent(agentId)) renderThinkingPanelFromClientState(chatState);
 }
 function terminalStatusFromCompletionState(completionState) {
@@ -6484,7 +5378,6 @@ function terminalStatusFromCompletionState(completionState) {
 function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
-  if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
   const requestId = finalPayload?.request_id || requestCtx?.requestId || requestCtx?.clientRequestId || "";
   const sessionId = finalPayload?.session_id || requestCtx?.sessionIdAtSend || chatState.sessionId || "";
   const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "");
@@ -6502,16 +5395,14 @@ function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
     status,
     completion_state: completionState,
     incomplete_reason: finalPayload?.incomplete_reason || "",
-    continuation_count: finalPayload?.continuation_count ?? null,
     context_state: finalPayload?.context_state || existing.context_state || null,
     requestId,
     sessionId,
     completedAt: Date.now(),
   };
-  chatState.lastCompletedRequestId = requestId || chatState.lastCompletedRequestId;
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
-  if (chatState.activeRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.activeRequest = null;
+  if (chatState.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
   chatState.isSubmitting = false;
   clearWaitingForRuntimeEventsTimer(requestCtx);
   if (isThinkingPanelActiveForAgent(agentId)) renderThinkingPanelFromClientState(chatState);
@@ -6549,15 +5440,14 @@ function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = fals
     finalizeTerminalThinkingState(agentIdAtSend, requestCtx, requestCtx?.terminalPayload || requestCtx?.streamFinalPayload || {});
   }
   setChatSubmittingForAgent(agentIdAtSend, false);
-  if (!requestCtx?.streamDetached && typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
-  if (chatState?.activeRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.activeRequest = null;
+  if (chatState?.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
   if (!keepStatus && state.selectedAgentId === agentIdAtSend && !requestCtx?.streamIncomplete && !requestCtx?.streamFailed) setChatStatus("Ready");
 }
 function startWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx) {
   clearWaitingForRuntimeEventsTimer(requestCtx);
   requestCtx.waitingEventTimerId = setTimeout(() => {
     const chatState = ensureChatState(agentIdAtSend);
-    if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+    if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId) return;
     if (requestCtx.sawRuntimeEvent || requestCtx.waitingEventEmitted) return;
     requestCtx.waitingEventEmitted = true;
     const waitingEvent = {
@@ -6578,1006 +5468,30 @@ function clearWaitingForRuntimeEventsTimer(requestCtx) {
   }
 }
 
-function appendPortalChatRuntimeEvent(agentId, requestCtx, type, data = {}) {
-  if (!requestCtx || typeof handleAgentEventMessage !== "function") return;
-  const requestId = requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
-  const sessionId = requestCtx.sessionIdAtSend || ensureChatState(agentId)?.sessionId || "";
-  const payload = {
-    type,
-    event_type: type,
-    request_id: requestId,
-    session_id: sessionId,
-    agent_id: agentId,
-    created_at: new Date().toISOString(),
-    data: {
-      ...data,
-      request_id: requestId,
-      session_id: sessionId,
-      agent_id: agentId,
-    },
-  };
-  handleAgentEventMessage(JSON.stringify(payload), {
-    agentId,
-    sessionId,
-    requestId: requestCtx.clientRequestId || requestId,
-  });
-}
-
-function requestContextIdCandidates(requestCtx = {}) {
-  return [
-    requestCtx.clientRequestId,
-    requestCtx.requestId,
-    requestCtx.runtimeRequestId,
-  ].map((value) => String(value || "")).filter(Boolean);
-}
-
-function activeRequestMatchesRequestContext(activeRequest = {}, requestCtx = {}) {
-  const activeIds = new Set(requestContextIdCandidates(activeRequest));
-  const ctxIds = requestContextIdCandidates(requestCtx);
-  if (ctxIds.length && ctxIds.some((id) => activeIds.has(id))) return true;
-  if (!ctxIds.length && !activeIds.size) {
-    return String(activeRequest.sessionIdAtSend || "") === String(requestCtx.sessionIdAtSend || "");
-  }
-  return false;
-}
-
-function fallbackRequestContextForAgent(agentId, reason = "opencode_not_active") {
-  const chatState = ensureChatState(agentId);
-  const activeRequest = chatState?.activeRequest;
-  if (activeRequest) return activeRequest;
-  const thinking = chatState?.inflightThinking || chatState?.lastThinkingSnapshot || {};
-  const requestId = thinking.requestId || thinking.id || `portal_clear_${Date.now()}`;
-  return {
-    requestId,
-    clientRequestId: requestId,
-    runtimeRequestId: thinking.runtimeRequestId || "",
-    agentId,
-    sessionIdAtSend: thinking.sessionId || chatState?.sessionId || "",
-    staleReason: reason,
-  };
-}
-
-function clearStaleActiveRequest(agentId, requestCtx, reason = "opencode_not_active", options = {}) {
-  const chatState = ensureChatState(agentId);
-  if (!chatState) return;
-
-  if (chatState.clearingStaleActiveRequest === true) return;
-  chatState.clearingStaleActiveRequest = true;
-
-  let activeRequest = null;
-  let clearCtx = null;
-  let shouldClearActive = false;
-
-  try {
-    activeRequest = chatState.activeRequest;
-    clearCtx = requestCtx || activeRequest || fallbackRequestContextForAgent(agentId, reason);
-    shouldClearActive = Boolean(
-      activeRequest
-      && (
-        activeRequestMatchesRequestContext(activeRequest, clearCtx)
-        || String(activeRequest.sessionIdAtSend || "") === String(clearCtx.sessionIdAtSend || "")
-      )
-    );
-
-    if (shouldClearActive) {
-      activeRequest.stale = true;
-      activeRequest.runtimeInactive = true;
-      activeRequest.opencodeInactive = true;
-      activeRequest.staleReason = reason;
-      activeRequest.aborted = reason === "user_aborted";
-    }
-
-    clearWaitingForRuntimeEventsTimer(clearCtx);
-    stopChatRunReconcileLoop(clearCtx);
-    cancelAssistantTypewriter(clearCtx);
-
-    if (chatState.inflightThinking) {
-      chatState.inflightThinking.completed = true;
-      chatState.inflightThinking.stale = true;
-      chatState.inflightThinking.status = "stale";
-      chatState.inflightThinking.completionState = "stale";
-    }
-
-    if (shouldClearActive && chatState.activeRequest === activeRequest) {
-      chatState.activeRequest = null;
-    }
-
-    setChatSubmittingForAgent(agentId, false, { suppressSync: true });
-  } finally {
-    chatState.clearingStaleActiveRequest = false;
-  }
-
-  if (options.suppressRuntimeEvent !== true) {
-    appendPortalChatRuntimeEvent(agentId, clearCtx, "portal.active_request.cleared", {
-      reason,
-      message: "Runtime reports that the OpenCode session is no longer active.",
-    });
-  }
-
-  if (state.selectedAgentId === agentId) {
-    setChatStatus(reason === "user_aborted" ? "Stopped current run." : "Previous run is no longer active.");
-    if (options.suppressSync !== true) {
-      syncSelectedAgentChatActionControls();
-    }
-  }
-}
-
-function runtimeAbortSucceeded(result = {}) {
-  if (!result || typeof result !== "object") return false;
-  if (result.success !== true) return false;
-  if (result.error === "opencode_abort_still_active") return false;
-  if (result.active === true || result.opencode_active === true) return false;
-  if (result.detached_old_session === true) return true;
-  return runtimeAbortIndicatesInactive(result);
-}
-
-function runtimeAbortIndicatesInactive(result = {}) {
-  if (!result || typeof result !== "object") return false;
-  if (result.error === "opencode_abort_still_active") return false;
-  if (result.active === true || result.opencode_active === true) return false;
-  if (result.detached_old_session === true) return true;
-  if (result.active === false) return true;
-  const status = normalizeChatRunStatus(
-    result.status_type ||
-    result.status?.type ||
-    result.status ||
-    result.run?.status ||
-    result.run?.state ||
-    ""
-  );
-  if (["idle", "aborted", "stopped", "missing", "stale", "completed", "complete", "done", "cancelled", "canceled", "failed", "incomplete"].includes(status)) {
-    return true;
-  }
-  const actionHint = String(result.action_hint || "").trim().toLowerCase();
-  if (actionHint === "safe_to_send") return true;
-  const abortResult = result.abort_result || result.abortResult || {};
-  return Boolean(Array.isArray(abortResult?.missing_session_ids) && abortResult.missing_session_ids.length && !(abortResult.errors || []).length);
-}
-
-function isSyntheticOpenCodeSessionRequest(requestCtx = {}, chatState = {}) {
-  const requestId = String(
-    requestCtx.runtimeRequestId ||
-    requestCtx.requestId ||
-    requestCtx.clientRequestId ||
-    ""
-  );
-
-  if (!requestId) return true;
-  if (requestId.startsWith("opencode-session-")) return true;
-
-  const payload = chatState?.openCodeProjection?.sessionStatusPayload || {};
-  if (payload?.active === true) return true;
-  if (typeof isOpenCodeSessionBlocking === "function" && isOpenCodeSessionBlocking(chatState)) return true;
-
-  const source = String(
-    requestCtx.source_of_truth ||
-    requestCtx.sourceOfTruth ||
-    requestCtx.contextSource ||
-    ""
-  ).toLowerCase();
-  if (source.includes("opencode_session") || source.includes("session_status")) return true;
-  if (requestCtx.syntheticSessionRun === true || requestCtx.fromSessionStatus === true) return true;
-
-  return false;
-}
-
-function isMissingChatRunAbortFailure(value = {}) {
-  const abortResult = value?.abort_result || value?.abortResult || {};
-  const errors = Array.isArray(abortResult?.errors) ? abortResult.errors.join(" ") : "";
-  const message = String(
-    value?.status ||
-    value?.status_code ||
-    value?.statusCode ||
-    value?.code ||
-    value?.error ||
-    value?.detail ||
-    value?.message ||
-    abortResult?.error ||
-    abortResult?.detail ||
-    errors ||
-    value ||
-    ""
-  ).toLowerCase();
-  return ["404", "409", "422", "not found", "missing", "no run", "chatrunstore"].some((marker) => message.includes(marker));
-}
-
-async function abortSessionForAgent(agentId, sessionId, options = {}) {
-  if (!agentId || !sessionId) throw new Error("No active session to stop.");
-  const forceDetach = options.forceDetach !== false;
-  const resp = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/abort`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ force_detach: forceDetach }),
-  });
-  let payload = {};
-  try {
-    payload = await resp.json();
-  } catch (_error) {
-    payload = {};
-  }
-  if (!resp.ok || payload.success === false) {
-    if (
-      payload?.error === "opencode_abort_still_active"
-      || payload?.active === true
-      || payload?.action_hint === "hard_reset_or_new_session"
-    ) {
-      return { ...payload, http_status: resp.status };
-    }
-    const message =
-      payload.detail ||
-      payload.error ||
-      payload.message ||
-      `Abort failed (HTTP ${resp.status})`;
-    const error = new Error(message);
-    error.status = resp.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
-}
-
-async function hardResetSessionForAgent(agentId, sessionId) {
-  if (!agentId || !sessionId) throw new Error("No active session to reset.");
-  const resp = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/hard-reset`, {
-    method: "POST",
-  });
-  let payload = {};
-  try {
-    payload = await resp.json();
-  } catch (_error) {
-    payload = {};
-  }
-  if (!resp.ok || payload.success === false) {
-    const message =
-      payload.detail ||
-      payload.error ||
-      payload.message ||
-      `Hard reset failed (HTTP ${resp.status})`;
-    const error = new Error(message);
-    error.status = resp.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
-}
-
-async function handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result = {}) {
-  const ctx = requestCtx || fallbackRequestContextForAgent(agentId, "user_aborted");
-  const inactive = runtimeAbortSucceeded(result) && runtimeAbortIndicatesInactive(result);
-  const stillActive = Boolean(
-    result?.error === "opencode_abort_still_active"
-    || result?.active === true
-    || result?.action_hint === "hard_reset_or_new_session"
-  );
-
-  if (inactive) {
-    if (requestCtx) {
-      requestCtx.aborted = true;
-      requestCtx.streamCompleted = true;
-      stopChatRunReconcileLoop(requestCtx);
-    }
-    clearStaleActiveRequest(
-      agentId,
-      ctx,
-      result?.detached_old_session === true
-        ? "opencode_abort_still_active_detached"
-        : result?.stale ? "opencode_session_missing_after_abort" : "user_aborted"
-    );
-    if (chatState) {
-      chatState.activeRequest = null;
-      if (chatState.inflightThinking) {
-        chatState.inflightThinking.completed = true;
-        chatState.inflightThinking.stale = true;
-        chatState.inflightThinking.status = "stale";
-        chatState.inflightThinking.completionState = "stale";
-      }
-      if (!chatState.openCodeProjection) chatState.openCodeProjection = {};
-      chatState.openCodeProjection.sessionStatus = "idle";
-      chatState.openCodeProjection.sessionStatusPayload = buildOpenCodeInactiveSessionStatusPayload("idle", result);
-    }
-    appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.completed", {
-      message: result?.detached_old_session === true
-        ? "Previous OpenCode session was detached and this chat was reset."
-        : "Current OpenCode run was stopped.",
-      result,
-    });
-    if (result?.detached_old_session === true) {
-      appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.detached_old_opencode_session", {
-        message: "Previous OpenCode session did not stop, so this chat was reset to a fresh session.",
-        old_opencode_session_id: result.old_opencode_session_id || "",
-        opencode_session_id: result.opencode_session_id || "",
-      });
-    }
-    setChatSubmittingForAgent(agentId, false);
-    syncSelectedAgentChatActionControls();
-    if (result?.detached_old_session === true) {
-      setChatStatus("Stopped old run and reset session.");
-      showToast("Previous OpenCode session did not stop, so this chat was reset to a fresh session.");
-    } else {
-      setChatStatus("Stopped current run.");
-      showToast("Stopped current run.");
-    }
-    if (sessionId) {
-      await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId });
-    }
-    return "inactive";
-  }
-
-  if (stillActive) {
-    appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.still_active", {
-      message: "Stop requested, but OpenCode still reports this session is running.",
-      result,
-    });
-    setChatStatus("Stop requested, but OpenCode still reports this session is running.", true);
-    showToast("OpenCode still reports this session is running.");
-    startChatRunReconcileLoop(agentId, ctx, { immediate: true });
-    syncSelectedAgentChatActionControls();
-    if (sessionId && (result?.can_hard_reset === true || result?.action_hint === "hard_reset_or_new_session") && !ctx.hardResetAttempted) {
-      ctx.hardResetAttempted = true;
-      try {
-        const resetResult = await hardResetSessionForAgent(agentId, sessionId);
-        return await handleSessionAbortSuccess(agentId, chatState, ctx, sessionId, resetResult);
-      } catch (error) {
-        appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.failed", {
-          message: "Unable to reset session. Start a new chat.",
-          error: String(error?.message || error || ""),
-          result: error?.payload || null,
-        });
-        setChatStatus("Unable to reset session. Start a new chat.", true);
-        showToast("Unable to reset session. Start a new chat.");
-        startChatRunReconcileLoop(agentId, ctx, { immediate: true });
-        syncSelectedAgentChatActionControls();
-        return "failed";
-      }
-    }
-    return "still_active";
-  }
-
-  appendPortalChatRuntimeEvent(agentId, ctx, "portal.abort.failed", {
-    message: "Unable to stop current run.",
-    result,
-  });
-  setChatStatus("Unable to stop current run.", true);
-  showToast("Unable to stop current run: " + String(result?.error || result?.detail || "abort failed"));
-  startChatRunReconcileLoop(agentId, ctx, { immediate: true });
-  syncSelectedAgentChatActionControls();
-  return "failed";
-}
-
 async function abortActiveChatRequestForSelectedAgent() {
   const agentId = state.selectedAgentId;
   const chatState = ensureChatState(agentId);
-  const req = chatState?.activeRequest;
-  const sessionId = req?.sessionIdAtSend || chatState?.sessionId || ((typeof currentSessionIdForAgent === "function") ? currentSessionIdForAgent(agentId) : "");
+  const req = chatState?.currentRequest;
+  if (!agentId || !chatState || !req) return;
 
-  if (!agentId || (!req && !sessionId)) return;
-
-  const requestId = req?.runtimeRequestId || req?.requestId || req?.clientRequestId || "";
-  const requestCtx = req || {
-    clientRequestId: requestId || `abort_${Date.now()}`,
-    requestId,
-    runtimeRequestId: requestId,
-    agentId,
-    sessionIdAtSend: sessionId,
-  };
-
-  if (sessionId && !isOpenCodeSessionBlocking(chatState)) {
-    let refreshedStatusPayload = null;
-    try {
-      refreshedStatusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState);
-    } catch (_error) {
-      refreshedStatusPayload = null;
-    }
-    if (refreshedStatusPayload && !isOpenCodeSessionBlocking(chatState)) {
-      markOpenCodeProjectionInactive(
-        agentId,
-        chatState,
-        "stop_clicked_but_opencode_not_active",
-        normalizeOpenCodeSessionStatusType(refreshedStatusPayload) || "idle",
-        refreshedStatusPayload
-      );
-      setChatSubmittingForAgent(agentId, false);
-      syncSelectedAgentChatActionControls();
-      setChatStatus("No running OpenCode session to stop.");
-      showToast("No running OpenCode session to stop.");
-      return;
-    }
+  clearWaitingForRuntimeEventsTimer(req);
+  cancelAssistantTypewriter(req);
+  if (req.abortController && typeof req.abortController.abort === "function") {
+    req.abortController.abort();
   }
-
-  setChatStatus("Stopping current run…");
-  if (typeof dom !== "undefined" && dom.abortChatRunBtn) dom.abortChatRunBtn.disabled = true;
-  appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.started", {
-    message: "Stopping current OpenCode run.",
-  });
-
-  try {
-    let result = null;
-    if (sessionId) {
-      result = await abortSessionForAgent(agentId, sessionId, { forceDetach: true });
-      await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result);
-      return;
-    }
-
-    if (requestId) {
-      result = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/abort`, {
-        method: "POST",
-      });
-    }
-
-    if (!runtimeAbortSucceeded(result)) {
-      const handled = await handleSessionAbortSuccess(agentId, chatState, requestCtx, sessionId, result || {});
-      if (handled === "inactive") return;
-      return;
-    }
-
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.completed", {
-      message: "Current OpenCode run was stopped.",
-      result,
-    });
-
-    if (runtimeAbortIndicatesInactive(result)) {
-      clearStaleActiveRequest(agentId, requestCtx, result?.stale ? "opencode_session_missing_after_abort" : "user_aborted");
-    } else {
-      startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-    }
-    showToast("Stopped current run.");
-  } catch (error) {
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.abort.failed", {
-      message: "Unable to stop current run.",
-      error: String(error?.message || error || ""),
-    });
-    setChatStatus("Unable to stop current run.", true);
-    showToast("Unable to stop current run: " + (error?.message || error));
-    startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-    syncSelectedAgentChatActionControls();
-  }
-}
-
-function stopChatRunReconcileLoop(requestCtx) {
-  if (!requestCtx) return;
-  if (requestCtx.reconcileTimerId) {
-    clearTimeout(requestCtx.reconcileTimerId);
-    requestCtx.reconcileTimerId = null;
-  }
-  requestCtx.reconcileStopped = true;
-}
-
-function chatRunReconcileDelayMs(attempt) {
-  const delays = [2000, 3000, 5000, 10000, 15000];
-  return delays[Math.min(Math.max(Number(attempt || 0), 0), delays.length - 1)] || 15000;
-}
-
-function startChatRunReconcileLoop(agentId, requestCtx, options = {}) {
-  if (!agentId || !requestCtx) return;
-  const chatState = ensureChatState(agentId);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
-  requestCtx.reconcileStopped = false;
-  if (!requestCtx.reconcileStartedAt) {
-    requestCtx.reconcileStartedAt = Date.now();
-    requestCtx.reconcileAttempt = 0;
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.started", {
-      message: "Reconnecting and syncing chat run state.",
-    });
-  }
-  if (requestCtx.reconcileTimerId) return;
-  const ageMs = Date.now() - requestCtx.reconcileStartedAt;
-  if (ageMs > 6 * 60 * 60 * 1000) {
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.failed", {
-      message: "Stopped syncing after 6 hours without a terminal run state.",
-    });
-    return;
-  }
-  const immediate = options.immediate === true && !requestCtx.reconcileImmediateFired;
-  if (immediate) requestCtx.reconcileImmediateFired = true;
-  let delay = immediate ? 0 : chatRunReconcileDelayMs(requestCtx.reconcileAttempt || 0);
-  if (document.hidden) delay = Math.max(delay, Math.min(30000, delay * 2));
-  requestCtx.reconcileTimerId = setTimeout(async () => {
-    requestCtx.reconcileTimerId = null;
-    if (requestCtx.reconcileStopped) return;
-    requestCtx.reconcileAttempt = (requestCtx.reconcileAttempt || 0) + 1;
-    const result = await reconcileChatRunOnce(agentId, requestCtx);
-    if (result === "terminal" || requestCtx.reconcileStopped) return;
-    const latestChatState = ensureChatState(agentId);
-    if (latestChatState?.activeRequest?.clientRequestId === requestCtx.clientRequestId) {
-      startChatRunReconcileLoop(agentId, requestCtx);
-    }
-  }, delay);
+  req.aborted = true;
+  req.streamFailed = true;
+  chatState.currentRequest = null;
+  chatState.inflightThinking = null;
+  chatState.pendingThinkingEvents = null;
+  setChatSubmittingForAgent(agentId, false);
+  setChatStatus("Stopped current response.");
+  showToast("Stopped current response.");
+  syncSelectedAgentChatActionControls();
 }
 
 function normalizeChatRunStatus(status) {
   return String(status || "").trim().toLowerCase();
-}
-
-function isChatRunRunningStatus(status) {
-  return ["running", "recovering", "stream_detached", "stream_attached", "pending", "started", "in_progress", "working"].includes(normalizeChatRunStatus(status));
-}
-
-function isRuntimeRunActuallyActive(run) {
-  if (!run) return false;
-  if (
-    run.stale === true
-    || run.aborted === true
-    || run.completed === true
-    || run.runtimeInactive === true
-    || run.opencodeInactive === true
-  ) return false;
-  if (run.opencode_active === false) return false;
-  if (run.source_of_truth && run.source_of_truth !== "opencode") return false;
-  const status = normalizeChatRunStatus(run.status || run.state || "");
-  const completionState = normalizeChatRunStatus(run.completion_state || run.completionState || "");
-  if (["completed", "aborted", "stale", "failed", "error", "cancelled", "canceled"].includes(status)) return false;
-  if (["completed", "aborted", "stale", "failed", "error"].includes(completionState)) return false;
-  if (status === "stream_detached" && run.opencode_active !== true) return false;
-  if (run.opencode_active === true) return true;
-  if (run.source_of_truth === "opencode" && ["busy", "running", "streaming", "active", "in_progress", "retry", "recovering", "stream_attached", "stream_detached"].includes(status)) return true;
-  return false;
-}
-
-function isValidatedRuntimeActiveRun(run) {
-  return Boolean(
-    isRuntimeRunActuallyActive(run)
-    && (run.opencode_active === true || run.source_of_truth === "opencode")
-  );
-}
-
-function isChatRunCompletedStatus(status) {
-  return ["completed", "success", "done", "finished"].includes(normalizeChatRunStatus(status));
-}
-
-function isChatRunNonSuccessStatus(status) {
-  return ["incomplete", "failed", "error", "blocked", "empty_final"].includes(normalizeChatRunStatus(status));
-}
-
-function isUnsupportedRunLookupError(error) {
-  const message = String(error?.message || error || "").toLowerCase();
-  return ["404", "405", "501", "unsupported", "not found"].some((marker) => message.includes(marker));
-}
-
-function getChatRunObject(payload = {}) {
-  if (!payload || typeof payload !== "object") return {};
-  if (payload.run && typeof payload.run === "object") return payload.run;
-  if (payload.active_run && typeof payload.active_run === "object") return payload.active_run;
-  if (payload.data && typeof payload.data === "object" && payload.data.run && typeof payload.data.run === "object") return payload.data.run;
-  if (payload.data && typeof payload.data === "object" && payload.data.active_run && typeof payload.data.active_run === "object") return payload.data.active_run;
-  if (payload.data && typeof payload.data === "object" && (payload.data.status || payload.data.request_id)) return payload.data;
-  if (payload.status || payload.state || payload.request_id || payload.final_payload || payload.assistant_projection) return payload;
-  return {};
-}
-
-function isNullOrStaleRunPayload(payload = {}) {
-  if (!payload || typeof payload !== "object") return true;
-  if (payload.run === null || payload.active_run === null || payload.data === null) return true;
-  if (payload.stale === true || payload.runtimeInactive === true || payload.opencodeInactive === true) return true;
-  const run = getChatRunObject(payload);
-  if (!run || !Object.keys(run).length) return true;
-  const status = normalizeChatRunStatus(run.status || run.state || payload.status || payload.state || "");
-  return Boolean(
-    run.stale === true
-    || run.runtimeInactive === true
-    || run.opencodeInactive === true
-    || status === "stale"
-  );
-}
-
-function getActiveRunFromPayload(payload = {}) {
-  if (!payload || typeof payload !== "object") return null;
-  if (payload.run === null || payload.active_run === null) return null;
-  if (payload.active_run && typeof payload.active_run === "object") return payload.active_run;
-  if (payload.activeRun && typeof payload.activeRun === "object") return payload.activeRun;
-  if (payload.run && typeof payload.run === "object") return payload.run;
-  if (payload.active && typeof payload.active === "object") return payload.active;
-  if (payload.data && typeof payload.data === "object") {
-    if (payload.data.run === null || payload.data.active_run === null) return null;
-    if (payload.data.active_run && typeof payload.data.active_run === "object") return payload.data.active_run;
-    if (payload.data.activeRun && typeof payload.data.activeRun === "object") return payload.data.activeRun;
-    if (payload.data.run && typeof payload.data.run === "object") return payload.data.run;
-    if (payload.data.active && typeof payload.data.active === "object") return payload.data.active;
-    if (payload.data.status || payload.data.state || payload.data.request_id) return payload.data;
-  }
-  if (payload.status || payload.state || payload.request_id) return payload;
-  return null;
-}
-
-function isChatRunAlreadyActivePayload(payload = {}) {
-  if (!payload || typeof payload !== "object") return false;
-  const error = String(
-    payload.error ||
-    payload.detail ||
-    payload.incomplete_reason ||
-    payload.incompleteReason ||
-    payload.reason ||
-    ""
-  ).toLowerCase();
-
-  if (error.includes("chat_run_already_active")) return true;
-
-  const activeRun = payload.active_run || payload.activeRun || payload.run || payload.active || payload.data?.active_run || payload.data?.activeRun || payload.data?.run || payload.data?.active;
-  if (!activeRun) return false;
-
-  return isRuntimeRunActuallyActive(activeRun);
-}
-
-async function handleChatRunAlreadyActive(agentId, requestCtx, payload = {}) {
-  const chatState = ensureChatState(agentId);
-  const sessionId =
-    payload.session_id ||
-    payload.sessionId ||
-    requestCtx?.sessionIdAtSend ||
-    chatState?.sessionId ||
-    "";
-
-  const activeRun =
-    payload.active_run ||
-    payload.activeRun ||
-    payload.run ||
-    payload.active ||
-    payload.data?.active_run ||
-    payload.data?.activeRun ||
-    payload.data?.run ||
-    payload.data?.active ||
-    null;
-
-  if (requestCtx?.clientRequestId) {
-    removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: false });
-  }
-
-  const removedUserRow = removeOptimisticUserRowForRequest(requestCtx);
-  if (!removedUserRow && typeof removeLatestOptimisticUserRow === "function") {
-    removeLatestOptimisticUserRow({ requestCtx, onlyLocal: true });
-  }
-
-  if (dom.chatInput && Object.prototype.hasOwnProperty.call(requestCtx || {}, "backupMessage")) {
-    dom.chatInput.value = requestCtx.backupMessage;
-    syncChatInputHeight();
-  }
-
-  if (chatState && Array.isArray(requestCtx?.backupPendingFiles) && chatState.pendingFiles.length === 0) {
-    chatState.pendingFiles = requestCtx.backupPendingFiles;
-    renderInputPreview();
-  }
-
-  setChatSubmittingForAgent(agentId, false);
-
-  const rejectedClientRequestId = String(requestCtx?.clientRequestId || "");
-  if (
-    rejectedClientRequestId
-    && chatState?.activeRequest
-    && chatState.activeRequest.clientRequestId === rejectedClientRequestId
-  ) {
-    stopChatRunReconcileLoop(chatState.activeRequest);
-    chatState.activeRequest = null;
-  }
-
-  if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
-    const activeCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, {
-      active_run: activeRun,
-    });
-
-    if (activeCtx) {
-      ensureEventSocketForAgent(
-        agentId,
-        sessionId,
-        activeCtx.runtimeRequestId || activeCtx.requestId || activeCtx.clientRequestId
-      );
-      startChatRunReconcileLoop(agentId, activeCtx, { immediate: true });
-    }
-
-    appendPortalChatRuntimeEvent(agentId, activeCtx || requestCtx, "portal.chat_run_already_active", {
-      message: "Runtime reports an active OpenCode run; send was not submitted.",
-      active_run: activeRun,
-    });
-
-    setChatStatus("Previous message still running. Reconnecting…");
-    showToast("Previous message is still running. Wait or use Stop run.");
-    syncSelectedAgentChatActionControls();
-    return "handled";
-  }
-
-  if (sessionId && chatState) {
-    const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, sessionId, chatState);
-    if (statusPayload && isOpenCodeSessionStatusBlockingPayload(statusPayload)) {
-      const statusCtx = hydrateActiveRequestFromSessionStatus(agentId, sessionId, statusPayload);
-      if (statusCtx) {
-        ensureEventSocketForAgent(
-          agentId,
-          sessionId,
-          statusCtx.runtimeRequestId || statusCtx.requestId || statusCtx.clientRequestId
-        );
-        startChatRunReconcileLoop(agentId, statusCtx, { immediate: true });
-      }
-      appendPortalChatRuntimeEvent(agentId, statusCtx || requestCtx, "portal.chat_run_already_active", {
-        message: "Runtime reports an active OpenCode run; session status is blocking.",
-        session_status: statusPayload,
-      });
-      setChatStatus("Previous message still running. Reconnecting…");
-      showToast("Previous message is still running. Wait or use Stop run.");
-      syncSelectedAgentChatActionControls();
-      return "handled";
-    }
-  }
-
-  const preflightBlocked = await preflightActiveRunForSession(agentId, sessionId);
-  if (!preflightBlocked) {
-    setChatStatus("Previous message still running. Reconnecting…");
-    showToast("Previous message is still running. Wait or use Stop run.");
-    syncSelectedAgentChatActionControls();
-  }
-  return "handled";
-}
-
-function runPayloadHasTerminalStatus(payload = {}) {
-  const run = getChatRunObject(payload);
-  const status = normalizeChatRunStatus(run.status || run.state || payload.status || payload.state || "");
-  return isChatRunCompletedStatus(status) || isChatRunNonSuccessStatus(status);
-}
-
-function getSessionRunMetadata(sessionPayload = {}) {
-  const metadata = sessionPayload?.metadata && typeof sessionPayload.metadata === "object" ? sessionPayload.metadata : {};
-  return {
-    metadata,
-    activeRun: metadata.active_run && typeof metadata.active_run === "object" ? metadata.active_run : null,
-    latestRun: metadata.latest_run && typeof metadata.latest_run === "object" ? metadata.latest_run : null,
-    assistantProjection: metadata.assistant_projection && typeof metadata.assistant_projection === "object" ? metadata.assistant_projection : null,
-    finalPayload: metadata.final_payload && typeof metadata.final_payload === "object" ? metadata.final_payload : null,
-  };
-}
-
-function messageRequestId(message = {}) {
-  const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : {};
-  return String(message.request_id || message.client_request_id || metadata.request_id || metadata.client_request_id || metadata.run_id || "");
-}
-
-function findAssistantMessageForRequest(messages = [], requestCtx = {}) {
-  const requestIds = new Set(getRequestIdCandidatesForAssistantRow(requestCtx, {}));
-  const assistants = (Array.isArray(messages) ? messages : []).filter((message) => message?.role === "assistant");
-  const matched = assistants.find((message) => requestIds.has(messageRequestId(message)));
-  return matched || assistants[assistants.length - 1] || null;
-}
-
-function buildChatRunProjection(runPayload = null, sessionPayload = null, requestCtx = {}) {
-  const sessionInfo = getSessionRunMetadata(sessionPayload || {});
-  const run = getChatRunObject(runPayload || {}) || sessionInfo.activeRun || sessionInfo.latestRun || {};
-  const activeRun = sessionInfo.activeRun || ((run && isChatRunRunningStatus(run.status || run.state)) ? run : null);
-  const latestRun = sessionInfo.latestRun || run || {};
-  const assistantProjection = run.assistant_projection || sessionInfo.assistantProjection || {};
-  const finalPayload = run.final_payload || run.finalPayload || sessionInfo.finalPayload || {};
-  const messages = Array.isArray(sessionPayload?.messages) ? sessionPayload.messages : [];
-  const assistantMessage = findAssistantMessageForRequest(messages, requestCtx);
-  const messagePayload = assistantMessage ? {
-    response: assistantMessage.content || assistantMessage.display_content || "",
-    display_blocks: assistantMessage.display_blocks || [],
-    assistant_message_id: assistantMessage.id || assistantMessage.message_id || "",
-    request_id: messageRequestId(assistantMessage),
-  } : {};
-  const merged = {
-    ...latestRun,
-    ...run,
-    assistant_projection: assistantProjection,
-    final_payload: finalPayload,
-  };
-  const status = normalizeChatRunStatus(
-    run.status
-    || run.state
-    || finalPayload.completion_state
-    || sessionInfo.metadata.active_run_status
-    || sessionInfo.metadata.latest_run_status
-    || "",
-  );
-  const text = extractAssistantVisibleText(merged) || extractAssistantVisibleText(messagePayload);
-  const displayBlocks = extractAssistantDisplayBlocks(merged).length
-    ? extractAssistantDisplayBlocks(merged)
-    : extractAssistantDisplayBlocks(messagePayload);
-  return {
-    status,
-    run,
-    activeRun,
-    latestRun,
-    assistantProjection,
-    finalPayload,
-    assistantMessage,
-    text,
-    displayBlocks,
-    requestId: run.request_id || latestRun.request_id || finalPayload.request_id || messagePayload.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "",
-    sessionId: run.session_id || latestRun.session_id || finalPayload.session_id || sessionPayload?.session_id || requestCtx.sessionIdAtSend || "",
-    assistantMessageId: run.assistant_message_id || finalPayload.assistant_message_id || messagePayload.assistant_message_id || assistantProjection.assistant_message_id || "",
-    userMessageId: run.user_message_id || finalPayload.user_message_id || assistantProjection.user_message_id || "",
-  };
-}
-
-function buildFinalPayloadFromProjection(projection = {}, requestCtx = {}, completionState = "completed") {
-  const finalPayload = projection.finalPayload && typeof projection.finalPayload === "object" ? projection.finalPayload : {};
-  const response = extractAssistantVisibleText(finalPayload) || projection.text || "";
-  return {
-    ...finalPayload,
-    response,
-    display_blocks: Array.isArray(finalPayload.display_blocks) ? finalPayload.display_blocks : (projection.displayBlocks || []),
-    completion_state: getCompletionState(finalPayload) || completionState,
-    request_id: finalPayload.request_id || projection.requestId || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "",
-    session_id: finalPayload.session_id || projection.sessionId || requestCtx.sessionIdAtSend || "",
-    user_message_id: finalPayload.user_message_id || projection.userMessageId || "",
-    assistant_message_id: finalPayload.assistant_message_id || projection.assistantMessageId || "",
-    assistant_message_ids: normalizeAssistantMessageIds({
-      ...finalPayload,
-      assistant_message_id: finalPayload.assistant_message_id || projection.assistantMessageId || "",
-    }),
-    runtime_events: finalPayload.runtime_events || [],
-    events: finalPayload.events || [],
-  };
-}
-
-async function applyChatRunProjection(agentId, requestCtx, projection = {}) {
-  const chatState = ensureChatState(agentId);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return "stopped";
-  if (projection.requestId && projection.requestId !== requestCtx.clientRequestId) {
-    requestCtx.runtimeRequestId = projection.requestId;
-    requestCtx.requestId = projection.requestId;
-  }
-  if (projection.sessionId) {
-    requestCtx.sessionIdAtSend = projection.sessionId;
-    updateAgentSession(agentId, projection.sessionId);
-  }
-  const rowPayload = {
-    ...projection.run,
-    ...projection.finalPayload,
-    request_id: projection.requestId,
-    session_id: projection.sessionId,
-    user_message_id: projection.userMessageId,
-    assistant_message_id: projection.assistantMessageId,
-    response: projection.text,
-    display_blocks: projection.displayBlocks || [],
-    assistant_projection: projection.assistantProjection,
-  };
-  const authoritativeRun = projection.run && Object.keys(projection.run || {}).length ? projection.run : projection.activeRun;
-  const runtimeRunActive = isRuntimeRunActuallyActive(authoritativeRun);
-  if (isChatRunRunningStatus(projection.status) && runtimeRunActive) {
-    setChatStatus(projection.status === "stream_detached" ? "Still running. Reconnecting…" : "Still running…");
-    if (projection.text || (projection.displayBlocks || []).length) {
-      updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true });
-    }
-    ensureEventSocketForAgent(agentId, projection.sessionId || requestCtx.sessionIdAtSend || "", projection.requestId || requestCtx.clientRequestId);
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.updated", {
-      message: "Chat run is still running.",
-      status: projection.status,
-    });
-    return "running";
-  }
-  if (isChatRunRunningStatus(projection.status) && !runtimeRunActive) {
-    if (projection.text || (projection.displayBlocks || []).length) {
-      updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true });
-    }
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "opencode.status.inactive", {
-      message: "Runtime reports that OpenCode is not active for this run.",
-      status: projection.status,
-      opencode_active: authoritativeRun?.opencode_active,
-    });
-    clearStaleActiveRequest(agentId, requestCtx, "opencode_not_active");
-    return "terminal";
-  }
-  if (isChatRunCompletedStatus(projection.status) || (!projection.activeRun && projection.assistantMessage && projection.text)) {
-    const finalPayload = buildFinalPayloadFromProjection(projection, requestCtx, "completed");
-    updateOrCreateAssistantRowForRequest(agentId, requestCtx, finalPayload, { completed: true });
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.completed", {
-      message: "Chat run completed.",
-      status: projection.status || "completed",
-    });
-    if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
-    await handleAgentChatSuccess(agentId, requestCtx, finalPayload);
-    return "terminal";
-  }
-  if (isChatRunNonSuccessStatus(projection.status)) {
-    const finalPayload = buildFinalPayloadFromProjection(projection, requestCtx, projection.status);
-    finalPayload.completion_state = getCompletionState(finalPayload) || projection.status;
-    finalPayload.incomplete_reason = finalPayload.incomplete_reason || finalPayload.error || finalPayload.detail || projection.status;
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.completed", {
-      message: `Chat run ended with ${projection.status}.`,
-      status: projection.status,
-    });
-    if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
-    finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload, "reconcile");
-    return "terminal";
-  }
-  if (projection.text || (projection.displayBlocks || []).length) {
-    updateOrCreateAssistantRowForRequest(agentId, requestCtx, rowPayload, { partial: true });
-  }
-  setChatStatus("Still running. Syncing…");
-  return "running";
-}
-
-async function applySessionProjectionThenClearStaleRun(agentId, requestCtx, sessionPayload = {}, reason = "opencode_not_active") {
-  const metadata = sessionPayload?.metadata && typeof sessionPayload.metadata === "object" ? sessionPayload.metadata : {};
-  const sanitizedSessionPayload = {
-    ...(sessionPayload || {}),
-    metadata: {
-      ...metadata,
-      active_run: null,
-      active_run_status: "",
-    },
-  };
-  const projection = buildChatRunProjection(null, sanitizedSessionPayload, requestCtx);
-  const result = await applyChatRunProjection(agentId, requestCtx, projection);
-  if (result === "terminal" || result === "stopped") return result;
-  clearStaleActiveRequest(agentId, requestCtx, reason);
-  return "terminal";
-}
-
-async function reconcileChatRunOnce(agentId, requestCtx) {
-  const chatState = ensureChatState(agentId);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx?.clientRequestId) return "stopped";
-  if (requestCtx.reconcileInFlight) return "running";
-  requestCtx.reconcileInFlight = true;
-  requestCtx.lastReconcileAt = Date.now();
-  const requestId = requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || "";
-  const sessionId = requestCtx.sessionIdAtSend || chatState.sessionId || "";
-  try {
-    let runPayload = null;
-    let shouldCheckActiveRun = Boolean(sessionId);
-    if (requestId) {
-      try {
-        const lookupPayload = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}?validate=opencode`);
-        const lookupRun = getChatRunObject(lookupPayload);
-        const lookupStatus = normalizeChatRunStatus(lookupRun.status || lookupRun.state || lookupPayload?.status || lookupPayload?.state || "");
-        if (!isNullOrStaleRunPayload(lookupPayload) && (isRuntimeRunActuallyActive(lookupRun) || runPayloadHasTerminalStatus(lookupPayload))) {
-          runPayload = lookupPayload;
-          shouldCheckActiveRun = false;
-          if (isRuntimeRunActuallyActive(lookupRun)) {
-            appendPortalChatRuntimeEvent(agentId, requestCtx, "opencode.status.validated", {
-              message: "Validated active OpenCode run.",
-              status: lookupStatus,
-              opencode_active: lookupRun.opencode_active,
-            });
-          }
-        } else {
-          appendPortalChatRuntimeEvent(agentId, requestCtx, "chat.run.stale", {
-            message: "Run lookup is stale or no longer active in OpenCode.",
-            status: lookupStatus || "stale",
-            opencode_active: lookupRun?.opencode_active,
-          });
-        }
-      } catch (error) {
-        if (!isUnsupportedRunLookupError(error)) {
-          appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.failed", {
-            message: "Run lookup failed; falling back to session sync.",
-            error: String(error?.message || error || ""),
-          });
-        }
-      }
-    }
-    if (shouldCheckActiveRun && sessionId) {
-      const activeRunPayload = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}/active-run`);
-      const activeRun = getActiveRunFromPayload(activeRunPayload);
-      if (activeRun && isRuntimeRunActuallyActive(activeRun)) {
-        runPayload = { run: activeRun };
-        appendPortalChatRuntimeEvent(agentId, requestCtx, "opencode.status.validated", {
-          message: "Validated active OpenCode run.",
-          status: normalizeChatRunStatus(activeRun.status || activeRun.state || ""),
-          opencode_active: activeRun.opencode_active,
-        });
-      } else {
-        appendPortalChatRuntimeEvent(agentId, requestCtx, "opencode.status.inactive", {
-          message: "Runtime reports that OpenCode is not active for this session.",
-          status: normalizeChatRunStatus(activeRun?.status || activeRun?.state || ""),
-          opencode_active: activeRun?.opencode_active,
-        });
-        const sessionPayload = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
-        return await applySessionProjectionThenClearStaleRun(agentId, requestCtx, sessionPayload, activeRun ? "opencode_not_active" : "active_run_null");
-      }
-    }
-    if (!runPayload && !sessionId) {
-      clearStaleActiveRequest(agentId, requestCtx, "opencode_not_active");
-      return "terminal";
-    }
-    const projection = buildChatRunProjection(runPayload, null, requestCtx);
-    return await applyChatRunProjection(agentId, requestCtx, projection);
-  } catch (error) {
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.reconcile.failed", {
-      message: "Unable to sync chat run yet; will retry.",
-      error: String(error?.message || error || ""),
-    });
-    setChatStatus("Still running. Reconnecting…");
-    return "running";
-  } finally {
-    requestCtx.reconcileInFlight = false;
-  }
 }
 
 async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
@@ -7614,12 +5528,6 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
     ? finalizeNonSuccessChatResponse
     : (agentId, ctx, payload, source) => localHandleIncompleteChatStream(agentId, ctx, source || "non_success", payload);
-  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
-    ? isChatRunAlreadyActivePayload
-    : () => false;
-  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
-    ? handleChatRunAlreadyActive
-    : async () => "handled";
   const localClearWaitingForRuntimeEventsTimer = (typeof clearWaitingForRuntimeEventsTimer === "function")
     ? clearWaitingForRuntimeEventsTimer
     : () => {};
@@ -7669,8 +5577,8 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
         observedAt: Date.now(),
       };
     }
-    if (["chat.run.completed", "complete", "execution.completed"].includes(embeddedType)) {
-      requestCtx.sawRunCompleted = true;
+    if (["complete", "execution.completed"].includes(embeddedType)) {
+      requestCtx.sawExecutionCompleted = true;
       requestCtx.awaitingAuthoritativeFinal = true;
     }
     if (isDirectCompletionEventName(embeddedType)) {
@@ -7743,11 +5651,6 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   }
 
   if (outerType === "error") {
-    if (localIsChatRunAlreadyActivePayload(eventData)) {
-      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, eventData);
-      return "error";
-    }
-
     requestCtx.sawError = true;
     requestCtx.streamFailed = true;
     localClearWaitingForRuntimeEventsTimer(requestCtx);
@@ -7789,10 +5692,6 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     requestCtx.streamFinalPayload = eventData;
     requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
-    if (localIsChatRunAlreadyActivePayload(eventData)) {
-      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, eventData);
-      return "final_non_success";
-    }
     if (localIsNonSuccessFinalPayload(eventData)) {
       if (typeof finalizeNonSuccessChatResponse === "function") {
         finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, eventData, "stream_final");
@@ -7873,7 +5772,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
 
 async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, payload = {}) {
   const chatState = ensureChatState(agentIdAtSend);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId || requestCtx.streamCompleted || requestCtx.streamFailed) return;
+  if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId || requestCtx.streamCompleted || requestCtx.streamFailed) return;
   clearWaitingForRuntimeEventsTimer(requestCtx);
   cancelAssistantTypewriter(requestCtx);
   const fallbackCompletionState = reason === "runtime_error" ? "error" : "incomplete";
@@ -7902,74 +5801,16 @@ async function handleChatStreamMissingFinal(agentIdAtSend, requestCtx) {
   if (requestCtx?.streamFailed || requestCtx?.streamIncomplete || requestCtx?.streamCompleted || requestCtx?.sawError) {
     return "handled";
   }
-  return handleChatStreamDetached(agentIdAtSend, requestCtx, "missing_final", {
+  await handleIncompleteChatStream(agentIdAtSend, requestCtx, "missing_final", {
     streamedTextPreview: requestCtx?.streamedText || "",
   });
-}
-
-async function finalizeFromSessionSnapshotAfterCompletedLifecycle(agentId, requestCtx, reason = "stream_final_missing_after_completed_event") {
-  const sessionId = requestCtx.sessionIdAtSend || currentSessionIdForAgent(agentId) || "";
-  if (!sessionId) return "missing_session";
-
-  try {
-    const sessionPayload = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
-    return await applySessionProjectionThenClearStaleRun(agentId, requestCtx, sessionPayload, reason);
-  } catch (error) {
-    appendPortalChatRuntimeEvent(agentId, requestCtx, "portal.final_snapshot.failed", {
-      message: "Completed lifecycle event was seen but stream final was missing; snapshot sync failed.",
-      error: String(error?.message || error || ""),
-      reason,
-    });
-    startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-    return "running";
-  }
-}
-
-async function handleChatStreamDetached(agentIdAtSend, requestCtx, reason = "stream_detached", payload = {}) {
-  const chatState = ensureChatState(agentIdAtSend);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return "handled";
-  requestCtx.streamDetached = true;
-  requestCtx.streamIncomplete = false;
-  requestCtx.streamFailed = false;
-  requestCtx.detachedReason = reason;
-  requestCtx.detachedPayload = payload || {};
-  clearWaitingForRuntimeEventsTimer(requestCtx);
-  cancelAssistantTypewriter(requestCtx);
-  setChatSubmittingForAgent(agentIdAtSend, false);
-  if (state.selectedAgentId === agentIdAtSend) setChatStatus("Still running. Reconnecting…");
-  appendPortalChatRuntimeEvent(agentIdAtSend, requestCtx, "portal.stream_detached", {
-    reason,
-    message: "The live stream ended before final response; the runtime may still be running. Reconnecting and syncing session.",
-  });
-  ensureEventSocketForAgent(
-    agentIdAtSend,
-    requestCtx.sessionIdAtSend || chatState.sessionId || "",
-    requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
-  );
-  startChatRunReconcileLoop(agentIdAtSend, requestCtx, { immediate: true });
-  return "detached";
+  return "handled";
 }
 
 async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, requestBody) {
-  const localIsChatRunAlreadyActivePayload = (typeof isChatRunAlreadyActivePayload === "function")
-    ? isChatRunAlreadyActivePayload
-    : () => false;
-  const localHandleChatRunAlreadyActive = (typeof handleChatRunAlreadyActive === "function")
-    ? handleChatRunAlreadyActive
-    : async () => "handled";
   const resp = await fetch(`/a/${agentIdAtSend}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
   if ([404,405,501].includes(resp.status) || !resp.body) return 'unsupported';
   if (!resp.ok) {
-    let structuredError = null;
-    try {
-      structuredError = await resp.clone().json();
-    } catch (_) {
-      structuredError = null;
-    }
-    if (localIsChatRunAlreadyActivePayload(structuredError)) {
-      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, structuredError);
-      return "handled";
-    }
     throw new Error(await handleErrorResponse(resp));
   }
   requestCtx.usedStream = true;
@@ -8024,26 +5865,9 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     sawFinal ||
     sawError
   ) return "handled";
-  if (!sawFinal && !sawError && (
-    requestCtx.awaitingAuthoritativeFinal
-    || requestCtx.sawAssistantMessageCompleted
-    || requestCtx.sawRunCompleted
-  )) {
-    const result = await finalizeFromSessionSnapshotAfterCompletedLifecycle(
-      agentIdAtSend,
-      requestCtx,
-      "stream_final_missing_after_completed_event"
-    );
-    if (result === "terminal" || result === "stopped") return "handled";
-    if (result === "running") return "detached";
-  }
   if (requestCtx.streamFinalCandidate && getChatStreamTextPayload(requestCtx.streamFinalCandidate)) {
     const candidate = requestCtx.streamFinalCandidate;
     const candidateText = finalResponseText(candidate) || getChatStreamTextPayload(candidate);
-    if (localIsChatRunAlreadyActivePayload(candidate)) {
-      await localHandleChatRunAlreadyActive(agentIdAtSend, requestCtx, candidate);
-      return "handled";
-    }
     if (isNonSuccessFinalPayload(candidate)) {
       await localFinalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, candidate, "candidate_final");
       return "handled";
@@ -8076,7 +5900,7 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   }
   if (sawEvent) {
     await handleChatStreamMissingFinal(agentIdAtSend, requestCtx);
-    return "detached";
+    return "handled";
   }
   return 'unsupported';
 }
@@ -8112,8 +5936,8 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     : (events) => Array.isArray(events) ? events : [];
   const chatState = ensureChatState(agentIdAtSend);
   const activeMatches = Boolean(
-    chatState?.activeRequest
-    && chatState.activeRequest.clientRequestId === requestCtx.clientRequestId
+    chatState?.currentRequest
+    && chatState.currentRequest.clientRequestId === requestCtx.clientRequestId
   );
 
   const finalForSameRequest = Boolean(
@@ -8123,32 +5947,16 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
       || requestCtx.authoritativeFinalReceived === true
       || payload?.request_id === requestCtx.clientRequestId
       || payload?.request_id === requestCtx.requestId
-      || payload?.request_id === requestCtx.runtimeRequestId
+      || payload?.request_id === requestCtx.requestId
     )
   );
 
   if (!activeMatches && !finalForSameRequest) return;
 
-  const clearOpenCodeProjectionBusyState = () => {
-    if (chatState.openCodeProjection) {
-      chatState.openCodeProjection.sessionStatus = "idle";
-      chatState.openCodeProjection.sessionStatusPayload = {
-        ...(chatState.openCodeProjection.sessionStatusPayload || {}),
-        active: false,
-        status: { type: "idle" },
-        status_type: "idle",
-        action_hint: "safe_to_send",
-        active_run: null,
-      };
-      chatState.openCodeProjection.needsSnapshot = false;
-    }
-  };
-
   if (!localHasRenderableAssistantPayload(payload)) {
     const finalSessionId = payload?.session_id || requestCtx?.sessionIdAtSend || chatState?.sessionId || "";
     removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true });
-    clearOpenCodeProjectionBusyState();
-    chatState.activeRequest = null;
+    chatState.currentRequest = null;
     chatState.inflightThinking = null;
     chatState.pendingThinkingEvents = null;
     chatState.needsReload = true;
@@ -8244,10 +6052,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   };
   chatState.lastThinkingSnapshot = finalThinkingSnapshot;
   const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
-  if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
-  clearOpenCodeProjectionBusyState();
-  chatState.activeRequest = null;
-  chatState.lastCompletedRequestId = payload.request_id || requestCtx.clientRequestId;
+  chatState.currentRequest = null;
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
@@ -8351,7 +6156,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
 
 function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   const chatState = ensureChatState(agentIdAtSend);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId) return;
   const restoredMessage = requestCtx.backupMessage || "";
   const errorMsg = error?.message || "Send failed";
   const finalPayload = {
@@ -8377,20 +6182,18 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   requestCtx.streamFailed = true;
   requestCtx.terminalPayload = finalPayload;
-  if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
   if (typeof finalizeTerminalThinkingState === "function") finalizeTerminalThinkingState(agentIdAtSend, requestCtx, finalPayload);
   else {
     chatState.lastThinkingSnapshot = chatState.lastThinkingSnapshot || (chatState.inflightThinking ? { ...chatState.inflightThinking } : null);
     chatState.inflightThinking = null;
     chatState.pendingThinkingEvents = null;
   }
-  chatState.activeRequest = null;
+  chatState.currentRequest = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
     chatState.draftText = restoredMessage;
     chatState.pendingFiles = [];
     chatState.pendingThinkingEvents = null;
-    chatState.backgroundStatus = "error";
     chatState.needsReload = false;
     markAgentUnread(agentIdAtSend, "error");
     renderAgentList();
@@ -9517,193 +7320,6 @@ function deriveSessionRecoveryNotice(metadata = {}) {
   return null;
 }
 
-function hydrateActiveRequestFromRun(agentId, sessionId, run = {}, metadata = {}) {
-  const chatState = ensureChatState(agentId);
-  if (!chatState) return null;
-  const runtimeRequestId = String(
-    run.request_id ||
-    run.runtime_request_id ||
-    run.runtimeRequestId ||
-    run.id ||
-    metadata.request_id ||
-    metadata.runtime_request_id ||
-    metadata.runtimeRequestId ||
-    metadata.last_execution_id ||
-    ""
-  );
-  const clientRequestId = String(run.client_request_id || run.clientRequestId || runtimeRequestId || `rehydrated_${Date.now()}`);
-  const existing = chatState.activeRequest?.sessionIdAtSend === sessionId ? chatState.activeRequest : null;
-  const requestCtx = existing || {
-    requestId: runtimeRequestId || clientRequestId,
-    runtimeRequestId,
-    clientRequestId,
-    agentId,
-    sessionIdAtSend: sessionId,
-    message: "",
-    attachments: [],
-    startedAt: Date.parse(run.started_at || run.created_at || "") || Date.now(),
-    streamStartedAt: Date.now(),
-    sawRuntimeEvent: true,
-    sawDelta: false,
-    sawFinal: false,
-    streamCompleted: false,
-    streamFailed: false,
-    streamIncomplete: false,
-    streamDetached: normalizeChatRunStatus(run.status || run.state) === "stream_detached",
-    backupMessage: "",
-    typewriter: { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false },
-    usedStream: true,
-  };
-  requestCtx.requestId = runtimeRequestId || requestCtx.requestId || clientRequestId;
-  requestCtx.runtimeRequestId = runtimeRequestId || requestCtx.runtimeRequestId || "";
-  requestCtx.clientRequestId = requestCtx.clientRequestId || clientRequestId;
-  requestCtx.sessionIdAtSend = sessionId;
-  requestCtx.streamDetached = requestCtx.streamDetached || normalizeChatRunStatus(run.status || run.state) === "stream_detached";
-  chatState.activeRequest = requestCtx;
-  if (isRuntimeRunActuallyActive(run)) {
-    if (!chatState.openCodeProjection) {
-      chatState.openCodeProjection = {
-        messagesById: {},
-        partsById: {},
-        sessionStatus: "unknown",
-        sessionStatusPayload: null,
-        needsSnapshot: false,
-      };
-    }
-    const statusType = normalizeChatRunStatus(run.status || run.state || run.opencode_status || "busy") || "busy";
-    chatState.openCodeProjection.sessionStatus = statusType;
-    chatState.openCodeProjection.sessionStatusPayload = {
-      ...(chatState.openCodeProjection.sessionStatusPayload || {}),
-      source_of_truth: "opencode",
-      active: true,
-      status: { type: statusType },
-      status_type: statusType,
-      action_hint: run.action_hint || "wait_reconnect_or_stop",
-      can_abort: run.can_abort !== false,
-      active_run: run,
-    };
-  }
-  if (!chatState.inflightThinking || chatState.inflightThinking.completed === true) {
-    chatState.inflightThinking = {
-      id: runtimeRequestId || clientRequestId,
-      requestId: runtimeRequestId || clientRequestId,
-      sessionId,
-      events: [],
-      completed: false,
-      started: true,
-      contextState: null,
-      contextBudget: null,
-      startedAt: requestCtx.startedAt || Date.now(),
-      lastEventAt: Date.now(),
-      status: "reconnecting",
-    };
-  }
-  return requestCtx;
-}
-
-function ensureActiveAssistantRowAfterRender(agentId, requestCtx, projectionPayload = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList || !requestCtx) return;
-  const text = extractAssistantVisibleText(projectionPayload) || requestCtx.streamedText || "";
-  const displayBlocks = extractAssistantDisplayBlocks(projectionPayload);
-  if (text || displayBlocks.length) {
-    updateOrCreateAssistantRowForRequest(agentId, requestCtx, {
-      ...projectionPayload,
-      response: text,
-      display_blocks: displayBlocks,
-      request_id: projectionPayload.request_id || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
-    }, { partial: true });
-    return;
-  }
-  const existing = findAssistantArticleForRequest(requestCtx, {});
-  if (existing) return;
-  dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestCtx.clientRequestId));
-}
-
-function reconcileActiveRequestProjection(agentId, sessionId, metadata = {}, messages = []) {
-  const chatState = ensureChatState(agentId);
-  if (!chatState) return;
-  const activeRun = metadata.active_run && typeof metadata.active_run === "object" ? metadata.active_run : null;
-  const latestRun = metadata.latest_run && typeof metadata.latest_run === "object" ? metadata.latest_run : null;
-  const sessionStatusPayload = metadata.session_status && typeof metadata.session_status === "object"
-    ? metadata.session_status
-    : null;
-  const activeStatus = normalizeChatRunStatus(activeRun?.status || activeRun?.state || "");
-  if (activeRun && isValidatedRuntimeActiveRun(activeRun)) {
-    const requestCtx = hydrateActiveRequestFromRun(agentId, sessionId, activeRun, metadata);
-    if (!requestCtx) return;
-    const projection = buildChatRunProjection({ run: activeRun }, { metadata, messages, session_id: sessionId }, requestCtx);
-    ensureActiveAssistantRowAfterRender(agentId, requestCtx, {
-      ...projection.run,
-      assistant_projection: projection.assistantProjection,
-      response: projection.text,
-      display_blocks: projection.displayBlocks || [],
-      request_id: projection.requestId,
-      session_id: sessionId,
-    });
-    setChatSubmittingForAgent(agentId, false);
-    setChatStatus(activeStatus === "stream_detached" ? "Still running. Reconnecting…" : "Still running. Syncing…");
-    ensureEventSocketForAgent(agentId, sessionId, requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId);
-    startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-    return;
-  }
-  if (latestRun && isChatRunCompletedStatus(latestRun.status || latestRun.state || latestRun.completion_state)) {
-    const requestCtx = chatState.activeRequest || hydrateActiveRequestFromRun(agentId, sessionId, latestRun, metadata);
-    if (!requestCtx) return;
-    const projection = buildChatRunProjection({ run: latestRun }, { metadata, messages, session_id: sessionId }, requestCtx);
-    const finalPayload = buildFinalPayloadFromProjection(projection, requestCtx, "completed");
-    updateOrCreateAssistantRowForRequest(agentId, requestCtx, finalPayload, { completed: true });
-    if (typeof stopChatRunReconcileLoop === "function") stopChatRunReconcileLoop(requestCtx);
-    chatState.activeRequest = null;
-    chatState.inflightThinking = null;
-    setChatSubmittingForAgent(agentId, false);
-    syncSelectedAgentChatActionControls();
-    return;
-  }
-  if (
-    chatState.activeRequest?.sessionIdAtSend === sessionId
-    && isOpenCodeSessionStatusBlockingPayload(sessionStatusPayload || {})
-  ) {
-    const requestCtx = chatState.activeRequest;
-    ensureActiveAssistantRowAfterRender(agentId, requestCtx, {
-      response: requestCtx.streamedText || "",
-      request_id: requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
-      session_id: sessionId,
-    });
-    setChatSubmittingForAgent(agentId, false);
-    setChatStatus("Previous message still running. Reconnecting…");
-    ensureEventSocketForAgent(agentId, sessionId, requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId);
-    startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-    syncSelectedAgentChatActionControls();
-    return;
-  }
-  if (chatState.activeRequest?.sessionIdAtSend === sessionId && !chatState.activeRequest.streamCompleted) {
-    const requestCtx = chatState.activeRequest;
-    const sanitizedMetadata = {
-      ...metadata,
-      active_run: null,
-      active_run_status: "",
-    };
-    const projection = buildChatRunProjection(null, { metadata: sanitizedMetadata, messages, session_id: sessionId }, requestCtx);
-    if (projection.text || (projection.displayBlocks || []).length) {
-      updateOrCreateAssistantRowForRequest(agentId, requestCtx, {
-        assistant_projection: projection.assistantProjection,
-        response: projection.text || requestCtx.streamedText || "",
-        display_blocks: projection.displayBlocks || [],
-        request_id: projection.requestId || requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId,
-        session_id: sessionId,
-      }, { partial: true });
-    }
-    appendPortalChatRuntimeEvent(agentId, requestCtx, activeRun ? "opencode.status.inactive" : "opencode.session.missing", {
-      message: activeRun
-        ? "Session metadata has a run, but OpenCode is not active."
-        : "Session metadata no longer has an active run.",
-      status: activeStatus || "inactive",
-      opencode_active: activeRun?.opencode_active,
-    });
-    clearStaleActiveRequest(agentId, requestCtx, activeRun ? "opencode_not_active" : "metadata_active_run_null");
-  }
-}
-
 async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
@@ -9746,23 +7362,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       setChatStatus(recoveryNotice.message, recoveryNotice.level === "error");
     }
   };
-  const statusPayload = await refreshOpenCodeSessionStatusForAgent(agentId, normalized, latestChatState);
-  if (statusPayload && isOpenCodeSessionStatusBlockingPayload(statusPayload)) {
-    const requestCtx = hydrateActiveRequestFromSessionStatus(agentId, normalized, statusPayload);
-    if (requestCtx) {
-      setChatSubmittingForAgent(agentId, false);
-      ensureEventSocketForAgent(
-        agentId,
-        normalized,
-        requestCtx.runtimeRequestId || requestCtx.requestId || requestCtx.clientRequestId || ""
-      );
-      startChatRunReconcileLoop(agentId, requestCtx, { immediate: true });
-      if (agentId === state.selectedAgentId) {
-        setChatStatus("Previous message still running. Reconnecting…");
-        syncSelectedAgentChatActionControls();
-      }
-    }
-  }
+  const statusPayload = null;
   const shouldApplyRecoveryNotice = canApplyRecoveryNotice();
   const canonicalMessages = getCanonicalMessagesFromSessionPayload(data);
   const messagesForRender = canonicalMessages.length
@@ -9789,9 +7389,8 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       state.selectedAgentName = agent?.name || null;
     }
     renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {});
-    reconcileActiveRequestProjection(agentId, normalized, normalizedPayload.metadata || {}, normalizedPayload.messages || []);
     addEditButtonsToMessages();
-    if (!ensureChatState(agentId)?.activeRequest) setChatStatus(`Loaded session ${normalized}`);
+    if (!ensureChatState(agentId)?.currentRequest) setChatStatus(`Loaded session ${normalized}`);
     applyRecoveryNotice();
   }
 }
@@ -11143,7 +8742,7 @@ async function startNewChatForSelectedAgent() {
   const chatState = getChatState();
   if (chatState) {
     chatState.inflightThinking = null;
-    chatState.activeRequest = null;
+    chatState.currentRequest = null;
   }
   removeTemporaryAssistantRows({ forceAll: true });
   clearMessageListToWelcome();
@@ -11295,6 +8894,23 @@ function agentRestartErrorMessage(error, fallback = "Assistant restart failed or
   return raw;
 }
 
+function resetLocalChatSubmissionForAgent(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  const requestCtx = chatState.currentRequest;
+  if (requestCtx) {
+    clearWaitingForRuntimeEventsTimer(requestCtx);
+    cancelAssistantTypewriter(requestCtx);
+    if (requestCtx.abortController && typeof requestCtx.abortController.abort === "function") {
+      requestCtx.abortController.abort();
+    }
+  }
+  chatState.currentRequest = null;
+  chatState.inflightThinking = null;
+  chatState.pendingThinkingEvents = null;
+  setChatSubmittingForAgent(agentId, false, { suppressSync: true });
+}
+
 async function action(path, method = "POST", needsConfirm = false) {
   if (needsConfirm && !confirm("Please confirm this action.")) return;
   const lifecycle = parseAgentLifecycleAction(path);
@@ -11331,9 +8947,7 @@ async function action(path, method = "POST", needsConfirm = false) {
         result?.status || "restarting",
         result?.last_error || result?.message || "Restart requested"
       );
-      const chatState = ensureChatState(lifecycle.agentId);
-      const requestCtx = chatState?.activeRequest || fallbackRequestContextForAgent(lifecycle.agentId, "agent_restarting");
-      clearStaleActiveRequest(lifecycle.agentId, requestCtx, "agent_restarting");
+      resetLocalChatSubmissionForAgent(lifecycle.agentId);
       if (state.eventWsAgentId === lifecycle.agentId) disconnectEventSocket();
       if (state.selectedAgentId === lifecycle.agentId) {
         setChatStatus("Restart requested.\nWaiting for runtime pod to restart…");
@@ -11361,9 +8975,7 @@ async function action(path, method = "POST", needsConfirm = false) {
       return;
     }
 
-    const chatState = ensureChatState(lifecycle.agentId);
-    const requestCtx = chatState?.activeRequest || fallbackRequestContextForAgent(lifecycle.agentId, "agent_stopped");
-    clearStaleActiveRequest(lifecycle.agentId, requestCtx, "agent_stopped");
+    resetLocalChatSubmissionForAgent(lifecycle.agentId);
     if (state.selectedAgentId === lifecycle.agentId) {
       setChatStatus("Assistant stopped.");
     }
@@ -12263,7 +9875,7 @@ function completeEditedMessageRequest(agentId, requestCtx, finalPayload = {}, { 
     chatState.inflightThinking = null;
   }
   chatState.pendingThinkingEvents = null;
-  if (chatState.activeRequest?.clientRequestId === requestId) chatState.activeRequest = null;
+  if (chatState.currentRequest?.clientRequestId === requestId) chatState.currentRequest = null;
   setChatSubmittingForAgent(agentId, false);
   syncSelectedAgentChatActionControls();
 }
@@ -12289,7 +9901,6 @@ function handleEditedRegenerationFailure(agentId, requestCtx, message = "regener
     const chatState = ensureChatState(agentId);
     if (chatState) {
       chatState.needsReload = true;
-      chatState.backgroundStatus = "error";
     }
     if (typeof markAgentUnread === "function") markAgentUnread(agentId, "error");
     if (typeof renderAgentList === "function") renderAgentList();
@@ -12301,7 +9912,6 @@ function finalizeEditedSessionMessages(agentId, sessionId, requestCtx, data = {}
   const chatState = ensureChatState(agentId);
   if (chatState) {
     chatState.needsReload = false;
-    chatState.backgroundStatus = "";
   }
 
   if (shouldRenderEditedSessionForAgent(agentId, sessionId)) {
@@ -12313,7 +9923,6 @@ function finalizeEditedSessionMessages(agentId, sessionId, requestCtx, data = {}
   } else {
     if (chatState) {
       chatState.needsReload = true;
-      chatState.backgroundStatus = "completed";
     }
     if (typeof markAgentUnread === "function") markAgentUnread(agentId, "completed");
     if (typeof renderAgentList === "function") renderAgentList();
@@ -12340,7 +9949,7 @@ async function pollEditedSessionUntilComplete(agentId, finalSessionId, requestId
 
   while (Date.now() - startedAt < timeoutMs) {
     const chatState = ensureChatState(agentId);
-    if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestId) return;
+    if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestId) return;
 
     try {
       const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(finalSessionId)}`);
@@ -12364,10 +9973,9 @@ async function pollEditedSessionUntilComplete(agentId, finalSessionId, requestId
   }
 
   const chatState = ensureChatState(agentId);
-  if (!chatState?.activeRequest || chatState.activeRequest.clientRequestId !== requestId) return;
+  if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestId) return;
   const message = "Regeneration is still running or timed out; refresh the session to check the latest result.";
   chatState.needsReload = true;
-  chatState.backgroundStatus = "timeout";
   const finalPayload = {
     completion_state: "timeout",
     incomplete_reason: message,
@@ -12726,10 +10334,9 @@ function bindEvents() {
         scrollToBottom();
       } else if (chatState) {
         chatState.needsReload = true;
-        chatState.backgroundStatus = "regenerating";
       }
 
-      chatState.activeRequest = requestCtx;
+      chatState.currentRequest = requestCtx;
       chatState.inflightThinking = {
         id: requestId,
         requestId,

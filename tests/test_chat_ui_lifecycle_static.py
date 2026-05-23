@@ -10,11 +10,12 @@ def _src():
     return SRC.read_text(encoding='utf-8')
 
 
-def test_has_active_chat_request_uses_opencode_projection_not_inflight_leftovers():
+def test_has_active_chat_request_uses_only_local_submit_state():
     src = _src()
     body = _extract_js_function(src, "hasActiveChatRequestForAgent")
-    assert 'isOpenCodeSessionInactivePayload(payload)' in body
-    assert 'isOpenCodeSessionBlocking(chatState)' in body
+    assert "chatState?.isSubmitting" in body
+    assert 'isOpenCodeSessionInactivePayload(payload)' not in body
+    assert 'isOpenCodeSessionBlocking(chatState)' not in body
     assert 'chatState.inflightThinking && chatState.inflightThinking.completed === false' not in body
     assert 'hasIncompleteInflightThinking(chatState)' not in body
 
@@ -24,8 +25,8 @@ def test_terminal_thinking_cleanup_clears_busy_state():
     body = _extract_js_function(src, "finalizeTerminalThinkingState")
     assert 'chatState.inflightThinking.completed = true' in body
     assert 'chatState.inflightThinking = null' in body
-    assert 'chatState.activeRequest?.clientRequestId === requestCtx?.clientRequestId' in body
-    assert 'chatState.activeRequest = null' in body
+    assert 'chatState.currentRequest?.clientRequestId === requestCtx?.clientRequestId' in body
+    assert 'chatState.currentRequest = null' in body
     assert 'chatState.isSubmitting = false' in body
     assert 'clearWaitingForRuntimeEventsTimer(requestCtx)' in body
     assert 'syncSelectedAgentChatActionControls()' in body
@@ -36,7 +37,7 @@ def test_cleanup_chat_stream_request_uses_terminal_cleanup_and_clears_request_fl
     body = _extract_js_function(src, "cleanupChatStreamRequest")
     assert 'finalizeTerminalThinkingState(agentIdAtSend, requestCtx' in body
     assert 'setChatSubmittingForAgent(agentIdAtSend, false)' in body
-    assert 'chatState.activeRequest = null' in body
+    assert 'chatState.currentRequest = null' in body
 
 
 def test_non_success_and_error_paths_set_terminal_status():
@@ -73,7 +74,7 @@ def test_error_path_clears_active_request_is_submitting_and_inflight_thinking():
     assert 'requestCtx.streamFailed = true' in failure
     assert 'requestCtx.terminalPayload = finalPayload' in failure
     assert 'finalizeTerminalThinkingState(agentIdAtSend, requestCtx, finalPayload)' in failure
-    assert 'chatState.activeRequest = null' in terminal
+    assert 'chatState.currentRequest = null' in terminal
     assert 'chatState.isSubmitting = false' in terminal
     assert 'chatState.inflightThinking = null' in terminal
 
@@ -82,7 +83,7 @@ def test_completed_success_and_fallback_paths_clear_busy_state():
     src = _src()
     success = _extract_js_function(src, "handleAgentChatSuccess")
     submit = _extract_js_function(src, "submitChatForSelectedAgent")
-    assert 'chatState.activeRequest = null' in success
+    assert 'chatState.currentRequest = null' in success
     assert 'chatState.inflightThinking = null' in success
     assert 'setChatSubmittingForAgent(agentIdAtSend, false)' in success
     assert 'setChatStatus("Ready")' in success
@@ -101,5 +102,6 @@ def test_missing_final_guard_respects_stream_failed():
     ]:
         assert marker in missing_final
     guard_index = missing_final.index("return \"handled\";")
-    detached_index = missing_final.index("handleChatStreamDetached(")
-    assert guard_index < detached_index
+    incomplete_index = missing_final.index("handleIncompleteChatStream(")
+    assert guard_index < incomplete_index
+    assert "handleChatStreamDetached" not in src

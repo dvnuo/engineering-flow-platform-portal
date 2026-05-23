@@ -17,15 +17,6 @@ def _event(event_type, detail=None, **extra):
 def test_thinking_process_view_maps_required_runtime_events():
     event_cases = [
         ("chat.started", {}, "running", "running", "Chat Started"),
-        ("chat.stream_attached", {}, "running", "running", "Stream Attached"),
-        ("chat.stream_detached", {}, "warning", "running", "Stream Detached"),
-        ("chat.run.started", {}, "running", "running", "Run Started"),
-        ("chat.run.completed", {}, "success", "success", "Run Completed"),
-        ("chat.run.incomplete", {"incomplete_reason": "max turns"}, "warning", "warning", "Run Incomplete"),
-        ("chat.run.failed", {"error": "boom"}, "error", "error", "Run Failed"),
-        ("chat.run.abort_failed", {"error": "abort boom"}, "error", "error", "Run Abort Failed"),
-        ("chat.run.stale", {}, "warning", "warning", "Run Stale"),
-        ("chat.run.aborted", {}, "warning", "warning", "Run Aborted"),
         ("heartbeat", {}, "running", "running", "Heartbeat"),
         ("status", {"status": "working"}, "info", "info", "Runtime Status"),
         ("llm_thinking", {}, "running", "running", "LLM Thinking"),
@@ -46,38 +37,14 @@ def test_thinking_process_view_maps_required_runtime_events():
         ("provider.retry", {}, "warning", "warning", "Provider Retry"),
         ("provider.rate_limit", {}, "warning", "warning", "Provider Rate Limited"),
         ("model.retry", {}, "warning", "warning", "Model Retry"),
-        ("continuation.started", {}, "running", "running", "Continuation Started"),
-        ("continuation.prompt_sent", {}, "running", "running", "Continuation Prompt Sent"),
-        ("continuation.completed", {}, "success", "success", "Continuation Completed"),
-        ("continuation.failed", {}, "error", "error", "Continuation Failed"),
-        ("continuation.max_turns_reached", {}, "warning", "warning", "Max Turns Reached"),
-        ("continuation.wall_timeout", {}, "warning", "warning", "Continuation Timeout"),
-        ("continuation.no_progress", {}, "warning", "warning", "No Progress"),
-        ("continuation.suppressed", {"metadata": {"reason": "auto_continue_disabled"}}, "warning", "warning", "Continuation suppressed"),
-        ("chat.timeout_recovery.started", {}, "running", "warning", "Timeout Recovery Started"),
-        ("chat.timeout_recovery.poll", {}, "running", "running", "Timeout Recovery Poll"),
-        ("chat.timeout_recovery.recovered", {}, "success", "success", "Timeout Recovery Recovered"),
-        ("chat.timeout_recovery.exhausted", {}, "warning", "warning", "Timeout Recovery Exhausted"),
         ("chat.incomplete", {"incomplete_reason": "no final"}, "warning", "warning", "Chat Incomplete"),
         ("chat.failed", {"error": "failed"}, "error", "error", "Chat Failed"),
         ("chat.completed", {}, "success", "success", "Chat Completed"),
-        ("portal.stream_detached", {}, "warning", "running", "Stream Detached"),
-        ("portal.reconcile.started", {}, "info", "running", "Reconcile Started"),
-        ("portal.reconcile.updated", {}, "running", "running", "Reconcile Updated"),
-        ("portal.reconcile.completed", {}, "success", "success", "Reconcile Completed"),
-        ("portal.reconcile.failed", {}, "error", "error", "Reconcile Failed"),
-        ("portal.active_request.cleared", {}, "warning", "warning", "Active Request Cleared"),
-        ("portal.chat_run_already_active", {"message": "Previous message still running"}, "warning", "running", "Previous Run Active"),
-        ("portal.abort.completed", {}, "success", "success", "Abort Completed"),
-        ("portal.abort.failed", {}, "error", "error", "Abort Failed"),
         ("event_bridge.connected", {}, "success", "success", "Event Bridge Connected"),
         ("event_bridge.disconnected", {}, "warning", "warning", "Event Bridge Disconnected"),
         ("event_bridge.reconnected", {}, "success", "success", "Event Bridge Reconnected"),
         ("opencode.raw", {}, "info", "info", "OpenCode Event"),
-        ("opencode.session.aborted", {}, "success", "success", "OpenCode Session Aborted"),
-        ("opencode.session.abort_failed", {"error": "abort boom"}, "error", "error", "OpenCode Session Abort Failed"),
-        ("opencode.session.missing", {}, "warning", "warning", "OpenCode Session Missing"),
-        ("opencode.status.inactive", {}, "warning", "warning", "OpenCode Inactive"),
+        ("opencode.status.validated", {}, "info", "info", "OpenCode Status Validated"),
     ]
     view = build_thinking_process_view({
         "runtime_events": [_event(event_type, detail) for event_type, detail, *_ in event_cases],
@@ -95,50 +62,65 @@ def test_thinking_process_view_maps_required_runtime_events():
         assert event["safe_detail_payload"]["event_type"] == event_type
 
 
-def test_thinking_process_view_maps_continuation_suppressed_summary_and_metadata():
+def test_thinking_process_view_keeps_legacy_runtime_recovery_events_generic():
+    legacy_types = [
+        "chat." + "stream_" + "detached",
+        "chat." + "run.started",
+        "portal." + "reconcile.started",
+        "portal." + "active_" + "request.cleared",
+        "opencode." + "session.missing",
+        "opencode." + "status.inactive",
+        "continuation." + "completed",
+        "chat." + "timeout_" + "recovery.exhausted",
+    ]
     view = build_thinking_process_view({
         "runtime_events": [
-            _event(
-                "continuation.suppressed",
-                {},
-                summary="Timeout recovery exhausted while runtime is still running",
-                metadata={
-                    "reason": "auto_continue_disabled",
-                    "authorization": "Bearer hidden",
-                },
-            )
+            _event(event_type, {"message": "legacy event", "authorization": "Bearer hidden"})
+            for event_type in legacy_types
         ],
     })
 
-    event = view["events"][0]
-    assert event["type"] == "continuation.suppressed"
-    assert event["display_title"] == "Continuation suppressed"
-    assert event["display_detail"] == "Timeout recovery exhausted while runtime is still running"
-    assert event["kind"] == "warning"
-    assert event["severity"] == "warning"
-    assert event["safe_detail_payload"]["metadata"]["reason"] == "auto_continue_disabled"
-    assert event["safe_detail_payload"]["metadata"]["authorization"] == "[redacted]"
+    assert [event["type"] for event in view["events"]] == legacy_types
+    for event in view["events"]:
+        assert event["display_title"] == "Runtime event"
+        assert event["kind"] == "info"
+        assert event["severity"] == "info"
+        assert event["safe_detail_payload"]["authorization"] == "[redacted]"
 
 
-def test_thinking_process_view_normalizes_runtime_event_aliases():
+def test_thinking_process_view_keeps_event_types_without_runtime_aliases():
     aliases = [
-        ("continuation.no_progress_timeout", "continuation.no_progress", "No Progress"),
-        ("chat.timeout_recovery.recovery_exhausted", "chat.timeout_recovery.exhausted", "Timeout Recovery Exhausted"),
-        ("timeout_recovery.started", "chat.timeout_recovery.started", "Timeout Recovery Started"),
-        ("timeout_recovery.poll", "chat.timeout_recovery.poll", "Timeout Recovery Poll"),
-        ("timeout_recovery.recovered", "chat.timeout_recovery.recovered", "Timeout Recovery Recovered"),
-        ("timeout_recovery.exhausted", "chat.timeout_recovery.exhausted", "Timeout Recovery Exhausted"),
+        "continuation." + "no_progress_" + "timeout",
+        "chat." + "timeout_" + "recovery.recovery_exhausted",
+        "timeout_" + "recovery.started",
     ]
     view = build_thinking_process_view({
-        "runtime_events": [_event(alias) for alias, *_ in aliases],
+        "runtime_events": [_event(alias) for alias in aliases],
     })
 
-    for event, (alias, normalized_type, title) in zip(view["events"], aliases):
-        assert event["type"] == normalized_type
-        assert event["event_type"] == normalized_type
-        assert event["display_title"] == title
-        assert event["safe_detail_payload"]["event_type"] == normalized_type
-        assert event["safe_detail_payload"]["raw_event_type"] == alias
+    for event, alias in zip(view["events"], aliases):
+        assert event["type"] == alias
+        assert event["event_type"] == alias
+        assert event["display_title"] == "Runtime event"
+        assert event["safe_detail_payload"]["event_type"] == alias
+        assert "raw_event_type" not in event["safe_detail_payload"]
+
+
+def test_thinking_process_view_does_not_special_case_long_run_event_names():
+    src = Path("app/services/thinking_process_view.py").read_text(encoding="utf-8")
+    forbidden = [
+        "chat." + "stream_" + "detached",
+        "chat." + "run.completed",
+        "chat." + "run.started",
+        "continuation." + "completed",
+        "chat." + "timeout_" + "recovery",
+        "timeout_" + "recovery",
+        "portal." + "reconcile",
+        "portal." + "active_" + "request.cleared",
+    ]
+
+    for marker in forbidden:
+        assert marker not in src
 
 
 def test_thinking_process_view_final_severity_uses_completion_state_and_reason():
@@ -180,17 +162,7 @@ def test_thinking_process_view_unknown_event_keeps_safe_detail_payload():
     assert event["safe_detail_payload"]["password"] == "[redacted]"
 
 
-def test_chat_run_already_active_thinking_display_and_continue_hint_contract():
-    view = build_thinking_process_view({
-        "runtime_events": [
-            _event("portal.chat_run_already_active", {"message": "Previous message still running"}),
-        ],
-    })
-    event = view["events"][0]
-    assert event["display_title"] == "Previous Run Active"
-    assert event["kind"] == "warning"
-    assert event["severity"] == "running"
-
+def test_non_success_hint_contract_without_runtime_run_special_case():
     src = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     script = (
         _extract_js_function(src, "nonSuccessHintForPayload")
@@ -199,9 +171,9 @@ def test_chat_run_already_active_thinking_display_and_continue_hint_contract():
             r"""
             const assert = require("node:assert/strict");
 
-            const active = nonSuccessHintForPayload({ error: "chat_run_already_active" });
-            assert.equal(active.includes('send "continue"'), false);
-            assert.match(active, /stop the run|reset this session/);
+            const busy = nonSuccessHintForPayload({ status: "busy" });
+            assert.equal(busy.includes('send "continue"'), false);
+            assert.match(busy, /still working/);
 
             const stillActive = nonSuccessHintForPayload({ error: "opencode_abort_still_active" });
             assert.equal(stillActive.includes('send "continue"'), false);

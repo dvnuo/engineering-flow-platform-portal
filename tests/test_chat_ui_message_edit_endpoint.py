@@ -254,7 +254,7 @@ function syncSelectedAgentChatActionControls() {{ controlsSynced += 1; }}
     optimisticMessageId: optimisticArticles[0]?.dataset?.messageId || "",
     eventSocketCalls,
     pollCalls,
-    activeRequest: chatState.activeRequest || null,
+    currentRequest: chatState.currentRequest || null,
     inflightThinking: chatState.inflightThinking || null,
   }}));
 }})();
@@ -344,8 +344,8 @@ def test_accepted_response_closes_modal_before_llm_final_and_appends_pending_ui(
         "replacementUserMessageId": "u-2b",
         "hasRequestCtx": True,
     }]
-    assert data["activeRequest"]["clientRequestId"] == "req-edit-1"
-    assert data["activeRequest"]["edit"] is True
+    assert data["currentRequest"]["clientRequestId"] == "req-edit-1"
+    assert data["currentRequest"]["edit"] is True
     assert data["inflightThinking"]["completed"] is False
     assert data["beginCalls"][0]["pendingText"] == "Saving..."
     assert len(data["endCalls"]) == 1
@@ -390,7 +390,7 @@ const EDITED_MESSAGE_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const state = {{ selectedAgentId: "agent-1" }};
 const chatState = {{
   sessionId: "s1",
-  activeRequest: {{ clientRequestId: "req-edit-1" }},
+  currentRequest: {{ clientRequestId: "req-edit-1" }},
   inflightThinking: {{
     id: "req-edit-1",
     requestId: "req-edit-1",
@@ -452,7 +452,7 @@ function showToast() {{}}
     renderCalls,
     chatSubmittingValues,
     status,
-    activeRequestCleared: chatState.activeRequest === null,
+    currentRequestCleared: chatState.currentRequest === null,
     inflightThinkingCleared: chatState.inflightThinking === null,
     lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
     controlsSynced,
@@ -471,7 +471,7 @@ function showToast() {{}}
     assert rendered[1] == {"role": "assistant", "content": "hi how can i help", "id": "a-1"}
     assert data["renderCalls"][0]["metadata"] == {"source": "poll"}
     assert data["chatSubmittingValues"] == [False]
-    assert data["activeRequestCleared"] is True
+    assert data["currentRequestCleared"] is True
     assert data["inflightThinkingCleared"] is True
     assert data["lastThinkingCompleted"] is True
     assert data["status"] == [{"value": "Ready", "isError": False}]
@@ -548,7 +548,7 @@ const EDITED_MESSAGE_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const state = {{ selectedAgentId: "agent-1" }};
 const chatState = {{
   sessionId: "s1",
-  activeRequest: {{ clientRequestId: "req-edit-1", edit: true }},
+  currentRequest: {{ clientRequestId: "req-edit-1", edit: true }},
   inflightThinking: {{
     id: "req-edit-1",
     requestId: "req-edit-1",
@@ -614,7 +614,7 @@ function showToast(value) {{ toast.push(value); }}
     finalizerCalls,
     status,
     toast,
-    activeRequestCleared: chatState.activeRequest === null,
+    currentRequestCleared: chatState.currentRequest === null,
     inflightThinkingCleared: chatState.inflightThinking === null,
     lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
     controlsSynced,
@@ -630,7 +630,7 @@ function showToast(value) {{ toast.push(value); }}
     assert data["renderCalls"] == []
     assert data["chatSubmittingValues"] == [False]
     assert len(data["finalizerCalls"]) == 1
-    assert data["activeRequestCleared"] is True
+    assert data["currentRequestCleared"] is True
     assert data["inflightThinkingCleared"] is True
     assert data["lastThinkingCompleted"] is True
     assert data["status"][-1] == {
@@ -660,7 +660,7 @@ const EDITED_MESSAGE_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const state = {{ selectedAgentId: "agent-1" }};
 const chatState = {{
   sessionId: "s1",
-  activeRequest: {{ clientRequestId: "req-edit-1", edit: true }},
+  currentRequest: {{ clientRequestId: "req-edit-1", edit: true }},
   inflightThinking: {{
     id: "req-edit-1",
     requestId: "req-edit-1",
@@ -669,7 +669,6 @@ const chatState = {{
     events: [],
   }},
   needsReload: false,
-  backgroundStatus: "",
 }};
 const agentApiCalls = [];
 const renderCalls = [];
@@ -726,11 +725,10 @@ function showToast() {{}}
     chatSubmittingValues,
     finalizerCalls,
     status,
-    activeRequestCleared: chatState.activeRequest === null,
+    currentRequestCleared: chatState.currentRequest === null,
     inflightThinkingCleared: chatState.inflightThinking === null,
     lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
     needsReload: chatState.needsReload,
-    backgroundStatus: chatState.backgroundStatus,
     controlsSynced,
     editButtons,
     icons,
@@ -744,12 +742,10 @@ function showToast() {{}}
     assert data["renderCalls"] == []
     assert data["chatSubmittingValues"] == [False]
     assert len(data["finalizerCalls"]) == 1
-    assert data["activeRequestCleared"] is True
+    assert data["currentRequestCleared"] is True
     assert data["inflightThinkingCleared"] is True
     assert data["lastThinkingCompleted"] is True
     assert data["needsReload"] is True
-    assert data["backgroundStatus"] in {"timeout", "needs_reload"}
-    assert data["backgroundStatus"] != "regenerating"
     assert data["status"][-1] == {
         "value": "Regeneration is still running or timed out; refresh the session to check the latest result.",
         "isError": True,
