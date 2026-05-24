@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from app.contracts.opencode_provider import normalize_provider_for_portal, normalize_provider_for_runtime
+from app.contracts.opencode_provider import normalize_model_for_runtime, normalize_provider_for_portal, normalize_provider_for_runtime
 
 
 def _is_copilot_provider(provider: str | None) -> bool:
@@ -27,6 +27,10 @@ def project_llm_for_runtime(llm: dict, runtime_type: str) -> dict:
     runtime_type = "opencode" if str(runtime_type or "").strip().lower() == "opencode" else "native"
     if provider_hint:
         projected["provider"] = normalize_provider_for_runtime(runtime_type, provider_hint)
+    if projected.get("model"):
+        normalized_model = normalize_model_for_runtime(runtime_type, provider_hint, projected.get("model"))
+        if normalized_model:
+            projected["model"] = normalized_model
 
     if not _is_copilot_provider(provider_hint):
         projected.pop("oauth", None)
@@ -36,12 +40,6 @@ def project_llm_for_runtime(llm: dict, runtime_type: str) -> dict:
     token = str(projected.get("api_key") or "").strip()
     projected.pop("oauth", None)
     projected.pop("oauth_by_runtime", None)
-
-    if runtime_type == "opencode":
-        if token:
-            projected["oauth"] = {"type": "oauth", "access": token, "refresh": token, "expires": 0}
-        projected.pop("api_key", None)
-        return projected
 
     if token:
         projected["api_key"] = token

@@ -514,7 +514,7 @@ def _copilot_root_block(text: str) -> str:
     end = text.index('<div class="portal-settings-section-title"', start)
     return text[start:end]
 
-def test_templates_and_js_include_copilot_auth_buttons_and_api_key_flow():
+def test_templates_and_js_include_single_copilot_auth_button_and_api_key_flow():
     from pathlib import Path
     runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text()
     settings_tpl = Path("app/templates/partials/settings_panel.html").read_text()
@@ -529,21 +529,28 @@ def test_templates_and_js_include_copilot_auth_buttons_and_api_key_flow():
     assert 'data-copilot-status-text' not in runtime_tpl
     assert 'data-copilot-auth-status' not in settings_tpl
     assert 'data-copilot-status-text' not in settings_tpl
-    assert 'data-copilot-auth-button="native"' in runtime_tpl
-    assert 'data-copilot-auth-button="opencode"' in runtime_tpl
+    assert 'data-copilot-auth-button="native"' not in runtime_tpl
+    assert 'data-copilot-auth-button="opencode"' not in runtime_tpl
+    assert 'data-copilot-auth-button="native"' not in settings_tpl
+    assert 'data-copilot-auth-button="opencode"' not in settings_tpl
+    assert runtime_tpl.count("data-copilot-auth-button") == 1
+    assert settings_tpl.count("data-copilot-auth-button") == 1
     assert 'class="space-y-2 hidden" data-copilot-auth-root' in runtime_tpl
     assert 'class="space-y-2 hidden" data-copilot-auth-root' in settings_tpl
-    assert "Choose one authorization button to generate a GitHub Copilot token" in runtime_tpl
+    assert "Generate a GitHub Copilot token" in runtime_tpl
     assert "GitHub Copilot authorization always uses github.com" in runtime_tpl
-    assert "Choose one authorization button to generate a GitHub Copilot token" in settings_tpl
+    assert "Generate a GitHub Copilot token" in settings_tpl
     assert "GitHub Copilot authorization always uses github.com" in settings_tpl
-    assert "Choose one authorization button to generate a GitHub Copilot token" in _copilot_root_block(runtime_tpl)
+    assert "Generate a GitHub Copilot token" in _copilot_root_block(runtime_tpl)
     assert "GitHub Copilot authorization always uses github.com" in _copilot_root_block(runtime_tpl)
-    assert "Choose one authorization button to generate a GitHub Copilot token" in _copilot_root_block(settings_tpl)
+    assert "Generate a GitHub Copilot token" in _copilot_root_block(settings_tpl)
     assert "GitHub Copilot authorization always uses github.com" in _copilot_root_block(settings_tpl)
     assert 'setCopilotApiKeyField' in js
     assert 'querySelectorAll("[data-copilot-auth-button]")' in js
     assert 'button.classList.toggle("hidden", !isCopilot)' in js
+    assert "JSON.stringify({})" in js
+    start_block = js[js.index("async function startCopilotAuth"):js.index("function initializeManagedSettingsRoot")]
+    assert "runtime_type" not in start_block
     assert 'Authorization completed, but no token was returned' in js
     assert 'const updated = setCopilotApiKeyField(root, token)' in js
     assert 'setCopilotOAuthFields' not in js

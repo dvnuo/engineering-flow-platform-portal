@@ -425,35 +425,6 @@ def sanitize_runtime_profile_debug(value) -> dict:
         out["log_level"] = log_level
     return out
 
-
-
-
-
-def _runtime_profile_llm_looks_like_copilot(llm: dict) -> bool:
-    provider = str((llm or {}).get("provider") or "").strip().lower().replace("-", "_")
-    if provider in {"github", "copilot", "github_copilot"}:
-        return True
-    model = str((llm or {}).get("model") or "").strip().lower()
-    return model.startswith("github_copilot/") or model.startswith("github-copilot/")
-
-
-def _legacy_copilot_token_from_llm(raw_llm: dict) -> str:
-    if not isinstance(raw_llm, dict):
-        return ""
-    api_key = str(raw_llm.get("api_key") or "").strip()
-    if api_key:
-        return api_key
-
-    by_runtime = raw_llm.get("oauth_by_runtime") if isinstance(raw_llm.get("oauth_by_runtime"), dict) else {}
-    for key in ("opencode", "native"):
-        oauth = sanitize_runtime_profile_llm_oauth(by_runtime.get(key))
-        token = str(oauth.get("access") or oauth.get("refresh") or "").strip() if oauth else ""
-        if token:
-            return token
-
-    oauth = sanitize_runtime_profile_llm_oauth(raw_llm.get("oauth"))
-    return str(oauth.get("access") or oauth.get("refresh") or "").strip() if oauth else ""
-
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
@@ -522,13 +493,7 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         if api_key:
             llm_copy["api_key"] = api_key
         else:
-            migrated = ""
-            if _runtime_profile_llm_looks_like_copilot(raw_llm) or _runtime_profile_llm_looks_like_copilot(llm_copy):
-                migrated = _legacy_copilot_token_from_llm(raw_llm)
-            if migrated:
-                llm_copy["api_key"] = migrated
-            else:
-                llm_copy.pop("api_key", None)
+            llm_copy.pop("api_key", None)
         llm_copy.pop("oauth", None)
         llm_copy.pop("oauth_by_runtime", None)
         llm = llm_copy

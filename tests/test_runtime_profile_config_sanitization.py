@@ -211,7 +211,7 @@ def test_public_redaction_never_exposes_raw_secret_literals():
     assert red["confluence"]["instances"][0]["token_present"] is True
 
 
-def test_copilot_legacy_oauth_by_runtime_migrates_to_api_key():
+def test_copilot_legacy_oauth_by_runtime_is_dropped_not_migrated():
     raw = {
         "llm": {
             "provider": "github_copilot",
@@ -222,7 +222,7 @@ def test_copilot_legacy_oauth_by_runtime_migrates_to_api_key():
         }
     }
     sanitized = sanitize_runtime_profile_config_dict(raw)
-    assert sanitized["llm"]["api_key"] == "O"
+    assert sanitized["llm"] == {"provider": "github_copilot"}
     assert "oauth" not in sanitized["llm"]
     assert "oauth_by_runtime" not in sanitized["llm"]
 

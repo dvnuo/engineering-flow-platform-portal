@@ -11,7 +11,7 @@ from app.redaction import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
 
-COPILOT_OAUTH_CLIENT_IDS = {"native": "Iv1.b507a08c87ecfe98", "efp": "Iv1.b507a08c87ecfe98", "opencode": "Ov23li8tweQw6odWQebz"}
+COPILOT_OAUTH_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 COPILOT_GITHUB_OAUTH_BASE_URL = "https://github.com"
 COPILOT_DEVICE_CODE_URL = f"{COPILOT_GITHUB_OAUTH_BASE_URL}/login/device/code"
 COPILOT_ACCESS_TOKEN_URL = f"{COPILOT_GITHUB_OAUTH_BASE_URL}/login/oauth/access_token"
@@ -34,7 +34,7 @@ class CopilotAuthService:
     _HEADERS = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "engineering-flow-platform-portal",
+        "User-Agent": "GitHubCopilotChat/0.35.0",
     }
 
     def _utc_now(self) -> datetime:
@@ -59,7 +59,6 @@ class CopilotAuthService:
     async def start_authorization(self, user_id: str, github_base_url: str | None, runtime_type: str | None = None) -> tuple[int, dict]:
         self._cleanup_expired()
         runtime_type_normalized = normalize_copilot_runtime_type(runtime_type)
-        selected_client_id = COPILOT_OAUTH_CLIENT_IDS[runtime_type_normalized]
         # GitHub Copilot OAuth must always use public github.com.
         # Do not reuse runtime profile github.base_url/GHE here.
         _ = github_base_url
@@ -68,7 +67,7 @@ class CopilotAuthService:
         access_token_url = COPILOT_ACCESS_TOKEN_URL
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(device_url, headers=self._HEADERS, json={"client_id": selected_client_id, "scope": "read:user"})
+                response = await client.post(device_url, headers=self._HEADERS, json={"client_id": COPILOT_OAUTH_CLIENT_ID, "scope": "read:user"})
         except Exception as exc:
             logger.exception("Copilot start authorization failed")
             return 500, {"error": "Failed to start authorization", "details": sanitize_exception_message(exc)}
@@ -86,7 +85,7 @@ class CopilotAuthService:
         created_at = self._utc_now()
         _pending_authorizations[auth_id] = {
             "auth_id": auth_id, "user_id": str(user_id), "device_code": data.get("device_code", ""), "user_code": data.get("user_code", ""),
-            "verification_uri": data.get("verification_uri", ""), "oauth_base_url": oauth_base_url, "access_token_url": access_token_url, "runtime_type": runtime_type_normalized, "client_id": selected_client_id,
+            "verification_uri": data.get("verification_uri", ""), "oauth_base_url": oauth_base_url, "access_token_url": access_token_url, "runtime_type": runtime_type_normalized, "client_id": COPILOT_OAUTH_CLIENT_ID,
             "expires_at": created_at + timedelta(seconds=expires_in), "interval": interval, "status": "pending", "oauth": None, "created_at": created_at,
             "latest_check": datetime.utcnow().timestamp(),
         }
@@ -139,7 +138,7 @@ class CopilotAuthService:
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(record["access_token_url"], headers=self._HEADERS, json={"client_id": record.get("client_id") or COPILOT_OAUTH_CLIENT_IDS["opencode"], "device_code": record["device_code"], "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
+                response = await client.post(record["access_token_url"], headers=self._HEADERS, json={"client_id": record.get("client_id") or COPILOT_OAUTH_CLIENT_ID, "device_code": record["device_code"], "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
         except Exception as exc:
             logger.exception("Copilot verify failed auth_id=%s", auth_id)
             return 500, {"status": "failed", "message": sanitize_exception_message(exc)}

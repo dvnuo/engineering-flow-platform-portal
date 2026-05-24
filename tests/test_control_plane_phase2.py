@@ -900,7 +900,7 @@ def test_internal_runtime_context_includes_runtime_profile_context(monkeypatch):
         cleanup()
 
 
-def test_internal_runtime_context_projects_copilot_oauth_for_native_runtime(monkeypatch):
+def test_internal_runtime_context_projects_copilot_api_key_for_native_runtime(monkeypatch):
     client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         from app.main import app
@@ -918,10 +918,7 @@ def test_internal_runtime_context_projects_copilot_oauth_for_native_runtime(monk
                     "llm": {
                         "provider": "github_copilot",
                         "model": "gpt-5",
-                        "oauth_by_runtime": {
-                            "native": {"type": "oauth", "access": "NATIVE_SECRET", "refresh": "NATIVE_SECRET", "expires": 0},
-                            "opencode": {"type": "oauth", "access": "OPENCODE_SECRET", "refresh": "OPENCODE_SECRET", "expires": 0},
-                        },
+                        "api_key": "SINGLE_SECRET",
                     }
                 }
             ),
@@ -938,17 +935,16 @@ def test_internal_runtime_context_projects_copilot_oauth_for_native_runtime(monk
         llm = ctx["llm"]
         assert llm["provider"] == "github_copilot"
         assert llm["model"] == "gpt-5"
-        assert llm["api_key"] == "OPENCODE_SECRET"
+        assert llm["api_key"] == "SINGLE_SECRET"
         assert "oauth" not in llm
         assert "oauth_by_runtime" not in llm
         dumped = json.dumps(ctx)
-        assert "NATIVE_SECRET" not in dumped
-        assert "OPENCODE_SECRET" in dumped
+        assert "SINGLE_SECRET" in dumped
     finally:
         cleanup()
 
 
-def test_internal_runtime_context_projects_copilot_oauth_for_opencode_runtime(monkeypatch):
+def test_internal_runtime_context_projects_copilot_api_key_for_opencode_runtime(monkeypatch):
     client, agent, _admin_user, _viewer_user, _set_user, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         from app.main import app
@@ -966,10 +962,7 @@ def test_internal_runtime_context_projects_copilot_oauth_for_opencode_runtime(mo
                     "llm": {
                         "provider": "github_copilot",
                         "model": "gpt-5",
-                        "oauth_by_runtime": {
-                            "native": {"type": "oauth", "access": "NATIVE_SECRET", "refresh": "NATIVE_SECRET", "expires": 0},
-                            "opencode": {"type": "oauth", "access": "OPENCODE_SECRET", "refresh": "OPENCODE_SECRET", "expires": 0},
-                        },
+                        "api_key": "SINGLE_SECRET",
                     }
                 }
             ),
@@ -985,13 +978,11 @@ def test_internal_runtime_context_projects_copilot_oauth_for_opencode_runtime(mo
         ctx = resp.json()["runtime_profile_context"]["config"]
         llm = ctx["llm"]
         assert llm["provider"] == "github-copilot"
-        assert llm["model"] == "gpt-5"
-        assert llm["oauth"]["access"] == "OPENCODE_SECRET"
-        assert llm["oauth"]["refresh"] == "OPENCODE_SECRET"
-        assert "api_key" not in llm
+        assert llm["model"] == "github-copilot/gpt-5"
+        assert llm["api_key"] == "SINGLE_SECRET"
+        assert "oauth" not in llm
         assert "oauth_by_runtime" not in llm
         dumped = json.dumps(ctx)
-        assert "NATIVE_SECRET" not in dumped
-        assert "OPENCODE_SECRET" in dumped
+        assert "SINGLE_SECRET" in dumped
     finally:
         cleanup()

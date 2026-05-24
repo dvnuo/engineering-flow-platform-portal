@@ -227,7 +227,7 @@ def test_runtime_profile_api_redacts_llm_oauth_secrets_in_response(monkeypatch):
         assert resp.status_code == 200
         assert "gho_A" not in resp.text and "gho_R" not in resp.text
         cfg = json.loads(resp.json()["config_json"])
-        assert cfg["llm"]["api_key_present"] is True
+        assert cfg["llm"]["api_key_present"] is False
         assert "api_key" not in cfg["llm"]
         assert "oauth" not in cfg["llm"]
     finally:

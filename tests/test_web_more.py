@@ -303,26 +303,12 @@ global.document = document;
 let stopCalled = 0;
 function stopCopilotPolling(_root) {{ stopCalled += 1; }}
 function getManagedCopilotState() {{ return {{ authInterval: null }}; }}
-function normalizeCopilotRuntimeType(runtimeType) {{ return runtimeType === "opencode" ? "opencode" : "native"; }}
-function copilotCard(root, runtimeType) {{ return root.querySelector(`[data-copilot-auth-card="${{normalizeCopilotRuntimeType(runtimeType)}}"]`); }}
 function updateCopilotAuthCardsVisibility(root, isCopilot) {{
-  ["native", "opencode"].forEach((key) => {{
-    const card = copilotCard(root, key);
-    const button = card?.querySelector("[data-copilot-auth-button]");
-    const status = card?.querySelector("[data-copilot-auth-status]");
-    const instructions = card?.querySelector("[data-copilot-instructions]");
-    button?.classList.toggle("hidden", !isCopilot);
-    if (!isCopilot) {{
-      status?.classList.add("hidden");
-      instructions?.classList.add("hidden");
-    }}
-  }});
-}}
-function clearCopilotOAuthFields(root, _runtimeType = null, _options = {{}}) {{
-  const nativeClear = root.querySelector('input[name="llm_oauth_native_clear"]');
-  const opencodeClear = root.querySelector('input[name="llm_oauth_opencode_clear"]');
-  if (nativeClear) nativeClear.value = "";
-  if (opencodeClear) opencodeClear.value = "";
+  const authRoot = root.querySelector("[data-copilot-auth-root]");
+  const button = authRoot?.querySelector("[data-copilot-auth-button]");
+  const instructions = authRoot?.querySelector("[data-copilot-instructions]");
+  button?.classList.toggle("hidden", !isCopilot);
+  if (!isCopilot) instructions?.classList.add("hidden");
 }}
 
 function makeSelect(initialValue = "") {{
@@ -343,39 +329,25 @@ function makeRoot(providerValue, modelValue) {{
   model.dataset.initialValue = modelValue;
   model.dataset.currentValue = modelValue;
   model.dataset.lastProvider = providerValue;
-  const makeCard = () => {{
+  const makeAuthRoot = () => {{
     const button = {{ classList: {{ toggle: noop }} }};
-    const status = {{ classList: {{ add: noop, remove: noop }} }};
     const instructions = {{ classList: {{ add: noop }} }};
-    const statusText = {{ textContent: "" }};
     return {{
       querySelector(sel) {{
         if (sel === "[data-copilot-auth-button]") return button;
-        if (sel === "[data-copilot-auth-status]") return status;
         if (sel === "[data-copilot-instructions]") return instructions;
-        if (sel === "[data-copilot-status-text]") return statusText;
         return null;
       }},
     }};
   }};
-  const nativeCard = makeCard();
-  const opencodeCard = makeCard();
-  const nativePresent = {{ value: "" }};
-  const opencodePresent = {{ value: "" }};
-  const nativeClear = {{ value: "" }};
-  const opencodeClear = {{ value: "" }};
+  const authRoot = makeAuthRoot();
   return {{
     provider,
     model,
     querySelector(sel) {{
       if (sel === "#llm_provider") return provider;
       if (sel === "#llm_model") return model;
-      if (sel === '[data-copilot-auth-card="native"]') return nativeCard;
-      if (sel === '[data-copilot-auth-card="opencode"]') return opencodeCard;
-      if (sel === 'input[name="llm_oauth_native_present"]') return nativePresent;
-      if (sel === 'input[name="llm_oauth_opencode_present"]') return opencodePresent;
-      if (sel === 'input[name="llm_oauth_native_clear"]') return nativeClear;
-      if (sel === 'input[name="llm_oauth_opencode_clear"]') return opencodeClear;
+      if (sel === "[data-copilot-auth-root]") return authRoot;
       return null;
     }},
   }};
@@ -1443,7 +1415,6 @@ def test_start_copilot_auth_uses_portal_endpoints_and_stops_on_declined():
         pytest.skip("node is not installed; skipping copilot auth behavior test")
 
     js_file = _chat_ui_js_source()
-    normalize_runtime_fn = _extract_js_function(js_file, "normalizeCopilotRuntimeType")
     get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
     stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
     get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
@@ -1530,7 +1501,6 @@ async function fetch(url, options) {{
 
 global.fetch = fetch;
 
-{normalize_runtime_fn}
 {get_state_fn}
 {stop_polling_fn}
 {get_auth_base_fn}
@@ -1540,7 +1510,7 @@ global.fetch = fetch;
 {start_copilot_fn}
 
 (async () => {{
-  await startCopilotAuth(root, "opencode");
+  await startCopilotAuth(root);
   await intervalCalls.find((x) => x.ms === 7000).fn();
 
   console.log(JSON.stringify({{
@@ -1562,7 +1532,7 @@ global.fetch = fetch;
 
     assert data["fetchCalls"][0]["url"] == "/api/copilot/auth/start"
     assert "github_base_url" not in data["startBody"]
-    assert data["startBody"]["runtime_type"] == "opencode"
+    assert "runtime_type" not in data["startBody"]
     assert 7000 in data["intervalMs"]
     assert data["fetchCalls"][1]["url"] == "/api/copilot/auth/check"
     assert data["summaryText"] == "nope"
@@ -1575,7 +1545,6 @@ def test_start_copilot_auth_stops_on_check_http_error_or_missing_status():
         pytest.skip("node is not installed; skipping copilot auth behavior test")
 
     js_file = _chat_ui_js_source()
-    normalize_runtime_fn = _extract_js_function(js_file, "normalizeCopilotRuntimeType")
     get_state_fn = _extract_js_function(js_file, "getManagedCopilotState")
     stop_polling_fn = _extract_js_function(js_file, "stopCopilotPolling")
     get_auth_base_fn = _extract_js_function(js_file, "getManagedCopilotAuthBase")
@@ -1658,7 +1627,6 @@ async function runScenario(mode) {{
 
   global.fetch = fetch;
 
-  {normalize_runtime_fn}
   {get_state_fn}
   {stop_polling_fn}
   {get_auth_base_fn}
@@ -1667,7 +1635,7 @@ async function runScenario(mode) {{
   {finish_fn}
   {start_copilot_fn}
 
-  await startCopilotAuth(root, "native");
+  await startCopilotAuth(root);
   await intervalCalls.find((x) => x.ms === 7000).fn();
 
   return {{
@@ -1694,12 +1662,12 @@ async function runScenario(mode) {{
     assert len(data["httpError"]["clearedIntervals"]) >= 2
     assert data["httpError"]["summaryText"] != "Waiting for authorization..."
     assert "Authorization not found or expired" in data["httpError"]["summaryText"]
-    assert data["httpError"]["startBody"]["runtime_type"] == "native"
+    assert "runtime_type" not in data["httpError"]["startBody"]
 
     assert len(data["missingStatus"]["clearedIntervals"]) >= 2
     assert data["missingStatus"]["summaryText"] != "Waiting for authorization..."
     assert "missing status" in data["missingStatus"]["summaryText"]
-    assert data["missingStatus"]["startBody"]["runtime_type"] == "native"
+    assert "runtime_type" not in data["missingStatus"]["startBody"]
 
 
 def test_thinking_process_advanced_debug_copy_controls_are_wired():
@@ -1975,8 +1943,6 @@ def test_start_copilot_auth_authorized_updates_hidden_fields_and_masked_summary(
 
     js_file = _chat_ui_js_source()
     fn_names = [
-        "normalizeCopilotRuntimeType",
-        "copilotRuntimeLabel",
         "maskCopilotSecret",
         "setCopilotResultSummary",
         "getManagedCopilotState",
@@ -2063,7 +2029,7 @@ global.fetch = fetch;
 {extracted}
 
 (async () => {{
-  await startCopilotAuth(root, 'opencode');
+  await startCopilotAuth(root);
   await intervalCalls.find((x) => x.ms === 2000).fn();
   console.log(JSON.stringify({{
     summaryText: elements.summary.textContent,
