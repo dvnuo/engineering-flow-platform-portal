@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
-from typing import Any, Optional
+from pydantic import BaseModel
+from typing import Optional
 
 
 class AgentTaskCreateRequest(BaseModel):
@@ -29,15 +29,6 @@ class AgentTaskCreateRequest(BaseModel):
     retry_count: int = 0
 
 
-class CreateTaskFromTemplateRequest(BaseModel):
-    template_id: str
-    assignee_agent_id: str
-    dispatch_immediately: bool = True
-    input: dict[str, Any] = Field(default_factory=dict)
-    group_id: Optional[str] = None
-    parent_agent_id: Optional[str] = None
-
-
 class CreateAgentAsyncTaskRequest(BaseModel):
     assignee_agent_id: str
     skill_name: str
@@ -46,24 +37,6 @@ class CreateAgentAsyncTaskRequest(BaseModel):
 
 class CreateAgentTaskFollowupRequest(BaseModel):
     task_content: str
-
-
-class TaskTemplateRead(BaseModel):
-    template_id: str
-    label: str
-    description: str
-    task_type: str
-    task_family: str
-    provider: Optional[str] = None
-    default_trigger: Optional[str] = None
-    default_skill_name: Optional[str] = None
-    required_inputs: tuple[str, ...] = ()
-    optional_inputs: tuple[str, ...] = ()
-    output_artifacts: tuple[str, ...] = ()
-    compatible_bundle_templates: tuple[str, ...] = ()
-    requires_bundle: bool = False
-    requires_sources: bool = False
-    dispatch_immediately_default: bool = True
 
 
 class AgentTaskResponse(BaseModel):

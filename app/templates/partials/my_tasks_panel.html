@@ -34,7 +34,7 @@
       {% elif task.summary and task.summary != task_title %}
       <div class="portal-panel-note">{{ task.summary[:180] }}</div>
       {% elif task.task_type != "agent_async_task" %}
-      <div class="portal-panel-note">{{ task.task_type }} · {{ task.source }}</div>
+      <div class="portal-panel-note">Unsupported task type · {{ task.task_type }} · {{ task.source }}</div>
       {% endif %}
       {% if content_target == "#workspace-detail-content" %}
       <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ task.id }}">View detail</button>

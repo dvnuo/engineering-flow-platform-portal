@@ -15,9 +15,6 @@
       {% if task_view_model.can_cancel %}
       <button class="portal-btn is-secondary" type="button" data-cancel-task="{{ task.id }}">Cancel Task</button>
       {% endif %}
-      {% if task_view_model.bundle_open_url %}
-      <button class="portal-btn is-secondary" hx-get="{{ task_view_model.bundle_open_url }}" hx-target="{{ content_target }}" hx-swap="innerHTML">Open Bundle Detail</button>
-      {% endif %}
     </div>
   </div>
 
@@ -123,6 +120,10 @@
     <pre class="portal-panel-pre">{{ task_view_model.result_payload_pretty }}</pre>
   </details>
   {% else %}
+  {% if task_view_model.unsupported_message %}
+  <div class="portal-callout is-warning">{{ task_view_model.unsupported_message }}</div>
+  {% endif %}
+
   {% if task_view_model.error_text %}
   <div class="portal-callout is-error">{{ task_view_model.error_text }}</div>
   {% elif task_view_model.summary_text %}

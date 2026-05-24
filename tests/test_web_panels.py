@@ -153,25 +153,25 @@ def test_task_create_panel_has_agent_skill_textarea_and_no_template(monkeypatch)
     assert 'name="template_id"' not in response.text
 
 
-def test_task_detail_panel_renders_business_context_for_bundle_action_task(monkeypatch):
+def test_task_detail_panel_renders_non_async_tasks_as_unsupported_read_only(monkeypatch):
     client = _setup_task_client(monkeypatch, _bundle_action_task("done"))
     response = client.get("/app/tasks/task-1/panel")
     assert response.status_code == 200
-    assert "Collect Requirements" in response.text
-    assert "Requirement Bundle" in response.text
+    assert "Unsupported Task" in response.text
+    assert "This task type is not supported by the background task panel" in response.text
     assert "Input Payload" in response.text
     assert "Result Payload" in response.text
-    assert "Open Bundle Detail" in response.text
+    assert "Open Bundle Detail" not in response.text
+    assert "Collect Requirements" not in response.text
+    assert "Requirement Bundle" not in response.text
+    assert "Task Template" not in response.text
+    assert "Bundle Path" not in response.text
 
 
-def test_task_detail_panel_auto_refresh_only_for_active_tasks(monkeypatch):
+def test_non_async_task_detail_does_not_auto_refresh(monkeypatch):
     client_running = _setup_task_client(monkeypatch, _bundle_action_task("queued"))
     running_html = client_running.get("/app/tasks/task-1/panel").text
-    assert 'hx-trigger="every 5s"' in running_html
-
-    client_done = _setup_task_client(monkeypatch, _bundle_action_task("done"))
-    done_html = client_done.get("/app/tasks/task-1/panel").text
-    assert 'hx-trigger="every 5s"' not in done_html
+    assert 'hx-trigger="every 5s"' not in running_html
 
 
 def test_agent_async_task_detail_renders_final_response_and_followup(monkeypatch):

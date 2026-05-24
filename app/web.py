@@ -3,7 +3,7 @@ import app.logger  # Ensure logging is configured (intentional side-effect impor
 import json
 import logging
 from datetime import datetime
-from urllib.parse import urlencode, quote
+from urllib.parse import quote
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
@@ -601,60 +601,13 @@ def _build_task_detail_view_model(task, db=None) -> dict:
     if getattr(task, "task_type", None) == "agent_async_task":
         return _build_agent_async_task_detail_view_model(task, db=db)
 
-    input_payload = _safe_json_object(getattr(task, "input_payload_json", None))
-    input_obj = input_payload if isinstance(input_payload, dict) else {}
-    bundle_ref = input_obj.get("bundle_ref") if isinstance(input_obj.get("bundle_ref"), dict) else {}
-    manifest_ref = input_obj.get("manifest_ref") if isinstance(input_obj.get("manifest_ref"), dict) else {}
-    sources = input_obj.get("sources") if isinstance(input_obj.get("sources"), dict) else {}
-    template_id = getattr(task, "template_id", None) or (input_obj.get("template_id") if isinstance(input_obj.get("template_id"), str) else "")
-    legacy_action_id = input_obj.get("action_id") if isinstance(input_obj.get("action_id"), str) else ""
-
-    action_label = ""
-    template_label = template_id or "-"
-    if template_id:
-        task_template = get_task_template(template_id)
-        if task_template is not None:
-            action_label = task_template.label
-        else:
-            try:
-                bundle_template = require_bundle_template(template_id)
-                template_label = bundle_template.display_name or template_id
-            except ValueError:
-                pass
-    if not action_label and legacy_action_id:
-        action_label = legacy_action_id.replace("_", " ").title()
-
-    bundle_path = str(bundle_ref.get("path") or manifest_ref.get("path") or "").strip()
     status_label = getattr(task, "status", None) or "unknown"
-    is_active = status_label in {"queued", "running"}
-    source_counts = {
-        "jira": len(sources.get("jira") or []),
-        "confluence": len(sources.get("confluence") or []),
-        "github_docs": len(sources.get("github_docs") or []),
-        "figma": len(sources.get("figma") or []),
-    }
-
-    bundle_open_url = None
-    if bundle_ref.get("repo") and bundle_ref.get("path") and bundle_ref.get("branch"):
-        bundle_open_url = f"/app/requirement-bundles/open?{urlencode({'repo': bundle_ref.get('repo'), 'path': bundle_ref.get('path'), 'branch': bundle_ref.get('branch')})}"
-
     context_items = [
+        ("Task ID", getattr(task, "id", "-")),
         ("Task Type", getattr(task, "task_type", None) or "-"),
         ("Task Family", getattr(task, "task_family", None) or "-"),
         ("Provider", getattr(task, "provider", None) or "-"),
         ("Trigger", getattr(task, "trigger", None) or "-"),
-        ("Template", template_label),
-        ("Task Template", action_label or "-"),
-        ("Bundle Path", bundle_path or "-"),
-        ("Repo", bundle_ref.get("repo") or "-"),
-        ("Branch", bundle_ref.get("branch") or "-"),
-        ("Jira Sources", str(source_counts["jira"])),
-        ("Confluence Sources", str(source_counts["confluence"])),
-        ("GitHub Docs Sources", str(source_counts["github_docs"])),
-        ("Figma Sources", str(source_counts["figma"])),
-    ]
-    metadata_items = [
-        ("Task ID", getattr(task, "id", "-")),
         ("Bundle ID", getattr(task, "bundle_id", None) or "-"),
         ("Version Key", getattr(task, "version_key", None) or "-"),
         ("Dedupe Key", getattr(task, "dedupe_key", None) or "-"),
@@ -667,13 +620,14 @@ def _build_task_detail_view_model(task, db=None) -> dict:
 
     return {
         "is_agent_async": False,
-        "display_title": action_label or (getattr(task, "task_type", None) or "Task Detail").replace("_", " ").title(),
-        "display_subtitle": bundle_path.split("/")[-1] if bundle_path else (getattr(task, "task_type", None) or "Task"),
+        "display_title": getattr(task, "title", None) or "Unsupported Task",
+        "display_subtitle": "Read-only task type",
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
-        "is_active": is_active,
+        "is_active": False,
         "can_cancel": False,
         "show_followup_form": False,
+        "unsupported_message": "This task type is not supported by the background task panel. Raw payloads are available for inspection.",
         "timeline": [],
         "summary_text": getattr(task, "summary", None) or "",
         "error_text": getattr(task, "error_message", None) or "",
@@ -697,10 +651,8 @@ def _build_task_detail_view_model(task, db=None) -> dict:
         "updated_at": getattr(task, "updated_at", None) or "-",
         "retry_count": getattr(task, "retry_count", 0) or 0,
         "context_items": context_items,
-        "metadata_items": metadata_items,
         "input_payload_pretty": _pretty_json_text(getattr(task, "input_payload_json", None)),
         "result_payload_pretty": _pretty_json_text(getattr(task, "result_payload_json", None)),
-        "bundle_open_url": bundle_open_url,
     }
 
 
