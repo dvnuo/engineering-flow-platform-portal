@@ -10,7 +10,6 @@ class AgentTaskCreateRequest(BaseModel):
     assignee_agent_id: str
     source: str
     task_type: str
-    template_id: Optional[str] = None
     title: Optional[str] = None
     skill_name: Optional[str] = None
     parent_task_id: Optional[str] = None
@@ -46,7 +45,6 @@ class AgentTaskResponse(BaseModel):
     assignee_agent_id: str
     source: str
     task_type: str
-    template_id: Optional[str] = None
     title: Optional[str] = None
     skill_name: Optional[str] = None
     parent_task_id: Optional[str] = None

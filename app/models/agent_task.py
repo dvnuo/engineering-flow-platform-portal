@@ -17,7 +17,6 @@ class AgentTask(Base):
     assignee_agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     task_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    template_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     skill_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     parent_task_id: Mapped[Optional[str]] = mapped_column(ForeignKey("agent_tasks.id"), nullable=True, index=True)

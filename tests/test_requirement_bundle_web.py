@@ -164,7 +164,7 @@ def test_dispatch_actions_create_bundle_action_task(monkeypatch):
             "/app/requirement-bundles/task-shortcuts/run",
             data={
                 "bundle_template_id": template_id,
-                "task_template_id": action_id,
+                "bundle_action_id": action_id,
                 "action_agent_id": "agent-1",
                 "bundle_repo": "octo/engineering-flow-platform-assets",
                 "bundle_path": "requirement-bundles/payments/checkout-flow",
@@ -227,7 +227,7 @@ def test_collect_rejects_empty_and_figma_only(monkeypatch):
         "/app/requirement-bundles/task-shortcuts/run",
         data={
             "bundle_template_id": "requirement.v1",
-            "task_template_id": "collect_requirements_to_bundle",
+            "bundle_action_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
@@ -241,7 +241,7 @@ def test_collect_rejects_empty_and_figma_only(monkeypatch):
         "/app/requirement-bundles/task-shortcuts/run",
         data={
             "bundle_template_id": "requirement.v1",
-            "task_template_id": "collect_requirements_to_bundle",
+            "bundle_action_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
@@ -276,7 +276,7 @@ def test_collect_validation_error_preserves_form_state(monkeypatch):
         "/app/requirement-bundles/task-shortcuts/run",
         data={
             "bundle_template_id": "requirement.v1",
-            "task_template_id": "collect_requirements_to_bundle",
+            "bundle_action_id": "collect_requirements_to_bundle",
             "action_agent_id": "agent-1",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
@@ -300,7 +300,7 @@ def test_missing_action_agent_rerenders_panel_instead_of_http_400(monkeypatch):
         "/app/requirement-bundles/task-shortcuts/run",
         data={
             "bundle_template_id": "requirement.v1",
-            "task_template_id": "collect_requirements_to_bundle",
+            "bundle_action_id": "collect_requirements_to_bundle",
             "bundle_repo": "octo/engineering-flow-platform-assets",
             "bundle_path": "requirement-bundles/payments/checkout-flow",
             "bundle_branch": "bundle/checkout-flow/deadbeef",
@@ -339,7 +339,7 @@ def test_completed_bundle_shows_available_actions_without_recommended_heading(mo
     assert "Available Task Shortcuts" in response.text
     assert "Collect Requirements" in response.text
     assert "Design Test Cases" in response.text
-    assert response.text.count('name="task_template_id"') >= 2
+    assert response.text.count('name="bundle_action_id"') >= 2
 
 
 def test_form_state_only_expands_action_and_does_not_force_recommended_action():
@@ -350,11 +350,11 @@ def test_form_state_only_expands_action_and_does_not_force_recommended_action():
         detail,
         web_module.list_bundle_templates(),
         [],
-        form_state={"task_template_id": "design_test_cases_from_bundle", "action_agent_id": "agent-1"},
+        form_state={"bundle_action_id": "design_test_cases_from_bundle", "action_agent_id": "agent-1"},
     )
 
     assert vm["recommended_action"] is None
-    actions_by_id = {item["task_template_id"]: item for item in vm["actions"]}
+    actions_by_id = {item["bundle_action_id"]: item for item in vm["actions"]}
     assert actions_by_id["design_test_cases_from_bundle"]["expanded"] is True
     assert actions_by_id["design_test_cases_from_bundle"]["is_recommended"] is False
     assert actions_by_id["collect_requirements_to_bundle"]["is_recommended"] is False

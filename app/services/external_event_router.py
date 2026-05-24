@@ -157,14 +157,13 @@ class ExternalEventRouterService:
         for rule in rule_repo.list_enabled_for_trigger(
             source_type="github",
             trigger_type="github_pr_review_requested",
-            task_template_id="github_pr_review",
         ):
             scope_obj = self._parse_json_object(rule.scope_json) or {}
             rule_owner = str(scope_obj.get("owner") or "").strip()
-            rule_repo = str(scope_obj.get("repo") or "").strip()
+            rule_repo_name = str(scope_obj.get("repo") or "").strip()
             if self._normalize_github_match_value(rule_owner) != normalized_owner:
                 continue
-            if self._normalize_github_match_value(rule_repo) != normalized_repo:
+            if self._normalize_github_match_value(rule_repo_name) != normalized_repo:
                 continue
             trigger_obj = self._parse_json_object(rule.trigger_config_json) or {}
             rule_target_type = str(trigger_obj.get("review_target_type") or "").strip().lower()
@@ -177,19 +176,10 @@ class ExternalEventRouterService:
                 continue
             matched_rule = rule
             matched_owner = rule_owner
-            matched_repo = rule_repo
+            matched_repo = rule_repo_name
             matched_target_type = rule_target_type or "user"
             matched_target_name = rule_target_name
             break
-
-        if matched_rule and ((matched_rule.task_template_id or "") != "github_pr_review"):
-            return ExternalEventIngressResponse(
-                accepted=False,
-                matched_subscription_ids=[],
-                routing_reason="no_matching_automation_rule",
-                resolved_task_type="github_review_task",
-                message="No enabled GitHub PR reviewer automation rule matched this event",
-            )
 
         if not matched_rule:
             return ExternalEventIngressResponse(

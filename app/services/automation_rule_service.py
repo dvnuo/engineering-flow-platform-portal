@@ -15,7 +15,37 @@ from app.services.github_comment_mention_poller import GithubCommentMentionPolle
 from app.services.github_pr_review_poller import GithubPrReviewPoller
 from app.services.provider_config_resolver import ProviderConfigResolverError, resolve_github_for_agent
 from app.services.task_dispatcher import TaskDispatcherService
-from app.services.task_template_registry import build_agent_task_create_payload_from_template, require_task_template
+
+
+GITHUB_PR_REVIEW_TRIGGER = "github_pr_review_requested"
+GITHUB_COMMENT_MENTION_TRIGGER = "github_comment_mention"
+
+
+@dataclass(frozen=True)
+class AutomationKind:
+    trigger_type: str
+    task_type: str
+    task_family: str
+    provider: str
+    default_skill_name: str
+
+
+AUTOMATION_KINDS_BY_TRIGGER: dict[str, AutomationKind] = {
+    GITHUB_PR_REVIEW_TRIGGER: AutomationKind(
+        trigger_type=GITHUB_PR_REVIEW_TRIGGER,
+        task_type="github_review_task",
+        task_family="review",
+        provider="github",
+        default_skill_name="review-pull-request",
+    ),
+    GITHUB_COMMENT_MENTION_TRIGGER: AutomationKind(
+        trigger_type=GITHUB_COMMENT_MENTION_TRIGGER,
+        task_type="triggered_event_task",
+        task_family="triggered_work",
+        provider="github",
+        default_skill_name="handle-triggered-event",
+    ),
+}
 
 
 @dataclass
@@ -30,20 +60,19 @@ class RunOnceResult:
 
 
 class AutomationRuleService:
-    def _validate_source_and_trigger_for_template(self, *, source_type: str | None, trigger_type: str | None, template) -> str:
+    def _automation_kind_for_trigger(self, *, source_type: str | None, trigger_type: str | None) -> AutomationKind:
         normalized_source = str(source_type or "github").strip().lower()
         if normalized_source != "github":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_type must be github for this task template")
-        expected_trigger = template.default_trigger
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_type must be github for automation rules")
         normalized_trigger = str(trigger_type or "").strip()
-        if not normalized_trigger:
-            return expected_trigger
-        if normalized_trigger != expected_trigger:
+        kind = AUTOMATION_KINDS_BY_TRIGGER.get(normalized_trigger)
+        if not kind:
+            expected = ", ".join(sorted(AUTOMATION_KINDS_BY_TRIGGER))
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"trigger_type must be {expected_trigger} for task_template_id={template.template_id}",
+                detail=f"trigger_type must be one of: {expected}",
             )
-        return normalized_trigger
+        return kind
 
     @staticmethod
     def _int_config(value, default, *, field_name: str, min_value: int | None = None, max_value: int | None = None) -> int:
@@ -182,21 +211,19 @@ class AutomationRuleService:
         self._int_config(schedule.get("discussion_comments_tail_count"), 100, field_name="schedule.discussion_comments_tail_count", min_value=1, max_value=100)
         self._int_config(schedule.get("discussion_replies_tail_count"), 50, field_name="schedule.discussion_replies_tail_count", min_value=0, max_value=100)
 
-    def _validate_built_rule_config(self, *, built: dict, task_template_id: str) -> None:
-        require_task_template(task_template_id)
-        if task_template_id == "github_pr_review":
+    def _validate_built_rule_config(self, *, built: dict, trigger_type: str) -> None:
+        if trigger_type == GITHUB_PR_REVIEW_TRIGGER:
             return self._validate_github_pr_review_rule_config(built)
-        if task_template_id == "github_comment_mention":
+        if trigger_type == GITHUB_COMMENT_MENTION_TRIGGER:
             return self._validate_github_comment_mention_rule_config(built)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported task template: {task_template_id}")
+        expected = ", ".join(sorted(AUTOMATION_KINDS_BY_TRIGGER))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported trigger_type. Expected one of: {expected}")
 
     def create_rule(self, payload: AutomationRuleCreate, current_user_id: int) -> object:
         data = payload.model_dump()
-        template = require_task_template(payload.task_template_id)
-        trigger_type = self._validate_source_and_trigger_for_template(
+        kind = self._automation_kind_for_trigger(
             source_type=payload.source_type,
             trigger_type=payload.trigger_type,
-            template=template,
         )
         try:
             resolve_github_for_agent(self.db, payload.target_agent_id)
@@ -214,12 +241,12 @@ class AutomationRuleService:
             },
             {},
         )
-        self._validate_built_rule_config(built=built, task_template_id=payload.task_template_id)
+        self._validate_built_rule_config(built=built, trigger_type=kind.trigger_type)
         task_cfg = built.get("task_config_json") or {}
-        skill_name = str(task_cfg.get("skill_name") or template.default_skill_name).strip()
-        if template.template_id == "github_pr_review":
+        skill_name = str(task_cfg.get("skill_name") or kind.default_skill_name).strip()
+        if kind.trigger_type == GITHUB_PR_REVIEW_TRIGGER:
             self._validate_agent_can_run_github_pr_review_rule(agent_id=payload.target_agent_id, skill_name=skill_name)
-        elif template.template_id == "github_comment_mention":
+        elif kind.trigger_type == GITHUB_COMMENT_MENTION_TRIGGER:
             scope = built.get("scope_json") or {}
             surfaces = list(scope.get("surfaces") or ["issue_comment", "pull_request_review_comment"])
             reply_mode = str(task_cfg.get("reply_mode") or "same_surface").strip()
@@ -230,10 +257,9 @@ class AutomationRuleService:
             "name": payload.name,
             "enabled": payload.enabled,
             "source_type": "github",
-            "trigger_type": trigger_type,
+            "trigger_type": kind.trigger_type,
             "target_agent_id": payload.target_agent_id,
-            "task_type": template.task_type,
-            "task_template_id": payload.task_template_id,
+            "task_type": kind.task_type,
             "scope_json": json.dumps(built.get("scope_json", {})),
             "trigger_config_json": json.dumps(built.get("trigger_config_json", {})),
             "task_config_json": json.dumps(built.get("task_config_json", {})),
@@ -247,8 +273,6 @@ class AutomationRuleService:
 
     def update_rule(self, rule, payload: AutomationRuleUpdate, current_user_id: int) -> object:
         data = payload.model_dump(exclude_unset=True)
-        if "task_template_id" in data and data["task_template_id"] != rule.task_template_id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Updating task_template_id is not supported")
         existing = {
             "scope_json": self._parse_json(rule.scope_json),
             "trigger_config_json": self._parse_json(rule.trigger_config_json),
@@ -256,21 +280,17 @@ class AutomationRuleService:
             "schedule_json": self._parse_json(rule.schedule_json),
         }
         built = self._build_from_structured(existing, data)
-        task_template_id = data.get("task_template_id") or rule.task_template_id
-        template = require_task_template(task_template_id)
-        self._validate_source_and_trigger_for_template(
+        kind = self._automation_kind_for_trigger(
             source_type=rule.source_type,
             trigger_type=rule.trigger_type,
-            template=template,
         )
-        self._validate_built_rule_config(built=built, task_template_id=task_template_id)
+        self._validate_built_rule_config(built=built, trigger_type=kind.trigger_type)
 
         update_data = {}
         for key in ["name", "enabled", "target_agent_id"]:
             if key in data:
                 update_data[key] = data[key]
-        update_data["task_template_id"] = task_template_id
-        update_data["task_type"] = template.task_type
+        update_data["task_type"] = kind.task_type
 
         target_agent_id = update_data.get("target_agent_id") or rule.target_agent_id
         try:
@@ -278,10 +298,10 @@ class AutomationRuleService:
         except ProviderConfigResolverError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         task_cfg = built.get("task_config_json") or {}
-        skill_name = str(task_cfg.get("skill_name") or template.default_skill_name).strip()
-        if template.template_id == "github_pr_review":
+        skill_name = str(task_cfg.get("skill_name") or kind.default_skill_name).strip()
+        if kind.trigger_type == GITHUB_PR_REVIEW_TRIGGER:
             self._validate_agent_can_run_github_pr_review_rule(agent_id=target_agent_id, skill_name=skill_name)
-        elif template.template_id == "github_comment_mention":
+        elif kind.trigger_type == GITHUB_COMMENT_MENTION_TRIGGER:
             scope = built.get("scope_json") or {}
             surfaces = list(scope.get("surfaces") or ["issue_comment", "pull_request_review_comment"])
             reply_mode = str(task_cfg.get("reply_mode") or "same_surface").strip()
@@ -430,29 +450,28 @@ class AutomationRuleService:
             self.repo.update_event_status(refreshed, status="task_created", task_id=existing_task.id, error_message=None)
             return None, True
 
-        template_id = getattr(rule, "task_template_id", None) or "github_pr_review"
-        payload = build_agent_task_create_payload_from_template(
-            template_id,
-            {
-                "source": "automation_rule",
-                "automation_rule": "github.pr_review_requested",
-                "automation_rule_id": rule.id,
-                "rule_id": rule.id,
-                "provider": "github",
-                "owner": owner,
-                "repo": repo,
-                "pull_number": pull_number,
-                "head_sha": head_sha,
-                "review_target": {"type": review_target_type, "name": review_target},
-                "review_target_type": review_target_type,
-                "review_event": task_cfg.get("review_event", "COMMENT"),
-                "skill_name": task_cfg.get("skill_name", "review-pull-request"),
-                "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"),
-                "writeback_mode": task_cfg.get("writeback_mode"),
-                "dedupe_key": dedupe_key,
-            },
-            rule.target_agent_id,
-        )
+        skill_name = str(task_cfg.get("skill_name") or "review-pull-request").strip() or "review-pull-request"
+        input_payload = {
+            "source": "automation_rule",
+            "automation_rule": "github.pr_review_requested",
+            "automation_rule_id": rule.id,
+            "rule_id": rule.id,
+            "task_type": "github_review_task",
+            "task_family": "review",
+            "provider": "github",
+            "trigger": GITHUB_PR_REVIEW_TRIGGER,
+            "owner": owner,
+            "repo": repo,
+            "pull_number": pull_number,
+            "head_sha": head_sha,
+            "review_target": {"type": review_target_type, "name": review_target},
+            "review_target_type": review_target_type,
+            "review_event": task_cfg.get("review_event", "COMMENT"),
+            "skill_name": skill_name,
+            "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"),
+            "writeback_mode": task_cfg.get("writeback_mode"),
+            "dedupe_key": dedupe_key,
+        }
         bundle_id = f"github:pr_review:{owner}/{repo}:{pull_number}"
         try:
             task = self.task_repo.create(
@@ -461,13 +480,13 @@ class AutomationRuleService:
                 owner_user_id=rule.owner_user_id,
                 created_by_user_id=rule.created_by_user_id,
                 source="automation_rule",
-                task_type=payload["task_type"],
-                template_id=template_id,
-                input_payload_json=json.dumps(payload["input_payload_json"]),
+                task_type="github_review_task",
+                skill_name=skill_name,
+                input_payload_json=json.dumps(input_payload),
                 shared_context_ref=None,
-                task_family=payload.get("task_family") or "triggered_work",
-                provider=payload.get("provider") or "github",
-                trigger=payload.get("trigger") or "github_pr_review_requested",
+                task_family="review",
+                provider="github",
+                trigger=GITHUB_PR_REVIEW_TRIGGER,
                 bundle_id=bundle_id,
                 version_key=head_sha,
                 dedupe_key=agent_task_dedupe_key,
@@ -507,11 +526,11 @@ class AutomationRuleService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AutomationRule not found")
         if self.repo.is_deleted_rule(rule):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AutomationRule is archived")
-        if rule.task_template_id == "github_pr_review":
+        if rule.trigger_type == GITHUB_PR_REVIEW_TRIGGER:
             return await self._run_github_pr_review_rule_once(rule, triggered_by)
-        if rule.task_template_id == "github_comment_mention":
+        if rule.trigger_type == GITHUB_COMMENT_MENTION_TRIGGER:
             return await self._run_github_comment_mention_rule_once(rule, triggered_by)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported task template: {rule.task_template_id}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported trigger_type: {rule.trigger_type}")
 
     async def _run_github_pr_review_rule_once(self, rule, triggered_by: str) -> RunOnceResult:
         run = self.repo.create_run(rule_id=rule.id)
@@ -852,8 +871,82 @@ class AutomationRuleService:
         else:
             issue_number = item.get("issue_number"); session_id = f"github:mention:{owner}/{repo}:issue:{issue_number}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:issue:{issue_number}"
         try:
-            payload = build_agent_task_create_payload_from_template("github_comment_mention", {"source": "automation_rule", "automation_rule": "github.comment_mention", "automation_rule_id": rule.id, "rule_id": rule.id, "provider": "github", "source_kind": "github.mention", "source_event": item.get("source_event"), "owner": owner, "repo": repo, "issue_number": item.get("issue_number"), "pull_number": item.get("pull_number"), "comment_id": item.get("comment_id"), "review_comment_id": item.get("review_comment_id"), "in_reply_to_id": item.get("in_reply_to_id"), "comment_kind": item.get("comment_kind"), "context_type": item.get("context_type"), "author": item.get("author"), "author_association": item.get("author_association"), "html_url": item.get("html_url"), "body": item.get("body"), "mentioned_account": item.get("mentioned_account"), "mentioned_logins": item.get("mentioned_logins"), "path": item.get("path"), "line": item.get("line"), "side": item.get("side"), "position": item.get("position"), "commit_id": item.get("commit_id"), "commit_sha": item.get("commit_sha"), "discussion_number": item.get("discussion_number"), "discussion_id": item.get("discussion_id"), "discussion_comment_id": item.get("discussion_comment_id"), "reply_to_id": item.get("reply_to_id"), "diff_hunk": item.get("diff_hunk"), "notification_id": item.get("notification_id"), "notification_reason": item.get("notification_reason"), "notification_subject_type": item.get("notification_subject_type"), "notification_url": item.get("notification_url"), "notification_updated_at": item.get("notification_updated_at"), "skill_name": task_cfg.get("skill_name", "handle-triggered-event"), "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"), "reply_mode": task_cfg.get("reply_mode", "same_surface"), "session_id": session_id, "dedupe_key": dedupe_key}, rule.target_agent_id)
-            task = self.task_repo.create(parent_agent_id=None, assignee_agent_id=rule.target_agent_id, owner_user_id=rule.owner_user_id, created_by_user_id=rule.created_by_user_id, source="automation_rule", task_type=payload["task_type"], template_id="github_comment_mention", input_payload_json=json.dumps(payload["input_payload_json"]), shared_context_ref=None, task_family=payload.get("task_family") or "triggered_work", provider=payload.get("provider") or "github", trigger=payload.get("trigger") or "github_comment_mention", bundle_id=bundle_id, version_key=str(comment_id), dedupe_key=agent_task_dedupe_key, status="queued", result_payload_json=None, retry_count=0)
+            missing_required = [
+                field
+                for field in ("owner", "repo", "comment_id", "comment_kind", "body", "mentioned_account")
+                if item.get(field) in (None, "")
+            ]
+            if missing_required:
+                raise ValueError(f"Missing required automation input fields: {', '.join(missing_required)}")
+            skill_name = str(task_cfg.get("skill_name") or "handle-triggered-event").strip() or "handle-triggered-event"
+            input_payload = {
+                "source": "automation_rule",
+                "automation_rule": "github.comment_mention",
+                "automation_rule_id": rule.id,
+                "rule_id": rule.id,
+                "task_type": "triggered_event_task",
+                "task_family": "triggered_work",
+                "provider": "github",
+                "trigger": GITHUB_COMMENT_MENTION_TRIGGER,
+                "source_kind": "github.mention",
+                "source_event": item.get("source_event"),
+                "owner": owner,
+                "repo": repo,
+                "issue_number": item.get("issue_number"),
+                "pull_number": item.get("pull_number"),
+                "comment_id": item.get("comment_id"),
+                "review_comment_id": item.get("review_comment_id"),
+                "in_reply_to_id": item.get("in_reply_to_id"),
+                "comment_kind": item.get("comment_kind"),
+                "context_type": item.get("context_type"),
+                "author": item.get("author"),
+                "author_association": item.get("author_association"),
+                "html_url": item.get("html_url"),
+                "body": item.get("body"),
+                "mentioned_account": item.get("mentioned_account"),
+                "mentioned_logins": item.get("mentioned_logins"),
+                "path": item.get("path"),
+                "line": item.get("line"),
+                "side": item.get("side"),
+                "position": item.get("position"),
+                "commit_id": item.get("commit_id"),
+                "commit_sha": item.get("commit_sha"),
+                "discussion_number": item.get("discussion_number"),
+                "discussion_id": item.get("discussion_id"),
+                "discussion_comment_id": item.get("discussion_comment_id"),
+                "reply_to_id": item.get("reply_to_id"),
+                "diff_hunk": item.get("diff_hunk"),
+                "notification_id": item.get("notification_id"),
+                "notification_reason": item.get("notification_reason"),
+                "notification_subject_type": item.get("notification_subject_type"),
+                "notification_url": item.get("notification_url"),
+                "notification_updated_at": item.get("notification_updated_at"),
+                "skill_name": skill_name,
+                "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"),
+                "reply_mode": task_cfg.get("reply_mode", "same_surface"),
+                "session_id": session_id,
+                "dedupe_key": dedupe_key,
+            }
+            task = self.task_repo.create(
+                parent_agent_id=None,
+                assignee_agent_id=rule.target_agent_id,
+                owner_user_id=rule.owner_user_id,
+                created_by_user_id=rule.created_by_user_id,
+                source="automation_rule",
+                task_type="triggered_event_task",
+                skill_name=skill_name,
+                input_payload_json=json.dumps(input_payload),
+                shared_context_ref=None,
+                task_family="triggered_work",
+                provider="github",
+                trigger=GITHUB_COMMENT_MENTION_TRIGGER,
+                bundle_id=bundle_id,
+                version_key=str(comment_id),
+                dedupe_key=agent_task_dedupe_key,
+                status="queued",
+                result_payload_json=None,
+                retry_count=0,
+            )
         except Exception as exc:
             self.repo.update_event_status(self.repo.get_event(event.id) or event, status="failed", task_id=None, error_message=str(exc)[:500]); raise
         self.repo.update_event_status(self.repo.get_event(event.id) or event, status="task_created", task_id=task.id, error_message=None)

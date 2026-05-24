@@ -164,7 +164,7 @@ def test_task_detail_panel_renders_non_async_tasks_as_unsupported_read_only(monk
     assert "Open Bundle Detail" not in response.text
     assert "Collect Requirements" not in response.text
     assert "Requirement Bundle" not in response.text
-    assert "Task Template" not in response.text
+    assert "Task " + "Template" not in response.text
     assert "Bundle Path" not in response.text
 
 

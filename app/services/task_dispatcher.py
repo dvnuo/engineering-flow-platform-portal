@@ -777,7 +777,6 @@ class TaskDispatcherService:
                 metadata = {
                     "portal_task_id": task.id,
                     "portal_task_source": task.source,
-                    "portal_task_template_id": task.template_id,
                     "portal_task_type": task.task_type,
                     "portal_task_family": task.task_family,
                     "shared_context_ref": task.shared_context_ref,
@@ -862,8 +861,6 @@ class TaskDispatcherService:
                         metadata["agent_mode"] = input_payload.get("agent_mode")
                     if input_payload.get("ephemeral_task_agent_id"):
                         metadata["ephemeral_task_agent_id"] = input_payload.get("ephemeral_task_agent_id")
-                    if input_payload.get("task_agent_template_id"):
-                        metadata["task_agent_template_id"] = input_payload.get("task_agent_template_id")
                     if input_payload.get("task_agent_scope"):
                         metadata["task_agent_scope"] = input_payload.get("task_agent_scope")
                     if input_payload.get("task_agent_cleanup_policy"):

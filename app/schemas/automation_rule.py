@@ -9,15 +9,14 @@ class AutomationRuleCreate(BaseModel):
     enabled: bool = True
     target_agent_id: str
     source_type: str = "github"
-    trigger_type: str | None = None
-    task_template_id: str
+    trigger_type: str
     task_type: str | None = None
     scope: dict = Field(default_factory=dict)
     trigger_config: dict = Field(default_factory=dict)
     task_input_defaults: dict = Field(default_factory=dict)
     schedule: dict = Field(default_factory=lambda: {"interval_seconds": 60})
 
-    @field_validator("name", "target_agent_id", "task_template_id")
+    @field_validator("name", "target_agent_id", "trigger_type")
     @classmethod
     def _non_empty(cls, value: str) -> str:
         cleaned = (value or "").strip()
@@ -30,7 +29,6 @@ class AutomationRuleUpdate(BaseModel):
     name: Optional[str] = None
     enabled: Optional[bool] = None
     target_agent_id: Optional[str] = None
-    task_template_id: Optional[str] = None
     scope: Optional[dict] = None
     trigger_config: Optional[dict] = None
     task_input_defaults: Optional[dict] = None
@@ -45,7 +43,6 @@ class AutomationRuleRead(BaseModel):
     trigger_type: str
     target_agent_id: str
     task_type: str
-    task_template_id: str
     scope_json: str
     trigger_config_json: str
     task_config_json: str

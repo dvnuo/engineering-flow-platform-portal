@@ -82,7 +82,6 @@ def test_create_agent_async_task_normalizes_skill_and_schedules_dispatch(monkeyp
         assert body["task_family"] == "agent_task"
         assert body["source"] == "portal"
         assert body["trigger"] == "manual"
-        assert body["template_id"] is None
         assert body["provider"] is None
         assert body["skill_name"] == "Code_Review"
         assert body["root_task_id"] == body["id"]

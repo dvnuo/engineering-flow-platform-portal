@@ -10,7 +10,7 @@ class BundleTemplateDefinition:
     path_segment: str | None
     branch_segment: str | None
     artifact_files: dict[str, str]
-    compatible_task_template_ids: tuple[str, ...]
+    compatible_action_ids: tuple[str, ...]
 
 
 BUNDLE_TEMPLATES: tuple[BundleTemplateDefinition, ...] = (
@@ -21,7 +21,7 @@ BUNDLE_TEMPLATES: tuple[BundleTemplateDefinition, ...] = (
         path_segment=None,
         branch_segment=None,
         artifact_files={"requirements": "requirements.yaml", "test_cases": "test-cases.yaml"},
-        compatible_task_template_ids=("collect_requirements_to_bundle", "design_test_cases_from_bundle"),
+        compatible_action_ids=("collect_requirements_to_bundle", "design_test_cases_from_bundle"),
     ),
     BundleTemplateDefinition(
         template_id="research.v1",
@@ -30,7 +30,7 @@ BUNDLE_TEMPLATES: tuple[BundleTemplateDefinition, ...] = (
         path_segment="research",
         branch_segment="research",
         artifact_files={"research_notes": "research-notes.yaml"},
-        compatible_task_template_ids=("collect_research_notes_to_bundle",),
+        compatible_action_ids=("collect_research_notes_to_bundle",),
     ),
     BundleTemplateDefinition(
         template_id="development.v1",
@@ -39,7 +39,7 @@ BUNDLE_TEMPLATES: tuple[BundleTemplateDefinition, ...] = (
         path_segment="development",
         branch_segment="development",
         artifact_files={"implementation_plan": "implementation-plan.yaml"},
-        compatible_task_template_ids=("generate_implementation_plan_from_bundle",),
+        compatible_action_ids=("generate_implementation_plan_from_bundle",),
     ),
     BundleTemplateDefinition(
         template_id="operations.v1",
@@ -48,7 +48,7 @@ BUNDLE_TEMPLATES: tuple[BundleTemplateDefinition, ...] = (
         path_segment="operations",
         branch_segment="operations",
         artifact_files={"runbook": "runbook.yaml"},
-        compatible_task_template_ids=("generate_runbook_from_bundle",),
+        compatible_action_ids=("generate_runbook_from_bundle",),
     ),
 )
 

@@ -9265,10 +9265,6 @@ function automationLabelForKind(kind) {
   return kind === "github_comment_mention" ? "GitHub comment mention" : "GitHub PR review";
 }
 
-function taskTemplateIdForAutomationTrigger(triggerType) {
-  return automationKindFromTrigger(triggerType);
-}
-
 async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
   if (!ruleId) return;
   try {
@@ -9405,7 +9401,6 @@ function openCreateAutomationRuleModal() {
 async function submitCreateAutomationRule(formEl) {
   const fd = new FormData(formEl);
   const triggerType = normalizeAutomationTriggerType(fd.get("trigger_type"));
-  const taskTemplateId = taskTemplateIdForAutomationTrigger(triggerType);
   if (automationKindFromTrigger(triggerType) === "github_comment_mention") {
     const parseCommaList = (raw) => String(raw || "").split(",").map((s) => s.trim()).filter(Boolean);
     const selectedSurfaces = fd.getAll("surfaces").map((s) => String(s));
@@ -9419,7 +9414,7 @@ async function submitCreateAutomationRule(formEl) {
         : { mode: "repo", owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || ""), surfaces: baseSurfaces };
     const payload = {
       name: String(fd.get("name") || ""), target_agent_id: String(fd.get("target_agent_id") || ""), enabled: true, source_type: "github",
-      trigger_type: triggerType, task_template_id: taskTemplateId,
+      trigger_type: triggerType,
       scope,
       trigger_config: { mention_target_type: "user", mention_target: String(fd.get("mention_target") || ""), ignore_self_comments: true, ignore_bot_comments: true, ignore_efp_auto_reply_marker: true, strip_code_blocks_before_matching: true },
       task_input_defaults: { skill_name: "handle-triggered-event", execution_mode: "chat_tool_loop", reply_mode: String(fd.get("reply_mode") || "same_surface") },
@@ -9436,7 +9431,6 @@ async function submitCreateAutomationRule(formEl) {
     enabled: true,
     source_type: "github",
     trigger_type: triggerType,
-    task_template_id: taskTemplateId,
     scope: { owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || "") },
     trigger_config: { review_target_type: String(fd.get("review_target_type") || "user"), review_target: String(fd.get("review_target") || "") },
     task_input_defaults: {
